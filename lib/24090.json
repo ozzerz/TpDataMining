@@ -1,0 +1,167 @@
+{
+  "comments": [
+    "I have a Swing widget that I launch from the workbench, and it runs on a \nseparate thread so the Swing event queue doesn\u0027t interfere with the SWT event \nqueue on the UI thread.  At one point, I wish to pop up an SWT message box, and \nI do this using the Display.syncExec() function to display the message box on \nthe SWT UI thread.  This worked fine in Eclipse 1.0, and it is broken now that \nwe have moved up to Eclipse 2.0.1 in WSAD.  The exception I see is this:\n\nException occurred during event dispatching:\norg.eclipse.swt.SWTException: Invalid thread access\n        at org.eclipse.swt.SWT.error(SWT.java:2119)\n        at org.eclipse.swt.SWT.error(SWT.java:2051)\n        at org.eclipse.swt.widgets.Dialog.error(Dialog.java:180)\n        at org.eclipse.swt.widgets.Dialog.checkParent(Dialog.java:167)\n        at org.eclipse.swt.widgets.Dialog.\u003cinit\u003e(Dialog.java:129)\n        at org.eclipse.swt.widgets.MessageBox.\u003cinit\u003e(MessageBox.java:95)\n        at \ncom.ibm.voicetools.lexicon.LexiconComposer$8.run(LexiconComposer.java:736)\n        at org.eclipse.swt.widgets.Synchronizer.syncExec(Synchronizer.java:123)\n        at org.eclipse.swt.widgets.Display.syncExec(Display.java:1807)\n        at \ncom.ibm.voicetools.lexicon.LexiconComposer.warnInvalidIPA(LexiconComposer.java:7\n34)\n        at \ncom.ibm.voicetools.lexicon.LexiconComposer$3.actionPerformed(LexiconComposer.jav\na:105)\n        at \njavax.swing.AbstractButton.fireActionPerformed(AbstractButton.java:1461)\n        at \njavax.swing.AbstractButton$ForwardActionEvents.actionPerformed(AbstractButton.ja\nva:1515)\n        at \njavax.swing.DefaultButtonModel.fireActionPerformed(DefaultButtonModel.java:392)\n        at \njavax.swing.DefaultButtonModel.setPressed(DefaultButtonModel.java:264)\n        at \njavax.swing.plaf.basic.BasicButtonListener.mouseReleased(BasicButtonListener.jav\na:254)\n        at java.awt.Component.processMouseEvent(Component.java:3799)\n        at java.awt.Component.processEvent(Component.java:3628)\n        at java.awt.Container.processEvent(Container.java:1195)\n        at java.awt.Component.dispatchEventImpl(Component.java:2678)\n        at java.awt.Container.dispatchEventImpl(Container.java:1244)\n        at java.awt.Component.dispatchEvent(Component.java:2581)\n        at \njava.awt.LightweightDispatcher.retargetMouseEvent(Container.java:2487)\n        at java.awt.LightweightDispatcher.processMouseEvent(Container.java:2252)\n\n        at java.awt.LightweightDispatcher.dispatchEvent(Container.java:2161)\n        at java.awt.Container.dispatchEventImpl(Container.java:1231)\n        at java.awt.Window.dispatchEventImpl(Window.java:964)\n        at java.awt.Component.dispatchEvent(Component.java:2581)\n        at java.awt.EventQueue.dispatchEvent(EventQueue.java:434)\n        at \njava.awt.EventDispatchThread.pumpOneEventForHierarchy(EventDispatchThread.java:1\n72)\n        at \njava.awt.EventDispatchThread.pumpEventsForHierarchy(EventDispatchThread.java:131\n)\n        at java.awt.EventDispatchThread.pumpEvents(EventDispatchThread.java:126)\n\n        at java.awt.EventDispatchThread.run(EventDispatchThread.java:118)\n\nApparently, the thread context is still the Swing thread when the MessageBox is \ncreated, and that fails because it needs to be on the SWT thread.  The \nDisplay.syncExec() call should be handling this, but that doesn\u0027t appear to be \nworking now.",
+    "I have some more information on this.\n\nMy original code did this:\n\n        Display display \u003d Display.getCurrent();\n        if (display \u003d\u003d null) {\n            display \u003d new Display();\n        }\n\nWhen I change the first line to use getDefault() instead of getCurrent(), it \nworks.  It looks like display.getCurrent() is returning null (I don\u0027t know if it \ndid this in the previous version or not), and the creation of the display object \non the current thread apparently causes the syncExec to execute on the current \nthread as well.  Using getCurrent() gets a display object that correctly \nswitches context to the SWT UI Thread, and the rest of the code succeeds.\n",
+    "Jeff, your code is wrong.  I\u0027m not sure if Display.getCurrent() changed between \n1.0 and 2.0.1 but it is possible.  In any case, creating a new display will not \nwork because the dialog code need to run in the thread that created the parent \nof the dialog (and that will never be \"new Display()\").\n\nNothing for us to fix.",
+    "Thanks, Steve... that\u0027s what I figured after I discovered that getCurrent() \nreturns null.  I\u0027m still a little concerned about the behavior difference after \nmoving up from 1.0 to 2.0.1, though.  At the very least, if someone else runs \ninto the same problem, this bug report is here to guide them in the right \ndirection."
+  ],
+  "commentCreationDates": [
+    "2002-09-25T18:32:51+02:00",
+    "2002-09-25T21:29:28+02:00",
+    "2002-09-26T15:16:33+02:00",
+    "2002-09-26T16:21:51+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Invalid thread access",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2119"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2051"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Dialog.error",
+          "source": "Dialog.java:180"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Dialog.checkParent",
+          "source": "Dialog.java:167"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Dialog.\u003cinit\u003e",
+          "source": "Dialog.java:129"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.MessageBox.\u003cinit\u003e",
+          "source": "MessageBox.java:95"
+        },
+        {
+          "method": "com.ibm.voicetools.lexicon.LexiconComposer$8.run",
+          "source": "LexiconComposer.java:736"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.syncExec",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.syncExec",
+          "source": "Display.java:1807"
+        },
+        {
+          "method": "com.ibm.voicetools.lexicon.LexiconComposer.warnInvalidIPA",
+          "source": "LexiconComposer.java:7 34"
+        },
+        {
+          "method": "com.ibm.voicetools.lexicon.LexiconComposer$3.actionPerformed",
+          "source": "LexiconComposer.jav a:105"
+        },
+        {
+          "method": "javax.swing.AbstractButton.fireActionPerformed",
+          "source": "AbstractButton.java:1461"
+        },
+        {
+          "method": "javax.swing.AbstractButton$ForwardActionEvents.actionPerformed",
+          "source": "AbstractButton.ja va:1515"
+        },
+        {
+          "method": "javax.swing.DefaultButtonModel.fireActionPerformed",
+          "source": "DefaultButtonModel.java:392"
+        },
+        {
+          "method": "javax.swing.DefaultButtonModel.setPressed",
+          "source": "DefaultButtonModel.java:264"
+        },
+        {
+          "method": "javax.swing.plaf.basic.BasicButtonListener.mouseReleased",
+          "source": "BasicButtonListener.jav a:254"
+        },
+        {
+          "method": "java.awt.Component.processMouseEvent",
+          "source": "Component.java:3799"
+        },
+        {
+          "method": "java.awt.Component.processEvent",
+          "source": "Component.java:3628"
+        },
+        {
+          "method": "java.awt.Container.processEvent",
+          "source": "Container.java:1195"
+        },
+        {
+          "method": "java.awt.Component.dispatchEventImpl",
+          "source": "Component.java:2678"
+        },
+        {
+          "method": "java.awt.Container.dispatchEventImpl",
+          "source": "Container.java:1244"
+        },
+        {
+          "method": "java.awt.Component.dispatchEvent",
+          "source": "Component.java:2581"
+        },
+        {
+          "method": "java.awt.LightweightDispatcher.retargetMouseEvent",
+          "source": "Container.java:2487"
+        },
+        {
+          "method": "java.awt.LightweightDispatcher.processMouseEvent",
+          "source": "Container.java:2252"
+        },
+        {
+          "method": "java.awt.LightweightDispatcher.dispatchEvent",
+          "source": "Container.java:2161"
+        },
+        {
+          "method": "java.awt.Container.dispatchEventImpl",
+          "source": "Container.java:1231"
+        },
+        {
+          "method": "java.awt.Window.dispatchEventImpl",
+          "source": "Window.java:964"
+        },
+        {
+          "method": "java.awt.Component.dispatchEvent",
+          "source": "Component.java:2581"
+        },
+        {
+          "method": "java.awt.EventQueue.dispatchEvent",
+          "source": "EventQueue.java:434"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpOneEventForHierarchy",
+          "source": "EventDispatchThread.java:1 72"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEventsForHierarchy",
+          "source": "EventDispatchThread.java:131 "
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:126"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.run",
+          "source": "EventDispatchThread.java:118"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "24090",
+      "date": "2002-09-25T18:32:51+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "24090",
+  "bugId": "24090",
+  "date": "2002-09-25T18:32:51+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "critical"
+}

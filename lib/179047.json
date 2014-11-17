@@ -1,0 +1,73 @@
+{
+  "comments": [
+    "Build ID: M20060921-0945\n\nSteps To Reproduce:\n1. Run the attached program\n2. Get a thread dump of the process, note two console threads \n3. Connect to console, any command causes a stack trace\n\n\nMore information:\nHi, I\u0027m trying to integrate Equinox into a larger application and I\u0027d like to be able to start and stop it.  If I start it with the console enabled on a TCP port, though, EclipseStarter.shutdown() doesn\u0027t shut down the console threads.  The console still accepts a connection but can\u0027t do anything, and it holds onto the server socket so I can\u0027t successfully start Equinox.",
+    "Created an attachment (id\u003d61838)\nprogram that starts equinox then stops it\n\nHere\u0027s a test program that demonstrates the problem.  It just calls EclipseStarter to launch with the console on port 9999, then waits a bit and calls EclipseStarter to shut down.\n\nYou can still connect to the console (e.g. \"telnet localhost 9999\"), but when you enter a command you get a stack trace (and the console locks up):\n\nException in thread \"OSGi Console\" java.lang.IllegalStateException: BundleContext is no longer valid\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl.checkValid(BundleContextImpl.java:1305)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl.getService(BundleContextImpl.java:864)\n        at org.eclipse.osgi.framework.internal.core.FrameworkConsole$CommandProviderTracker.getServices(FrameworkConsole.java:455)\n        at org.eclipse.osgi.framework.internal.core.FrameworkConsole.docommand(FrameworkConsole.java:290)\n        at org.eclipse.osgi.framework.internal.core.FrameworkConsole.console(FrameworkConsole.java:278)\n        at org.eclipse.osgi.framework.internal.core.FrameworkConsole.run(FrameworkConsole.java:209)\n        at java.lang.Thread.run(Thread.java:595)\n",
+    "Created an attachment (id\u003d61841)\nthread dump showing hanging console processes\n\nHere\u0027s a thread dump taken after calling EclipseStarter.shutdown().  The two console threads are still there.\n",
+    "To compile and run, put RunEclipse.java in a directory with the Equinox jar, then:\n\n$ javac -classpath org.eclipse.osgi_3.2.1.R32x_v20060919.jar RunEquinox.java\n$ java -classpath .:org.eclipse.osgi_3.2.1.R32x_v20060919.jar RunEquinox\nListening on port 9999 ...\nstarted\nstopped\n",
+    "The console is functional after a call to OSGi.shutdown but not after a call to OSGi.close.  The shutdown method shuts down the framework but leaves it in a state that allows it to be relaunched at this point the system.bundle\u0027s context is still valid.  The close method shuts down the framework and complete destroys it so it cannot be relaunched, at this point the system.bundle\u0027s context is invalid.\n\nUnfortunately the console is not hooked into these operations so it does not know if the Framework is closed or shutdown.  In the future we would like to complete remove the console from the framework into a proper bundle.  This would remove some of its functionality of the console when the framework is shutdown but it would help solve this issue.  See bug 169603.",
+    "(In reply to comment #4)\n\u003e The close method shuts down the framework and complete\n\u003e destroys it so it cannot be relaunched, at this point the system.bundle\u0027s\n\u003e context is invalid.\n\nThanks for taking a look at this.  EclipseStarter.shutdown() appears to call OSGi.close() so that explains why the console won\u0027t work afterward.  Should EclipseStarter.shutdown() shut down the console after calling OSGi.close()?  That would (I think) allow me to subsequently call EclipseStarter.main() to restart the framework.\n",
+    "EclispeStarter probably should close the console before OSGi.close is called\nbut currently EclipseStarter is as loosly coupled to the console as possible. \nTo fix this we would need to add a way to force the console to close and\nshutdown its thread and we would have to call that from EclipseStarter.  I\u0027m\nreluctant to do all that if we really want to remove the console from the\nframework.\n\nIs this a must have for you?  do you anticipate using the console for your\nproduct deployment.  Typically the console is only for development purposes not\nfor real deployments.",
+    "Marking as duplicate of bug 122911.  The cause of that bug is the same, the console is not shutdown when OSGi.close is called.\n\n*** This bug has been marked as a duplicate of bug 122911 ***"
+  ],
+  "commentCreationDates": [
+    "2007-03-23T16:34:26+01:00",
+    "2007-03-23T16:39:12+01:00",
+    "2007-03-23T16:41:29+01:00",
+    "2007-03-23T16:47:54+01:00",
+    "2007-03-27T20:13:17+02:00",
+    "2007-03-27T22:37:33+02:00",
+    "2007-03-27T22:57:26+02:00",
+    "2007-03-30T15:03:31+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalStateException",
+      "message": "BundleContext is no longer valid",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.checkValid",
+          "source": "BundleContextImpl.java:1305"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.getService",
+          "source": "BundleContextImpl.java:864"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole$CommandProviderTracker.getServices",
+          "source": "FrameworkConsole.java:455"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.docommand",
+          "source": "FrameworkConsole.java:290"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.console",
+          "source": "FrameworkConsole.java:278"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.run",
+          "source": "FrameworkConsole.java:209"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "179047",
+      "duplicateId": "122911",
+      "date": "2007-03-23T16:39:12+01:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "122911",
+  "bugId": "179047",
+  "duplicateId": "122911",
+  "date": "2007-03-23T16:34:26+01:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "normal"
+}

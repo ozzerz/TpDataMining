@@ -1,0 +1,203 @@
+{
+  "comments": [
+    "N20060226-0010\n\nWe had test failures in jdt.ui.tests.refactoring and jdt.ui.tests on MacOS X:\nhttp://download.eclipse.org/eclipse/downloads/drops/N20060226-0010/testresults/html/org.eclipse.jdt.ui.tests.refactoring_macosx.carbon.ppc.html\n\nI have no idea why this happened. The code in JobManager that threw the exception:\n\ntry {\n\tsleeping.enqueue(job);\n} catch (RuntimeException e) {\n\tthrow new RuntimeException(\"Error changing from state: \" + oldState);\n}\n\n\nError changing from state: 16\n\njava.lang.RuntimeException: Error changing from state: 16\nat org.eclipse.core.internal.jobs.JobManager.changeState(JobManager.java:310)\nat org.eclipse.core.internal.jobs.JobManager.sleep(JobManager.java:1058)\nat org.eclipse.core.internal.jobs.InternalJob.sleep(InternalJob.java:497)\nat org.eclipse.core.runtime.jobs.Job.sleep(Job.java:624)\nat org.eclipse.core.internal.events.AutoBuildJob.interrupt(AutoBuildJob.java:116)\nat org.eclipse.core.internal.events.BuildManager.interrupt(BuildManager.java:761)\nat org.eclipse.core.internal.resources.Workspace.prepareOperation(Workspace.java:1681)\nat org.eclipse.core.internal.resources.Resource.refreshLocal(Resource.java:1396)\nat org.eclipse.jdt.ui.tests.refactoring.RefactoringTest.refreshFromLocal(RefactoringTest.java:130)\nat org.eclipse.jdt.ui.tests.refactoring.RefactoringTest.tearDown(RefactoringTest.java:102)\nat junit.extensions.TestDecorator.basicRun(TestDecorator.java:22)\nat junit.extensions.TestSetup$1.protect(TestSetup.java:19)\nat junit.extensions.TestSetup.run(TestSetup.java:23)\nat junit.extensions.TestDecorator.basicRun(TestDecorator.java:22)\nat junit.extensions.TestSetup$1.protect(TestSetup.java:19)\nat junit.extensions.TestSetup.run(TestSetup.java:23)\nat org.eclipse.test.EclipseTestRunner.run(EclipseTestRunner.java:330)\nat org.eclipse.test.EclipseTestRunner.run(EclipseTestRunner.java:204)\nat org.eclipse.test.UITestApplication$3.run(UITestApplication.java:188)\nat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\nat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3128)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2892)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1927)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1891)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:423)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\nat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:107)\nat org.eclipse.test.UITestApplication.runApplication(UITestApplication.java:131)\nat org.eclipse.test.UITestApplication.run(UITestApplication.java:58)\nat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:99)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:374)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:169)\nat org.eclipse.core.launcher.Main.invokeFramework(Main.java:338)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:282)\nat org.eclipse.core.launcher.Main.run(Main.java:977)\nat org.eclipse.core.launcher.Main.main(Main.java:952)",
+    "This happens a lot on my machine, and it\u0027s an XP SP2 running on Intel P4...\n\nJRE: j9n142-20050609\nno VM args",
+    "Interesting ... there haven\u0027t been more than cosmetic changes in the jobs implementation in 3.2, so something new in the tests or the code being tested must be inducing this.  I won\u0027t be able to investigate until Monday.",
+    "Benno, can you give me hints on how you easily reproduce this? Is there a particular test that you run that can reproduce?  I have run AllRefactoringTests a couple of times without getting the failure, but it takes so long to run that it\u0027s very hard to track it down.\n\nI think this is a bug that I\u0027ve been tracking for months but have never been able to reproduce myself. I added the extra error checking to help track it down, but if I could reproduce it locally I\u0027m sure I could make better progress.",
+    "With:\nVersion: 3.2.0\nBuild id: I20060301-0800\n\nAnd JRE (other vms seam to work fine):\nC:\\java\\j9n142-20050609\\bin\u003ejava -version\njava version \"1.4.2\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.2)\nClassic VM (build 1.4.2, J2RE 1.4.2 IBM Windows 32 build cn142-20050609 (JIT ena\nbled: jitc))\n\nAnd running:\norg.eclipse.jdt.ui.tests.core.CallHierarchyTest\n\nI get at least one of the above exception in about 80% of the runs.\n\nHope that helps...",
+    "Thanks Benno. I found that VM, but still no luck reproducing.  Two more questions:\n\n - Are you using -Xj9 VM argument? If not, does it still fail with that arg?\n - Is your machine a dual processor?",
+    "\u003eAre you using -Xj9 VM argument? If not, does it still fail with that arg?\n\nI don\u0027t use the argument. But it also fails with the arg.\n\n\u003eIs your machine a dual processor?\n\nYes, it is a dual processor machine.",
+    "I have created a JUnit test that reproduces the problem:\n\norg.eclipse.core.tests.runtime.jobs.Bug_129551\n\nHere is what happens in this test:\n\n1) Job1 and Job2 are created and given the same scheduling rule\n2) Job1 is scheduled, followed by Job2\n3) Job1 is pulled from the wait queue by a worker thread and moved to the ABOUT_TO_RUN state.\n4) Another worker thread dequeues Job2, notices that it conflicts with Job1, and adds it to Job1\u0027s queue of blocked jobs.\n5) Job1 is put to sleep before it starts to run.  The sleep queue uses the same next and previous fields used to maintain the list of blocked jobs, so it causes an assertion error.\n\nIt is a very small timing hole in the time between the job enters the ABOUT_TO_RUN state and when it actually runs.  If the job is put to sleep in this small period of time, and another job is blocked on it, it will cause the failure.  It seems on a multi-processor machine with a particular VM, this timing hole is big enough for the failure to happen.\n\nI have sent Benno a patch to verify my fix.",
+    "Looks like you fixed it! I can\u0027t reproduce it any longer with patch you did send me. Even after 10 runs I did not get any exception.",
+    "Excellent!  Thank you very much Benno for your help in tracking this down and verifying the fix.  I have been trying to figure this one out for several months (the bug likely existed since 3.0).  The fix and automated test have been released."
+  ],
+  "commentCreationDates": [
+    "2006-02-27T11:32:34+01:00",
+    "2006-03-03T10:59:09+01:00",
+    "2006-03-03T20:37:22+01:00",
+    "2006-03-06T21:27:57+01:00",
+    "2006-03-07T08:57:57+01:00",
+    "2006-03-07T16:19:41+01:00",
+    "2006-03-07T17:25:25+01:00",
+    "2006-03-08T16:16:28+01:00",
+    "2006-03-08T17:01:36+01:00",
+    "2006-03-08T17:18:46+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "message": "Error changing from state: 16",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.jobs.JobManager.changeState",
+          "source": "JobManager.java:310"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobManager.sleep",
+          "source": "JobManager.java:1058"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.InternalJob.sleep",
+          "source": "InternalJob.java:497"
+        },
+        {
+          "method": "org.eclipse.core.runtime.jobs.Job.sleep",
+          "source": "Job.java:624"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.interrupt",
+          "source": "AutoBuildJob.java:116"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.interrupt",
+          "source": "BuildManager.java:761"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.prepareOperation",
+          "source": "Workspace.java:1681"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.refreshLocal",
+          "source": "Resource.java:1396"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.tests.refactoring.RefactoringTest.refreshFromLocal",
+          "source": "RefactoringTest.java:130"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.tests.refactoring.RefactoringTest.tearDown",
+          "source": "RefactoringTest.java:102"
+        },
+        {
+          "method": "junit.extensions.TestDecorator.basicRun",
+          "source": "TestDecorator.java:22"
+        },
+        {
+          "method": "junit.extensions.TestSetup$1.protect",
+          "source": "TestSetup.java:19"
+        },
+        {
+          "method": "junit.extensions.TestSetup.run",
+          "source": "TestSetup.java:23"
+        },
+        {
+          "method": "junit.extensions.TestDecorator.basicRun",
+          "source": "TestDecorator.java:22"
+        },
+        {
+          "method": "junit.extensions.TestSetup$1.protect",
+          "source": "TestSetup.java:19"
+        },
+        {
+          "method": "junit.extensions.TestSetup.run",
+          "source": "TestSetup.java:23"
+        },
+        {
+          "method": "org.eclipse.test.EclipseTestRunner.run",
+          "source": "EclipseTestRunner.java:330"
+        },
+        {
+          "method": "org.eclipse.test.EclipseTestRunner.run",
+          "source": "EclipseTestRunner.java:204"
+        },
+        {
+          "method": "org.eclipse.test.UITestApplication$3.run",
+          "source": "UITestApplication.java:188"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3128"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2892"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1927"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1891"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:423"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:107"
+        },
+        {
+          "method": "org.eclipse.test.UITestApplication.runApplication",
+          "source": "UITestApplication.java:131"
+        },
+        {
+          "method": "org.eclipse.test.UITestApplication.run",
+          "source": "UITestApplication.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:99"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:374"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:169"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:338"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:282"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "129551",
+      "date": "2006-02-27T11:32:34+01:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "major"
+    }
+  ],
+  "groupId": "129551",
+  "bugId": "129551",
+  "date": "2006-02-27T11:32:34+01:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "major"
+}

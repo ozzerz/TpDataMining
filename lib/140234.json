@@ -1,0 +1,498 @@
+{
+  "comments": [
+    "Adoptor:IBM\nNeed the fix in 1.5:\n\nWe have a healess app that uses WTP 1.5 common archive api to import\nand ejb jar file or ear file.  This is currently broken due the deprecated\napi.  There are several properties and classes that are deprecated.\nYet although they compile fine it failes at runtime. with this\nexception\n\ny: java.lang.RuntimeException: Property not located:IJ2EEModuleImportDataModelProperties.ADD_TO_EAR\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelImpl.checkValidPropertyName(DataModelImpl.java:101)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelImpl.getOwningDataModel(DataModelImpl.java:106)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelImpl.setProperty(DataModelImpl.java:172)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelImpl.setBooleanProperty(DataModelImpl.java:198)\n\tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.importEJBJarModule(BatchExtension.java:827)\n\nAt the same time there is no correct api properties we can switch to all fail.\n\n\nEJBComponentImportDataModelProvider.ADD_TO_EAR and\nIJ2EEComponentCreationDataModelProperties.CREATE_DEFAULT_FILES\nare the ones currently broken.\n\nWe might discover more but cannot go any  further until these 2 are fixed.",
+    "Tried J2EEFacetProjectCreationDataModelProperties.ADD_TO_EAR\n suggested by WTP jst team and it fails with facet install errors.\n\nThere is no suggestion for IJ2EEComponentCreationDataModelProperties.CREATE_DEFAULT_FILES",
+    "This is workng as designed and will not be modified as you request.  If you take a look at the various Component import data models, you will notice they all have nested models used for project creation which can be accessed via IJ2EEComponentImportDataModelProperties.NESTED_MODEL_J2EE_COMPONENT_CREATION\n\nOnce you have the nested project creation model, you will notice that the backing provider supports IFacetProjectCreationDataModelProperties.\n\nFrom the nested model project creation data model get the IFacetProjectCreationDataModelProperties.FACET_DM_MAP property which is an instanceof IFacetProjectCreationDataModelProperties.FacetDataModelMap\n\nFrom that map you can get the facet data model responsible for creating the J2EE portion of the project, by passing in the facet id to getFacetDataModel(String facetID).\n\nFor example, you might pass in IModuleConstants.JST_EJB_MODULE if you  are importing an EJB-jar.\n\nThe model you get back from that map is what you need to set IJ2EEModuleFacetInstallDataModelProperties.ADD_TO_EAR (dont use the ADD_TO_EAR you mention below)\n\nAs far as CREATE_DEFAULT_FILES, there is no replacement, if you need a replacement, please open another defect to the effect of: when i import an ejb jar, default files shouldn\u0027t be created because they are immediatly going to be overwritten by the import.",
+    "Jason,\n\nI tried the changes you gave me:\n\n((IFacetProjectCreationDataModelProperties.FacetDataModelMap )dataModel.getNestedDataModel(NESTED_MODEL_J2EE_COMPONENT_CREATION).getProperty()IFacetProjectCreationDataModelProperties.FACET_DM_MAP)).getFacetDataModel(\"jst.ejb\").setBooleanProperty(\nIJ2EEModuleFacetInstallDataModelProperties.ADD_TO_EAR, true)\n\nwith getNestedModel() instead of getNestedDataModel() (this method does not\nexist on the IDataModel interface) and things seem to be better but I then run into:\n\n*** ERROR ***: Wed May 10 23:16:48 EDT 2006    org.eclipse.core.runtime.CoreException: Failed while installing EJB Module 2.0.\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callDelegate(FacetedProject.java:1245)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callEventHandlers(FacetedProject.java:1154)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modifyInternal(FacetedProject.java:372)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.access$0(FacetedProject.java:262)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject$1.run(FacetedProject.java:247)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modify(FacetedProject.java:252)\n    \tat org.eclipse.wst.common.componentcore.internal.operation.FacetProjectCreationOperation.execute(FacetProjectCreationOperation.java:84)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run(DataModelPausibleOperationImpl.java:379)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation(DataModelPausibleOperationImpl.java:403)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation(DataModelPausibleOperationImpl.java:355)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.doExecute(DataModelPausibleOperationImpl.java:245)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.executeImpl(DataModelPausibleOperationImpl.java:217)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.cacheThreadAndContinue(DataModelPausibleOperationImpl.java:92)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.execute(DataModelPausibleOperationImpl.java:205)\n    \tat org.eclipse.jst.j2ee.internal.archive.operations.J2EEArtifactImportOperation.createVirtualComponent(J2EEArtifactImportOperation.java:78)\n    \tat org.eclipse.jst.j2ee.internal.archive.operations.J2EEArtifactImportOperation.doExecute(J2EEArtifactImportOperation.java:66)\n    \tat org.eclipse.jst.j2ee.internal.archive.operations.J2EEArtifactImportOperation.execute(J2EEArtifactImportOperation.java:55)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run(DataModelPausibleOperationImpl.java:379)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation(DataModelPausibleOperationImpl.java:403)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation(DataModelPausibleOperationImpl.java:355)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.doExecute(DataModelPausibleOperationImpl.java:245)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.executeImpl(DataModelPausibleOperationImpl.java:217)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.cacheThreadAndContinue(DataModelPausibleOperationImpl.java:92)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.execute(DataModelPausibleOperationImpl.java:205)\n    \tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.importEJBJarModule(BatchExtension.java:832)\n    \tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.runJarDeploy(BatchExtension.java:500)\n    \tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.access$1(BatchExtension.java:494)\n    \tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension$RunDeploy.run(BatchExtension.java:298)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1719)\n    \tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension$RunDeploy.execute(BatchExtension.java:280)\n    \tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.run(BatchExtension.java:243)\n    \tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n    \tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n    \tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n    \tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:400)\n    \tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n    \tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:64)\n    \tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n    \tat java.lang.reflect.Method.invoke(Method.java:615)\n    \tat com.ibm.etools.ejbdeploy.batch.impl.BootLoaderLoader.run(BootLoaderLoader.java:272)\n    \tat com.ibm.etools.ejbdeploy.batch.impl.BatchDeploy.execute(BatchDeploy.java:99)\n    \tat com.ibm.etools.ejbdeploy.EJBDeploy.execute(EJBDeploy.java:83)\n    \tat com.ibm.etools.ejbdeploy.EJBDeploy.main(EJBDeploy.java:313)\n    org.eclipse.core.runtime.CoreException[0]: java.lang.NullPointerException\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.setTargetedRuntimesInternal(FacetedProject.java:566)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.access$4(FacetedProject.java:499)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject$3.run(FacetedProject.java:484)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.setTargetedRuntimes(FacetedProject.java:489)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.setRuntime(FacetedProject.java:449)\n    \tat org.eclipse.jst.j2ee.project.facet.J2EEFacetInstallDelegate.installEARFacet(J2EEFacetInstallDelegate.java:59)\n    \tat org.eclipse.jst.j2ee.project.facet.J2EEFacetInstallDelegate.installAndAddModuletoEAR(J2EEFacetInstallDelegate.java:120)\n    \tat org.eclipse.jst.j2ee.ejb.project.facet.EjbFacetPostInstallDelegate.execute(EjbFacetPostInstallDelegate.java:85)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callDelegate(FacetedProject.java:1206)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callEventHandlers(FacetedProject.java:1154)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modifyInternal(FacetedProject.java:372)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.access$0(FacetedProject.java:262)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject$1.run(FacetedProject.java:247)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n    \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modify(FacetedProject.java:252)\n    \tat org.eclipse.wst.common.componentcore.internal.operation.FacetProjectCreationOperation.execute(FacetProjectCreationOperation.java:84)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run(DataModelPausibleOperationImpl.java:379)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation(DataModelPausibleOperationImpl.java:403)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation(DataModelPausibleOperationImpl.java:355)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.doExecute(DataModelPausibleOperationImpl.java:245)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.executeImpl(DataModelPausibleOperationImpl.java:217)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.cacheThreadAndContinue(DataModelPausibleOperationImpl.java:92)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.execute(DataModelPausibleOperationImpl.java:205)\n    \tat org.eclipse.jst.j2ee.internal.archive.operations.J2EEArtifactImportOperation.createVirtualComponent(J2EEArtifactImportOperation.java:78)\n    \tat org.eclipse.jst.j2ee.internal.archive.operations.J2EEArtifactImportOperation.doExecute(J2EEArtifactImportOperation.java:66)\n    \tat org.eclipse.jst.j2ee.internal.archive.operations.J2EEArtifactImportOperation.execute(J2EEArtifactImportOperation.java:55)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run(DataModelPausibleOperationImpl.java:379)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation(DataModelPausibleOperationImpl.java:403)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation(DataModelPausibleOperationImpl.java:355)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.doExecute(DataModelPausibleOperationImpl.java:245)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.executeImpl(DataModelPausibleOperationImpl.java:217)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.cacheThreadAndContinue(DataModelPausibleOperationImpl.java:92)\n    \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.execute(DataModelPausibleOperationImpl.java:205)\n    \tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.importEJBJarModule(BatchExtension.java:832)\n    \tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.runJarDeploy(BatchExtension.java:500)\n    \tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.access$1(BatchExtension.java:494)\n    \tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension$RunDeploy.run(BatchExtension.java:298)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1719)\n    \tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension$RunDeploy.execute(BatchExtension.java:280)\n    \tat com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.run(BatchExtension.java:243)\n    \tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n    \tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n    \tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n    \tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:400)\n    \tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n    \tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:64)\n    \tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n    \tat java.lang.reflect.Method.invoke(Method.java:615)\n    \tat com.ibm.etools.ejbdeploy.batch.impl.BootLoaderLoader.run(BootLoaderLoader.java:272)\n    \tat com.ibm.etools.ejbdeploy.batch.impl.BatchDeploy.execute(BatchDeploy.java:99)\n    \tat com.ibm.etools.ejbdeploy.EJBDeploy.execute(EJBDeploy.java:83)\n    \tat com.ibm.etools.ejbdeploy.EJBDeploy.main(EJBDeploy.java:313)",
+    "As per discussion with Jason, we are making the suggested changes.\nAt the same time Jason is going to use this bug to fix\nthe J2EEFacetInstallDelegate class for the null poninter exeception\nwe are getting with the suggested changes.",
+    "code dropped",
+    "closing"
+  ],
+  "commentCreationDates": [
+    "2006-05-04T21:53:23+02:00",
+    "2006-05-04T22:01:08+02:00",
+    "2006-05-10T22:41:07+02:00",
+    "2006-05-11T05:15:04+02:00",
+    "2006-05-12T18:53:32+02:00",
+    "2006-05-12T19:09:49+02:00",
+    "2006-09-22T16:36:41+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "message": "Property not located:IJ2EEModuleImportDataModelProperties.ADD_TO_EAR",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelImpl.checkValidPropertyName",
+          "source": "DataModelImpl.java:101"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelImpl.getOwningDataModel",
+          "source": "DataModelImpl.java:106"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelImpl.setProperty",
+          "source": "DataModelImpl.java:172"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelImpl.setBooleanProperty",
+          "source": "DataModelImpl.java:198"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.importEJBJarModule",
+          "source": "BatchExtension.java:827"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "140234",
+      "date": "2006-05-04T21:53:23+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.core.runtime.CoreException",
+      "message": "Failed while installing EJB Module 2.0.",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callDelegate",
+          "source": "FacetedProject.java:1245"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callEventHandlers",
+          "source": "FacetedProject.java:1154"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modifyInternal",
+          "source": "FacetedProject.java:372"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.access$0",
+          "source": "FacetedProject.java:262"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject$1.run",
+          "source": "FacetedProject.java:247"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modify",
+          "source": "FacetedProject.java:252"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.operation.FacetProjectCreationOperation.execute",
+          "source": "FacetProjectCreationOperation.java:84"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run",
+          "source": "DataModelPausibleOperationImpl.java:379"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation",
+          "source": "DataModelPausibleOperationImpl.java:403"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation",
+          "source": "DataModelPausibleOperationImpl.java:355"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.doExecute",
+          "source": "DataModelPausibleOperationImpl.java:245"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.executeImpl",
+          "source": "DataModelPausibleOperationImpl.java:217"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.cacheThreadAndContinue",
+          "source": "DataModelPausibleOperationImpl.java:92"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.execute",
+          "source": "DataModelPausibleOperationImpl.java:205"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.archive.operations.J2EEArtifactImportOperation.createVirtualComponent",
+          "source": "J2EEArtifactImportOperation.java:78"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.archive.operations.J2EEArtifactImportOperation.doExecute",
+          "source": "J2EEArtifactImportOperation.java:66"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.archive.operations.J2EEArtifactImportOperation.execute",
+          "source": "J2EEArtifactImportOperation.java:55"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run",
+          "source": "DataModelPausibleOperationImpl.java:379"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation",
+          "source": "DataModelPausibleOperationImpl.java:403"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation",
+          "source": "DataModelPausibleOperationImpl.java:355"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.doExecute",
+          "source": "DataModelPausibleOperationImpl.java:245"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.executeImpl",
+          "source": "DataModelPausibleOperationImpl.java:217"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.cacheThreadAndContinue",
+          "source": "DataModelPausibleOperationImpl.java:92"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.execute",
+          "source": "DataModelPausibleOperationImpl.java:205"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.importEJBJarModule",
+          "source": "BatchExtension.java:832"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.runJarDeploy",
+          "source": "BatchExtension.java:500"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.access$1",
+          "source": "BatchExtension.java:494"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension$RunDeploy.run",
+          "source": "BatchExtension.java:298"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1719"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension$RunDeploy.execute",
+          "source": "BatchExtension.java:280"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.run",
+          "source": "BatchExtension.java:243"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:400"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:64"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:43"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:615"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.impl.BootLoaderLoader.run",
+          "source": "BootLoaderLoader.java:272"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.impl.BatchDeploy.execute",
+          "source": "BatchDeploy.java:99"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.EJBDeploy.execute",
+          "source": "EJBDeploy.java:83"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.EJBDeploy.main",
+          "source": "EJBDeploy.java:313"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 3,
+      "bugId": "140234",
+      "date": "2006-05-11T05:15:04+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.setTargetedRuntimesInternal",
+          "source": "FacetedProject.java:566"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.access$4",
+          "source": "FacetedProject.java:499"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject$3.run",
+          "source": "FacetedProject.java:484"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.setTargetedRuntimes",
+          "source": "FacetedProject.java:489"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.setRuntime",
+          "source": "FacetedProject.java:449"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.project.facet.J2EEFacetInstallDelegate.installEARFacet",
+          "source": "J2EEFacetInstallDelegate.java:59"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.project.facet.J2EEFacetInstallDelegate.installAndAddModuletoEAR",
+          "source": "J2EEFacetInstallDelegate.java:120"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.ejb.project.facet.EjbFacetPostInstallDelegate.execute",
+          "source": "EjbFacetPostInstallDelegate.java:85"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callDelegate",
+          "source": "FacetedProject.java:1206"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callEventHandlers",
+          "source": "FacetedProject.java:1154"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modifyInternal",
+          "source": "FacetedProject.java:372"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.access$0",
+          "source": "FacetedProject.java:262"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject$1.run",
+          "source": "FacetedProject.java:247"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modify",
+          "source": "FacetedProject.java:252"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.operation.FacetProjectCreationOperation.execute",
+          "source": "FacetProjectCreationOperation.java:84"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run",
+          "source": "DataModelPausibleOperationImpl.java:379"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation",
+          "source": "DataModelPausibleOperationImpl.java:403"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation",
+          "source": "DataModelPausibleOperationImpl.java:355"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.doExecute",
+          "source": "DataModelPausibleOperationImpl.java:245"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.executeImpl",
+          "source": "DataModelPausibleOperationImpl.java:217"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.cacheThreadAndContinue",
+          "source": "DataModelPausibleOperationImpl.java:92"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.execute",
+          "source": "DataModelPausibleOperationImpl.java:205"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.archive.operations.J2EEArtifactImportOperation.createVirtualComponent",
+          "source": "J2EEArtifactImportOperation.java:78"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.archive.operations.J2EEArtifactImportOperation.doExecute",
+          "source": "J2EEArtifactImportOperation.java:66"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.archive.operations.J2EEArtifactImportOperation.execute",
+          "source": "J2EEArtifactImportOperation.java:55"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run",
+          "source": "DataModelPausibleOperationImpl.java:379"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation",
+          "source": "DataModelPausibleOperationImpl.java:403"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation",
+          "source": "DataModelPausibleOperationImpl.java:355"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.doExecute",
+          "source": "DataModelPausibleOperationImpl.java:245"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.executeImpl",
+          "source": "DataModelPausibleOperationImpl.java:217"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.cacheThreadAndContinue",
+          "source": "DataModelPausibleOperationImpl.java:92"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.execute",
+          "source": "DataModelPausibleOperationImpl.java:205"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.importEJBJarModule",
+          "source": "BatchExtension.java:832"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.runJarDeploy",
+          "source": "BatchExtension.java:500"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.access$1",
+          "source": "BatchExtension.java:494"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension$RunDeploy.run",
+          "source": "BatchExtension.java:298"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1719"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension$RunDeploy.execute",
+          "source": "BatchExtension.java:280"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.plugin.BatchExtension.run",
+          "source": "BatchExtension.java:243"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:400"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:64"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:43"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:615"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.impl.BootLoaderLoader.run",
+          "source": "BootLoaderLoader.java:272"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.impl.BatchDeploy.execute",
+          "source": "BatchDeploy.java:99"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.EJBDeploy.execute",
+          "source": "EJBDeploy.java:83"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.EJBDeploy.main",
+          "source": "EJBDeploy.java:313"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 3,
+      "bugId": "140234",
+      "date": "2006-05-11T05:15:04+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "140234",
+  "bugId": "140234",
+  "date": "2006-05-04T21:53:23+02:00",
+  "product": "Web Tools",
+  "component": "jst.j2ee",
+  "severity": "normal"
+}

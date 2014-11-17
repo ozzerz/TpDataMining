@@ -1,0 +1,794 @@
+{
+  "comments": [
+    "I\u0027m creating some JUnit tests to test J2EE projects and the return values of the Server/J2EE interface. The tests create a new project and then test various API on it.\n\nI\u0027ve run the same tests more than 50 times, and it ran ok (well, with expected JUnit failures) all but twice. One time there were a few additional API failures (I\u0027ll be opening a second bug), and one time it caused the exceptions below.\n\nAs a result of J2EEDeployableFactory failing, none of the projects were recognized by server tools and all of the subsequent tests failed. I am making this critical because if it had happened during regular development it would have caused modules to disappear from servers and general failure throughout WTP.\n\n*** ERROR ***: Thu Oct 05 14:47:38 EDT 2006    org.eclipse.emf.common.util.BasicEList$BasicIndexOutOfBoundsException: index\u003d0, size\u003d0\n    \tat org.eclipse.emf.common.util.BasicEList.get(BasicEList.java(Compiled Code))\n    \tat org.eclipse.jst.j2ee.componentcore.EnterpriseArtifactEdit.getDeploymentDescriptorRoot(EnterpriseArtifactEdit.java:154)\n    \tat org.eclipse.jst.j2ee.componentcore.util.EARArtifactEdit.getApplication(EARArtifactEdit.java:291)\n    \tat org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createBinaryModules(J2EEDeployableFactory.java:109)\n    \tat org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createModuleDelegates(J2EEDeployableFactory.java:97)\n    \tat org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createModules(J2EEDeployableFactory.java:72)\n    \tat org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createModules(J2EEDeployableFactory.java:61)\n    \tat org.eclipse.wst.server.core.util.ProjectModuleFactoryDelegate.cacheModules(ProjectModuleFactoryDelegate.java:60)\n    \tat org.eclipse.wst.server.core.util.ProjectModuleFactoryDelegate.getModules(ProjectModuleFactoryDelegate.java:92)\n    \tat org.eclipse.wst.server.core.internal.ModuleFactory.getModules(ModuleFactory.java:133)\n    \tat org.eclipse.wst.server.core.ServerUtil.getModules(ServerUtil.java:285)\n    \tat org.eclipse.wst.server.core.ServerUtil.getModule(ServerUtil.java:52)\n    \tat org.eclipse.wst.server.core.internal.ResourceManager.publishHandleProjectChange(ResourceManager.java:913)\n    \tat org.eclipse.wst.server.core.internal.ResourceManager$1.visit(ResourceManager.java:114)\n    \tat org.eclipse.core.internal.events.ResourceDelta.accept(ResourceDelta.java:67)\n    \tat org.eclipse.core.internal.events.ResourceDelta.accept(ResourceDelta.java:76)\n    \tat org.eclipse.core.internal.events.ResourceDelta.accept(ResourceDelta.java:48)\n    \tat org.eclipse.wst.server.core.internal.ResourceManager$ServerResourceChangeListener.resourceChanged(ResourceManager.java:108)\n    \tat org.eclipse.core.internal.events.NotificationManager$2.run(NotificationManager.java:280)\n    \tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n    \tat org.eclipse.core.internal.events.NotificationManager.notify(NotificationManager.java:274)\n    \tat org.eclipse.core.internal.events.NotificationManager.broadcastChanges(NotificationManager.java:148)\n    \tat org.eclipse.core.internal.resources.Workspace.broadcastBuildEvent(Workspace.java:240)\n    \tat org.eclipse.core.internal.events.AutoBuildJob.doBuild(AutoBuildJob.java:146)\n    \tat org.eclipse.core.internal.events.AutoBuildJob.run(AutoBuildJob.java:208)\n    \tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\n*** ERROR ***: Thu Oct 05 14:47:41 EDT 2006    org.eclipse.jst.j2ee.commonarchivecore.internal.exception.DeploymentDescriptorLoadException: META-INF/application.xml\n    Stack trace of nested exception:\n    org.eclipse.jst.j2ee.commonarchivecore.internal.exception.EmptyResourceException: platform:/resource/PublishTestEAR/EarContent/META-INF/application.xml\n    \tat org.eclipse.jst.j2ee.commonarchivecore.internal.util.ArchiveUtil.getRoot(ArchiveUtil.java:417)\n    \tat org.eclipse.jst.j2ee.commonarchivecore.internal.strategy.XmlBasedImportStrategyImpl.primLoadDeploymentDescriptor(XmlBasedImportStrategyImpl.java:42)\n    \tat org.eclipse.jst.j2ee.commonarchivecore.internal.strategy.Ear12ImportStrategyImpl.loadDeploymentDescriptor(Ear12ImportStrategyImpl.java:87)\n    \tat org.eclipse.jst.j2ee.commonarchivecore.internal.strategy.Ear12ImportStrategyImpl.importMetaData(Ear12ImportStrategyImpl.java:81)\n    \tat org.eclipse.jst.j2ee.commonarchivecore.internal.impl.EARFileImpl.getDeploymentDescriptor(EARFileImpl.java:294)\n    \tat org.eclipse.jst.j2ee.model.internal.validation.EarValidator.validateInJob(EarValidator.java:142)\n    \tat org.eclipse.jst.j2ee.internal.validation.UIEarValidator.validateInJob(UIEarValidator.java:218)\n    \tat org.eclipse.wst.validation.internal.operations.ValidatorJob.run(ValidatorJob.java:70)\n    \tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)",
+    "Created an attachment (id\u003d51654)\nProposed patch\n\nTim,\n\nCan you try rerunning the tests with the patch applied?  The patch should ensure we never have an empty resource.\n\nThanks,",
+    "I run with the patch and see if I can reproduce, but keep in mind that this was sporatic and not reproducable at will.",
+    "Since its intermitten, this should go to 1.5.3.  The surrent proposed fix may not be desireable and could be change in behaviour...",
+    "We are also seeing this error sporadically during execution of unit tests (on 1.5.2)",
+    "Hit the following failure w/ application of the patch; based on an initial scan, it looks like the EarValidator is causing execution of:\n\n...\npublic static EObject getRoot(Resource aResource) throws EmptyResourceException {\n\t\tEList extent \u003d aResource.getContents();\n\t\tif (extent.size() \u003c 1) {\n\t\t\tthrow new EmptyResourceException(aResource.getURI().toString());\n\t\t}\n\t\treturn (EObject) extent.get(0);\n\t}\n...\n\nin ArchiveUtil and triggering the EmptyResourceException and an error in this type of case (empty content EList) is exactly what the proposed patch is trying to fix; Chuck, let me know your thoughts here.\n\n...\nENTRY org.eclipse.wst.validation 4 0 2006-11-10 11:14:33.593\n!MESSAGE \n*** ERROR ***: Fri Nov 10 11:14:33 EST 2006    org.eclipse.wst.validation.internal.core.ValidationException: IWAE0053E An internal error has occurred running validation on project:DRTEARProject]:DRTEARProject, check the log file for details\n    \tat org.eclipse.jst.j2ee.model.internal.validation.EarValidator.validateInJob(EarValidator.java:165)\n    \tat org.eclipse.jst.j2ee.internal.validation.UIEarValidator.validateInJob(UIEarValidator.java:218)\n    \tat org.eclipse.wst.validation.internal.operations.ValidatorJob.run(ValidatorJob.java:70)\n    \tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\n!ENTRY org.eclipse.wst.validation 4 0 2006-11-10 11:14:33.593\n!MESSAGE \n*** ERROR ***: Fri Nov 10 11:14:33 EST 2006    org.eclipse.jst.j2ee.commonarchivecore.internal.exception.DeploymentDescriptorLoadException: META-INF/application.xml\n    Stack trace of nested exception:\n    org.eclipse.jst.j2ee.commonarchivecore.internal.exception.EmptyResourceException: platform:/resource/DRTEARProject/EarContent/META-INF/application.xml\n    \tat org.eclipse.jst.j2ee.commonarchivecore.internal.util.ArchiveUtil.getRoot(ArchiveUtil.java:396)\n    \tat org.eclipse.jst.j2ee.commonarchivecore.internal.strategy.XmlBasedImportStrategyImpl.primLoadDeploymentDescriptor(XmlBasedImportStrategyImpl.java:42)\n    \tat org.eclipse.jst.j2ee.commonarchivecore.internal.strategy.Ear12ImportStrategyImpl.loadDeploymentDescriptor(Ear12ImportStrategyImpl.java:87)\n    \tat org.eclipse.jst.j2ee.commonarchivecore.internal.strategy.Ear12ImportStrategyImpl.importMetaData(Ear12ImportStrategyImpl.java:81)\n    \tat org.eclipse.jst.j2ee.commonarchivecore.internal.impl.EARFileImpl.getDeploymentDescriptor(EARFileImpl.java:294)\n    \tat org.eclipse.jst.j2ee.model.internal.validation.EarValidator.validateInJob(EarValidator.java:142)\n    \tat org.eclipse.jst.j2ee.internal.validation.UIEarValidator.validateInJob(UIEarValidator.java:218)\n    \tat org.eclipse.wst.validation.internal.operations.ValidatorJob.run(ValidatorJob.java:70)\n    \tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\n!ENTRY org.eclipse.wst.sse.core 4 4 2006-11-10 11:14:37.078\n!MESSAGE A structured model client, EMF2DOMSSEAdapter(#document,ApplicationResourceImpl) threw following exception during adapter notification (STRUCUTRED_CHANGED )\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.wst.common.internal.emf.resource.IDTranslator.setMOFValue(IDTranslator.java:45)\n\tat org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.primUpdateMOFFeature(EMF2DOMAdapterImpl.java:1373)\n\tat org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.updateMOFFeature(EMF2DOMAdapterImpl.java:1729)\n\tat org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.primUpdateMOF(EMF2DOMAdapterImpl.java:903)\n\tat org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.updateMOF(EMF2DOMAdapterImpl.java:883)\n\tat org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.primUpdateMOFMultiFeature(EMF2DOMAdapterImpl.java:431)\n\tat org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.updateMOFRootFeature(EMF2DOMAdapterImpl.java:924)\n\tat org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.primUpdateMOF(EMF2DOMAdapterImpl.java:899)\n\tat org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.updateMOF(EMF2DOMAdapterImpl.java:883)\n\tat org.eclipse.wst.xml.core.internal.emf2xml.EMF2DOMSSEAdapter.notifyChanged(EMF2DOMSSEAdapter.java:224)\n\tat org.eclipse.wst.sse.core.internal.provisional.AbstractNotifier.notify(AbstractNotifier.java:201)\n\tat org.eclipse.wst.xml.core.internal.document.XMLModelNotifierImpl.notifyStructureChanged(XMLModelNotifierImpl.java:392)\n\tat org.eclipse.wst.xml.core.internal.document.XMLModelNotifierImpl.endChanging(XMLModelNotifierImpl.java:180)\n\tat org.eclipse.wst.xml.core.internal.document.DOMModelImpl.changedModel(DOMModelImpl.java:163)\n\tat org.eclipse.wst.sse.core.internal.model.AbstractStructuredModel$DocumentToModelNotifier.nodesReplaced(AbstractStructuredModel.java:152)\n\tat org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument._fireEvent(BasicStructuredDocument.java:600)\n\tat org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.fireStructuredDocumentEvent(BasicStructuredDocument.java:1199)\n\tat org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.internalReplaceText(BasicStructuredDocument.java:1968)\n\tat org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.replaceText(BasicStructuredDocument.java:2392)\n\tat org.eclipse.wst.sse.core.internal.text.JobSafeStructuredDocument.replaceText(JobSafeStructuredDocument.java:84)\n\tat org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.set(BasicStructuredDocument.java:2859)\n\tat org.eclipse.core.internal.filebuffers.ResourceTextFileBuffer.handleFileContentChanged(ResourceTextFileBuffer.java:479)\n\tat org.eclipse.core.internal.filebuffers.ResourceFileBuffer.revert(ResourceFileBuffer.java:351)\n\tat org.eclipse.wst.sse.core.internal.FileBufferModelManager.revert(FileBufferModelManager.java:679)\n\tat org.eclipse.wst.sse.core.internal.model.ModelManagerImpl.revertModel(ModelManagerImpl.java:1408)\n\tat org.eclipse.wst.sse.core.internal.model.ModelManagerImpl.releaseFromEdit(ModelManagerImpl.java:1397)\n\tat org.eclipse.wst.sse.core.internal.model.ModelManagerImpl.releaseFromEdit(ModelManagerImpl.java:1345)\n\tat org.eclipse.wst.sse.core.internal.model.AbstractStructuredModel.releaseFromEdit(AbstractStructuredModel.java:1044)\n\tat org.eclipse.wst.xml.core.internal.document.DOMModelImpl.releaseFromEdit(DOMModelImpl.java:804)\n\tat org.eclipse.wst.xml.core.internal.emf2xml.EMF2DOMSSERenderer.releaseFromWrite(EMF2DOMSSERenderer.java:465)\n\tat org.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.releaseFromWrite(TranslatorResourceImpl.java:359)\n\tat org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.release(EditModel.java:990)\n\tat org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.release(EditModel.java:980)\n\tat org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseResources(EditModel.java:1002)\n\tat org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.dispose(EditModel.java:166)\n\tat org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseAccess(EditModel.java:968)\n\tat org.eclipse.wst.common.componentcore.ArtifactEdit.dispose(ArtifactEdit.java:463)\n\tat org.eclipse.wst.common.componentcore.internal.operation.CreateReferenceComponentsOp.validateEdit(CreateReferenceComponentsOp.java:69)\n\tat org.eclipse.wst.common.componentcore.internal.operation.CreateReferenceComponentsOp.execute(CreateReferenceComponentsOp.java:48)\n\tat org.eclipse.jst.j2ee.application.internal.operations.AddComponentToEnterpriseApplicationOp.execute(AddComponentToEnterpriseApplicationOp.java:66)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run(DataModelPausibleOperationImpl.java:376)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation(DataModelPausibleOperationImpl.java:401)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation(DataModelPausibleOperationImpl.java:352)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.doExecute(DataModelPausibleOperationImpl.java:242)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.executeImpl(DataModelPausibleOperationImpl.java:214)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.cacheThreadAndContinue(DataModelPausibleOperationImpl.java:89)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.execute(DataModelPausibleOperationImpl.java:202)\n\tat org.eclipse.jst.j2ee.project.facet.J2EEFacetInstallDelegate.addToEar(J2EEFacetInstallDelegate.java:121)\n\tat org.eclipse.jst.j2ee.project.facet.J2EEFacetInstallDelegate.installAndAddModuletoEAR(J2EEFacetInstallDelegate.java:142)\n\tat org.eclipse.jst.j2ee.project.facet.UtilityFacetPostInstallDelegate.execute(UtilityFacetPostInstallDelegate.java:61)\n\tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callDelegate(FacetedProject.java:1218)\n\tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callEventHandlers(FacetedProject.java:1166)\n\tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modifyInternal(FacetedProject.java:380)\n\tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.access$2(FacetedProject.java:264)\n\tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject$1.run(FacetedProject.java:249)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n\tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modify(FacetedProject.java:259)\n\tat org.eclipse.wst.common.project.facet.ui.AddRemoveFacetsWizard.performFinish(AddRemoveFacetsWizard.java:334)\n\tat org.eclipse.wst.web.ui.internal.wizards.NewProjectDataModelFacetWizard.performFinish(NewProjectDataModelFacetWizard.java:288)\n\tat org.eclipse.wst.common.project.facet.ui.AddRemoveFacetsWizard$2.run(AddRemoveFacetsWizard.java:260)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n\tat org.eclipse.wst.common.project.facet.ui.AddRemoveFacetsWizard$3.run(AddRemoveFacetsWizard.java:274)\n\tat org.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)\n...\n",
+    "-",
+    "closed by mistake...",
+    "I don\u0027t like this proposed patch because it is just patching the symptom.\n\nmulti threaded startup issues seem to be the real issue, as I\u0027m assuming the xml file does indeed have a root object, and failed to load for some other reason.\n\nRob do you have a testcase we can focus on here?\n\n",
+    "Sorry, Chuck, nothing specific; we\u0027re seeing the error on a very intermittent basis during a large automated unit test (which is exercising all sorts of things).",
+    "Ok, until we have more specifics.. I\u0027m going to untarget this defect....",
+    "Hoi, cc\u0027ing you since I believe you are encountering this more frequently and can provide some more details/specifics on a use case that is triggering the issue",
+    "I am able to reproduce this error consistently when I run one of my application in Eclipse headless mode.  When the same application runs in the Eclipse IDE, the error never appears.  I wonder if there is some initialization that is not done in the headless mode which causes this error.\n\nHere is the errors that I am seeing:\n\n*** ERROR ***: Fri Apr 20 14:37:37 PDT 2007    org.eclipse.emf.common.util.BasicEList$BasicIndexOutOfBoundsException: index\u003d0, size\u003d0\n     \tat org.eclipse.emf.common.util.BasicEList.get(BasicEList.java:512)\n     \tat org.eclipse.jst.j2ee.componentcore.EnterpriseArtifactEdit.getDeploymentDescriptorRoot(EnterpriseArtifactEdit.java:154)\n     \tat org.eclipse.jst.j2ee.componentcore.util.EARArtifactEdit.getApplication(EARArtifactEdit.java:291)\n     \tat org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createBinaryModules(J2EEDeployableFactory.java:109)\n     \tat org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createModuleDelegates(J2EEDeployableFactory.java:97)\n     \tat org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createModules(J2EEDeployableFactory.java:72)\n     \tat org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createModules(J2EEDeployableFactory.java:61)\n     \tat org.eclipse.wst.server.core.util.ProjectModuleFactoryDelegate.cacheModules(ProjectModuleFactoryDelegate.java:60)\n     \tat org.eclipse.wst.server.core.util.ProjectModuleFactoryDelegate.getModules(ProjectModuleFactoryDelegate.java:92)\n     \tat org.eclipse.wst.server.core.internal.ModuleFactory.getModules(ModuleFactory.java:133)\n     \tat org.eclipse.wst.server.core.ServerUtil.getModules(ServerUtil.java:285)\n     \tat org.eclipse.wst.server.core.ServerUtil.getModule(ServerUtil.java:52)\n     \tat org.eclipse.wst.server.core.internal.ResourceManager.publishHandleProjectChange(ResourceManager.java:913)\n     \tat org.eclipse.wst.server.core.internal.ResourceManager$1.visit(ResourceManager.java:114)\n     \tat org.eclipse.core.internal.events.ResourceDelta.accept(ResourceDelta.java:67)\n     \tat org.eclipse.core.internal.events.ResourceDelta.accept(ResourceDelta.java:76)\n     \tat org.eclipse.core.internal.events.ResourceDelta.accept(ResourceDelta.java:48)\n     \tat org.eclipse.wst.server.core.internal.ResourceManager$ServerResourceChangeListener.resourceChanged(ResourceManager.java:108)\n     \tat org.eclipse.core.internal.events.NotificationManager$2.run(NotificationManager.java:280)\n     \tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n     \tat org.eclipse.core.internal.events.NotificationManager.notify(NotificationManager.java:274)\n     \tat org.eclipse.core.internal.events.NotificationManager.broadcastChanges(NotificationManager.java:148)\n     \tat org.eclipse.core.internal.resources.Workspace.broadcastBuildEvent(Workspace.java:240)\n     \tat org.eclipse.core.internal.events.AutoBuildJob.doBuild(AutoBuildJob.java:155)\n     \tat org.eclipse.core.internal.events.AutoBuildJob.run(AutoBuildJob.java:217)\n     \tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\n *** ERROR ***: Fri Apr 20 14:38:24 PDT 2007    org.eclipse.emf.common.util.BasicEList$BasicIndexOutOfBoundsException: index\u003d0, size\u003d0\n     \tat org.eclipse.emf.common.util.BasicEList.get(BasicEList.java:512)\n     \tat org.eclipse.jst.j2ee.componentcore.EnterpriseArtifactEdit.getDeploymentDescriptorRoot(EnterpriseArtifactEdit.java:154)\n     \tat org.eclipse.jst.j2ee.componentcore.util.EARArtifactEdit.getApplication(EARArtifactEdit.java:291)\n     \tat org.eclipse.jst.j2ee.application.internal.operations.AddComponentToEnterpriseApplicationOp.updateEARDD(AddComponentToEnterpriseApplicationOp.java:118)\n     \tat org.eclipse.jst.j2ee.application.internal.operations.AddComponentToEnterpriseApplicationOp.execute(AddComponentToEnterpriseApplicationOp.java:69)\n     \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run(DataModelPausibleOperationImpl.java:376)\n     \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n     \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation(DataModelPausibleOperationImpl.java:401)\n     \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation(DataModelPausibleOperationImpl.java:352)\n     \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.doExecute(DataModelPausibleOperationImpl.java:242)\n     \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.executeImpl(DataModelPausibleOperationImpl.java:214)\n     \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.cacheThreadAndContinue(DataModelPausibleOperationImpl.java:89)\n     \tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.execute(DataModelPausibleOperationImpl.java:202)\n     \tat org.eclipse.jst.j2ee.project.facet.J2EEFacetInstallDelegate.addToEar(J2EEFacetInstallDelegate.java:121)\n     \tat org.eclipse.jst.j2ee.project.facet.J2EEFacetInstallDelegate.installAndAddModuletoEAR(J2EEFacetInstallDelegate.java:142)\n     \tat org.eclipse.jst.j2ee.web.project.facet.WebFacetPostInstallDelegate.execute(WebFacetPostInstallDelegate.java:51)\n     \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callDelegate(FacetedProject.java:1218)\n     \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callEventHandlers(FacetedProject.java:1166)\n     \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modifyInternal(FacetedProject.java:380)\n     \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.access$2(FacetedProject.java:264)\n     \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject$1.run(FacetedProject.java:249)\n     \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n     \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modify(FacetedProject.java:259)\n     \tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.installProjectFacet(FacetedProject.java:216)",
+    "Hi Raj,\n\nCan you take a look at the latest details?",
+    "FYI: We have worked around the consistently reproducible case of this error by ensuring that the relevant logic all executes within an IWorkspaceRunnable in headless mode (with resource change events batched, this EMF issue is no longer getting triggered from ServerResourceChangeListener). \n\nI assume that the other (more sporadic) triggers for this bug still exist, however, it is no longer a blocker for us.",
+    "Removing target milestone of 1.5.4 as per David Williams\u0027 instructions.",
+    "This is a very intermittent bug according to originator. I have not been able to reproduce it at all with the latest builds. I heard from another committer that they were seeing exceptions like these before they fixed bug 191294 and not ever since.\n\nI would like to return this bug as a dup of that especially because the exception trace includes ear validator. Please reopen if you have a reproducible scenario.\n\n*** This bug has been marked as a duplicate of bug 191294 ***"
+  ],
+  "commentCreationDates": [
+    "2006-10-06T17:12:43+02:00",
+    "2006-10-09T21:10:00+02:00",
+    "2006-10-10T17:10:40+02:00",
+    "2006-10-12T20:22:43+02:00",
+    "2006-11-06T13:37:14+01:00",
+    "2006-11-11T01:53:39+01:00",
+    "2006-11-28T22:47:43+01:00",
+    "2006-11-28T22:51:14+01:00",
+    "2007-01-09T21:33:39+01:00",
+    "2007-01-09T22:08:35+01:00",
+    "2007-01-11T14:44:13+01:00",
+    "2007-04-19T19:13:56+02:00",
+    "2007-04-21T00:06:41+02:00",
+    "2007-04-23T19:00:03+02:00",
+    "2007-04-24T16:17:26+02:00",
+    "2007-04-27T05:07:11+02:00",
+    "2007-07-14T00:32:43+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.emf.common.util.BasicEList$BasicIndexOutOfBoundsException",
+      "message": "index\u003d0, size\u003d0",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList.get",
+          "source": "BasicEList.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.componentcore.EnterpriseArtifactEdit.getDeploymentDescriptorRoot",
+          "source": "EnterpriseArtifactEdit.java:154"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.componentcore.util.EARArtifactEdit.getApplication",
+          "source": "EARArtifactEdit.java:291"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createBinaryModules",
+          "source": "J2EEDeployableFactory.java:109"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createModuleDelegates",
+          "source": "J2EEDeployableFactory.java:97"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createModules",
+          "source": "J2EEDeployableFactory.java:72"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createModules",
+          "source": "J2EEDeployableFactory.java:61"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.util.ProjectModuleFactoryDelegate.cacheModules",
+          "source": "ProjectModuleFactoryDelegate.java:60"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.util.ProjectModuleFactoryDelegate.getModules",
+          "source": "ProjectModuleFactoryDelegate.java:92"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ModuleFactory.getModules",
+          "source": "ModuleFactory.java:133"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.ServerUtil.getModules",
+          "source": "ServerUtil.java:285"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.ServerUtil.getModule",
+          "source": "ServerUtil.java:52"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ResourceManager.publishHandleProjectChange",
+          "source": "ResourceManager.java:913"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ResourceManager$1.visit",
+          "source": "ResourceManager.java:114"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.ResourceDelta.accept",
+          "source": "ResourceDelta.java:67"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.ResourceDelta.accept",
+          "source": "ResourceDelta.java:76"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.ResourceDelta.accept",
+          "source": "ResourceDelta.java:48"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ResourceManager$ServerResourceChangeListener.resourceChanged",
+          "source": "ResourceManager.java:108"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager$2.run",
+          "source": "NotificationManager.java:280"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.notify",
+          "source": "NotificationManager.java:274"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.broadcastChanges",
+          "source": "NotificationManager.java:148"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.broadcastBuildEvent",
+          "source": "Workspace.java:240"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.doBuild",
+          "source": "AutoBuildJob.java:146"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.run",
+          "source": "AutoBuildJob.java:208"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "160036",
+      "duplicateId": "191294",
+      "date": "2006-10-06T17:12:43+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "org.eclipse.jst.j2ee.commonarchivecore.internal.exception.EmptyResourceException",
+      "message": "platform:/resource/PublishTestEAR/EarContent/META-INF/application.xml",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.j2ee.commonarchivecore.internal.util.ArchiveUtil.getRoot",
+          "source": "ArchiveUtil.java:417"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.commonarchivecore.internal.strategy.XmlBasedImportStrategyImpl.primLoadDeploymentDescriptor",
+          "source": "XmlBasedImportStrategyImpl.java:42"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.commonarchivecore.internal.strategy.Ear12ImportStrategyImpl.loadDeploymentDescriptor",
+          "source": "Ear12ImportStrategyImpl.java:87"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.commonarchivecore.internal.strategy.Ear12ImportStrategyImpl.importMetaData",
+          "source": "Ear12ImportStrategyImpl.java:81"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.commonarchivecore.internal.impl.EARFileImpl.getDeploymentDescriptor",
+          "source": "EARFileImpl.java:294"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.model.internal.validation.EarValidator.validateInJob",
+          "source": "EarValidator.java:142"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.validation.UIEarValidator.validateInJob",
+          "source": "UIEarValidator.java:218"
+        },
+        {
+          "method": "org.eclipse.wst.validation.internal.operations.ValidatorJob.run",
+          "source": "ValidatorJob.java:70"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "160036",
+      "duplicateId": "191294",
+      "date": "2006-10-06T17:12:43+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "org.eclipse.wst.validation.internal.core.ValidationException",
+      "message": "IWAE0053E An internal error has occurred running validation on project:DRTEARProject]:DRTEARProject, check the log file for details",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.j2ee.model.internal.validation.EarValidator.validateInJob",
+          "source": "EarValidator.java:165"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.validation.UIEarValidator.validateInJob",
+          "source": "UIEarValidator.java:218"
+        },
+        {
+          "method": "org.eclipse.wst.validation.internal.operations.ValidatorJob.run",
+          "source": "ValidatorJob.java:70"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 5,
+      "bugId": "160036",
+      "duplicateId": "191294",
+      "date": "2006-11-11T01:53:39+01:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "org.eclipse.jst.j2ee.commonarchivecore.internal.exception.EmptyResourceException",
+      "message": "platform:/resource/DRTEARProject/EarContent/META-INF/application.xml",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.j2ee.commonarchivecore.internal.util.ArchiveUtil.getRoot",
+          "source": "ArchiveUtil.java:396"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.commonarchivecore.internal.strategy.XmlBasedImportStrategyImpl.primLoadDeploymentDescriptor",
+          "source": "XmlBasedImportStrategyImpl.java:42"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.commonarchivecore.internal.strategy.Ear12ImportStrategyImpl.loadDeploymentDescriptor",
+          "source": "Ear12ImportStrategyImpl.java:87"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.commonarchivecore.internal.strategy.Ear12ImportStrategyImpl.importMetaData",
+          "source": "Ear12ImportStrategyImpl.java:81"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.commonarchivecore.internal.impl.EARFileImpl.getDeploymentDescriptor",
+          "source": "EARFileImpl.java:294"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.model.internal.validation.EarValidator.validateInJob",
+          "source": "EarValidator.java:142"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.validation.UIEarValidator.validateInJob",
+          "source": "UIEarValidator.java:218"
+        },
+        {
+          "method": "org.eclipse.wst.validation.internal.operations.ValidatorJob.run",
+          "source": "ValidatorJob.java:70"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 5,
+      "bugId": "160036",
+      "duplicateId": "191294",
+      "date": "2006-11-11T01:53:39+01:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.IDTranslator.setMOFValue",
+          "source": "IDTranslator.java:45"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.primUpdateMOFFeature",
+          "source": "EMF2DOMAdapterImpl.java:1373"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.updateMOFFeature",
+          "source": "EMF2DOMAdapterImpl.java:1729"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.primUpdateMOF",
+          "source": "EMF2DOMAdapterImpl.java:903"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.updateMOF",
+          "source": "EMF2DOMAdapterImpl.java:883"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.primUpdateMOFMultiFeature",
+          "source": "EMF2DOMAdapterImpl.java:431"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.updateMOFRootFeature",
+          "source": "EMF2DOMAdapterImpl.java:924"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.primUpdateMOF",
+          "source": "EMF2DOMAdapterImpl.java:899"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.EMF2DOMAdapterImpl.updateMOF",
+          "source": "EMF2DOMAdapterImpl.java:883"
+        },
+        {
+          "method": "org.eclipse.wst.xml.core.internal.emf2xml.EMF2DOMSSEAdapter.notifyChanged",
+          "source": "EMF2DOMSSEAdapter.java:224"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.provisional.AbstractNotifier.notify",
+          "source": "AbstractNotifier.java:201"
+        },
+        {
+          "method": "org.eclipse.wst.xml.core.internal.document.XMLModelNotifierImpl.notifyStructureChanged",
+          "source": "XMLModelNotifierImpl.java:392"
+        },
+        {
+          "method": "org.eclipse.wst.xml.core.internal.document.XMLModelNotifierImpl.endChanging",
+          "source": "XMLModelNotifierImpl.java:180"
+        },
+        {
+          "method": "org.eclipse.wst.xml.core.internal.document.DOMModelImpl.changedModel",
+          "source": "DOMModelImpl.java:163"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.model.AbstractStructuredModel$DocumentToModelNotifier.nodesReplaced",
+          "source": "AbstractStructuredModel.java:152"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument._fireEvent",
+          "source": "BasicStructuredDocument.java:600"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.fireStructuredDocumentEvent",
+          "source": "BasicStructuredDocument.java:1199"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.internalReplaceText",
+          "source": "BasicStructuredDocument.java:1968"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.replaceText",
+          "source": "BasicStructuredDocument.java:2392"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.JobSafeStructuredDocument.replaceText",
+          "source": "JobSafeStructuredDocument.java:84"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.set",
+          "source": "BasicStructuredDocument.java:2859"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceTextFileBuffer.handleFileContentChanged",
+          "source": "ResourceTextFileBuffer.java:479"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceFileBuffer.revert",
+          "source": "ResourceFileBuffer.java:351"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.FileBufferModelManager.revert",
+          "source": "FileBufferModelManager.java:679"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.model.ModelManagerImpl.revertModel",
+          "source": "ModelManagerImpl.java:1408"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.model.ModelManagerImpl.releaseFromEdit",
+          "source": "ModelManagerImpl.java:1397"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.model.ModelManagerImpl.releaseFromEdit",
+          "source": "ModelManagerImpl.java:1345"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.model.AbstractStructuredModel.releaseFromEdit",
+          "source": "AbstractStructuredModel.java:1044"
+        },
+        {
+          "method": "org.eclipse.wst.xml.core.internal.document.DOMModelImpl.releaseFromEdit",
+          "source": "DOMModelImpl.java:804"
+        },
+        {
+          "method": "org.eclipse.wst.xml.core.internal.emf2xml.EMF2DOMSSERenderer.releaseFromWrite",
+          "source": "EMF2DOMSSERenderer.java:465"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.releaseFromWrite",
+          "source": "TranslatorResourceImpl.java:359"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.release",
+          "source": "EditModel.java:990"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.release",
+          "source": "EditModel.java:980"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseResources",
+          "source": "EditModel.java:1002"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.dispose",
+          "source": "EditModel.java:166"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseAccess",
+          "source": "EditModel.java:968"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.ArtifactEdit.dispose",
+          "source": "ArtifactEdit.java:463"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.operation.CreateReferenceComponentsOp.validateEdit",
+          "source": "CreateReferenceComponentsOp.java:69"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.operation.CreateReferenceComponentsOp.execute",
+          "source": "CreateReferenceComponentsOp.java:48"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.application.internal.operations.AddComponentToEnterpriseApplicationOp.execute",
+          "source": "AddComponentToEnterpriseApplicationOp.java:66"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run",
+          "source": "DataModelPausibleOperationImpl.java:376"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation",
+          "source": "DataModelPausibleOperationImpl.java:401"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation",
+          "source": "DataModelPausibleOperationImpl.java:352"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.doExecute",
+          "source": "DataModelPausibleOperationImpl.java:242"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.executeImpl",
+          "source": "DataModelPausibleOperationImpl.java:214"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.cacheThreadAndContinue",
+          "source": "DataModelPausibleOperationImpl.java:89"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.execute",
+          "source": "DataModelPausibleOperationImpl.java:202"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.project.facet.J2EEFacetInstallDelegate.addToEar",
+          "source": "J2EEFacetInstallDelegate.java:121"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.project.facet.J2EEFacetInstallDelegate.installAndAddModuletoEAR",
+          "source": "J2EEFacetInstallDelegate.java:142"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.project.facet.UtilityFacetPostInstallDelegate.execute",
+          "source": "UtilityFacetPostInstallDelegate.java:61"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callDelegate",
+          "source": "FacetedProject.java:1218"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callEventHandlers",
+          "source": "FacetedProject.java:1166"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modifyInternal",
+          "source": "FacetedProject.java:380"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.access$2",
+          "source": "FacetedProject.java:264"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject$1.run",
+          "source": "FacetedProject.java:249"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modify",
+          "source": "FacetedProject.java:259"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.ui.AddRemoveFacetsWizard.performFinish",
+          "source": "AddRemoveFacetsWizard.java:334"
+        },
+        {
+          "method": "org.eclipse.wst.web.ui.internal.wizards.NewProjectDataModelFacetWizard.performFinish",
+          "source": "NewProjectDataModelFacetWizard.java:288"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.ui.AddRemoveFacetsWizard$2.run",
+          "source": "AddRemoveFacetsWizard.java:260"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.ui.AddRemoveFacetsWizard$3.run",
+          "source": "AddRemoveFacetsWizard.java:274"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:113"
+        }
+      ],
+      "number": 4,
+      "commentIndex": 5,
+      "bugId": "160036",
+      "duplicateId": "191294",
+      "date": "2006-11-11T01:53:39+01:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "org.eclipse.emf.common.util.BasicEList$BasicIndexOutOfBoundsException",
+      "message": "index\u003d0, size\u003d0",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList.get",
+          "source": "BasicEList.java:512"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.componentcore.EnterpriseArtifactEdit.getDeploymentDescriptorRoot",
+          "source": "EnterpriseArtifactEdit.java:154"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.componentcore.util.EARArtifactEdit.getApplication",
+          "source": "EARArtifactEdit.java:291"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createBinaryModules",
+          "source": "J2EEDeployableFactory.java:109"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createModuleDelegates",
+          "source": "J2EEDeployableFactory.java:97"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createModules",
+          "source": "J2EEDeployableFactory.java:72"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deployables.J2EEDeployableFactory.createModules",
+          "source": "J2EEDeployableFactory.java:61"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.util.ProjectModuleFactoryDelegate.cacheModules",
+          "source": "ProjectModuleFactoryDelegate.java:60"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.util.ProjectModuleFactoryDelegate.getModules",
+          "source": "ProjectModuleFactoryDelegate.java:92"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ModuleFactory.getModules",
+          "source": "ModuleFactory.java:133"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.ServerUtil.getModules",
+          "source": "ServerUtil.java:285"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.ServerUtil.getModule",
+          "source": "ServerUtil.java:52"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ResourceManager.publishHandleProjectChange",
+          "source": "ResourceManager.java:913"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ResourceManager$1.visit",
+          "source": "ResourceManager.java:114"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.ResourceDelta.accept",
+          "source": "ResourceDelta.java:67"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.ResourceDelta.accept",
+          "source": "ResourceDelta.java:76"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.ResourceDelta.accept",
+          "source": "ResourceDelta.java:48"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ResourceManager$ServerResourceChangeListener.resourceChanged",
+          "source": "ResourceManager.java:108"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager$2.run",
+          "source": "NotificationManager.java:280"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.notify",
+          "source": "NotificationManager.java:274"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.broadcastChanges",
+          "source": "NotificationManager.java:148"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.broadcastBuildEvent",
+          "source": "Workspace.java:240"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.doBuild",
+          "source": "AutoBuildJob.java:155"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.run",
+          "source": "AutoBuildJob.java:217"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 5,
+      "commentIndex": 12,
+      "bugId": "160036",
+      "duplicateId": "191294",
+      "date": "2007-04-21T00:06:41+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "org.eclipse.emf.common.util.BasicEList$BasicIndexOutOfBoundsException",
+      "message": "index\u003d0, size\u003d0",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList.get",
+          "source": "BasicEList.java:512"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.componentcore.EnterpriseArtifactEdit.getDeploymentDescriptorRoot",
+          "source": "EnterpriseArtifactEdit.java:154"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.componentcore.util.EARArtifactEdit.getApplication",
+          "source": "EARArtifactEdit.java:291"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.application.internal.operations.AddComponentToEnterpriseApplicationOp.updateEARDD",
+          "source": "AddComponentToEnterpriseApplicationOp.java:118"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.application.internal.operations.AddComponentToEnterpriseApplicationOp.execute",
+          "source": "AddComponentToEnterpriseApplicationOp.java:69"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run",
+          "source": "DataModelPausibleOperationImpl.java:376"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation",
+          "source": "DataModelPausibleOperationImpl.java:401"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.runOperation",
+          "source": "DataModelPausibleOperationImpl.java:352"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.doExecute",
+          "source": "DataModelPausibleOperationImpl.java:242"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.executeImpl",
+          "source": "DataModelPausibleOperationImpl.java:214"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.cacheThreadAndContinue",
+          "source": "DataModelPausibleOperationImpl.java:89"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl.execute",
+          "source": "DataModelPausibleOperationImpl.java:202"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.project.facet.J2EEFacetInstallDelegate.addToEar",
+          "source": "J2EEFacetInstallDelegate.java:121"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.project.facet.J2EEFacetInstallDelegate.installAndAddModuletoEAR",
+          "source": "J2EEFacetInstallDelegate.java:142"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.web.project.facet.WebFacetPostInstallDelegate.execute",
+          "source": "WebFacetPostInstallDelegate.java:51"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callDelegate",
+          "source": "FacetedProject.java:1218"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.callEventHandlers",
+          "source": "FacetedProject.java:1166"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modifyInternal",
+          "source": "FacetedProject.java:380"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.access$2",
+          "source": "FacetedProject.java:264"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject$1.run",
+          "source": "FacetedProject.java:249"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modify",
+          "source": "FacetedProject.java:259"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.installProjectFacet",
+          "source": "FacetedProject.java:216"
+        }
+      ],
+      "number": 6,
+      "commentIndex": 12,
+      "bugId": "160036",
+      "duplicateId": "191294",
+      "date": "2007-04-21T00:06:41+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "major"
+    }
+  ],
+  "groupId": "191294",
+  "bugId": "160036",
+  "duplicateId": "191294",
+  "date": "2006-10-06T17:12:43+02:00",
+  "product": "Web Tools",
+  "component": "jst.j2ee",
+  "severity": "major"
+}

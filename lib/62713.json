@@ -1,0 +1,151 @@
+{
+  "comments": [
+    "I20040518-gtk M9 test pass\n\nIt\u0027s going to be hard to reconstruct what I did, but I ended up with nested\noutput folders (will attach a screenshot of the property page).\n\n+/- Steps:\n\n1. Create project JUnit\n2. import junit.zip, no separate source and output folders\n3. Using the context menu in the package explorer, add source folder \"test\"\n4. info: the output will be set to \"bin\". Ok.\n-\u003e Note that the standard directory with my junit source is not a source folder\nany longer\n5. Open the project properties, Java build path\n6. Add a source folder, choose the root (Project)\n-\u003e error, \"cannot nest Junit/test into Junit\"\n7. exclude JUnit/test/ from JUnit source folder\n(cool caption telling me to add a slash to fully exclude the folder!)\n\nEverything ok up to now.\n\n8. Enable output folders per source folder\n9. Set the output folder for test to \"Junit/bin\"\n10. Set the output folder for the root dir to \"Junit/bin/test\" (no complaint)\n11. leave the property page\n\nHm, now I have a different problem: The folder JUnit/bin/test does not exist\n-\u003e error in problems view telling me that the project cannot be built because of\nthis\n\nWe\u0027ll continue this way, cannot reproduce the original set up.\n12. Over the context menu, choose to create JUnit/bin/test\n-\u003e I get this in the log:\n\n!ENTRY org.eclipse.jdt.core 4 4 May 18, 2004 19:19:49.409\n!MESSAGE JavaBuilder handling ImageBuilderInternalException while building: JUnit\n!STACK 1\norg.eclipse.core.internal.resources.ResourceException: Resource /JUnit/bin/test\ndoes not exist.\n        at java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n        at java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n        at org.eclipse.core.runtime.CoreException.\u003cinit\u003e(CoreException.java:37)\n        at\norg.eclipse.core.internal.resources.ResourceException.\u003cinit\u003e(ResourceException.java:30)\n        at org.eclipse.core.internal.resources.Resource.checkExists(Resource.java)\n        at org.eclipse.core.internal.resources.Container.members(Container.java)\n        at org.eclipse.core.internal.resources.Container.members(Container.java)\n        at\norg.eclipse.jdt.internal.core.builder.BatchImageBuilder.cleanOutputFolders(BatchImageBuilder.java:112)\n        at\norg.eclipse.jdt.internal.core.builder.BatchImageBuilder.build(BatchImageBuilder.java:35)\n        at\norg.eclipse.jdt.internal.core.builder.JavaBuilder.buildAll(JavaBuilder.java:213)\n        at\norg.eclipse.jdt.internal.core.builder.JavaBuilder.build(JavaBuilder.java:145)\n        at\norg.eclipse.core.internal.events.BuildManager$2.run(BuildManager.java:532)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java)\n        at org.eclipse.core.runtime.Platform.run(Platform.java)\n        at\norg.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:148)\n        at\norg.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:225)\n        at\norg.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:178)\n        at\norg.eclipse.core.internal.events.BuildManager$1.run(BuildManager.java:205)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java)\n        at org.eclipse.core.runtime.Platform.run(Platform.java)\n        at\norg.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:208)\n        at\norg.eclipse.core.internal.events.BuildManager.basicBuildLoop(BuildManager.java:244)\n        at\norg.eclipse.core.internal.events.BuildManager.build(BuildManager.java:273)\n        at\norg.eclipse.core.internal.events.AutoBuildJob.doBuild(AutoBuildJob.java:151)\n        at org.eclipse.core.internal.events.AutoBuildJob.run(AutoBuildJob.java:198)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java)\n!SUBENTRY 1 org.eclipse.core.resources 4 368 May 18, 2004 19:19:49.434\n!MESSAGE Resource /JUnit/bin/test does not exist.",
+    "Created an attachment (id\u003d10781)\nnested output folders\n\nshows nested output folders.",
+    "moving to jdt.core\n\nthe JavaConventions.validateClasspath should not allow invalid settings",
+    "Created an attachment (id\u003d11014)\nExpected validation error seen at stage 10\n\nCannot reproduce on M9. At stage 10, I obtain the expected validation error\nrefusing to nest output folders in each other.",
+    "Can you reproduce it with exact steps you described in fresh new workspace ?\nPlease reopen once information is available.",
+    "Here we go - there were a couple of steps missing in my original steps:\n\n1. Create project JUnit\n2. import junit.zip, no separate source and output folders\n3. Using the context menu in the package explorer, add source folder \"test\"\n4. info: the output will be set to \"bin\". Ok.\n-\u003e Note that the standard directory with my junit source is not a source folder\nany longer\n5. Open the project properties, Java build path\n6. Add a source folder, choose the root (Project)\n-\u003e error, \"cannot nest Junit/test into Junit\"\n7. exclude JUnit/test/ from JUnit source folder\n7a. ok \u0026 leave property page\n\nEverything ok up to now. The problem lies in the following steps, I believe:\n\n7b. Open the properties anew.\n7c. Set the default output folder to the project root: JUnit. (should this be\npossible?)\n7d. Ok \u0026 Exit.\n\n7e. Open the properties anew.\n8. Enable output folders per source folder\n9. Set the output folder for test to \"Junit/bin\"\n10. Set the output folder for the root dir to \"Junit/bin/test\" (no complaint)\n11. leave the property page\n11a. Observe: JUnit/bin/test does not exist\n12. Over the context menu, choose to create JUnit/bin/test\n-\u003e I get the exception mentioned in comment 0.",
+    "Reproduced with new steps.",
+    "Output folder nesting check was ordering dependent (1) and not specific enough \n(2). \n\n(1) List of output folders in order is: {P/, P/bin/test/, P/bin/}. When \nchecking P/bin/test/, we don\u0027t yet have come across P/bin/, and only find \nenclosing P/ which is tolerated (as default output folder). Changed check to \naccumulate all outputs before looking for enclosing scenario. Thus check on \nP/bin/test/ can now find P/bin/.\n\n(2) Also when looking for enclosing scenario, we were looking for first \nenclosing folder, as opposed to most specific one, thus in above scenario, we \nwould always find the output folder P/ which is then thought to be acceptable; \nand thus failing to notice more specific nesting in output folders.\n\n[Note: nesting in default output folder is tolered iff all source folder \ndeclare a custom output.]\n\nAdded regression test ClasspathTests#test39-41.\n\nFixed",
+    "Fixed",
+    "Verified in 200405281200"
+  ],
+  "commentCreationDates": [
+    "2004-05-18T19:34:58+02:00",
+    "2004-05-18T19:35:50+02:00",
+    "2004-05-18T20:10:09+02:00",
+    "2004-05-24T17:23:56+02:00",
+    "2004-05-24T17:26:34+02:00",
+    "2004-05-24T18:27:21+02:00",
+    "2004-05-24T19:13:06+02:00",
+    "2004-05-25T00:29:45+02:00",
+    "2004-05-25T00:30:05+02:00",
+    "2004-05-28T21:57:47+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.core.internal.resources.ResourceException",
+      "message": "Resource /JUnit/bin/test does not exist.",
+      "elements": [
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "org.eclipse.core.runtime.CoreException.\u003cinit\u003e",
+          "source": "CoreException.java:37"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.ResourceException.\u003cinit\u003e",
+          "source": "ResourceException.java:30"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.checkExists",
+          "source": "Resource.java"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Container.members",
+          "source": "Container.java"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Container.members",
+          "source": "Container.java"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.builder.BatchImageBuilder.cleanOutputFolders",
+          "source": "BatchImageBuilder.java:112"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.builder.BatchImageBuilder.build",
+          "source": "BatchImageBuilder.java:35"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.builder.JavaBuilder.buildAll",
+          "source": "JavaBuilder.java:213"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.builder.JavaBuilder.build",
+          "source": "JavaBuilder.java:145"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager$2.run",
+          "source": "BuildManager.java:532"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:148"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:225"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:178"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager$1.run",
+          "source": "BuildManager.java:205"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:208"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuildLoop",
+          "source": "BuildManager.java:244"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.build",
+          "source": "BuildManager.java:273"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.doBuild",
+          "source": "AutoBuildJob.java:151"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.run",
+          "source": "AutoBuildJob.java:198"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "62713",
+      "date": "2004-05-18T19:34:58+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "62713",
+  "bugId": "62713",
+  "date": "2004-05-18T19:34:58+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

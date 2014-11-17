@@ -1,0 +1,82 @@
+{
+  "comments": [
+    "Consider XOM\u0027s UnicodeUtil class:\n\nhttps://xom.dev.java.net/source/browse/xom/src/nu/xom/UnicodeUtil.java?rev\u003d1.19\u0026view\u003dmarkup\n\nThis class contains several very large methods. However it stays within Java\u0027s maximum method size, and is compilable by javac. Eclipse cannot handle this class. It fails to compile it with an unspecified error. I will attach a .log file that I think is relevant, but it starts like this:\n\nclipse.buildId\u003dM20060629-1905\njava.version\u003d1.5.0_06\njava.vendor\u003dApple Computer, Inc.\nBootLoader constants: OS\u003dmacosx, ARCH\u003dppc, WS\u003dcarbon, NL\u003den_US\nFramework arguments:  -keyring /Users/elharo/.eclipse_keyring -showlocation\nCommand-line arguments:  -os macosx -ws carbon -keyring /Users/elharo/.eclipse_keyring -consoleLog -showlocation\n\n!ENTRY org.eclipse.core.resources 4 2 2006-08-16 08:22:11.428\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.core.resources\".\n!STACK 0\norg.eclipse.core.runtime.AssertionFailedException: assertion failed: Marker property value is too long: Internal compiler error\njava.lang.StackOverflowError\n\tat org.eclipse.jdt.internal.compiler.codegen.ConstantPool.literalIndex(ConstantPool.java:468)\n\tat org.eclipse.jdt.internal.compiler.codegen.CodeStream.ldc(CodeStream.java:4854)\n\tat",
+    "Created an attachment (id\u003d48011)\n.log file (renamed) showing the internal compiler error\n\nIt would be helpful if this information were more obviously presented in the Eclipse UI rather than making me hunt it down in a hidden log file, but that\u0027s really a separate issue. ",
+    "I\u0027ll investigate.",
+    "I have no problem to compile the given file on Windows.\nI\u0027ll check on MacOS.",
+    "I\u0027ve imported said file (version 1.1b1) into a new project created in Eclipse 3.3 M1 (I20060810-1230),\nsetup the project\u0027s JRE to Java 1.5.0, and\nadded the missing import:\n       import com.sun.org.apache.bcel.internal.verifier.Verifier;\n\nEverything compiles fine.",
+    "However, I couldn\u0027t test it since I don\u0027t have any tests...\n\nBTW, if you open Eclipse\u0027s Error view, you don\u0027t have to \"hunt it down in a hidden log file\".\n",
+    "The class com.sun.org.apache.bcel.internal.verifier.Verifier is not used by the class in question. I\u0027m not sure what that is. There is a different Verifier class that is part of XOM, nu.xom.Verifier; and that is what is needed here. All I do with the Verifier class is get its class loader, so this would actually compile (though not run) with any class named Verifier you have handy. However, perhaps thi has something to do with the bug?\n\nMore likely, this bug is reported against 3.2 final. I have not checked it with 3.3. ",
+    "Over in 154048 Philippe Mulet said,\n\nIn this case, we do not try to restart the compiler omitting some files; and we\nhave no plan to change this in the near future. There are many files in\nprogress, and chances are that the offending file is still needed to compile\nthe others, which would cause some more errors, or looping. \n\nThat bit about being \"many files in progress\" suggests that files are compiled in parallel rather than series. Is that so? If so, we could be looking at some really gnarly thread-safety problems that appear on some systems but not others. The crash might depend on what other files are open and being compiled when. That could be a real pain to debug. \n\n\n\n\n",
+    "I\u0027ve now installed 3.3M1 and reproduced the problem there. It does not appear to be unique to 3.2.  \n\nCould memory have something to do with this? Is there a way to add more memory to Eclipse? (Of course, even if that\u0027s a workaround this still shouldn\u0027t happen. )\n\nThe Problems View in 3.3 shws \"Other Problems (1 item)\" which refers to UnicodeUtil.java. When I click that I get a dialog that says:\n\n\"An internal error occurred \u0027Requesting Java AST from selection\u0027\"",
+    "I have now confirmed that the problem does not occur in 3.1.2 on the same system (Mac OS X Tiger). \n\nI still have problems in 3.1.2 when opening UnicodeUtil.java. Particularly,  I get a dialog that says:\n\n\"An internal error occurred \u0027Requesting Java AST from selection\u0027\"\n\nHowever, unlike in 3.2, the class is at least compiled and I can still run everything, even if I can\u0027t edit UnicodeUtil. I\u0027m pretty sure that in an earlier release I could edit it too.\n\nFor now, my workaround s going to be reverting to 3.1.2. \n\n",
+    "My previous comment you referenced in comment 7 did not imply concurrency.\nMany files are loaded during compilation, and source units are accumulated in a queue, but they are still processed sequentially. This to clear the thread safety idea.\n\nMaybe you indeed need to provide Eclipse with more memory, simply append to your command line:\n\n-vmargs -Xmx512M -Xss256K\n\n(this should be a lot of memory)\n\nNow I am still wondering why it would have worsen since 3.2... need more investigation.\n",
+    "Do you get the problem when you recompile only the UnicodeUtil class or do you get it only on a full build?\n",
+    "I cannot even open the UnicodeUtil class without getting an error, much less compile it. I don\u0027t know of any distinction in Eclipse between compiling a single file, and compiling everything. I don\u0027t see any command to compile just one file. ",
+    "Adding the suggested amount of memory did *not* cure the problem in Eclipse 3.2. The same problem occurs, despite the added memory. ",
+    "Still we cannot reproduce it. What compiler options are you using ?",
+    "I believe I\u0027m just using the default compiler options. Let me check. Hmm, looks like I\u0027ve set everything to 5.0 compliance level according to Preferences/Java/Compiler. Resetting it doesn\u0027t seem to change anything. I tried turning off debugging symbols, but that didn\u0027t help. Is there something in particular I should look at?",
+    "The compiler is out of the picture. This compiles fine both on MacOS and Windows.\nHowever editing the file fails on MacOS, but works fine on Windows.\nSuspects that the stack size is smaller on MacOS VM.\nChanging title accordingly.",
+    "You simply need to adjust the -Xss parameter of your VM.\nI tried on a MacOS machine and I could edit/modify/compile the file successfully.\nClosing as WORKSFORME.",
+    "Could you specify exactly what value you gave to -Xss to make this work? can I assume you were using 3.3M3?\n\nIf you tell me what the value is I\u0027ll check on my system. ",
+    "I don\u0027t remember what value I used.\nDid you try the ones suggested by Philippe in comment 10 ?",
+    "Should this be mentioned on the \"Running Eclipse\" doc page?",
+    "Perhaps this should be a new bug, but the fact remains that out of the box, on the Mac, Eclipse just dies with no obvious error message.\n\nIncreasing the stack size to 1024K (512K is not enough in 3.3M7) and the heap size to 512M does fix the problem. However doing this requires some serious hacking inside the Eclipse package to find the right eclipse.ini file to change. (Command line options are not available.)\n\nFurthermore, because the change has to be made deep inside the Eclipse package it must be repeated for every new install. It is not persistent like other user preferences. \n\nThe fact is the default memory allocation for Eclipse on the mac is too small by about a factor of four for the stack. Eclipse should ship with -Xss\u003d1024K, at least on the Mac, and possibly -Xmx\u003d512M. \n\nUntil this happens this bug needs to remain open.\n\n\n\n ",
+    "Moving to Platform/Runtime.\nThe solution for this problem seems to specify the stack size on Mac OS.\nThis is not something JDT/Core can do.\nChanging title accordingly.",
+    "Changing OS from Mac OS to Mac OS X as per bug 185991"
+  ],
+  "commentCreationDates": [
+    "2006-08-16T15:35:54+02:00",
+    "2006-08-16T15:38:22+02:00",
+    "2006-08-16T16:26:33+02:00",
+    "2006-08-16T16:51:30+02:00",
+    "2006-08-29T00:03:44+02:00",
+    "2006-08-29T00:09:09+02:00",
+    "2006-08-29T01:01:45+02:00",
+    "2006-08-29T13:34:57+02:00",
+    "2006-09-04T15:47:00+02:00",
+    "2006-09-04T15:58:36+02:00",
+    "2006-09-05T10:24:29+02:00",
+    "2006-09-05T21:21:46+02:00",
+    "2006-09-05T23:53:28+02:00",
+    "2006-09-06T01:06:11+02:00",
+    "2006-10-06T00:14:16+02:00",
+    "2006-10-06T03:01:22+02:00",
+    "2006-11-21T18:19:50+01:00",
+    "2006-11-21T18:36:43+01:00",
+    "2006-11-27T20:20:13+01:00",
+    "2006-11-27T20:23:22+01:00",
+    "2006-12-04T15:45:01+01:00",
+    "2007-05-17T15:09:14+02:00",
+    "2007-07-26T19:45:07+02:00",
+    "2007-07-29T15:20:47+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StackOverflowError",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.codegen.ConstantPool.literalIndex",
+          "source": "ConstantPool.java:468"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.codegen.CodeStream.ldc",
+          "source": "CodeStream.java:4854"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "154047",
+      "date": "2006-08-16T15:35:54+02:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "major"
+    }
+  ],
+  "groupId": "154047",
+  "bugId": "154047",
+  "date": "2006-08-16T15:35:54+02:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "major"
+}

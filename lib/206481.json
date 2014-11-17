@@ -1,0 +1,183 @@
+{
+  "comments": [
+    "Build ID: M20070921-1145\n\nSteps To Reproduce:\n1) Checkout project org.eclipse.bpel from :pserver:anonymous@dev.eclipse.org:/cvsroot/technology\n2) Build it and run as a new eclipse configuration\n3) Create a BPEL process using the \"Asynchronous BPEL Project\" template\n4) Introudce any error to the BPEL process, for example, violate the XML syntax. You may use the source tab. Or you may close the eclipse and use an external editor to be sure of changes.   \n5) Run validator\n\nThe problem view does not report any issues.\nThe console of the launched configuration outputs the following:\nInitFunctions took: 141ms\n[org.eclipse.bpel.validator.Validator]\u003e\u003e Starting validation of /g/a.bpel\n[org.eclipse.bpel.validator.Validator]\u003e\u003e Using mechanism 1: Calling Builder\n[org.eclipse.bpel.validator.Builder]\u003e\u003e File Resource : a.bpel\n[org.eclipse.bpel.validator.Builder]\u003e\u003e Validating BPEL Resource : a.bpel\n[org.eclipse.bpel.validator.Builder]\u003e\u003e Cannot read BPEL Process !!!",
+    "I\u0027ve installed Eclipse 3.3, then bpel packages using update feature. Actually validator doesn\u0027t work, because it requires wtp 2.0.1. By default my eclipse installation contains wtp 2.0",
+    "I\u0027ve just done the same to be sure and it does work.\n\nEclipse 3.3 install \nVersion: 3.3.0\nBuild id: I20070625-1500\n\nand then everything else from our update site.\n\nWhen you say \"run validator\" how do you do it ? Do you right-click mouse then choose \"Validate\" from the popup menu or do you just \"save\" the file ? \n\nBoth events trigger a different invocation path for the validator - the former is a via a WTP validation hook the latter via a builder which is only installed when you create a BPEL project with a BPEL 2.0 \"facet\" in it. \n\nCan you confirm this ? \n\nI\u0027ve attached an image showing the versions of the software from the update site. Clearly, WTP is 2.0.0 so it cannot require 2.0.1. Also the upper version number is left wide open, we don\u0027t do any checks on it AFAIK. \n\nI am kinda stuck here ... like I said my dev env seems to work which is by the way\nVersion: 3.3.0\nBuild id: I20070625-1500\n\ntoo but contains the J2EE stuff in it.\n\n",
+    "Created an attachment (id\u003d81185)\nUpdate shows WTP 2.0.0\n\nThis shows WTP is 2.0.0 in the update.",
+    "I can reproduce this bug on Eclipse 3.3\n\n  Version: 3.3.0\n  Build id: I20070625-1500\n\n  eclipse-SDK-3.3-win32.zip (147635936 bytes)\n\nAnd on 3.3.1\n\n  Version: 3.3.1\n  Build id: M20070921-1145\n\n  eclipse-SDK-3.3.1-win32.zip (147796454 bytes)\n\nI\u0027m using \"right click\" method :-) to run validator\n",
+    "OK ... so here is the story on this one.\n\nOn the tip, when you create a process from the templates, it will generate a valid BPEL process. When I \"right\" click and do \"Validate\" the BPEL validator is run and produces this output to the console of the \"launching eclipse work-bench\".\n\n[org.eclipse.bpel.validator.Validator]\u003e\u003e Starting validation of /FuBar/p1.bpel\n[org.eclipse.bpel.validator.Validator]\u003e\u003e Using mechanism 1: Calling Builder\n[org.eclipse.bpel.validator.Builder]\u003e\u003e File Resource : p1.bpel\n[org.eclipse.bpel.validator.Builder]\u003e\u003e Validating BPEL Resource : p1.bpel\n[org.eclipse.bpel.validator.Builder]\u003e\u003e Read in BPEL Model OK\n[org.eclipse.bpel.validator.Builder]\u003e\u003e Models Linked\n[org.eclipse.bpel.validator.Builder]\u003e\u003e Validator Executed\n\nNow let\u0027s assume I add an \"assign\" via a drag and drop from the palette. What happens is that the original template produced is augmented by this little nugget of code:\n\n\u003cbpws:correlationSets\u003e\u003c/bpws:correlationSets\u003e\n....\n\u003cbpws:assign validate\u003d\"no\" name\u003d\"Assign\"\u003e\u003c/bpws:assign\u003e\n....\n\nThe problem is that bpws prefix is not mapped to anything in the document. So next time, when you run \"validate\" you get this:\n\n[org.eclipse.bpel.validator.Validator]\u003e\u003e Starting validation of /FuBar/p1.bpel\n[org.eclipse.bpel.validator.Validator]\u003e\u003e Using mechanism 1: Calling Builder\n[org.eclipse.bpel.validator.Builder]\u003e\u003e File Resource : p1.bpel\n[org.eclipse.bpel.validator.Builder]\u003e\u003e Validating BPEL Resource : p1.bpel\n[org.eclipse.bpel.validator.Builder]\u003e\u003e Cannot read BPEL Process !!!\n\n*and* if you look in the error log of the workbench running the BPEL editor (so the launched workbench) you will no doubt see something like this:\n\nError\nMon Oct 29 18:26:10 PDT 2007\nFatal Error in platform:/resource/FuBar/p1.bpel [9:33] The prefix \"bpws\" for element \"bpws:correlationSets\" is not bound.\n\norg.xml.sax.SAXParseException: The prefix \"bpws\" for element \"bpws:correlationSets\" is not bound.\n\tat org.apache.xerces.util.ErrorHandlerWrapper.createSAXParseException(Unknown Source)\n\tat org.apache.xerces.util.ErrorHandlerWrapper.fatalError(Unknown Source)\n\tat org.apache.xerces.impl.XMLErrorReporter.reportError(Unknown Source)\n\tat org.apache.xerces.impl.XMLErrorReporter.reportError(Unknown Source)\n\tat org.apache.xerces.impl.XMLNSDocumentScannerImpl.scanStartElement(Unknown Source)\n\tat org.apache.xerces.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch(Unknown Source)\n\tat org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanDocument(Unknown Source)\n\tat org.apache.xerces.parsers.XML11Configuration.parse(Unknown Source)\n\tat org.apache.xerces.parsers.XML11Configuration.parse(Unknown Source)\n\tat org.apache.xerces.parsers.XMLParser.parse(Unknown Source)\n\tat org.apache.xerces.parsers.DOMParser.parse(Unknown Source)\n\tat org.eclipse.bpel.model.resource.BPELReader.read(BPELReader.java:278)\n\tat org.eclipse.bpel.model.resource.BPELReader.read(BPELReader.java:300)\n\tat org.eclipse.bpel.model.resource.BPELResourceImpl.doLoad(BPELResourceImpl.java:179)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.load(ResourceImpl.java:1354)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.load(ResourceImpl.java:1155)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceSetImpl.demandLoad(ResourceSetImpl.java:256)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceSetImpl.demandLoadHelper(ResourceSetImpl.java:271)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceSetImpl.getResource(ResourceSetImpl.java:398)\n\tat org.eclipse.bpel.validator.BPELReader.read(BPELReader.java:70)\n\tat org.eclipse.bpel.validator.Builder.validate(Builder.java:208)\n\tat org.eclipse.bpel.validator.Builder.validate(Builder.java:186)\n\tat org.eclipse.bpel.validator.Builder.processDeltas(Builder.java:145)\n\tat org.eclipse.bpel.validator.Builder.build(Builder.java:110)\n\tat org.eclipse.core.internal.events.BuildManager$2.run(BuildManager.java:624)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:166)\n\tat org.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:197)\n\tat org.eclipse.core.internal.events.BuildManager$1.run(BuildManager.java:246)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:249)\n\tat org.eclipse.core.internal.events.BuildManager.basicBuildLoop(BuildManager.java:302)\n\tat org.eclipse.core.internal.events.BuildManager.build(BuildManager.java:334)\n\tat org.eclipse.core.internal.events.AutoBuildJob.doBuild(AutoBuildJob.java:137)\n\tat org.eclipse.core.internal.events.AutoBuildJob.run(AutoBuildJob.java:235)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)\n\n\nSo it looks like the DOM synchronization work that you guys are working on is introducing problems into DOM by putting prefixed elements when the \"template\" does not have prefixed elements and forgetting to map the prefix to a namespace.\n\nI\u0027ll keep this assigned to you so that you can close it when that problem is fixed.\n"
+  ],
+  "commentCreationDates": [
+    "2007-10-16T17:41:21+02:00",
+    "2007-10-25T16:09:52+02:00",
+    "2007-10-25T20:23:22+02:00",
+    "2007-10-25T20:24:21+02:00",
+    "2007-10-26T12:57:55+02:00",
+    "2007-10-30T02:34:40+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.xml.sax.SAXParseException",
+      "message": "The prefix \"bpws\" for element \"bpws:correlationSets\" is not bound.",
+      "elements": [
+        {
+          "method": "org.apache.xerces.util.ErrorHandlerWrapper.createSAXParseException",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.util.ErrorHandlerWrapper.fatalError",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLErrorReporter.reportError",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLErrorReporter.reportError",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLNSDocumentScannerImpl.scanStartElement",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanDocument",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.XML11Configuration.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.XML11Configuration.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.XMLParser.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.DOMParser.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.bpel.model.resource.BPELReader.read",
+          "source": "BPELReader.java:278"
+        },
+        {
+          "method": "org.eclipse.bpel.model.resource.BPELReader.read",
+          "source": "BPELReader.java:300"
+        },
+        {
+          "method": "org.eclipse.bpel.model.resource.BPELResourceImpl.doLoad",
+          "source": "BPELResourceImpl.java:179"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.load",
+          "source": "ResourceImpl.java:1354"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.load",
+          "source": "ResourceImpl.java:1155"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceSetImpl.demandLoad",
+          "source": "ResourceSetImpl.java:256"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceSetImpl.demandLoadHelper",
+          "source": "ResourceSetImpl.java:271"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceSetImpl.getResource",
+          "source": "ResourceSetImpl.java:398"
+        },
+        {
+          "method": "org.eclipse.bpel.validator.BPELReader.read",
+          "source": "BPELReader.java:70"
+        },
+        {
+          "method": "org.eclipse.bpel.validator.Builder.validate",
+          "source": "Builder.java:208"
+        },
+        {
+          "method": "org.eclipse.bpel.validator.Builder.validate",
+          "source": "Builder.java:186"
+        },
+        {
+          "method": "org.eclipse.bpel.validator.Builder.processDeltas",
+          "source": "Builder.java:145"
+        },
+        {
+          "method": "org.eclipse.bpel.validator.Builder.build",
+          "source": "Builder.java:110"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager$2.run",
+          "source": "BuildManager.java:624"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:166"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:197"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager$1.run",
+          "source": "BuildManager.java:246"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:249"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuildLoop",
+          "source": "BuildManager.java:302"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.build",
+          "source": "BuildManager.java:334"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.doBuild",
+          "source": "AutoBuildJob.java:137"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.run",
+          "source": "AutoBuildJob.java:235"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 5,
+      "bugId": "206481",
+      "date": "2007-10-30T02:34:40+01:00",
+      "product": "BPEL",
+      "component": "Validation",
+      "severity": "major"
+    }
+  ],
+  "groupId": "206481",
+  "bugId": "206481",
+  "date": "2007-10-16T17:41:21+02:00",
+  "product": "BPEL",
+  "component": "Validation",
+  "severity": "major"
+}

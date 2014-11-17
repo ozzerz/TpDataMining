@@ -1,0 +1,113 @@
+{
+  "comments": [
+    "Using 2.1 GTK Linux using Sun JDK 1.4.1_02\n\nI\u0027ll attach my .log file for this in the next comment.",
+    "Created an attachment (id\u003d4420)\nLog file\n",
+    "Array index out of bounds in StyledText.",
+    "What version of Linux are you running?\nWhat version of GTK are you using?(rpm -q gtk2 atk pango glib2 freetype)",
+    "I\u0027m running Debian Linux (testing).  Versions may have Debian specific info\n(like with gtk2, the \u0027-3\u0027 is Debian specific)\ngtk2: 2.0.6-3\natk: 1.2.2-4\npango: 1.2.1-3\nglib2: 2.2.1-3\nfreetype: 2.1.3+2.1.4\n\nOh, and the workaround is to use the Motif version :).",
+    "The stack trace indicates that the exception occured when you started Eclipse \nand a Java editor was restored. \nDid you originally open the editor with a different version of Eclipse or \nperhaps using the Motif version? \nCan you open Java editors (different files) with a fresh workspace?\nDid Eclipse fail to launch because of this exception?\n\nPlase attach the file you tried to open, if possible.\n",
+    "Created an attachment (id\u003d4432)\nGXL.java--I didn\u0027t write it! :)\n\nThe exception occurred multiple times.\tOnce on start up, then whenever I tried\nto select one of the editor tabs.  It also happened when I tried to open a new\neditor tab.  It did not cause a launch failure.\n\nI had originally opened the editor using the Motif version--is this not\nallowed?  On some of the previous M* builds for 2.1, I had been switching, and\nthings worked fine.\n\nI can open Java editors using a fresh workspace (that is, using -data on a\nnewly created directory).\n\nThe failure happened with any Java file I tried to open, but I\u0027ll attach one of\nthem.  It had yellow warning markers on because I had warnings for unused local\nvars set on the workspace settings.\n",
+    "I\u0027m unable to reproduce the problem. From your description it sounds like your\nworkspace got in a state that causes StyledText to fail. Given that the problem\ndoes not occur when you use a new workspace it does not seem to be caused by\nyour GTK setup.\nOne more thing to check is your font settings. Which font do you use for the\nJava editor in the workspace that fails? Is it different from the default that\nis used in a new workspace?\n\nIt should not be a problem to switch between the Motif and GTK version of\nEclipse. I do this all the time.\n\nIt appears that the StyledText widget is not initialized properly. We should\nguard against invalid values passed in to ContentWidthCache.calculate.\n",
+    "Here\u0027s some more info.  The first dialog box that comes up says:\n\"An error has occurred while opening this view\"\nThen the editor says:\n\"An error has occurred when creating this editor\"\nThe font in the GTK Eclipse says:\nclean-bold-14\nwhich, using xfontsel, should be something like\n-schumacher-clean-bold-r-bold-*-14-140-75-75-c-80-iso646.1991-irv\n\nUsing Eclipse-Motif, the font says:\njmk-neep alt-bold-14\nbut only after I use the GTK version.  So, it used to say:\nshumacher-clean-regular-14\nbut gets changed to jmk-neep alt-bold-14 whenever I switch to GTK,\nthen back to Motif.\n\nI think these might be the same fonts, as I can\u0027t tell the difference.\n\nIn the GTK version, the preview font window shows weird symbols for\nclean-bold-14 (or clean-regular-14).\n\nIf I change the motif version to use jmk-neep, then switch back to\nGTK, everything is all right--I do not get the errors, and editors\nseem to be okay.  Changing back to schumacher clean results in the\nsame errors again.\n\nSo if it could tell me to select another font, or automatically bring\nup the font window, that would be a bit more helpful.",
+    "So you initially had schumacher clean selected on Motif, go to GTK and get \nerrors, go back to Motif and clean is no longer selected (replaced by neep alt)?\nWhen you go to GTK and open the font selection dialog in the workbench/fonts \npreferences what font is selected there?\n\nWhen I select schumacher clean on Motif and go to GTK it select Sans for me if \nI open the font selection dialog. Do you have that font installed? I\u0027m guessing \nyou don\u0027t and SWT/the window system screws up while trying to find a properly \nmatching font.\nGC.getFontMetrics().getHeight() seems to return 0 in the failing GTK case. This \ncauses parts of StyledText to not be initialized properly. It also causes the \ndivide by 0 exception in your log.\nThanks for the quick feedback!",
+    "Entered bug 36000 to make the StyledText widget more robust when the line/font \nheight is 0.\nAssigning back to inbox since this seems to be a general font mapping issue.",
+    "Actually, I do have Sans available.\n\nGoing Motif, schumacher clean to GTK then opening Pref-\u003eFonts and hitting Change\nfor Java Editor Text Font gives me clean, Medium(?), 14(?).  The preview shows\nlong rectangles with a short line above them.  It repeats 23 times.  I\u0027ll attach\na some screen shots of what I see in the next comment.\n\nIf the text doesn\u0027t show up well on the 2nd shot, it says clean-bold-14 above\nthe \"Use System Font | Change... | Reset\" buttons.\n\nGoing back to Motif, you have it correct--I see neep alt.\n\n",
+    "Created an attachment (id\u003d4439)\nfont selection dialog\n",
+    "Created an attachment (id\u003d4440)\npreferences-\u003efonts\n",
+    "One other thing.  After changing the font, I have to close and reopen the open\neditor to see the file contents--this is, for me as an end user, different\nbehaviour than usual.  Usually, when changing the font, the changes take effect\non Apply or OK.\n\n",
+    "Created an attachment (id\u003d4505)\nBug_35943.java - test case to reproduce the exception\n\nAndrew, it would be helpful if you could run the attached test case (a\nstandalone SWT application-let me know if you more instructions on how to run)\nto confirm that it indeed demonstrates your problem.\n\nTo demonstrate the problem on platforms where the font does not measure to 0\nheight StyledText has to be instrumented by adding the following code to\nStyledText.initializeRenderer:\n\tif (first) {\n\t\tlineHeight \u003d renderer.getLineHeight();\n\t\tfirst \u003d false;\n\t}\n\telse {\t\n\t\tlineHeight \u003d 0;\n\t}\n\nAdd a static field first to the class.",
+    "Actually, it seems to work fine for me, printing out:\n1234\n567\n\nI\u0027m just running it from the command line, using both the motif and gtk\njars/libs (one or the other, of course).  I suspect I need certain font settings\nto actually get the \u0027desired\u0027 (no text) behaviour, yes?  To be honest, I have no\nidea how to set the default font for GTK.  Do you?",
+    "I made a minor omission in my test case. I didn\u0027t actually set the font that is \ncausing the problem.\nTo find out what the font definition is for the schumacher-clean font you use \nin Motif and which then causes the exception on GTK you need to open a \npreference file in your workspace directory. The path, relative to your \nworkspace directory, \nis .metadata/.plugins/org.eclipse.ui.workbench/pref_store.ini\n\nThe first entry should start with org.eclipse.jdt.ui.editors.textfont\u003d\nThe string that follows is the important part. On my machine it is as follows:\n1|clean|14|1|MOTIF|1|-schumacher-clean-bold-r-normal--14-140-75-75-c-80-\niso646.1991-irv\n\nIf you post the exact string as it appears in your configuration file I will \nattach an updated test case for you to run on GTK. Thanks.",
+    "Mine shows:\norg.eclipse.jface.textfont\u003d1|clean|14|0|MOTIF|1|-schumacher-clean-medium-r-normal--14-140-75-75-c-80-iso646.1991-irv;\n\nUsing bold:\norg.eclipse.jface.textfont\u003d1|clean|14|1|MOTIF|1|-schumacher-clean-bold-r-normal--14-140-75-75-c-80-iso646.1991-irv;\n",
+    "Created an attachment (id\u003d4531)\nBug_35943.java - test case to reproduce the exception\n\nPlease try this test case.",
+    "That does the trick (running under GTK):\nException in thread \"main\" java.lang.ArrayIndexOutOfBoundsException: 1\n\tat\norg.eclipse.swt.custom.StyledText$ContentWidthCache.calculate(StyledText.java:1204)\n\tat org.eclipse.swt.custom.StyledText.redraw(StyledText.java:6025)\n\tat org.eclipse.swt.custom.StyledText.setStyleRanges(StyledText.java:7780)\n\tat Bug_35943$1.handleEvent(Bug_35943.java:28)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:81)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:913)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1637)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1429)\n\tat Bug_35943.main(Bug_35943.java:35)\n",
+    "Excellent, that means my font height \u003d\u003d 0 theory is correct. Thanks for testing!\n\nThe doc for FontData(String) says \"Note that the representation varies between \nplatforms, and a FontData can only be created from a string that was generated \non the same platform.\". So technically, when switching between Motif and GTK \nthe font should not be restored. However, this seems to work in general (i.e., \nI think this is the first time someone reported a problem). Hopefully SWT can \nfix this failing case. \nWe need clarification of whether it\u0027s ok to mix Motif and GTK font descriptions \nor whether Platform UI should detect platform changes and reset the fonts.",
+    "SSQ, note that they are trying to restore a font from a description saved on \nGTK on Motif (or is it the other way around?).  Anyhow, we should not be \nreturning a font with zero height.\n\nSSQ and Chrix to investigate.",
+    "To clarify, it is the other way around. The font is saved on Motif and when \nread on GTK returns 0 height.",
+    "I can not reproduce this problem with RedHat 9.0 and GTK 2.2.1. I will try on\nGTK 2.0.6."
+  ],
+  "commentCreationDates": [
+    "2003-04-01T22:06:59+02:00",
+    "2003-04-01T22:08:46+02:00",
+    "2003-04-02T16:02:50+02:00",
+    "2003-04-02T16:33:18+02:00",
+    "2003-04-02T16:50:55+02:00",
+    "2003-04-02T18:11:26+02:00",
+    "2003-04-02T19:29:32+02:00",
+    "2003-04-02T20:46:34+02:00",
+    "2003-04-02T21:54:58+02:00",
+    "2003-04-02T23:39:48+02:00",
+    "2003-04-02T23:54:07+02:00",
+    "2003-04-03T00:24:03+02:00",
+    "2003-04-03T00:25:00+02:00",
+    "2003-04-03T00:25:34+02:00",
+    "2003-04-03T00:28:57+02:00",
+    "2003-04-08T23:18:30+02:00",
+    "2003-04-09T00:11:16+02:00",
+    "2003-04-09T01:28:29+02:00",
+    "2003-04-09T16:05:37+02:00",
+    "2003-04-09T20:04:52+02:00",
+    "2003-04-09T20:47:55+02:00",
+    "2003-04-10T14:25:37+02:00",
+    "2003-04-14T20:52:25+02:00",
+    "2003-04-14T23:22:17+02:00",
+    "2003-04-17T16:50:11+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "message": "1",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.custom.StyledText$ContentWidthCache.calculate",
+          "source": "StyledText.java:1204"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.redraw",
+          "source": "StyledText.java:6025"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.setStyleRanges",
+          "source": "StyledText.java:7780"
+        },
+        {
+          "method": "Bug_35943$1.handleEvent",
+          "source": "Bug_35943.java:28"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:81"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:913"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:1637"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1429"
+        },
+        {
+          "method": "Bug_35943.main",
+          "source": "Bug_35943.java:35"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 20,
+      "bugId": "35943",
+      "date": "2003-04-09T20:47:55+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "35943",
+  "bugId": "35943",
+  "date": "2003-04-01T22:06:59+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

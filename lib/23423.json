@@ -1,0 +1,432 @@
+{
+  "comments": [
+    "20020910\ncom.sun.jdi.VMDisconnectedException: Got IOException from Virtual Machine\nat org.eclipse.jdi.internal.connect.PacketSendManager.sendPacket\n(PacketSendManager.java:63)\nat org.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:163)\nat org.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:185)\nat org.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:215)\nat org.eclipse.jdi.internal.ReferenceTypeImpl.signature\n(ReferenceTypeImpl.java:809)\nat org.eclipse.jdi.internal.ReferenceTypeImpl.name(ReferenceTypeImpl.java:795)\nat org.eclipse.jdt.internal.debug.core.breakpoints.JavaBreakpoint.getTypeName\n(JavaBreakpoint.java:730)\nat org.eclipse.jdt.internal.debug.core.breakpoints.JavaBreakpoint.addToTarget\n(JavaBreakpoint.java:415)\nat org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.breakpointAdded\n(JDIDebugTarget.java:989)\nat org.eclipse.jdt.internal.debug.ui.JavaDebugOptionsManager.notifyTarget\n(JavaDebugOptionsManager.java:360)\nat org.eclipse.jdt.internal.debug.ui.JavaDebugOptionsManager.handleDebugEvents\n(JavaDebugOptionsManager.java:563)\nat org.eclipse.debug.core.DebugPlugin.fireDebugEventSet(DebugPlugin.java\n(Compiled Code))\nat org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.fireEvent\n(JDIDebugElement.java:133)\nat org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.fireCreationEvent\n(JDIDebugElement.java:123)\nat org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.initialize\n(JDIDebugTarget.java:338)\nat org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.\u003cinit\u003e\n(JDIDebugTarget.java:237)\nat org.eclipse.jdt.debug.core.JDIDebugModel$1.run(JDIDebugModel.java:134)\nat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1361)\nat org.eclipse.jdt.debug.core.JDIDebugModel.newDebugTarget\n(JDIDebugModel.java:138)\nat org.eclipse.jdt.debug.core.JDIDebugModel.newDebugTarget\n(JDIDebugModel.java:98)\nat org.eclipse.jdt.internal.launching.StandardVMDebugger.run\n(StandardVMDebugger.java:145)\nat \norg.eclipse.pde.internal.ui.launcher.WorkbenchLaunchConfigurationDelegate.doLaun\nch(WorkbenchLaunchConfigurationDelegate.java:279)\nat \norg.eclipse.pde.internal.ui.launcher.WorkbenchLaunchConfigurationDelegate.launch\n(WorkbenchLaunchConfigurationDelegate.java:87)\nat org.eclipse.debug.internal.core.LaunchConfiguration.launch\n(LaunchConfiguration.java:140)\nat org.eclipse.debug.internal.ui.actions.RelaunchActionDelegate.relaunch\n(RelaunchActionDelegate.java:56)\nat org.eclipse.debug.internal.ui.actions.RelaunchActionDelegate.relaunch\n(RelaunchActionDelegate.java:32)\nat org.eclipse.debug.internal.ui.actions.RelaunchHistoryLaunchAction$1.run\n(RelaunchHistoryLaunchAction.java:59)\nat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:66)\nat org.eclipse.debug.internal.ui.actions.RelaunchHistoryLaunchAction.run\n(RelaunchHistoryLaunchAction.java:57)\nat org.eclipse.jface.action.Action.runWithEvent(Action.java:749)\nat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection\n(ActionContributionItem.java:407)\nat org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent\n(ActionContributionItem.java:361)\nat org.eclipse.jface.action.ActionContributionItem.access$0\n(ActionContributionItem.java:352)\nat org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent\n(ActionContributionItem.java:47)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java(Compiled Code))\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java(Compiled Code))\nat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java(Compiled \nCode))\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java(Compiled Code))\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java(Compiled Code))\nat org.eclipse.ui.internal.Workbench.run(Workbench.java:1239)\nat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:775)\nat org.eclipse.core.boot.BootLoader.run(BootLoader.java:462)\nat java.lang.reflect.Method.invoke(Native Method)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:247)\nat org.eclipse.core.launcher.Main.run(Main.java:703)\nat org.eclipse.core.launcher.Main.main(Main.java:539)",
+    "major - i have to go back to 2.0.1",
+    "restarting eclipse made it work again\nsorry for the severity mess",
+    "I can get a similar problem:\nDebug a self hosted workspace\nPut a breakpoint at line 87 of BreakpointsViewEventHandler\nDebug a program in the target, that will cause a breakpoint to be installed.\nThe breakpoint in the host is hit\nHit resume, the breakpoint is hit again in the host\nIn the self-host target, terminate the program\nHit resume in the host (takes a couple of times) and you will stop at the \nVMDisconnectedException (if stopping at uncaught exceptions)\nTerminate and Remove in the self-host target to cleanup the zombie launch.\n\nAny further attempts to debug a program in the self-host target fail with the \nIOException--\u003eVMDisconnectedException.\nLike Adam, restarting the self-host target fixes the problem.",
+    "Turns out this was a problem with breakpoints not being removed from a target \nthat has shutdown unexpectedly.  A breakpoint would hold onto a ReferenceType \n(in fInstalledType).  In #addToTarget(JDITarget) one of the first things we do \nis call #getTypeName().  This would blow up with a VMDisconnectedException as \nwe were asking the old ReferenceType.  So this is the reason for all future \nlaunches failing.\n\nNow the reason the breakpoints were not removed from the target.\nThe EventDispatcher attempts to resume the event set.  This can fail with a \nVMDisconnectedException.  This caused all event dispatching to fail...including \nthe pending notification that the VM had disconnected--\u003ethe target is not \nnotified and the breakpoints are not removed.",
+    "Fixed in EventDispatcher.",
+    "Verified explanation and code fix. Was not able to reproduce problem.",
+    "I\u0027m still getting this problem in the latest code:\n\n!ENTRY org.eclipse.ui 4 0 Sep 18, 2002 09:57:29.680\n!MESSAGE Got IOException from Virtual Machine\n!STACK 0\ncom.sun.jdi.VMDisconnectedException: Got IOException from Virtual Machine\n\tat org.eclipse.jdi.internal.connect.PacketReceiveManager.getReply\n(PacketReceiveManager.java:123)\n\tat org.eclipse.jdi.internal.connect.PacketReceiveManager.getReply\n(PacketReceiveManager.java:137)\n\tat org.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:167)\n\tat org.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:185)\n\tat org.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:215)\n\tat org.eclipse.jdi.internal.ReferenceTypeImpl.signature\n(ReferenceTypeImpl.java:809)\n\tat org.eclipse.jdi.internal.ReferenceTypeImpl.name\n(ReferenceTypeImpl.java(Compiled Code))\n\tat \norg.eclipse.jdt.internal.debug.core.breakpoints.JavaBreakpoint.getTypeName\n(JavaBreakpoint.java:807)\n\tat \norg.eclipse.jdt.internal.debug.core.breakpoints.JavaBreakpoint.addToTarget\n(JavaBreakpoint.java:452)\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.breakpointAdded\n(JDIDebugTarget.java:999)\n\tat \norg.eclipse.jdt.internal.debug.ui.JavaDebugOptionsManager.notifyTarget\n(JavaDebugOptionsManager.java:360)\n\tat \norg.eclipse.jdt.internal.debug.ui.JavaDebugOptionsManager.handleDebugEvents\n(JavaDebugOptionsManager.java:563)\n\tat org.eclipse.debug.core.DebugPlugin.fireDebugEventSet(DebugPlugin.java\n(Compiled Code))\n\tat org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.fireEvent\n(JDIDebugElement.java:133)\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIDebugElement.fireCreationEvent\n(JDIDebugElement.java:123)\n\tat org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.initialize\n(JDIDebugTarget.java:338)\n\tat org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.\u003cinit\u003e\n(JDIDebugTarget.java:237)\n\tat org.eclipse.jdt.debug.core.JDIDebugModel$1.run\n(JDIDebugModel.java:134)\n\tat org.eclipse.core.internal.resources.Workspace.run\n(Workspace.java:1378)\n\tat org.eclipse.jdt.debug.core.JDIDebugModel.newDebugTarget\n(JDIDebugModel.java:138)\n\tat org.eclipse.jdt.debug.core.JDIDebugModel.newDebugTarget\n(JDIDebugModel.java:98)\n\tat org.eclipse.jdt.internal.launching.StandardVMDebugger.run\n(StandardVMDebugger.java:145)\n\tat \norg.eclipse.jdt.internal.launching.JavaLocalApplicationLaunchConfigurationDelega\nte.launch(JavaLocalApplicationLaunchConfigurationDelegate.java:97)\n\tat org.eclipse.debug.internal.core.LaunchConfiguration.launch\n(LaunchConfiguration.java:140)\n\tat org.eclipse.debug.internal.ui.actions.RelaunchActionDelegate.relaunch\n(RelaunchActionDelegate.java:56)\n\tat org.eclipse.debug.internal.ui.actions.RelaunchLastAction$1.run\n(RelaunchLastAction.java:60)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:66)\n\tat org.eclipse.debug.internal.ui.actions.RelaunchLastAction.run\n(RelaunchLastAction.java:58)\n\tat org.eclipse.ui.internal.PluginAction.runWithEvent\n(PluginAction.java:210)\n\tat org.eclipse.ui.internal.WWinPluginAction.runWithEvent\n(WWinPluginAction.java:196)\n\tat \norg.eclipse.ui.internal.registry.AcceleratorScope$AcceleratorAction.run\n(AcceleratorScope.java:289)\n\tat org.eclipse.ui.internal.registry.AcceleratorScope.processKey\n(AcceleratorScope.java:249)\n\tat org.eclipse.ui.internal.KeyBindingMenu$3.handleEvent\n(KeyBindingMenu.java:90)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java\n(Compiled Code))\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java\n(Compiled Code))\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java\n(Compiled Code))\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java\n(Compiled Code))\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java\n(Compiled Code))\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1239)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:775)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:462)\n\tat java.lang.reflect.Method.invoke(Native Method)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:247)\n\tat org.eclipse.core.launcher.Main.run(Main.java:703)\n\tat org.eclipse.core.launcher.Main.main(Main.java:539)\n",
+    "I think the problem is that when multiple targets are run, the install count \ncan be greater than 0, and we cache an installed type from a terminated VM.",
+    "Changed code to cache the type name, rather than the actual ReferenceType. This \nfixes the problem.",
+    "Fixed. Please verify, Darin S.",
+    "Verified code.",
+    "*** Bug 23641 has been marked as a duplicate of this bug. ***",
+    "*** Bug 23786 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2002-09-11T17:51:38+02:00",
+    "2002-09-11T17:52:08+02:00",
+    "2002-09-11T18:00:18+02:00",
+    "2002-09-11T18:41:23+02:00",
+    "2002-09-12T23:37:51+02:00",
+    "2002-09-12T23:42:09+02:00",
+    "2002-09-13T04:35:57+02:00",
+    "2002-09-18T16:40:06+02:00",
+    "2002-09-18T16:57:48+02:00",
+    "2002-09-18T17:07:02+02:00",
+    "2002-09-18T17:07:24+02:00",
+    "2002-09-18T17:11:08+02:00",
+    "2002-09-18T17:36:32+02:00",
+    "2002-09-18T22:25:49+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "com.sun.jdi.VMDisconnectedException",
+      "message": "Got IOException from Virtual Machine",
+      "elements": [
+        {
+          "method": "org.eclipse.jdi.internal.connect.PacketSendManager.sendPacket",
+          "source": "PacketSendManager.java:63"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+          "source": "MirrorImpl.java:163"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+          "source": "MirrorImpl.java:185"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+          "source": "MirrorImpl.java:215"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.ReferenceTypeImpl.signature",
+          "source": "ReferenceTypeImpl.java:809"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.ReferenceTypeImpl.name",
+          "source": "ReferenceTypeImpl.java:795"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.breakpoints.JavaBreakpoint.getTypeName",
+          "source": "JavaBreakpoint.java:730"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.breakpoints.JavaBreakpoint.addToTarget",
+          "source": "JavaBreakpoint.java:415"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.breakpointAdded",
+          "source": "JDIDebugTarget.java:989"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.ui.JavaDebugOptionsManager.notifyTarget",
+          "source": "JavaDebugOptionsManager.java:360"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.ui.JavaDebugOptionsManager.handleDebugEvents",
+          "source": "JavaDebugOptionsManager.java:563"
+        },
+        {
+          "method": "org.eclipse.debug.core.DebugPlugin.fireDebugEventSet",
+          "source": "DebugPlugin.java (Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.fireEvent",
+          "source": "JDIDebugElement.java:133"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.fireCreationEvent",
+          "source": "JDIDebugElement.java:123"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.initialize",
+          "source": "JDIDebugTarget.java:338"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.\u003cinit\u003e",
+          "source": "JDIDebugTarget.java:237"
+        },
+        {
+          "method": "org.eclipse.jdt.debug.core.JDIDebugModel$1.run",
+          "source": "JDIDebugModel.java:134"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1361"
+        },
+        {
+          "method": "org.eclipse.jdt.debug.core.JDIDebugModel.newDebugTarget",
+          "source": "JDIDebugModel.java:138"
+        },
+        {
+          "method": "org.eclipse.jdt.debug.core.JDIDebugModel.newDebugTarget",
+          "source": "JDIDebugModel.java:98"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.StandardVMDebugger.run",
+          "source": "StandardVMDebugger.java:145"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.launcher.WorkbenchLaunchConfigurationDelegate.doLaunch",
+          "source": "WorkbenchLaunchConfigurationDelegate.java:279"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.launcher.WorkbenchLaunchConfigurationDelegate.launch",
+          "source": "WorkbenchLaunchConfigurationDelegate.java:87"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+          "source": "LaunchConfiguration.java:140"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.actions.RelaunchActionDelegate.relaunch",
+          "source": "RelaunchActionDelegate.java:56"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.actions.RelaunchActionDelegate.relaunch",
+          "source": "RelaunchActionDelegate.java:32"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.actions.RelaunchHistoryLaunchAction$1.run",
+          "source": "RelaunchHistoryLaunchAction.java:59"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:66"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.actions.RelaunchHistoryLaunchAction.run",
+          "source": "RelaunchHistoryLaunchAction.java:57"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:749"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:407"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent",
+          "source": "ActionContributionItem.java:361"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$0",
+          "source": "ActionContributionItem.java:352"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent",
+          "source": "ActionContributionItem.java:47"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java(Compiled  Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1239"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:775"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:462"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:247"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:703"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:539"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "23423",
+      "date": "2002-09-11T17:51:38+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "com.sun.jdi.VMDisconnectedException",
+      "message": "Got IOException from Virtual Machine",
+      "elements": [
+        {
+          "method": "org.eclipse.jdi.internal.connect.PacketReceiveManager.getReply",
+          "source": "PacketReceiveManager.java:123"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.connect.PacketReceiveManager.getReply",
+          "source": "PacketReceiveManager.java:137"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+          "source": "MirrorImpl.java:167"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+          "source": "MirrorImpl.java:185"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+          "source": "MirrorImpl.java:215"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.ReferenceTypeImpl.signature",
+          "source": "ReferenceTypeImpl.java:809"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.ReferenceTypeImpl.name",
+          "source": "ReferenceTypeImpl.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.breakpoints.JavaBreakpoint.getTypeName",
+          "source": "JavaBreakpoint.java:807"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.breakpoints.JavaBreakpoint.addToTarget",
+          "source": "JavaBreakpoint.java:452"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.breakpointAdded",
+          "source": "JDIDebugTarget.java:999"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.ui.JavaDebugOptionsManager.notifyTarget",
+          "source": "JavaDebugOptionsManager.java:360"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.ui.JavaDebugOptionsManager.handleDebugEvents",
+          "source": "JavaDebugOptionsManager.java:563"
+        },
+        {
+          "method": "org.eclipse.debug.core.DebugPlugin.fireDebugEventSet",
+          "source": "DebugPlugin.java (Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.fireEvent",
+          "source": "JDIDebugElement.java:133"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.fireCreationEvent",
+          "source": "JDIDebugElement.java:123"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.initialize",
+          "source": "JDIDebugTarget.java:338"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.\u003cinit\u003e",
+          "source": "JDIDebugTarget.java:237"
+        },
+        {
+          "method": "org.eclipse.jdt.debug.core.JDIDebugModel$1.run",
+          "source": "JDIDebugModel.java:134"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1378"
+        },
+        {
+          "method": "org.eclipse.jdt.debug.core.JDIDebugModel.newDebugTarget",
+          "source": "JDIDebugModel.java:138"
+        },
+        {
+          "method": "org.eclipse.jdt.debug.core.JDIDebugModel.newDebugTarget",
+          "source": "JDIDebugModel.java:98"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.StandardVMDebugger.run",
+          "source": "StandardVMDebugger.java:145"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.JavaLocalApplicationLaunchConfigurationDelegate.launch",
+          "source": "JavaLocalApplicationLaunchConfigurationDelegate.java:97"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+          "source": "LaunchConfiguration.java:140"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.actions.RelaunchActionDelegate.relaunch",
+          "source": "RelaunchActionDelegate.java:56"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.actions.RelaunchLastAction$1.run",
+          "source": "RelaunchLastAction.java:60"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:66"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.actions.RelaunchLastAction.run",
+          "source": "RelaunchLastAction.java:58"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PluginAction.runWithEvent",
+          "source": "PluginAction.java:210"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WWinPluginAction.runWithEvent",
+          "source": "WWinPluginAction.java:196"
+        },
+        {
+          "method": "org.eclipse.ui.internal.registry.AcceleratorScope$AcceleratorAction.run",
+          "source": "AcceleratorScope.java:289"
+        },
+        {
+          "method": "org.eclipse.ui.internal.registry.AcceleratorScope.processKey",
+          "source": "AcceleratorScope.java:249"
+        },
+        {
+          "method": "org.eclipse.ui.internal.KeyBindingMenu$3.handleEvent",
+          "source": "KeyBindingMenu.java:90"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java (Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java (Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java (Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java (Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java (Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1239"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:775"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:462"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:247"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:703"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:539"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 7,
+      "bugId": "23423",
+      "date": "2002-09-18T16:40:06+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "23423",
+  "bugId": "23423",
+  "date": "2002-09-11T17:51:38+02:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

@@ -1,0 +1,65 @@
+{
+  "comments": [
+    "I\u0027m compiling a simple class using aspects from the Gemini framework:\n\nhttp://www.e-nspire.com/portal/content/section/4/35/\n\nWhen I try to run a JDO enhancer on the resultant class file, I get an exception:\n\njava.lang.VerifyError: (class: com/releasecleveland/business/Photo,  \nmethod: setBannerAd signature: (Lcom/releasecleveland/business/ \nBannerAd;)V) Illegal type in constant pool\n\tat java.lang.Class.getDeclaredFields0(Native Method)\n\tat java.lang.Class.privateGetDeclaredFields(Class.java:2232)\n\tat java.lang.Class.getDeclaredFields(Class.java:1715)\n\tat com.versant.core.metadata.ClassMetaData.getDeclaredFields(VOA  \n4.0.3 --------:1304)\n\nThe code in the JDO tool that produces the exception is simply\n\nField[] fa \u003d cls.getDeclaredFields();",
+    "Created an attachment (id\u003d41532)\nClass file that produces the exception.\n\n",
+    "The problem here is that the woven end result after gemini has been applied is an LDC instruction referencing a class constant in the constant pool.\n\nNow, first question is how did you get an annotation onto your banner field in the Photo class and still produce a resultant class file at the Java 1.1 level?  We know there are ways, I\u0027m just wondering how you did it?  Was it deliberate?",
+    "Um... I\u0027m new to aspect-oriented programming so I have almost no idea what you are talking about. :) Are you saying that my class has been incorrectly compiled? My intent is to compile and run under JDK 1.5 and I believe I have the appropriate flags set when I invoke AJC. I can attach the source file and/or my build script if necessary.",
+    "Here\u0027s the relevant portion of the source:\n\nimport com.enspire.gemini.annotation.BidirectionalMany;\nimport com.enspire.gemini.annotation.BidirectionalOne;\n\npublic class Photo implements Comparable\u003cPhoto\u003e\n{\n        @BidirectionalOne(oppositeName\u003d\"photos\",oppositeType\u003dBidirectionalMany.class)\n        private BannerAd bannerAd;\n        \n...and my Ant task looks like this:\n\n            \u003ciajc \n                        sourceRoots\u003d\"build/src:src\" \n                                destdir\u003d\"build/classes\" \n                                debug\u003d\"on\" \n                                source\u003d\"1.5\"\n                                target\u003d\"1.5\"\n                                classpathref\u003d\"project.classpath\"\n                                aspectPath\u003d\"${project_base}/ThirdPartyLibraries/trunk/lib/com.e-nspire.gemini-1.0.jar\"\n                                fork\u003d\"yes\"\u003e\n...\n",
+    "That\u0027s really interesting. All \".class\" files have a version number that indicates to the Java VM what language level they were compiled for (1.1 through to 1.5). The version number inside Photo.class says it was compiled for a 1.1 VM. The reason you get the verify error is that it contains an instruction that is only appropriate on a 1.5 VM. \n\nAndy and I were able to reproduce a similar verify error yesterday by compiling a class file for target 1.3, and then weaving it with an annotation based aspect (such as is used in the Gemini library). We raised a separate enh to consider (a) checking that only weaver features appropriate to the target level are used - we already have some of these checks, are missing some in binary weaving, and (b) upgrading the version info inside the .class file when weaving with a -target higher than the current version inside the class.\n\nSince Photo.class has annotations in it, it surprised us to see the 1.1 VM version flag in there (since Photo.java wouldn\u0027t normally compile unless target was set to 1.5). As Andy alluded to, there are techniques such as backport175 that can put annotations in back-level class files, and we wondered if you were using such a tool.\n\nThe fact that you are building from source using iajc makes the version information even more curious... ",
+    "I just tried a quick sanity check compile using iajc with source and target both set to 1.5, and it did indeed correctly produce a class file with major version 49 (1.5).",
+    "It does appear that classes generated during weaving (closures/etc) will have 45.3 as the version (Java 1.1) - I\u0027m having a bit of trouble finding a route through the process that will cause a class we compile from source to have its version downgraded to this \u0027default\u0027 of 45.3.  The type declaration for Photo uses generics so it\u0027s even more wierd!",
+    "Kevin - can I ask what version of AspectJ are you on? Is it the latest? (1.5.1a)\n\nA few things that will help us get some kind of handle on things:\n\n1) Can you remove the aspectpath entry from your iajc call and after compilation check the version number of the Photo class.  This is done easily by \u0027javap -verbose Photo\u0027 with Photo on your classpath and then just before the constant pool you will see two lines:\n minor version: 3\n major version: 45\nare those what you get when for this version compiled without the gemini jar?\n\n2) Are you able to try a command line compilation of this program, so instead of your iajc call, something like\n\najc -sourceroots build/src:src -d build/classes -source 1.5 -target 1.5 -aspectpath ${something}/ThirdPartyLibraries/trunk/lib/com.e-nspire.gemini-1.0.jar\n\nwhat version is the Photo class in this case?\n\n3) finally, can you remove the \u0027fork\u003d\"yes\"\u0027 line from your iajc call - what version is the Photo class in this case?\n\nOh, and what JVM are you using to execute Ant. A recent Sun Java5?",
+    "I\u0027ve found the issue and it is not a problem with AspectJ. I am running another task between the initial compilation and the JDO enhance which also does some bytecode modification (using the Javassist library). Apparently this is the source of the mysterious version downgrade as disabling it cures the problem. I apologize for the wild goose chase; that should have jumped out as a red flag but I missed it previously.",
+    "Changing OS from Mac OS to Mac OS X as per bug 185991"
+  ],
+  "commentCreationDates": [
+    "2006-05-16T01:32:15+02:00",
+    "2006-05-16T01:33:29+02:00",
+    "2006-05-16T12:16:09+02:00",
+    "2006-05-16T23:56:48+02:00",
+    "2006-05-17T00:00:32+02:00",
+    "2006-05-17T08:07:43+02:00",
+    "2006-05-17T08:15:21+02:00",
+    "2006-05-17T14:23:02+02:00",
+    "2006-05-17T14:32:30+02:00",
+    "2006-05-18T17:26:57+02:00",
+    "2007-07-29T15:19:59+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.VerifyError",
+      "message": "(class: com/releasecleveland/business/Photo,   method: setBannerAd signature: (Lcom/releasecleveland/business/  BannerAd;)V) Illegal type in constant pool",
+      "elements": [
+        {
+          "method": "java.lang.Class.getDeclaredFields0",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.Class.privateGetDeclaredFields",
+          "source": "Class.java:2232"
+        },
+        {
+          "method": "java.lang.Class.getDeclaredFields",
+          "source": "Class.java:1715"
+        },
+        {
+          "method": "com.versant.core.metadata.ClassMetaData.getDeclaredFields",
+          "source": "VOA   4.0.3 --------:1304"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "141915",
+      "date": "2006-05-16T01:32:15+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "major"
+    }
+  ],
+  "groupId": "141915",
+  "bugId": "141915",
+  "date": "2006-05-16T01:32:15+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "major"
+}

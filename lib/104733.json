@@ -1,0 +1,148 @@
+{
+  "comments": [
+    "The Tomcat v5 installation system property is not being passed into the \nindividual JUnit test scripts",
+    "Guys, my theory is that this problem is caused by \nthe \"Dwtp.autotest.noninteractive\" change that we put in earlier. \nThe \"wtp.autotest.nointeractive\" system property cannot be pass in directly \nfrom the master test script because that will override the the \"extraVMArgs\" \nthat individual testcases provide. Tomcat v5 install location is just one \nexample, we have others such as JonAS, OAGIS, etc. The following is the segment \nof code where we are overriding the system property from the master script \nlevel (testScripts/test.xml). As soon as the local build finishes, we can \nconfirm whether this is really the problem or not.\n\n\u003cant \n  antfile\u003d\"${eclipse-home}/plugins/${testPlugin}/test.xml\" \n  dir\u003d\"${eclipse-home}\"\u003e\n  \u003cproperty \n    name\u003d\"extraVMargs\" \n    value\u003d\"${extraVMargs} -Dwtp.autotest.noninteractive\u003dtrue\"/\u003e\n\u003c/ant\u003e\n\n\u003cant \n  antfile\u003d\"${eclipse-home}/plugins/${testPlugin}/test.xml\"\n  dir\u003d\"${eclipse-home}\"\u003e\n  \u003cproperty name\u003d\"library-file\" value\u003d\"${testDir}/performance-tests.xml\"/\u003e\n  \u003cproperty name\u003d\"runAsPerfApp\" value\u003d\"true\"/\u003e\n  \u003cproperty \n    name\u003d\"extraVMargs\" \n    value\u003d\"${extraVMargs} -Dwtp.autotest.noninteractive\u003dtrue\"/\u003e\n\u003c/ant\u003e",
+    "Local build suggest that the Tomcat v5 install location system property is not \nset (stack trace below). We need to modify the test script so that the \nwtp.autotest.noninteractive is not passed in directly from the master script \nlevel. Patch coming.\n\n\n\njunit.framework.AssertionFailedError\nat org.eclipse.jst.ws.tests.unittest.ComponentCreationTests.createServerRuntime\n(ComponentCreationTests.java:46)\nat \norg.eclipse.jst.ws.tests.unittest.ComponentCreationTests.testWebComponentCreatio\nn(ComponentCreationTests.java:30)\nat org.eclipse.test.EclipseTestRunner.run(EclipseTestRunner.java:313)\nat org.eclipse.test.EclipseTestRunner.run(EclipseTestRunner.java:199)\nat org.eclipse.test.UITestApplication$3.run(UITestApplication.java:188)\nat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\nat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3057)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2716)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1699)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1663)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:367)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\nat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:103)\nat org.eclipse.test.UITestApplication.runApplication(UITestApplication.java:131)\nat org.eclipse.test.UITestApplication.run(UITestApplication.java:58)\nat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:226)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:163)\nat org.eclipse.core.launcher.Main.invokeFramework(Main.java:334)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:278)\nat org.eclipse.core.launcher.Main.run(Main.java:973)\nat org.eclipse.core.launcher.Main.main(Main.java:948)\n",
+    "Created an attachment (id\u003d25164)\nPatch for releng.builder\n\nNaci, David and whoever has experience with the build process. Please review\nthis patch.",
+    "The patch looks good to me (and Naci) and we\u0027ve decided to re-run \n\"final RC2 build\" to pickup the more extensive testing this patch \nwill allow ... just in case. If it appears to cause problems, we will \nsimply revert to previous script until solved. \n\nSo ... the version of releng.builder that contains this patch is\nv20050722_0040\n\nthe previous version without the patch was\nI20050720_2237\n\n(with corresponding change in build.cfg)\n",
+    "Not sure what\u0027s wrong, but resulting build/tests ended up with tons of \"DNF\"\u0027s. \n\nProbably some small tweak still needed. \n\nRather than investigate now, I just reverted the build.cfg to use previous\nversion of releng.builder and we will sort though later. \n",
+    "Created an attachment (id\u003d25174)\nPatch for releng.builder\n",
+    "I think the problem is caused by the fact that I did not initialized the system \nproperty. Consider two scenarios:\n\nScenario 1. When we run the CSS JUnit testcases, they do not require \nany \"extraVMArgs\" to be set. Therefore, at the point when the testcase gets run \n(ie. the following snippet of code gets executed):\n\n\u003cantcall target\u003d\"eclipse-test\"\u003e\n  \u003cparam \n    name\u003d\"application\" \n    value\u003d\"org.eclipse.test.uitestapplication\"/\u003e\n  \u003cparam \n    name\u003d\"extraVMargs\" \n    value\u003d\"${extraVMargs} -Dwtp.autotest.noninteractive\u003dtrue\"/\u003e\n\u003c/antcall\u003e\n\nThe \"extraVMargs\" property is still null. In Ant, if you attempt to pass in a \nnull system property, instead of using \"\" as the value, Ant will actually use \nthe system property name as the value. What that means is that we are literally \npassing the in \"${extraVMargs} -Dwtp.autotest.noninteractive\u003dtrue\" as a VM \nargument. Obviously, that will blow up the JVM. As a result, all the DNF tests.\n\nScenario 2: Say we are running the Web service JUnit tests. Since \nthe \"extraVMargs\" system property is explicitly set. We won\u0027t run into the \nproblem described above. That is why if you take a look at the test results, \ntests like jst.ws, jst.tomcat.core, etc all passed because these testcases \nactually pass in a valid \"extraVMArgs\" system property.\n\nSo, what the above patch will do is it will default the \"extraVMArgs\" system \nproperty to \"\". This should eliminate the problem described in scenario 1.",
+    "Jeff, won\u0027t\n\u003cproperty name\u003d\"extraVMargs\" value\u003d\"\"/\u003e\noverride any extraVMArgs already set? Shouldn\u0027t you use a check to see if\nextraVMArgs is already set as in\n\u003ccondition property\u003d\"extraVMargs\" value\u003d\"\"\u003e\n  \u003cnot\u003e\n    \u003cisset property\u003d\"extraVMargs\"/\u003e\n  \u003c/not\u003e\n\u003c/condition\u003e",
+    "Hi Lawrence,\n\nActually, it\u0027s the other way around. The following\n\n\u003ctarget name\u003d\"...\"\u003e\n  \u003cproperty name\u003d\"extraVMargs\" value\u003d\"\"/\u003e\n  ...\n\u003c/target\u003e\n\nmeans the default is \"\". If the caller of the target explicitly pass in \nthe \"extraVMargs\" property, then the value being passed in will override the \ndefault. Since the junit-tests.xml script is called by the individual test \nscripts, and it\u0027s the individual test scripts that pass in the Tomcat location, \netc. \"\" should be overwritten.\n\nI don\u0027t have much experience with the following.\n\n\u003ccondition property\u003d\"extraVMargs\" value\u003d\"\"\u003e\n  \u003cnot\u003e\n    \u003cisset property\u003d\"extraVMargs\"/\u003e\n  \u003c/not\u003e\n\u003c/condition\u003e\n\nAccording to the Ant document, the condition task does the following:\n\nIf the condition holds true, the property value is set to true by default; \notherwise, the property is not set. You can set the value to something other \nthan the default by specifying the value attribute.\n\nWhen the description says \"the property is not set\", it not clear on whether it \nactually unset the property (if it\u0027s set) or just leave it the way it is. If \nit\u0027s former, it won\u0027t work. If it\u0027s the latter, then it will work. For some \nreason, I vaguely remember it\u0027s the former, but I could be totally wrong on \nthis.",
+    "trying again, using the tweak supplied in comment 6. \n\nBTW, I\u0027m assuming the patch in comment 6 was to be applied \"on top\" of the patch\nin comment 3, even though it was marked as obsolete (in other words, I do not\nthink it was really obsolete, just already applied to head). \n ",
+    "Yes, the second patch should be applied on top of the first patch. Comparing \nthe number of tests being run between RC2 and RC3...\n\n\t\t\tRC2\tRC3\ntomcat.core.tests\t44\t134\nws.tests\t\t7\t11\n\nI believe the problem is fixed. Tim and Seng, can you guys take a look and \nverify whether this is fixed or not? Thanks.",
+    "Thanks Jeffrey.  The fix looks good; jst.ws tests are all running as designed.\n",
+    "Yup, looks good. Moving to verify since Seng and I concur.\n\nThanks, Jeffrey.",
+    "Closing bug."
+  ],
+  "commentCreationDates": [
+    "2005-07-21T22:37:48+02:00",
+    "2005-07-21T23:01:12+02:00",
+    "2005-07-22T00:12:11+02:00",
+    "2005-07-22T00:18:13+02:00",
+    "2005-07-22T06:48:10+02:00",
+    "2005-07-22T10:52:08+02:00",
+    "2005-07-22T14:50:25+02:00",
+    "2005-07-22T15:00:09+02:00",
+    "2005-07-22T15:56:26+02:00",
+    "2005-07-22T16:25:28+02:00",
+    "2005-07-23T04:20:51+02:00",
+    "2005-07-25T14:29:09+02:00",
+    "2005-07-25T15:13:10+02:00",
+    "2005-07-25T15:33:42+02:00",
+    "2005-07-25T15:36:41+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "junit.framework.AssertionFailedError",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.ws.tests.unittest.ComponentCreationTests.createServerRuntime",
+          "source": "ComponentCreationTests.java:46"
+        },
+        {
+          "method": "org.eclipse.jst.ws.tests.unittest.ComponentCreationTests.testWebComponentCreation",
+          "source": "ComponentCreationTests.java:30"
+        },
+        {
+          "method": "org.eclipse.test.EclipseTestRunner.run",
+          "source": "EclipseTestRunner.java:313"
+        },
+        {
+          "method": "org.eclipse.test.EclipseTestRunner.run",
+          "source": "EclipseTestRunner.java:199"
+        },
+        {
+          "method": "org.eclipse.test.UITestApplication$3.run",
+          "source": "UITestApplication.java:188"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3057"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2716"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1699"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1663"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:367"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:103"
+        },
+        {
+          "method": "org.eclipse.test.UITestApplication.runApplication",
+          "source": "UITestApplication.java:131"
+        },
+        {
+          "method": "org.eclipse.test.UITestApplication.run",
+          "source": "UITestApplication.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:226"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:163"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:334"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:278"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:973"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:948"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "104733",
+      "date": "2005-07-22T00:12:11+02:00",
+      "product": "Web Tools",
+      "component": "releng",
+      "severity": "major"
+    }
+  ],
+  "groupId": "104733",
+  "bugId": "104733",
+  "date": "2005-07-21T22:37:48+02:00",
+  "product": "Web Tools",
+  "component": "releng",
+  "severity": "major"
+}

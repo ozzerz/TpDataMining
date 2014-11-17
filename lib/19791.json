@@ -1,0 +1,135 @@
+{
+  "comments": [
+    "Eclipse build 20020607. While doing Replace With Branch, get a\nStringIndexOutOfBoundsException from CVSDateFormatter.entryLineToDate.\n\nThe date passed into entryLineToDate prior to the exception was a length\nof 1 string, containing an equal sign (\u003d). CVSDateFormatter.entryLineToDate\ndoes not check the length of the string before calling charAt().\n\nResourceSyncInfo.setEntryLine catches ParseException, but does not expect\nthe unchecked StringIndexOutOfBoundsException.\n\nWill attach log file.",
+    "Having problems providing the .log as an attachment.\n\n!SESSION Jun 10, 2002 10:07:58.845 ---------------------------------------------\njava.version\u003d1.3.1_03\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments: -dev bin -data C:\\Eclipse20\\ide\\eclipse-20020607\n\\eclipse\\runtime-workspace -os win32 -ws win32 -arch x86\n!ENTRY org.eclipse.ui 4 4 Jun 10, 2002 10:07:58.845\n!MESSAGE Unable to restore editor - createElement returned null for input \nelement factory: org.eclipse.ui.internal.dialogs.WelcomeEditorInputFactory\n!SESSION Jun 10, 2002 10:25:03.723 ---------------------------------------------\njava.version\u003d1.3.1_03\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments: -dev bin -data C:\\Eclipse20\\ide\\eclipse-20020607\n\\eclipse\\runtime-workspace -os win32 -ws win32 -arch x86\n!ENTRY org.eclipse.team.ui 4 1 Jun 10, 2002 10:25:03.723\n!MESSAGE Internal error occured.\n!STACK 0\njava.lang.StringIndexOutOfBoundsException: String index out of range: 8\n\tat java.lang.String.charAt(String.java:511)\n\tat \norg.eclipse.team.internal.ccvs.core.util.CVSDateFormatter.entryLineToDate\n(CVSDateFormatter.java:48)\n\tat \norg.eclipse.team.internal.ccvs.core.syncinfo.ResourceSyncInfo.setEntryLine\n(ResourceSyncInfo.java:440)\n\tat org.eclipse.team.internal.ccvs.core.syncinfo.ResourceSyncInfo.\u003cinit\u003e\n(ResourceSyncInfo.java:101)\n\tat org.eclipse.team.internal.ccvs.core.client.CheckedInHandler.handle\n(CheckedInHandler.java:54)\n\tat org.eclipse.team.internal.ccvs.core.client.Request.executeRequest\n(Request.java:189)\n\tat org.eclipse.team.internal.ccvs.core.client.Command.doExecute\n(Command.java:390)\n\tat org.eclipse.team.internal.ccvs.core.client.Command$2.run\n(Command.java:322)\n\tat org.eclipse.team.internal.ccvs.core.resources.EclipseFolder$2.run\n(EclipseFolder.java:277)\n\tat org.eclipse.core.internal.resources.Workspace.run\n(Workspace.java:1361)\n\tat org.eclipse.team.internal.ccvs.core.resources.EclipseFolder.run\n(EclipseFolder.java:270)\n\tat org.eclipse.team.internal.ccvs.core.client.Command.execute\n(Command.java:333)\n\tat org.eclipse.team.internal.ccvs.core.client.Update.execute\n(Update.java:87)\n\tat org.eclipse.team.internal.ccvs.core.CVSTeamProvider.update\n(CVSTeamProvider.java:805)\n\tat org.eclipse.team.internal.ccvs.core.CVSTeamProvider.get\n(CVSTeamProvider.java:485)\n\tat \norg.eclipse.team.internal.ccvs.ui.actions.ReplaceWithTagAction$2.execute\n(ReplaceWithTagAction.java:111)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation$1.run\n(WorkspaceModifyOperation.java:64)\n\tat org.eclipse.core.internal.resources.Workspace.run\n(Workspace.java:1361)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation.run\n(WorkspaceModifyOperation.java:78)\n\tat org.eclipse.jface.operation.ModalContext$ModalContextThread.run\n(ModalContext.java:98)\n",
+    "Sorry for this - the patch I submitted (and that was applied) did not check\nif the date string was long enough to do the charAt(). This was bug #12745 -\n CVS/Entries file timestamp day field not space padded  \n\nIn CVSDataFormatter.entryLineToDate()\n\nif (text.charAt(ENTRYLINE_TENS_DAY_OFFSET) \u003d\u003d \u0027 \u0027) {\n\nshould become\n\nif (text.length() \u003e ENTRYLINE_TENS_DAY_OFFSET\n \u0026\u0026 text.charAt(ENTRYLINE_TENS_DAY_OFFSET) \u003d\u003d \u0027 \u0027) {\n\n\n",
+    "Mike pls have a look.\n",
+    "Under what situation does this error occur?",
+    "Going from HEAD to Branch, and the branch is missing files that\nHEAD has.",
+    "I am unable to reproduce this. That is, I can perform a \"Replace with branch\" \nunder the conditions you specified and did not get an error. I appreciate that \nyou have identified the problem and a possible solution (saves me some work) \nbut I am also interested in the cause. What operation did you perform to get \nan \"\u003d\" to be the timestamp of an entry line. As far as I can tell, this is not \na valid timestamp value (it can be \"+\u003d\" but not \"\u003d\" on it\u0027s one, according to \nthe spec). Are you only using Eclipse for CVS commands or are you using another \nclient as well?",
+    "Here is the sequence that reproduces here.\n\nCVS version is CVSNT 1.11.1.3 Build 57d\nRepository path includes the drive (D:/cvs...)\nWhat is fetched is a module, but the top of the module is not an\nEclipse project.\n\nThe initial files are fetched with WinCVS, which runs cvs.exe.\nMultiple projects from this tree are imported into the workspace.\nThe projects are shared.\nReplace with ...Branch\nInternal Error popup\nStringIndexOutOfBoundsException in .metadata\\.log\n\n\n",
+    "*** Bug 20125 has been marked as a duplicate of this bug. ***",
+    "Suggested fix for F4 is to add better error handling and to just skip the \nelement failing.\n\nSince we haven\u0027t had the chance to fully analyze why CVSNT 1.11.1.3 is suddenly \ngiving us these (from our point of view malformed) entries, this will \nconstitute a workaround, not a fix. \n\nNote: there\u0027s a chance that moving to server version build 57e (of 1.11.1.3) \nfixes this bug.  If one of the reporters can confirm or deny this it would be \nappreciated.",
+    "Moving to CVSNT 1.11.1.3 57e does not help unfortunately.\n\nThe suggested fix remedies the internal error, but i.e. creating \na branch does not work (now guessing) because the resource (the project in my \ncase) isn\u0027t properly synchronized - there is no version name with the project.\n",
+    "Fixed and verified by James",
+    "*** Bug 20665 has been marked as a duplicate of this bug. ***",
+    "Seems to work now, although I just checked it out with Eclipse since I did not\nhave WinCVS."
+  ],
+  "commentCreationDates": [
+    "2002-06-10T16:17:22+02:00",
+    "2002-06-10T16:22:34+02:00",
+    "2002-06-10T16:28:29+02:00",
+    "2002-06-10T18:35:53+02:00",
+    "2002-06-10T19:16:32+02:00",
+    "2002-06-10T19:50:02+02:00",
+    "2002-06-10T20:56:47+02:00",
+    "2002-06-10T21:28:11+02:00",
+    "2002-06-13T16:34:45+02:00",
+    "2002-06-16T18:09:03+02:00",
+    "2002-06-17T18:40:57+02:00",
+    "2002-06-18T21:17:09+02:00",
+    "2002-06-19T18:13:07+02:00",
+    "2002-06-26T20:47:04+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StringIndexOutOfBoundsException",
+      "message": "String index out of range: 8",
+      "elements": [
+        {
+          "method": "java.lang.String.charAt",
+          "source": "String.java:511"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.util.CVSDateFormatter.entryLineToDate",
+          "source": "CVSDateFormatter.java:48"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.syncinfo.ResourceSyncInfo.setEntryLine",
+          "source": "ResourceSyncInfo.java:440"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.syncinfo.ResourceSyncInfo.\u003cinit\u003e",
+          "source": "ResourceSyncInfo.java:101"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.CheckedInHandler.handle",
+          "source": "CheckedInHandler.java:54"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Request.executeRequest",
+          "source": "Request.java:189"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Command.doExecute",
+          "source": "Command.java:390"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Command$2.run",
+          "source": "Command.java:322"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseFolder$2.run",
+          "source": "EclipseFolder.java:277"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1361"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseFolder.run",
+          "source": "EclipseFolder.java:270"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Command.execute",
+          "source": "Command.java:333"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Update.execute",
+          "source": "Update.java:87"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.CVSTeamProvider.update",
+          "source": "CVSTeamProvider.java:805"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.CVSTeamProvider.get",
+          "source": "CVSTeamProvider.java:485"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.actions.ReplaceWithTagAction$2.execute",
+          "source": "ReplaceWithTagAction.java:111"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation$1.run",
+          "source": "WorkspaceModifyOperation.java:64"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1361"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:78"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:98"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "19791",
+      "date": "2002-06-10T16:22:34+02:00",
+      "product": "Platform",
+      "component": "Team",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "19791",
+  "bugId": "19791",
+  "date": "2002-06-10T16:17:22+02:00",
+  "product": "Platform",
+  "component": "Team",
+  "severity": "normal"
+}

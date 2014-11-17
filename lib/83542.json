@@ -1,0 +1,68 @@
+{
+  "comments": [
+    "See this part of the stack trace:\njava.lang.NullPointerException\nat\norg.eclipse.osgi.framework.adaptor.core.BundleEntry$ZipBundleEntry.getFileURL(BundleEntry.java:162)\nat\norg.eclipse.osgi.framework.adaptor.core.BundleURLConnection.getFileURL(BundleURLConnection.java:124)\nat\norg.eclipse.core.runtime.adaptor.URLConverterImpl.convertToFileURL(URLConverterImpl.java:31)\nat\norg.eclipse.core.internal.runtime.InternalPlatform.asLocalURL(InternalPlatform.java:197)\nat org.eclipse.core.runtime.Platform.asLocalURL(Platform.java:471)\n\nIt was called like this:\nURL resource \u003d me.getClass().getResource(packageName);\n(now resource is \"bundleresource://11884/com/scansoft/xhmi/nodes\")\nresource \u003d Platform.asLocalURL(resource);\n\nAs resource is defined, this must not happen.",
+    "I tried this on 3.0.1 and the current 3.1 build.  I can not reproduce.  Can \nyou attach a sample plugin that reproduces the failure?",
+    "Created an attachment (id\u003d17651)\nA sample plugin (zipped directory from the eclipse workspace)\n",
+    "A workaround is to append the packagename with \u0027/\u0027 if you know it is a \ndirectory resource.  It appears there is a VM bug when getting a directory \nentry out of a ZipFile.  If I have the following code:\n\nZipEntry entry1 \u003d ZipFile.getEntry(\"path/to/diretory\");\nZipEntry entry2 \u003d ZipFile.getEntry(\"path/to/diretory/\");\n\nThe entry1 returns false to the call isDirectory() while entry2 returns true.  \nThis is because the check for isDirectory is to see if the name ends in \u0027/\u0027.  \nSeems like the name for both entries should end in \u0027/\u0027.  Does anybody know how \nelse I can see if a particular entry is a directory besides calling \nisDirectory.",
+    "This looks like a bug in ZipFile.\n\nWhen an entry is not found by its name, a \u0027/\u0027 is appended and re-drives a\ngetEntry().  If an ZipEntry is found, the original name is used rather than the\nnew name created.",
+    "Yes, I think there is a bug in the VM (I\u0027ve tried several 1.4.x VMs and it \nseems exist in all the VMs I have tested).  I would like to have a \nworkaround.  One possible workaround would be to check to size of the ZipEntry \nto see if it is 0.  If it is then check for an entry with a \u0027/\u0027 appended like \nthis:\n\n\tZipEntry entry \u003d zipFile.getEntry(path);\n\tif (entry !\u003d null \u0026\u0026 entry.getSize() \u003d\u003d 0 \u0026\u0026 !entry.isDirectory()) {\n\t\t// work around the directory bug\n\t\tZipEntry dirEntry \u003d zipFile.getEntry(path + \u0027/\u0027);\n\t\tif (dirEntry !\u003d null)\n\t\t\tentry \u003d dirEntry;\n\t}\n",
+    "Depending on how cheap you want to make this....\n\nsize \u003d\u003d 0 and ze.getMethod() \u003d\u003d ZipEntry.STORED would be sufficient if you knew\nthat the ZipFile was compressing all the files.\n\nBut what you have will work too.",
+    "We do need this to be quick.  This is called for each classload.  But it seems \nlike ZipEntry.getSize() is a simple slot access.  I am assuming the returned \nvalue for a class entry will always be non-zero.  Am I missing something?",
+    "We cannot assume all zips will be compressed.  So I do not think checking the \nmethod type will work.",
+    "What you have is the best you can do for now.  I have opened an internal defect\nto see what the JTC can do.  Either way it won\u0027t matter since its broke on all\nversions and implementations (I check GNU classpath).",
+    "The workaround from comment 5 has been released in HEAD."
+  ],
+  "commentCreationDates": [
+    "2005-01-24T16:01:41+01:00",
+    "2005-01-24T16:49:26+01:00",
+    "2005-02-03T13:48:23+01:00",
+    "2005-02-03T15:20:19+01:00",
+    "2005-02-03T21:43:29+01:00",
+    "2005-02-03T21:54:53+01:00",
+    "2005-02-03T22:00:20+01:00",
+    "2005-02-03T22:53:37+01:00",
+    "2005-02-03T22:56:14+01:00",
+    "2005-02-03T23:04:38+01:00",
+    "2005-02-04T14:20:08+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.BundleEntry$ZipBundleEntry.getFileURL",
+          "source": "BundleEntry.java:162"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.BundleURLConnection.getFileURL",
+          "source": "BundleURLConnection.java:124"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.URLConverterImpl.convertToFileURL",
+          "source": "URLConverterImpl.java:31"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.asLocalURL",
+          "source": "InternalPlatform.java:197"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.asLocalURL",
+          "source": "Platform.java:471"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "83542",
+      "date": "2005-01-24T16:01:41+01:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "83542",
+  "bugId": "83542",
+  "date": "2005-01-24T16:01:41+01:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "normal"
+}

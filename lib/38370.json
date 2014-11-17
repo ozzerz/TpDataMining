@@ -1,0 +1,108 @@
+{
+  "comments": [
+    "When I uncheck \"use default classpath\" in the run/debug configuration for my \ncode, I run into problems when using the SunJCE security provider; I tried it \nwith JRE 1.4.1_01 through 1.4.1_03, same results in all cases. I reported this \nas a follow-up to bug 25230, but it seems that no one has been monitoring it. \nHere\u0027s some sample code for illustration purposes:\n\nimport java.security.*;\n\nimport javax.crypto.KeyGenerator;\n\npublic class Main {\n\n  public static void main(String[] args) {\n    try {\n      Provider provider \u003d Security.getProvider(\"SunJCE\");\n      KeyGenerator keyGenerator \u003d javax.crypto.KeyGenerator.getInstance\n(\"Blowfish\", provider);\n      System.out.println(\"success\");\n    }\n    catch (NoSuchAlgorithmException e) {\n      e.printStackTrace();\n    }\n  }\n}\n\n\nWith \"use default classpath\" checked the output is:\n\nsuccess\n\n\nWith \"use default classpath\" unchecked the output is:\n\njava.lang.SecurityException: The provider SunJCE may not be signed by a \ntrusted party\n\tat javax.crypto.SunJCE_b.a(DashoA6275)\n\tat javax.crypto.KeyGenerator.getInstance(DashoA6275)\n\tat Main.main(Main.java:10)\nException in thread \"main\"",
+    "Jed, can you please take a look. Thanks",
+    "I can reproduce this using 1.4.1-rc-b19.\n\nWhen \"use default classpath\" is checked Eclipse launches the program using the\nfollowing command line.\n\nC:\\home\\vms\\sun\\jdk1.4.1\\bin\\javaw.exe -classpath\nc:\\home\\workspaces\\jcetest\\Crypto Main\n\nWhen \"use default classpath\" is not checked, this command line is used.\n\nC:\\home\\vms\\sun\\jdk1.4.1\\bin\\javaw.exe\n-Xbootclasspath:C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\rt.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\sunrsasign.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\jsse.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\jce.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\charsets.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\ext\\dnsns.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\ext\\ldapsec.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\ext\\localedata.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\ext\\sunjce_provider.jar\n-classpath c:\\home\\workspaces\\jcetest\\Crypto Main\n\nThe only difference is that the -Xbootclasspath argument is supplied.  It seems\nto me that we shouldn\u0027t specify the -Xbootclasspath argument unless the user has\naltered the boot classpath.\n\nWhy does this throw a security exception?  I assume that this is a security\n\"feature\".  Perhaps when you specify the -Xbootclasspath argument, the VM has to\nassume that you are attempting to curcumvent the security system.  Just a guess.",
+    "I get the same behaviour if I try these command lines at a prompt:\n\nC:\\home\\workspaces\\jcetest\\Crypto\u003ec:\\home\\vms\\sun\\jdk1.4.1\\bin\\java.exe -classpa\nth . foo.Main\nsuccess\n\nC:\\home\\workspaces\\jcetest\\Crypto\u003ec:\\home\\vms\\sun\\jdk1.4.1\\bin\\java.exe -Xbootcl\nasspath:C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\rt.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\n\\sunrsasign.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\jsse.jar;C:\\home\\vms\\sun\\jdk1.4\n.1\\jre\\lib\\jce.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\charsets.jar;C:\\home\\vms\\sun\n\\jdk1.4.1\\jre\\lib\\ext\\dnsns.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\ext\\ldapsec.jar\n;C:\\home\\vms\\sun\\jdk1.4.1\\jre\\lib\\ext\\localedata.jar;C:\\home\\vms\\sun\\jdk1.4.1\\jr\ne\\lib\\ext\\sunjce_provider.jar -classpath . foo.Main\nException in thread \"main\" java.lang.SecurityException: The provider SunJCE may\nnot be signed by a trusted party\n        at javax.crypto.SunJCE_b.a(DashoA6275)\n        at javax.crypto.KeyGenerator.getInstance(DashoA6275)\n        at foo.Main.main(Main.java:11)\n\nI googled/bug-tracked for this and did not find anything.  My assumption is that\nthis is the correct behaviour, and Eclipse should not specify the\n-Xbootclasspath argument unless somebody makes a change to it.",
+    "The problem is related to the sunjce_provider.jar in the bootclasspath. If you \nleave it out, things work. The reason may be related to the fact that the \nclass javax.crypto.SunJCE_b is defined (differently) in that jar and also in \njce.jar. Oh, and just switching the order of the two does not help.\n\nI don\u0027t know why the class is defined in both places, or why Eclipse regards \nboth sunjce_provider.jar and jce.jar as default system libraries when setting \nup the JREs in the Preferences. My guess is that sunjce_provider.jar should \nnot be included by default when setting up the JREs.",
+    "When I debug the application with a default classpath (meaning no \nXbootclasspath is specified in the command line), the system property \nsun.boot.class.path contains this value:\n\nC:\\Program Files\\Java\\j2re1.4.1_02\\lib\\rt.jar;C:\\Program \nFiles\\Java\\j2re1.4.1_02\\lib\\i18n.jar;C:\\Program Files\\Java\\j2re1.4.1_02\n\\lib\\sunrsasign.jar;C:\\Program Files\\Java\\j2re1.4.1_02\\lib\\jsse.jar;C:\\Program \nFiles\\Java\\j2re1.4.1_02\\lib\\jce.jar;C:\\Program Files\\Java\\j2re1.4.1_02\n\\lib\\charsets.jar;C:\\Program Files\\Java\\j2re1.4.1_02\\classes\n\nWhen compared to Eclipse\u0027s choice of default system libraries for 1.4.1 JREs\n(in the JRE selection under Preferences), Eclipse is missing i18n.jar (but \nthat\u0027s probably because the jar is not even there on our systems, so Eclipse \ndoesn\u0027t find it; the fix to bug 25230 seems to claim that it works if it is \nthere). The more crucial point, however, is that Eclipse adds four jars under \nthe ext directory which are not part of Sun\u0027s default bootclasspath. I don\u0027t \nknow why Eclipse adds those in the first place; it seems that Eclipse should \nleave the ext directory alone.\n\nIn addition, Eclipse\u0027s default bootclasspath misses the classes directory, \neven if it\u0027s there in the file system. Since Eclipse currently only seems able \nto have jars as part of the default system libraries, a mechanism needs to be \nadded to also specify class directories; plus the classes directory needs to \nbe added to the default system libraries.",
+    "*** Bug 40960 has been marked as a duplicate of this bug. ***",
+    "*** Bug 43001 has been marked as a duplicate of this bug. ***",
+    "*** Bug 43435 has been marked as a duplicate of this bug. ***",
+    "*** Bug 44406 has been marked as a duplicate of this bug. ***",
+    "I am having a similar problem in that the bootclasspath is improperly\nconstructed regardless of whether I check \u0027Use Default Classpath\u0027 or not.  My\nboot class path under eclipse is:\n\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\rt.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\sunrsasign.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\jsse.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\jce.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\charsets.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\ext\\dnsns.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\ext\\hfw-security.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\ext\\ldapsec.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\ext\\localedata.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\ext\\sunjce_provider.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\rt.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\sunrsasign.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\jsse.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\jce.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\charsets.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\ext\\dnsns.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\ext\\hfw-security.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\ext\\ldapsec.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\ext\\localedata.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\ext\\sunjce_provider.jar\n\nbut running under the shell is:\n\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\rt.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\i18n.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\sunrsasign.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\jsse.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\jce.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\lib\\charsets.jar\n   C:\\usr\\java\\j2sdk1.4.2_01\\jre\\classes\n\nIs there a circumvention for this?  I can\u0027t use the debugger when working with\nany JCE or Kerberos, which is a serious hinderence for my development work",
+    "Is anyone working on this?  I could desperately use a circumvention for this. \nMost of my development work uses JCE these days.  If I can\u0027t find an IDE that\nsupports my work, I will have to look at finding another.",
+    "The target milestone indicates that we are working on this for M5.",
+    "@Gary Murphy: there is a workaround (somewhere posted in bugzilla) how to get \nit running in Eclipse. In your run configuration, remove the default JRE lib \nentry from the bootstrap classes and add external jars jce.jar, rt.jar and \njsse.jar instead.",
+    "We now use \"-Xbootclasspath/p:\" and \"-Xbootclasspath/a:\" to prepend and prepend\nclasspath element to the default boot classpath (if the default boot classpath\nis in the boot classpath defined by the user).\nThis works only for \u0027standart\u0027 VMs (sun based). The problem is still there for\nJ9 and 1.1 VMs (see bug 46001).\nI added new methods in VMRunnerConfiguration and\nAbstractJavaLaunchConfigurationDelegate to compute and store the new information.\nChanges in JavaAppletLaunchConfigurationDelegate,\nJavaLocalApplicationLaunchConfigurationDelegate, StandardVMRunner and\nStandardVMDebugger.",
+    "Please verify, Darin W.",
+    "Luc, I have expanded the javadoc in VMRunnerConfiguration. As well, I have \nspecified that if the new attributes (prepend, main, append) are not specified, \nthat the old sinlge bootpath attribute should be honored. To support this I \nmodified the (single) bootpath computation in \nAbstractJavaLaunchConfigurationDelegate.\n\nSince not all clients using a VMRunnerConfiguration will neccessarily use the \nnew attributes (for example, the JUnit launcher does not use the new attributes \nyet), honoring the old attribute (when it\u0027s the only one present) prevents \nbreakage.\n\nWe should file a bug against JDT-UI to let them know about the new API for \nsetting the bootpath on the VMRunnerConfiugration.\n\nPlease verify, Luc.",
+    "Verified.",
+    "*** Bug 46510 has been marked as a duplicate of this bug. ***",
+    "*** Bug 49344 has been marked as a duplicate of this bug. ***",
+    "*** Bug 110837 has been marked as a duplicate of this bug. ***",
+    "(In reply to comment #20)\n\u003e *** Bug 110837 has been marked as a duplicate of this bug. ***\n\nA call to KeyAgreement.getInstance(\"DiffieHellman\") will throw a\nNoSuchAlgorithmException if run from Eclipse (with anything other than the\ndefault bootclasspath) but not if it\u0027s run directly from the command line (with\nthe default bootclasspath).  (JDK 1.5.0_04 or 1.4.2_09)  \n\nSee these resources for further information:\n   Java Bug Id: 6331571 \n   Attachment 27745 [edit]\n   http://forum.java.sun.com/thread.jspa?threadID\u003d611770\u0026messageID\u003d3370738\n"
+  ],
+  "commentCreationDates": [
+    "2003-06-03T17:29:17+02:00",
+    "2003-06-03T23:03:28+02:00",
+    "2003-06-03T23:20:58+02:00",
+    "2003-06-03T23:39:47+02:00",
+    "2003-06-04T00:26:55+02:00",
+    "2003-06-05T17:43:03+02:00",
+    "2003-07-30T22:05:46+02:00",
+    "2003-09-15T04:54:30+02:00",
+    "2003-09-25T18:26:38+02:00",
+    "2003-10-08T15:52:23+02:00",
+    "2003-10-17T17:01:01+02:00",
+    "2003-10-22T17:50:55+02:00",
+    "2003-10-22T17:57:11+02:00",
+    "2003-10-23T12:49:14+02:00",
+    "2003-11-04T01:28:22+01:00",
+    "2003-11-04T01:30:09+01:00",
+    "2003-11-04T03:39:08+01:00",
+    "2003-11-05T01:12:06+01:00",
+    "2003-12-01T15:54:44+01:00",
+    "2004-02-17T18:51:20+01:00",
+    "2005-10-01T19:26:46+02:00",
+    "2005-10-01T19:28:21+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.SecurityException",
+      "message": "The provider SunJCE may not be signed by a  trusted party",
+      "elements": [
+        {
+          "method": "javax.crypto.SunJCE_b.a",
+          "source": "DashoA6275"
+        },
+        {
+          "method": "javax.crypto.KeyGenerator.getInstance",
+          "source": "DashoA6275"
+        },
+        {
+          "method": "Main.main",
+          "source": "Main.java:10"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "38370",
+      "date": "2003-06-03T17:29:17+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.SecurityException",
+      "message": "The provider SunJCE may not be signed by a trusted party",
+      "elements": [
+        {
+          "method": "javax.crypto.SunJCE_b.a",
+          "source": "DashoA6275"
+        },
+        {
+          "method": "javax.crypto.KeyGenerator.getInstance",
+          "source": "DashoA6275"
+        },
+        {
+          "method": "foo.Main.main",
+          "source": "Main.java:11"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 3,
+      "bugId": "38370",
+      "date": "2003-06-03T23:39:47+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "38370",
+  "bugId": "38370",
+  "date": "2003-06-03T17:29:17+02:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

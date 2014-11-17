@@ -1,0 +1,109 @@
+{
+  "comments": [
+    "I20060216-0010, used to work in 3.2 M4\n\nSteps:\n- new workspace, create a new plug-in project \"MyTest\" (accept all defaults)\n- in mytest.Activator, implement IStartup and write something to sysout\n- add an extension  \u003cextension point\u003d\"org.eclipse.ui.startup\"/\u003e\n- import all plugins required by existing workspace plugins as binary\n- launch a runtime Eclipse\n\n\u003d\u003e the earlyStartup() method is not executed, log:\n\n!ENTRY org.eclipse.ui 4 4 2006-02-16 12:19:06.233\n!MESSAGE Unhandled Exception\n\n!ENTRY MyTest 4 0 2006-02-16 12:19:06.248\n!MESSAGE Unable to execute early startup code for an extension\n!STACK 0\njava.lang.NoSuchMethodException: org.eclipse.core.runtime.IExtension.getDeclaringPluginDescriptor()\n\tat java.lang.Class.getDeclaredMethod(Class.java:1909)\n\tat org.eclipse.ui.internal.EarlyStartupRunnable.getPluginForCompatibility(EarlyStartupRunnable.java:135)\n\tat org.eclipse.ui.internal.EarlyStartupRunnable.run(EarlyStartupRunnable.java:73)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:816)\n\tat org.eclipse.ui.internal.Workbench$20.run(Workbench.java:1745)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\n!ENTRY org.eclipse.ui 4 4 2006-02-16 12:19:06.248\n!MESSAGE Bad extension specification\n\n!ENTRY MyTest 4 0 2006-02-16 12:19:06.295\n!MESSAGE startup class must implement org.eclipse.ui.IStartup",
+    "It seems to me that the problem comes from a missing plug-in (likely one of the runtime.compatibility).\nHow did you get \"all the plugins required by existing workspace plugins as binary\"? Did you do it manually or is there an action to do that somewhere?\n\n",
+    "I used PDE\u0027s wizard:\n- File \u003e Import \u003e External Plug-ins and Fragments\n- select \"Import plug-ins and fragments required by existing workspace plug-ins\"\n- select \"Binary Projects\"\n- click \"Next\"\n- click \"Select All\"\n- click \"Finish\"\n",
+    "Using your steps I can\u0027t reproduce the problem. My message in the early startup code is properly displayed.\nI will attach the project I created.",
+    "Created an attachment (id\u003d34840)\nA project that does not exhibit the pb\n\n",
+    "The only thing that I can think of is a mistake in the launch config.",
+    "Your extension contribution is:\n  \u003cextension point\u003d\"org.eclipse.ui.startup\"\u003e\n    \u003cstartup class\u003d\"p.Activator\"/\u003e\n  \u003c/extension\u003e\n\nMine is:\n  \u003cextension point\u003d\"org.eclipse.ui.startup\"/\u003e\n\nI guess the problem is that the missing explicit \u003cstartup class\u003d\"p.Activator\"/\u003e is not handled correctly. The startup extension point description says: \"If not specified, the plug-in class is used. Do not specify the plug-in class as an explicit value, or it will be instantiated twice\".",
+    "What I was first suspecting is confirmed. The error occurs when the org.eclipse.core.runtime.compatibility.registry is missing.\nThe problem comes from the UI that does not protect the reflective call properly. It should check is the compatibility.registry fragment is present.\nCC\u0027ing Boris since he last looked at this code.",
+    "Hm, but why is the org.eclipse.core.runtime.compatibility.registry fragment missing? I imported it as binary and it is in my workspace, so I would expect that it is available for the runtime eclipse.",
+    "The schema documentation needs to be updated to say that not specifying a class is deprecated, and only supported when the runtime.compatibility and .registry fragments are available.\n\nThe error message should contain more information as well. ",
+    "And if \u003cextension point\u003d\"org.eclipse.ui.startup\"/\u003e is deprecated, then I think this needs an entry in the migration guide if existing plug-ins don\u0027t work any more because of this.",
+    "Is this extension point still supported?\n\nWe are also seeing the method not found because it is loading the IExtension class from the equinox bundle.  What are we doing wrong?",
+    "This form is deprecated and only works if the runtime compatibility plug-in is available:\n  \u003cextension point\u003d\"org.eclipse.ui.startup\"/\u003e\n\nThis form is recommended and works:\n  \u003cextension point\u003d\"org.eclipse.ui.startup\"\u003e\n    \u003cstartup class\u003d\"p.Activator\"/\u003e\n  \u003c/extension\u003e\n\n",
+    "No, the bundle activator should not be specified in the class attribute.  If it is, the class will be instantiated twice (once by OSGi, once by the startup extension processing).  This can corrupt the activator, e.g. if it creates and hangs onto a singleton instance (as most do).\n\nIf the class is specified, it should be a separate class implementing IStartup.\n",
+    "Sorry for that. Nick is right. What I should have said is that not specifying a class is deprecated, but specifying the activator class is wrong.\n\nRecommended: Specify a class, but use a class other than the bundle activator, for example:\n\n\u003cextension point\u003d\"org.eclipse.ui.startup\"\u003e\n    \u003cstartup class\u003d\"mypackage.MyEarlyStartup\"/\u003e\n\u003c/extension\u003e\n",
+    "We should probably guard against the activator case.  A bundle can obtain the name of its activator using: BundleContext.getProperty(Constants.BUNDLE_ACTIVATOR).  However, I\u0027m not aware of any way to get this info from outside the bundle.\n\nPascal, any suggestions?\n",
+    "Boris what\u0027s the status here?  Just trying to get a handle on the 3.2 polish list.",
+    "The documentation needs to be updated for 3.2 to make it clear how to use the extension point and which form is deprecated.",
+    "Note that the \"deprecated\" form is not just deprecated, but currently does not work at all when running the plug-in from the workspace. I do have the plug-ins org.eclipse.core.runtime.compatibility\norg.eclipse.core.runtime.compatibility.registry\nin my workspace, and the old form \u003cextension point\u003d\"org.eclipse.ui.startup\"/\u003e always throws the exception.",
+    "Markus, are the compatibility plug-ins part of your launch configuration?\n\nThe deprecated form is definitely working in the SDK, otherwise we would not have seen bug 134412.",
+    "\u003e Markus, are the compatibility plug-ins part of your launch configuration?\n\u003e \n\u003e The deprecated form is definitely working in the SDK, otherwise we would not\n\u003e have seen bug 134412.\n\nIt probably works when you do a plug-in export and start from the command line, but it still doesn\u0027t work in N20060407-0010 when launching from within eclipse (steps from comment 0).\n\nI verified that the compatibility and compatibility.registry plugins are part of the launch configuration and are available in the runtime workbench (About \u003e Plug-in Details). However, in the Plug-in Registry view of the runtime Eclipse, the compatibility.registry plug-in does not show up.\n",
+    "I have released a change to the extension point schema documentation to mark the form where you don\u0027t provide a class attribute as deprecated.\n\nI was able to reproduce the underlying issue, and the problem seems to be at the runtime level.",
+    "Pascal, I have a zipped workspace if you want to reproduce this.",
+    "*** Bug 135963 has been marked as a duplicate of this bug. ***",
+    "Tom, can you take a look at this.  Pascal can provide some more details if needed",
+    "The problem is when in dev mode we are adding the development classpath entries before the ones from the manifest (this is by design).  In this case PDE-UI instructs the framework what to put on the development classpath for each bundle in the dev.properties file.  For example, in this case it has\n\norg.eclipse.equinox.registry\u003dorg.eclipse.equinox.registry_3.2.0.N20060423-0010.jar\n\nand the Bundle-ClassPath has the following:\n\nBundle-ClassPath: runtime_registry_compatibility.jar,\n org.eclipse.equinox.registry_3.2.0.N20060423-0010.jar\n\nbecause the dev.properties only indicates org.eclipse.equinox.registry_3.2.0.N20060423-0010.jar it gets put on the classpath of equinox.registry before the runtime_registry_compatibility.jar jar does from compatibility.\n\nA similar thing occurs if you have both o.e.equinox.registry and o.e.core.runtime.compatibility.registry checked out from CVS in your workspace.  In that case dev.properties has the following:\n\norg.eclipse.equinox.registry\u003dbin\n\nSo the bin directory from the o.e.equinox.registry project is picked before the one from compatiblity.\n\nMoving to PDE-UI because it is responsible for telling the framework the correct classpath for dev mode.  I\u0027m not sure Wassim and company will be able to fix this for 3.2 because the fix will likely involve adding absolute paths to the bin and classes directory from compatiblity.  For example, when the projects are checked out from cvs the dev.properties should have the following:\n\norg.eclipse.equinox.registry\u003d\u003cabsolute_workspace_path\u003e/org.eclipse.core.runtime.compatibility.registry/bin,\u003cabsolute_workspace_path\u003e/org.eclipse.core.runtime.compatibility.registry/classes,bin\n\nBoth the \"bin\" and \"classes\" directory from compatiblity must be put on the classpath of equinox.registry before the \"bin\" directory from equinox.registry.\n",
+    "The format of dev.properties is fine.\n\nWe never mix fragments and plugins in that file.  It is up to the runtime to merge fragments/plugins as it sees fit.\n\nWhile PDE makes good use of the Eclipse-PatchFragment header to compute an accurate classpath by putting patches before the plugin on the classpath, the problem is that the runtime does not interpret this header in any way (yet).\n\nWill leave this bug report in the PDE/UI bucket until we re-examine this issue in 3.3 to see what the runtime plans are for the Eclipse-PatchFragment header are."
+  ],
+  "commentCreationDates": [
+    "2006-02-16T11:19:37+01:00",
+    "2006-02-16T13:57:11+01:00",
+    "2006-02-16T14:27:15+01:00",
+    "2006-02-16T14:36:29+01:00",
+    "2006-02-16T14:38:23+01:00",
+    "2006-02-16T14:39:53+01:00",
+    "2006-02-16T14:47:15+01:00",
+    "2006-02-16T15:05:11+01:00",
+    "2006-02-16T16:15:28+01:00",
+    "2006-02-16T16:50:47+01:00",
+    "2006-02-16T17:04:21+01:00",
+    "2006-03-28T21:58:44+02:00",
+    "2006-03-28T22:25:48+02:00",
+    "2006-03-29T22:04:55+02:00",
+    "2006-03-29T22:33:45+02:00",
+    "2006-03-30T16:03:36+02:00",
+    "2006-04-06T20:37:31+02:00",
+    "2006-04-06T21:59:39+02:00",
+    "2006-04-07T11:27:31+02:00",
+    "2006-04-07T17:46:19+02:00",
+    "2006-04-07T20:35:33+02:00",
+    "2006-04-07T21:54:33+02:00",
+    "2006-04-07T21:56:07+02:00",
+    "2006-04-11T22:35:48+02:00",
+    "2006-04-24T20:59:00+02:00",
+    "2006-04-24T23:55:54+02:00",
+    "2006-04-25T00:44:49+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoSuchMethodException",
+      "message": "org.eclipse.core.runtime.IExtension.getDeclaringPluginDescriptor()",
+      "elements": [
+        {
+          "method": "java.lang.Class.getDeclaredMethod",
+          "source": "Class.java:1909"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EarlyStartupRunnable.getPluginForCompatibility",
+          "source": "EarlyStartupRunnable.java:135"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EarlyStartupRunnable.run",
+          "source": "EarlyStartupRunnable.java:73"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:816"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$20.run",
+          "source": "Workbench.java:1745"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "128178",
+      "date": "2006-02-16T11:19:37+01:00",
+      "product": "PDE",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "128178",
+  "bugId": "128178",
+  "date": "2006-02-16T11:19:37+01:00",
+  "product": "PDE",
+  "component": "UI",
+  "severity": "normal"
+}

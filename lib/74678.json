@@ -1,0 +1,104 @@
+{
+  "comments": [
+    "java.lang.NullPointerException\n\tat\norg.eclipse.jface.dialogs.IconAndMessageDialog.getSWTImage(IconAndMessageDialog.java:225)\n\tat\norg.eclipse.jface.dialogs.IconAndMessageDialog.getErrorImage(IconAndMessageDialog.java:172)\n\tat org.eclipse.jface.dialogs.MessageDialog.\u003cinit\u003e(MessageDialog.java:141)\n\tat org.eclipse.jface.dialogs.MessageDialog.openError(MessageDialog.java:310)\n\tat org.eclipse.jface.util.SafeRunnable.handleException(SafeRunnable.java:53)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.handleException(InternalPlatform.java:349)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:617)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:747)\n\tat org.eclipse.ui.part.WorkbenchPart.firePropertyChange(WorkbenchPart.java:125)\n\tat de.MessageEditor.beNotDirty(MessageEditor.java:213)\n\tat de.MessageEditor.access$1(MessageEditor.java:207)\n\tat de.MessageEditor$SaveJob.run(MessageEditor.java:74)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:66)\n\n@@@@\n\nVersion: 3.1.0\nBuild id: 200409140800",
+    "Causing code excerpt:\n\npublic class MessageEditor extends EditorPart {\n\n\tprivate final class SaveJob extends Job {\n\n\t        public IStatus run(IProgressMonitor monitor) {\n        \t    //other stuff\n        \t    return Status.OK_STATUS;\n\t        }\n\t}\n\n\tprivate final class SaveJobListener extends JobChangeAdapter {\n\n        \t/** {@inheritDoc} */\n\t        public void aboutToRun(IJobChangeEvent event) {\n        \t    setJobRunning(fJobRunning);\n\t        }\n\n\t        /** {@inheritDoc} */\n        \tpublic void done(final IJobChangeEvent event) {\n\t            IStatus result \u003d event.getResult();\n        \t    boolean isOk \u003d Status.OK_STATUS \u003d\u003d result;\n\t            if (isOk) beNotDirty();\n        \t    setJobRunning(false);\n\t        }\n\t}\n\n\tprivate boolean fJobRunning;\n\n\tpublic void doSave(IProgressMonitor monitor) {\n\t\tif (!isSaveAllowed()) return;\n\t\tJob job \u003d new SaveJob();\n\t\tjob.setProgressGroup(new NullProgressMonitor(), 1);\n\t\tjob.addJobChangeListener(new SaveJobListener());\n\t\tjob.schedule();\n    \t}\n\n\tprivate synchronized void beNotDirty() {\n        \tfDirty \u003d false;\n                firePropertyChange(PROP_DIRTY);\n\t}\n\n    \tprivate boolean isSaveAllowed() {\n        \treturn fDirty \u0026\u0026 isJobNotRunning();\n    \t}\n\n\tprivate synchronized void setJobRunning(boolean jobRunning) {\n\t\tfJobRunning \u003d jobRunning;\n\t}\n\n\tprivate synchronized boolean isJobNotRunning() {\n        \treturn !fJobRunning;\n\t}\n\n\t//...\n}",
+    "Note this is reported against Windows 98 which is no longer supported.",
+    "There\u0027s a typo:\n\n                /** {@inheritDoc} */\n\t        public void aboutToRun(IJobChangeEvent event) {\n        \t    setJobRunning(true);\n\t        }",
+    "I\u0027ve changed my code to the following:\n\nprivate synchronized void beDirty() {\n        fDirty \u003d true;\n        Display display \u003d getEditorSite().getShell().getDisplay();\n        display.asyncExec(new Runnable() {\n\n            /** {@inheritDoc} */\n            public void run() {\n                firePropertyChange(PROP_DIRTY);\n            }\n        });\n}\n\nprivate synchronized void beNotDirty() {\n        fDirty \u003d false;\n        Display display \u003d getEditorSite().getShell().getDisplay();\n        display.asyncExec(new Runnable() {\n\n            /** {@inheritDoc} */\n            public void run() {\n                firePropertyChange(PROP_DIRTY);\n            }\n        });\n}\n\n@@@@\n\nThe application works now.\n\nSeems as if I was in a non-UI thread when firePropertyChange(PROP_DIRTY) was called.\n\nBut the error dialog should have been called in an UI thread.",
+    "All changes to anything that updates widgets needs to be in the UI Thread. ",
+    "Guess you understood me wrong :)\n\nYes, the\n\nfirePropertyChange(PROP_DIRTY);\n\nshould be invoked in the UI Thread, but ... the problem I mention is that the\ndisplayal of the error dialog is not in the UI thread which it should.\n\n-\u003e Exception due to not running in UI Thread\n-\u003e Error dialog also not shown in UI Thread\n\ninstead of\n\n-\u003e Exception due to not running in UI Thread\n-\u003e Error dialog shown in UI Thread",
+    "Thanks for the clarification Sebastian",
+    "looking at the spec of SafeRunnable it says:\n\n/**\n * Implements a default implementation of ISafeRunnable.\n * The default implementation of \u003ccode\u003ehandleException\u003c/code\u003e\n * opens a message dialog.\n * \u003cp\u003e\u003cb\u003eNote:\u003cb\u003e This class can open an error dialog and should not \n *  be used outside of the UI Thread.\u003c/p\u003e\n */\n\nSo there could be several possible fixes:\n\n(1) disregard the spec and wrap the openErrorDialog in Display.syncExec()\n(2) wrap the code in firePropertyChange in Display.asyncExec()\n(3) create Platform.runInUi(ISafeRunnable)\n\nI\u0027ll provide fixes for 1 \u0026 2",
+    "Created an attachment (id\u003d16971)\nfix 1\n\ndisregard the spec and wrap the openErrorDialog in Display.syncExec()",
+    "Created an attachment (id\u003d16972)\ninteractive test for fix 1\n",
+    "Created an attachment (id\u003d16973)\nfix 2\n\nThis fix overrides handleException in the inner class in firePropertyChange.\n\nThis neither has the Display.async overhead nor has the spec of SafeRunnable to\nbe changed.\n\nI\u0027d prefer this over fix 1.",
+    "This is more of a question of how much we want to check Thread access in our\ncode. SWT does this explicitly in a lot of thier API but they are a much smaller\ncode base than us and I don\u0027t think we want to get into that sort of thing.\n\nI am going to mark this as WONTFIX as we don\u0027t want to add Thread access checks\nthroughout the workbenches code."
+  ],
+  "commentCreationDates": [
+    "2004-09-22T20:43:55+02:00",
+    "2004-09-22T21:03:05+02:00",
+    "2004-09-22T21:17:29+02:00",
+    "2004-09-22T21:21:31+02:00",
+    "2004-09-22T21:45:02+02:00",
+    "2005-01-05T21:14:27+01:00",
+    "2005-01-06T02:56:26+01:00",
+    "2005-01-06T13:16:19+01:00",
+    "2005-01-06T15:36:06+01:00",
+    "2005-01-06T17:36:15+01:00",
+    "2005-01-06T17:36:48+01:00",
+    "2005-01-06T17:39:56+01:00",
+    "2005-06-15T20:34:14+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.dialogs.IconAndMessageDialog.getSWTImage",
+          "source": "IconAndMessageDialog.java:225"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.IconAndMessageDialog.getErrorImage",
+          "source": "IconAndMessageDialog.java:172"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.MessageDialog.\u003cinit\u003e",
+          "source": "MessageDialog.java:141"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.MessageDialog.openError",
+          "source": "MessageDialog.java:310"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.handleException",
+          "source": "SafeRunnable.java:53"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.handleException",
+          "source": "InternalPlatform.java:349"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:617"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:747"
+        },
+        {
+          "method": "org.eclipse.ui.part.WorkbenchPart.firePropertyChange",
+          "source": "WorkbenchPart.java:125"
+        },
+        {
+          "method": "de.MessageEditor.beNotDirty",
+          "source": "MessageEditor.java:213"
+        },
+        {
+          "method": "de.MessageEditor.access$1",
+          "source": "MessageEditor.java:207"
+        },
+        {
+          "method": "de.MessageEditor$SaveJob.run",
+          "source": "MessageEditor.java:74"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:66"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "74678",
+      "date": "2004-09-22T20:43:55+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "74678",
+  "bugId": "74678",
+  "date": "2004-09-22T20:43:55+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

@@ -1,0 +1,113 @@
+{
+  "comments": [
+    "build 2002-05-16 (test build) on WinXP\nIBM JRE 1.3.1\n\nI tried to start the new build on my old workspace (from 2002-05-15) and it \nwouldn\u0027t start. I got the following message in my .log file.\n\n!STARTUP 5/16/02 9:03 PM\nException launching the Eclipse Platform:\n!STARTUP 5/16/02 9:03 PM\njava.lang.reflect.InvocationTargetException: java.lang.RuntimeException: Fatal \nError: Unable to locate matching org.eclipse.core.runtime plugin\n\tat \norg.eclipse.core.internal.boot.PlatformConfiguration.locateDefaultPlugins\n(PlatformConfiguration.java:2048)\n\tat org.eclipse.core.internal.boot.PlatformConfiguration.\u003cinit\u003e\n(PlatformConfiguration.java:845)\n\tat org.eclipse.core.internal.boot.PlatformConfiguration.startup\n(PlatformConfiguration.java:1264)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.initialize\n(InternalBootLoader.java:511)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.startup\n(InternalBootLoader.java:857)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:732)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:450)\n\tat java.lang.reflect.Method.invoke(Native Method)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:189)\n\tat org.eclipse.core.launcher.Main.run(Main.java:632)\n\tat org.eclipse.core.launcher.Main.main(Main.java:465)",
+    "Created an attachment (id\u003d861)\nmy .config directory zipped up.\n",
+    "*** Bug 16084 has been marked as a duplicate of this bug. ***",
+    "*** Bug 16108 has been marked as a duplicate of this bug. ***",
+    "I\u0027ve got it in 20020517. Renaming the .config folder solves it. The .config is \navailable upon request.",
+    "Rodrigo, please attach the contents of .config.\nI thought I knew what was happening but that theory did not pan out.",
+    "Created an attachment (id\u003d874)\nconfig.zip\n",
+    "Looked at the ZIp, seems our thinking is right\n...1630.xml points to file:C:/eclipse/runtime/20020515/eclipse\nthe next history\n..2356.xml points to file:C:/eclipse/runtime/20020517/eclipse/\nReconciliation considers it as a new site, thus disable all the found features...\nThey ar eboth platform:/base as PlatformURL",
+    "*** Bug 16302 has been marked as a duplicate of this bug. ***",
+    "There are three basic scenarios that I can think of the fall info the category \n\"reusing existing workspace with new build\".\n\n[A] user installs a brand new eclipse in a new install location and creates/ \nmodifies a shortcut that uses the new install and existing workspace. This is \nour typical self-hosting scenario, and is what exposed this defect.\n\n[B] user installs a brand new eclipse over top of an existing (prior version of) \neclipse. We do not do this with build .zips, but a native installer may do this \nwhen applying service, possibly when doing minor version upgrade\n\n[C] user installs a brand new eclipse into the same install location as the \nprevious version, but in the process also deteted the previous version. Some \npeople may do this when self hosting (ie. delete the old drop, and unzip the new \none in its place). Native installers may also do this, possibly when doing minor \nversion upgrade, and probably always when doing major version upgrade. The end \nuser can also trigger this by uninstalling the old version first, and then \ninstalling the new one into the same location.\n\nThis defect is as a result of scenario [A]. To fix this the reconciler (on \nstartup) needs to detect the fact that the install site referenced by \nplatform:/base/ URL has in fact changed (the resolved old and new URLs differ). \nIf this is the case, then force optimistic reconciliation regardless of what the \nreconciler was called with. We should reconcile optimistically across all \ninstall sites we know about (ie. should make the determination if we are in this \nsituation at the start of the reconciliation process before any of the sites \nareactually processed). This fix handles the case where the new install is the \nsame version, or different version of the platform.\n\nScenario [B]  should work with the current support. When started, we start \nrunning the older version of the platform, detect this, do reconcilliation \n(pessimistic because the is not \"first use\" scenario), force a restart that will \nnotify the user that there are changes. If the user accepts the new changes, we \nconfigure the new features and restart (which will cause the updated platform to \nrun). If the user declines the changes, we just continue with the older version. \nThe user has the option to go into the update manager later and configure the \nnew stuff. On single user platforms like Win the expectation is that the user \nwould always accept the changes. On multi-user platforms, or shared LAN install, \nit is possible that a user defer applying the change that was made by the \nshared-install \"administrator\" to later.\n\nScenario [C] needs to be detected in Main.java launcher. If we use the bootstrap \ninformation in platform.cfg to get the location of BootLoader, but the location \nis no longer valid (because it references the old version that is gone), we need \nto kick in the default search for boot instead of failing. If we find boot using \nthe default search algorithm (generally will locate the latest version found in \nthe install location) we would also force \"first use\" reconcilliation \nprocessing. This means the reconciler would be called on startup with \n\"optimistic\" as the setting. Optimistic reconciliation would apply to all sites \nwe know about.  Note, that if the user explicitly specified -boot on startup and \nit is bad, we will fail as today.\n\nSo, [A] needs a fix in the reconciler, and [C] needs a fix in Main.java ..... \nboth for F1",
+    "Scenario [A]\nAdded method platformBaseChanged() is SiteReconciler.\nTested the following\n\nInstalled 0508 in C:\\SDK 0508\\\nInstalled 0515 + code from HEAD in C:\\SDK 05015\\\nStart 0508 with -update -data c:\\TEMP\nstart 0515 with -debug -data c:\\TEMP\n0515 opens, the log shows\n!MESSAGE Install/Update WARNING:Platform URL found is different than the one\npreviously saved. Reconcile optimistically:file:/C:/SDK 0515/eclipse/ :\nfile:C:/SDK 0508/eclipse/\n\nThe reconciliation happened optimistically and the Workbench opened.\n[A] fixed.",
+    "Pass to Vlad for Scenario [C]",
+    "Changes for [C] released into HEAD (org.eclipse.platform, \norg.eclipse.core.boot).\n",
+    "This is still a problem with 2002-05-19.\nI am following scenerio [A].\n",
+    "OK, can you please attach .metata/.config directory and any .log\nI presume you are moving from 0515 to 0519",
+    "Created an attachment (id\u003d884)\nlog file\n",
+    "Created an attachment (id\u003d885)\nconfig directory\n",
+    "I was moving from 05-17 to 05-19.",
+    "We did not contribute update core into 0519 so scenario [A] will still be \nbroken. Will be in the 0520 evening build (not the regular nightly build, the \n10pm build Jim said is being scheduled) and in the F1 build.",
+    "Scenerio [A] is ok in 2002-05-20. (moving from 2002-05-19)",
+    "Also verified with 0520. Closing."
+  ],
+  "commentCreationDates": [
+    "2002-05-17T03:06:10+02:00",
+    "2002-05-17T03:09:58+02:00",
+    "2002-05-17T20:44:12+02:00",
+    "2002-05-17T20:44:37+02:00",
+    "2002-05-17T21:43:50+02:00",
+    "2002-05-17T22:19:54+02:00",
+    "2002-05-17T22:24:06+02:00",
+    "2002-05-18T03:05:12+02:00",
+    "2002-05-18T16:09:23+02:00",
+    "2002-05-18T18:56:20+02:00",
+    "2002-05-18T23:01:04+02:00",
+    "2002-05-19T00:21:05+02:00",
+    "2002-05-19T00:53:40+02:00",
+    "2002-05-19T17:41:04+02:00",
+    "2002-05-19T17:51:45+02:00",
+    "2002-05-19T17:54:19+02:00",
+    "2002-05-19T17:55:24+02:00",
+    "2002-05-19T17:55:41+02:00",
+    "2002-05-19T17:56:39+02:00",
+    "2002-05-21T05:31:09+02:00",
+    "2002-05-21T14:13:07+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "message": "Fatal  Error: Unable to locate matching org.eclipse.core.runtime plugin",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.boot.PlatformConfiguration.locateDefaultPlugins",
+          "source": "PlatformConfiguration.java:2048"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.PlatformConfiguration.\u003cinit\u003e",
+          "source": "PlatformConfiguration.java:845"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.PlatformConfiguration.startup",
+          "source": "PlatformConfiguration.java:1264"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.initialize",
+          "source": "InternalBootLoader.java:511"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.startup",
+          "source": "InternalBootLoader.java:857"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:732"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:450"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:189"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:632"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:465"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "16215",
+      "date": "2002-05-17T03:06:10+02:00",
+      "product": "Platform",
+      "component": "Update",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "16215",
+  "bugId": "16215",
+  "date": "2002-05-17T03:06:10+02:00",
+  "product": "Platform",
+  "component": "Update",
+  "severity": "critical"
+}

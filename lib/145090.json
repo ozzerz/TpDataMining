@@ -1,0 +1,123 @@
+{
+  "comments": [
+    "Steps to reproduce using WTP 1.5RC4:\n\n- fresh workspace, disable validation \n- create Tomcat 5.5 runtime and server config\n- import sample projects attached to bug 121692 (https://bugs.eclipse.org/bugs/attachment.cgi?id\u003d32256)\n- fix \"war\" project build path (see bug 142328)\n- create \"test.txt\" file in war/WebContent directory\n- publish \"war\" to tomcat server and start the server\n- change and save war/WebContent/test.txt\n\nProblem: UI completely frezzes for about half a minute with CPU 100%.\n\n...wst.web...ComponentDeployable appears to be responsible -- its #getMembers(IVirtualContainer, IPath) uses O(N^2) algorithm to correlate members to folders.\n\nPS: bug 122720 talks about WTP performance on large workspaces and lists some of  problems WTP had in the past.",
+    "We can take a look at profiling, but my question would be for Tim, is why does a change to one file require the republishing of the whole project?  Seems like we shouldn\u0027t need to always call componentDeployable.members(), only initially...\n\nThoughts?",
+    "This is not directly related to publishing. When resource changes occur, it uses members() to see if there are any changes that affect the resources published to the server. If so, it can then kick off automatic publishing, notify the server adapter of the change in case the server or app needs to be restarted, etc. This use has some moderate optimizations (e.g. so it won\u0027t get called if the project isn\u0027t on any servers) but nothing elaborate.",
+    "Profiling and investigating.",
+    "The main problem from the performance profiling I see is the method getExistingModuleResource.  This method uses some incorrect recursion which will decrease exponentially with the number of folders in a project.  It was trying to find matching paths, and if the first segment in a path didnt match, it still tried to check all the next segments.  Meaning if a resource was not under a ceratain folder, we still tried to see if the resource was under any of that folder\u0027s children.  This was causing significant slow downs in projects I tested.  This method has now been reworked.",
+    "Created an attachment (id\u003d44144)\nProposed patch\n\n",
+    "This defect is ready for PMC approval.\n\nThe reworked method is attached to the defect.  Essentially, we are smarter now in when we take the time to recurse.  First, we check to see if the last segment is the same, if it is, then we do more checking.  If the first segments match and it is a folder, only then do we recurse.  So, if folder A holds folder B and the path given is C/B, then we know not to check A\u0027s children right away.  \n\nIn a large project with like 400 folders, this method went from 5 seconds to 40 ms.  I also tested various scenarios and the junit test to make sure the current function was not regressed.  Looked good.",
+    "+1 \n\nThis sounds well worth it! \nThanks John. \n\n",
+    "+1 1.5",
+    "+1 for WTP 1.5 RC5.",
+    "Released to 061306 1.5 RC5 driver",
+    "*** Bug 146910 has been marked as a duplicate of this bug. ***",
+    "Using RC5 I got the following exception while publishing. I wonder if it is related to the changes from this patch.\n\n!ENTRY org.eclipse.wst.server.core 4 0 2006-06-22 08:43:33.187\n!MESSAGE Could not publish to the server.\n!STACK 0\njava.lang.ArrayIndexOutOfBoundsException: 3\n\tat org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource(ComponentDeployable.java:250)\n\tat org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource(ComponentDeployable.java:252)\n\tat org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource(ComponentDeployable.java:252)\n\tat org.eclipse.wst.web.internal.deployables.ComponentDeployable.getMembers(ComponentDeployable.java:126)\n\tat org.eclipse.wst.web.internal.deployables.ComponentDeployable.getMembers(ComponentDeployable.java:135)\n\tat org.eclipse.jst.j2ee.internal.deployables.J2EEFlexProjDeployable.members(J2EEFlexProjDeployable.java:133)\n\tat org.eclipse.wst.server.core.internal.ModulePublishInfo.fillCache(ModulePublishInfo.java:212)\n\tat org.eclipse.wst.server.core.internal.ModulePublishInfo.getDelta(ModulePublishInfo.java:261)\n\tat org.eclipse.wst.server.core.internal.ServerPublishInfo.getDelta(ServerPublishInfo.java:250)\n\tat org.eclipse.wst.server.core.internal.Server.getPublishedResourceDelta(Server.java:967)\n\tat org.eclipse.wst.server.core.model.ServerBehaviourDelegate.getPublishedResourceDelta(ServerBehaviourDelegate.java:491)\n\tat org.eclipse.wst.server.core.model.ServerBehaviourDelegate.publish(ServerBehaviourDelegate.java:555)\n\tat org.eclipse.wst.server.core.internal.Server.doPublish(Server.java:803)\n\tat org.eclipse.wst.server.core.internal.Server.publish(Server.java:791)\n\tat org.eclipse.wst.server.core.internal.PublishServerJob.run(PublishServerJob.java:145)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n",
+    "I opened bug 148203 to track this.",
+    "verified 20060925",
+    "Verified, closing."
+  ],
+  "commentCreationDates": [
+    "2006-06-02T18:22:50+02:00",
+    "2006-06-05T17:09:19+02:00",
+    "2006-06-05T20:07:48+02:00",
+    "2006-06-12T15:31:44+02:00",
+    "2006-06-12T16:37:54+02:00",
+    "2006-06-12T16:38:35+02:00",
+    "2006-06-12T16:42:19+02:00",
+    "2006-06-12T20:03:20+02:00",
+    "2006-06-12T20:25:35+02:00",
+    "2006-06-12T21:18:28+02:00",
+    "2006-06-12T22:26:53+02:00",
+    "2006-06-13T23:25:43+02:00",
+    "2006-06-22T14:43:41+02:00",
+    "2006-06-22T14:56:27+02:00",
+    "2006-09-26T20:58:12+02:00",
+    "2006-09-26T21:03:33+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "message": "3",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource",
+          "source": "ComponentDeployable.java:250"
+        },
+        {
+          "method": "org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource",
+          "source": "ComponentDeployable.java:252"
+        },
+        {
+          "method": "org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource",
+          "source": "ComponentDeployable.java:252"
+        },
+        {
+          "method": "org.eclipse.wst.web.internal.deployables.ComponentDeployable.getMembers",
+          "source": "ComponentDeployable.java:126"
+        },
+        {
+          "method": "org.eclipse.wst.web.internal.deployables.ComponentDeployable.getMembers",
+          "source": "ComponentDeployable.java:135"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deployables.J2EEFlexProjDeployable.members",
+          "source": "J2EEFlexProjDeployable.java:133"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ModulePublishInfo.fillCache",
+          "source": "ModulePublishInfo.java:212"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ModulePublishInfo.getDelta",
+          "source": "ModulePublishInfo.java:261"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ServerPublishInfo.getDelta",
+          "source": "ServerPublishInfo.java:250"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.getPublishedResourceDelta",
+          "source": "Server.java:967"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.model.ServerBehaviourDelegate.getPublishedResourceDelta",
+          "source": "ServerBehaviourDelegate.java:491"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.model.ServerBehaviourDelegate.publish",
+          "source": "ServerBehaviourDelegate.java:555"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.doPublish",
+          "source": "Server.java:803"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.publish",
+          "source": "Server.java:791"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.PublishServerJob.run",
+          "source": "PublishServerJob.java:145"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 12,
+      "bugId": "145090",
+      "date": "2006-06-22T14:43:41+02:00",
+      "product": "Web Tools",
+      "component": "wst.web",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "145090",
+  "bugId": "145090",
+  "date": "2006-06-02T18:22:50+02:00",
+  "product": "Web Tools",
+  "component": "wst.web",
+  "severity": "critical"
+}

@@ -1,0 +1,41 @@
+{
+  "comments": [
+    "Need to make the Mozilla method calls in the CSS View code use the XPCOMThreadProxy, so that all Mozilla methods are pushed on to the main thread.\n\nCurrently, when running ATF with a XULRunner debug build, the XULRunner build spits out many warnings like this:\n###!!! ASSERTION: DOMCSSStyleRuleImpl not thread-safe: \u0027_mOwningThread.GetThread() \u003d\u003d PR_GetCurrentThread()\u0027, file /home/javier/builds/xulrunner18/mozilla/layout/style/nsCSSStyleRule.cpp, line 1018\n\nFor the most part, the CSS View works, regardless of the warnings.  But today, I got this warning:\nWARNING: Creation of \"{40b22006-5dd5-42f2-bfe7-7dbf0757ab8b}\" in progress (Reentrant GS - see bug 194568), file /home/javier/builds/xulrunner18/mozilla/xpcom/components/nsComponentManager.cpp, line 1829\n\nAt the same time, I got this Eclipse error:\nAn internal error occurred during: \"Indexing CSS for page\".\norg.mozilla.xpcom.XPCOMException: The function \"getServiceByContractID\" returned an error condition  (0x80040111)\nat org.mozilla.xpcom.internal.XPCOMJavaProxy.callXPCOMMethod(Native Method)\nat org.mozilla.xpcom.internal.XPCOMJavaProxy.invoke(XPCOMJavaProxy.java:140)\nat $Proxy2.getServiceByContractID(Unknown Source)\nat org.eclipse.atf.mozilla.ide.ui.css.CSSPropertyLocator$CSSJobSearch.run(CSSPropertyLocator.java:116)\nat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\nThis resulted in the browser editor turning gray (no web page displayed).  The only way to fix this was to close the browser and reopen.\n\nThe \"Reentrant GS\" warning occurred because ATF is trying to call getService() (\"GS\") on the same service at the same time from two different threads, which isn\u0027t supported.\n\nSo, as stated above, the fix is to use XPCOMThreadProxy to make sure all the Mozilla method calls are run on the main thread.",
+    "I started with the code in the CSSJobSearch class in CSSPropertyLocator.java, specifically the parse() method.  I started using XPCOMThreadProxy for the incoming \u0027node\u0027 parameter and for the inIDOMUtils \u0027service\u0027 member.  While this fixed many of the \"not thread-safe\" assertions, it slowed down ATF considerably.\n\nIf you think about this, we kick of a new Job on a separate thread, which then tries to push any Mozilla specific method calls back on the main thread.  Won\u0027t work very well.\n\nSo what I tried instead was to not create a separate thread (Job) at all.  I hacked the code as follows:\n\n\t\tcts \u003d new CSSJobSearch(node);\n//\t\tcts.setPriority(Job.BUILD);\n//\t\tcts.schedule();\n//\t\tcts.addJobChangeListener(listener);\n\t\tcts.run(null);\n\t\tlistener.done(null);\n\nThis seems to work surprisingly well, and doesn\u0027t cause a large performance hit.\n\nKevin, is there any reason that I\u0027m missing to do this on a separate thread?",
+    "I made the changes that you listed and ran a few tests and it did seem to significantly slow down selecting a node in the DOM inspector and seeing it flash in the browser.  That was the reason I initially moved it off the UI thread because the performance was very slow when switch between node selection."
+  ],
+  "commentCreationDates": [
+    "2006-09-21T21:07:23+02:00",
+    "2006-11-16T23:13:49+01:00",
+    "2006-11-17T15:14:18+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.mozilla.xpcom.XPCOMException",
+      "message": "The function \"getServiceByContractID\" returned an error condition  (0x80040111)",
+      "elements": [
+        {
+          "method": "org.mozilla.xpcom.internal.XPCOMJavaProxy.callXPCOMMethod",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.mozilla.xpcom.internal.XPCOMJavaProxy.invoke",
+          "source": "XPCOMJavaProxy.java:140"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "158200",
+      "date": "2006-09-21T21:07:23+02:00",
+      "product": "ATF",
+      "component": "mozide",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "158200",
+  "bugId": "158200",
+  "date": "2006-09-21T21:07:23+02:00",
+  "product": "ATF",
+  "component": "mozide",
+  "severity": "normal"
+}

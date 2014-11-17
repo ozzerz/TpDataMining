@@ -1,0 +1,119 @@
+{
+  "comments": [
+    "I get all the time the following warning (using 3.2RC2):\n\njava.lang.NoClassDefFoundError: org/eclipse/core/internal/runtime/auth/AuthorizationHandler\n\tat org.eclipse.core.runtime.Platform.addAuthorizationInfo(Platform.java:453)\n\tat org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.updateCache(CVSRepositoryLocation.java:976)\n\tat org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.updateCache(CVSRepositoryLocation.java:953)\n\tat org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.setAllowCaching(CVSRepositoryLocation.java:943)\n\tat org.eclipse.team.internal.ccvs.ui.WorkbenchUserAuthenticator.promptForUserInfo(WorkbenchUserAuthenticator.java:99)\n\tat org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.promptForUserInfo(CVSRepositoryLocation.java:811)\n\tat org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.openConnection(CVSRepositoryLocation.java:789)\n\tat org.eclipse.team.internal.ccvs.core.client.Session.open(Session.java:159)\n\tat org.eclipse.team.internal.ccvs.core.resources.RemoteFolderMemberFetcher.performUpdate(RemoteFolderMemberFetcher.java:97)\n\tat org.eclipse.team.internal.ccvs.ui.operations.FetchMembersOperation$InternalRemoteFolderMemberFetcher.performUpdate(FetchMembersOperation.java:69)\n\tat org.eclipse.team.internal.ccvs.core.resources.RemoteFolderMemberFetcher.fetchMembers(RemoteFolderMemberFetcher.java:64)\n\tat org.eclipse.team.internal.ccvs.core.resources.RemoteFolderMemberFetcher.fetchMembers(RemoteFolderMemberFetcher.java:55)\n\tat org.eclipse.team.internal.ccvs.ui.operations.FetchMembersOperation.execute(FetchMembersOperation.java:107)\n\tat org.eclipse.team.internal.ccvs.ui.operations.CVSOperation.run(CVSOperation.java:81)\n\tat org.eclipse.team.internal.ccvs.ui.model.CVSTagElement.fetchDeferredChildren(CVSTagElement.java:136)\n\tat org.eclipse.ui.progress.DeferredTreeContentManager$1.run(DeferredTreeContentManager.java:207)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)",
+    "Moving to Runtime since the missing class is from them.",
+    "Please post the complete log file.",
+    "is the org.eclipse.core.runtime.compatibility.auth plugin actually installed?  run with -console and then type ss.  in the list output look for the plugin and please paste its entry here (or the whole output of ss)",
+    "it is installed:\n 74      ACTIVE      org.eclipse.core.runtime.compatibility.auth_3.2.0.v20060426\n\nHowever, we had some network problems in the intranet. Now it seems to work again.",
+    "are you saying we can close as invalid?",
+    "well, it still puzzles me, why a network problem on my side can cause a NoClassDefFoundError for AuthorizationHandler in eclipse.....",
+    "I have seen similar problems during startup using a launch config in InternalPlatform#initializeAuthorizationHandler(). Clearing the launch config\u0027s configuration area fixed the problem for me.\n\nThe launch config was previously used without the auth plug-in and I added it afterwards. This is with all binary imports and no external plug-ins enabled.\n",
+    "We encountered a similar problem and we think we may know what the cause is.\n\nPlug-in \"org.eclipse.core.runtime\" depends on \"org.eclipse.core.runtime.compatibility.auth\", however this dependency is optional.\nWe started debug tracing and found out that in our case plug-in \"org.eclipse.core.runtime\" was started before \"org.eclipse.core.runtime.compatibility.auth\" (which is allowed because of the optional dependency).\n(We had to start debug tracing on a normal executable, because apparantly the starting a new Eclipse instance from Eclipse _does_ pre-load \"org.eclipse.core.runtime.compatibility.auth\" and everything works)\n\nLooking at the source, the BundleLoader.initialize() gets an array of resolved, required bundles. The BundleLoaderProxy instances are store in the array \u0027requiredBundles\u0027.\n\nLater, when Platform.getAuthorizationInfo() is called, the classloader of Platform (which is in \"org.eclipse.core.runtime\") will try to load class \"AuthorizationHandler\".\nThis will get to BundleLoader.findClass() to find that class and since the class is not in plug-in \"org.eclipse.core.runtime\", if will ask its required plug-ins to find the class. However, BundleLoader.findRequiredSource() will look in the array that was built up during the BundleLoader.initialize().\nSo even if \"org.eclipse.core.runtime.compatibility.auth\" is started at a later time, it will not be used by the classloader of \"org.eclipse.core.runtime\" anymore.\n\nWe tested this by temporary removing the \"optional\" option in the dependency from \"org.eclipse.core.runtime\" to \"org.eclipse.core.runtime.compatibility.auth\" and indeed our problem was gone.\nOur final solution is adding \"org.eclipse.core.runtime.compatibility.auth\" to the \u0027config.ini\u0027 of our product at startlevel 2 (the same as \"org.eclipse.core.runtime\"). We added it _before_ \"org.eclipse.core.runtime\", athough I\u0027m not sure it that\u0027s necessary.\n\nWe think it might be a bug of Eclipse that it won\u0027t check the BundleLoaderProxy of an \u0027optional\u0027 required dependency. It should check it always, since it might be available at a later time.",
+    "...interesting finding....\nIs this an OSGi bug?",
+    "This is not an OSGi bug.\n\nAccording to the OSGi specification the Framework does not dynamically resolve \"optional\" dependencies (Import-Package or Require-Bundle) from already RESOLVED bundles.  The org.eclipse.core.runtime bundle optionally requires org.eclipse.core.runtime.compatibility.auth.  If the org.eclipse.core.runtime bundle is resolved while the org.eclipse.core.runtime.compatibility.auth is not installed then it will not be dynamically wired to the org.eclipse.core.runtime.compatibility.auth later when it is installed and resolved.\n\nThe trick is to make sure core.runtime is resolved at the same time core.runtime.compatibility.auth is resolved.  In the SDK this is done by giving core.runtime a higher start-level than update.configurator.  This way update.configurator is allowed to install the rest of the platform (including core.runtime.compatibility.auth) then core.runtime is allows to resolve and start with the correct wiring to core.runtime.compatibility.  Anything core.runtime depends on should be at the same start-level or lower than the start-level of core.runtime.  In the SDK core.runtime is assigned the default start-level so it ends up with the same start-level as core.runtime.compatibility.auth.\n\nSee bug 95681 for some discussion on this topic.",
+    "A possible way to fix this issue would be to add a dynamic import to core.runtime for the org.eclipse.core.internal.runtime.auth package.  This would allow late binding to the org.eclipse.core.internal.runtime.auth package after the runtime bundle has been resolved."
+  ],
+  "commentCreationDates": [
+    "2006-05-04T04:50:49+02:00",
+    "2006-05-04T12:13:15+02:00",
+    "2006-05-04T15:49:43+02:00",
+    "2006-05-04T17:47:05+02:00",
+    "2006-05-05T05:52:10+02:00",
+    "2006-05-05T20:31:01+02:00",
+    "2006-05-05T20:49:01+02:00",
+    "2006-07-13T10:10:14+02:00",
+    "2007-01-08T16:16:18+01:00",
+    "2007-01-08T18:20:13+01:00",
+    "2007-01-09T15:23:57+01:00",
+    "2007-01-10T17:20:20+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "org/eclipse/core/internal/runtime/auth/AuthorizationHandler",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.Platform.addAuthorizationInfo",
+          "source": "Platform.java:453"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.updateCache",
+          "source": "CVSRepositoryLocation.java:976"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.updateCache",
+          "source": "CVSRepositoryLocation.java:953"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.setAllowCaching",
+          "source": "CVSRepositoryLocation.java:943"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.WorkbenchUserAuthenticator.promptForUserInfo",
+          "source": "WorkbenchUserAuthenticator.java:99"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.promptForUserInfo",
+          "source": "CVSRepositoryLocation.java:811"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.openConnection",
+          "source": "CVSRepositoryLocation.java:789"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Session.open",
+          "source": "Session.java:159"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.RemoteFolderMemberFetcher.performUpdate",
+          "source": "RemoteFolderMemberFetcher.java:97"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.FetchMembersOperation$InternalRemoteFolderMemberFetcher.performUpdate",
+          "source": "FetchMembersOperation.java:69"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.RemoteFolderMemberFetcher.fetchMembers",
+          "source": "RemoteFolderMemberFetcher.java:64"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.RemoteFolderMemberFetcher.fetchMembers",
+          "source": "RemoteFolderMemberFetcher.java:55"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.FetchMembersOperation.execute",
+          "source": "FetchMembersOperation.java:107"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.CVSOperation.run",
+          "source": "CVSOperation.java:81"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.model.CVSTagElement.fetchDeferredChildren",
+          "source": "CVSTagElement.java:136"
+        },
+        {
+          "method": "org.eclipse.ui.progress.DeferredTreeContentManager$1.run",
+          "source": "DeferredTreeContentManager.java:207"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "140108",
+      "date": "2006-05-04T04:50:49+02:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "140108",
+  "bugId": "140108",
+  "date": "2006-05-04T04:50:49+02:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "normal"
+}

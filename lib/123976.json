@@ -1,0 +1,346 @@
+{
+  "comments": [
+    "Deploy birt.war on an application server that does not explode the war file, such as BEA.  Access the view example and receive the message:\nThe design file null\\test.rptdesign can not be found.  \n\nThe issue is the use of ServletContext.getRealPath() to determine the file path in a war deployment.  \n\nPer the specification, this function will return null in this circumstance:\n\nThe real path returned will be in a form appropriate to the computer and operating system on which the servlet container is running, including the proper path separators. This method returns null if the servlet container cannot translate the virtual path to a real path for any reason (such as when the content is being made available from a .war archive). \n\nThe portable approach is to use ServletContext.getResource().",
+    "Created an attachment (id\u003d33080)\nModified ParameterAccessor to use getResource\n\n",
+    "Created an attachment (id\u003d33081)\nmodified version of ReportEngineHelper to use URL \n\n",
+    "Viewer does not suppose to load report design or doc from unexploited war. This is original design requirement. report doc and design\u0027s deployment is a seperate issue from viewer\u0027s deployment. If web viewer needs to access some files/folders, it have alreay use get resource apis. This is done in v1.\n\nIn this case, we need to first modified the web.xml, give a valid folder vaiue to \"BIRT_VIEWER_WORKING_FOLDER\", and then make sure test.rptdesign exists in that folder.",
+    "Shouldn\u0027t this be resolved as \"invalid\" instead of fixed?  You are saying it is not supposed to support reading files from within the WAR, not that anything was checked in and fixed.\n\nOn BEA, the deployment tool is fully capable of editing the web.xml in place in the WAR file, so the need to set BIRT environment variables does not imply that the deployment is guaranteed to be expanded.  http://e-docs.bea.com/wls/docs81/wlbuilder/index.html\n\nApart from accessing the report files, should the viewer application work when depoyed as a WAR or is it always a requirement that it be deployed expanded?  \n\nIf this is a requirement, I think it needs to be more explicit somehwere.  Maybe it already is and I missed it.  I was just attempting to include this viewer within my web application for BIRT report viewing and am getting tripped up.  I could see others doing the same without guidance.\n",
+    "Consider to support three deployment scenrios:\n1) BIRT engine AND report design files are in one WAR file\n2) BIRT engine is in one WAR file,  report design files are added later as expanded files on the App server.\n3)  BIRT engine is in one WAR file, report design files are added later in WAR file. ",
+    "\nBIRT supports deploying the viewer+engine as a WAR file but the report design file needs to be deployed exploded.  The usage scenrio for this is that view/WAR is deployed once as WAR file, but the report designs are uploaded/deployed later when user create report designs after the app is deployed.\n\nThere are needs for the other two cases where canned report is deployed as part of the WAR deployment.  Need change in BIRT engine resource loading to support that in future release.",
+    "Support for loading design files from unexploited WAR file ( scenario (1) and\n2) listed above ) is deferred to future release.\n",
+    "Now that BIRT migrates to use Eclipse Platform\u0027s OSGi for resource loading, we can investigate enhancing viewer to support unexploded  WAR deployment for usae case (1) in comment#5.",
+    "Synch up with Callisto schedule to rename RC1 as RC2 targeted 5/5/2006.",
+    "This is related to the resource deployment feature. Once that is done, this should be fixed. This bug is depended on the bug Engine one 137426.",
+    "Birt can not be deployed successfully on weblogic.",
+    "Can not deploy birt for weblogic by war. ICU4J has bug block this one.",
+    "Now can deploy successfully but get the following error when render a report. It seems that it is ICU4J bug.\n \n####\u003cMay 26, 2006 11:33:46 AM GMT+08:00\u003e \u003cError\u003e \u003cKernel\u003e \u003cChengYuFei\u003e \u003cAdminServer\u003e \u003c[ACTIVE] ExecuteThread: \u00271\u0027 for queue: \u0027weblogic.kernel.Default (self-tuning)\u0027\u003e \u003c\u003cWLS Kernel\u003e\u003e \u003c\u003e \u003c\u003e \u003c1148614426890\u003e \u003cBEA-000802\u003e \u003cExecuteRequest failed\n java.lang.NoClassDefFoundError.\njava.lang.NoClassDefFoundError\n\tat com.ibm.icu.impl.ICUResourceBundle.findResourceWithFallback(ICUResourceBundle.java:1101)\n\tat com.ibm.icu.impl.ICUResourceBundle.getWithFallback(ICUResourceBundle.java:652)\n\tat com.ibm.icu.impl.CalendarData.get(CalendarData.java:51)\n.....................",
+    "Communicated with IBM people to provide the patch. But that will break some ICU4J feature. Deploy by folder works well.",
+    "(In reply to comment #14)\n\u003e Communicated with IBM people to provide the patch. But that will break some\n\u003e ICU4J feature. Deploy by folder works well.\n\nWhich is ICU4J feature will be broken?",
+    "Now viewer has supported to try to get resource from WAR file.But IBM ICU4J issue blocked this yet.",
+    "is this same issue as \nhttps://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d139043\n",
+    "Support deploy war on weblogic 9",
+    "After deploy birt.war on weblogic 9, stop( Shutdown Platform ) and restart service, can\u0027t startup Platform correctly.When shutdown Platform, the SampleDB folder also can\u0027t be cleared.",
+    "Engine, please debug this. Thanks.",
+    "If a web application is shutdown, the weblogic won\u0027t release the classes. So in next startup, those classes won\u0027t be intialized. If those classes contain any static fileds, the static fields will not be reintialized. \n\nIf the static field contains some objects (such as exetension point object)which are got from the old platform instance, those object will be invalidate in following calls.\n\nA reasonable resolution is to intitialize/finalize those classes in the bundle\u0027s start/close event handler.\n\norg.eclipse.birt.data.oda.util.manifest.DtpManifestExplorer is the root cause of this SCR.",
+    "Can we fix org.eclipse.birt.data.oda.util.manifest.DtpManifestExplorer  as Wei suggested?",
+    "To fix the DtpManifestExplorer issue we need to (1) Add a static method destroyInstance() to this class to clear up the singleton instance. (2) In DataEngine plugin\u0027s bundle close method call destroyInstance() \n\nPlease also examine other singleton/static objects used in Engine/DtE to ensure no similar issues exist.",
+    "I have fixed the similar issue of org.eclipse.birt.data.engine.aggregation.AggregationFactory which is only one needed to fix in DTE.",
+    "The ODA runtime framework\u0027s singleton instances are now released when the corresponding ODA bundles are stopped by OSGi.\nRelated Bugzilla entry: https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d152494\n\nRe-assigned to Viewer team to verify whether more fixes are needed in other components to support deployment of birt war.",
+    "Throw the following Exception, Please check:\n\n--------------------------------------------------\njava.lang.NullPointerException\n\tat org.eclipse.datatools.connectivity.oda.util.manifest.ManifestExplorer.getExtensions(ManifestExplorer.java:341)\n\tat org.eclipse.datatools.connectivity.oda.util.manifest.ManifestExplorer.getExtensionManifests(ManifestExplorer.java:261)\n\tat org.eclipse.birt.data.oda.util.manifest.DtpManifestExplorer.getExtensionManifests(DtpManifestExplorer.java:128)\n\tat org.eclipse.birt.report.model.plugin.ODAManifestUtil.getDataSetExtension(ODAManifestUtil.java:65)\n\tat org.eclipse.birt.report.model.plugin.OdaExtensibilityProvider.isValidODADataSetExtensionID(OdaExtensibilityProvider.java:194)\n\tat org.eclipse.birt.report.model.parser.OdaDataSetState.parseODADataSetExtensionID(OdaDataSetState.java:206)\n\tat org.eclipse.birt.report.model.parser.OdaDataSetState.parseAttrs(OdaDataSetState.java:119)\n\tat org.eclipse.birt.report.model.parser.ModuleParserHandler.startElement(ModuleParserHandler.java:159)\n\tat com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.startElement(AbstractSAXParser.java:533)\n\tat com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanStartElement(XMLDocumentFragmentScannerImpl.java:878)\n\tat com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch(XMLDocumentFragmentScannerImpl.java:1693)\n\tat com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanDocument(XMLDocumentFragmentScannerImpl.java:368)\n\tat com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse(XML11Configuration.java:834)\n\tat com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse(XML11Configuration.java:764)\n\tat com.sun.org.apache.xerces.internal.parsers.XMLParser.parse(XMLParser.java:148)\n\tat com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.parse(AbstractSAXParser.java:1242)\n\tat weblogic.xml.jaxp.WebLogicXMLReader.parse(WebLogicXMLReader.java:133)\n\tat weblogic.xml.jaxp.RegistryXMLReader.parse(RegistryXMLReader.java:153)\n\tat javax.xml.parsers.SAXParser.parse(SAXParser.java:375)\n\tat org.eclipse.birt.report.model.parser.ModuleReader.readModule(ModuleReader.java:90)\n\tat org.eclipse.birt.report.model.parser.DesignReader.read(DesignReader.java:86)\n\tat org.eclipse.birt.report.model.core.DesignSession.openDesign(DesignSession.java:239)\n\tat org.eclipse.birt.report.model.api.SessionHandle.openDesign(SessionHandle.java:199)\n\tat org.eclipse.birt.report.engine.parser.ReportParser.getDesignHandle(ReportParser.java:131)\n\tat org.eclipse.birt.report.engine.api.impl.ReportEngineHelper.openReportDesign(ReportEngineHelper.java:196)\n\tat org.eclipse.birt.report.engine.api.impl.ReportEngineHelper.openReportDesign(ReportEngineHelper.java:176)\n\tat org.eclipse.birt.report.engine.api.impl.ReportEngineHelper.openReportDesign(ReportEngineHelper.java:153)\n\tat org.eclipse.birt.report.engine.api.impl.ReportEngine.openReportDesign(ReportEngine.java:255)\n\tat org.eclipse.birt.report.service.ReportEngineService.openReportDesign(Unknown Source)\n\tat org.eclipse.birt.report.context.ViewerAttributeBean.getDesignHandle(Unknown Source)\n\tat org.eclipse.birt.report.context.ViewerAttributeBean.__initParameters(Unknown Source)\n\tat org.eclipse.birt.report.context.ViewerAttributeBean.__init(Unknown Source)\n\tat org.eclipse.birt.report.context.BaseAttributeBean.init(Unknown Source)\n\tat org.eclipse.birt.report.context.ViewerAttributeBean.\u003cinit\u003e(Unknown Source)\n\tat org.eclipse.birt.report.context.BirtContext.__init(Unknown Source)\n\tat org.eclipse.birt.report.context.BaseContext.\u003cinit\u003e(Unknown Source)\n\tat org.eclipse.birt.report.context.BirtContext.\u003cinit\u003e(Unknown Source)\n\tat org.eclipse.birt.report.servlet.ViewerServlet.__getContext(Unknown Source)\n\tat org.eclipse.birt.report.servlet.BirtSoapMessageDispatcherServlet.doGet(Unknown Source)\n\tat javax.servlet.http.HttpServlet.service(HttpServlet.java:743)\n\tat org.apache.axis.transport.http.AxisServletBase.service(AxisServletBase.java:327)\n\tat javax.servlet.http.HttpServlet.service(HttpServlet.java:856)\n\tat weblogic.servlet.internal.StubSecurityHelper$ServletServiceAction.run(StubSecurityHelper.java:214)\n\tat weblogic.servlet.internal.StubSecurityHelper.invokeServlet(StubSecurityHelper.java:120)\n\tat weblogic.servlet.internal.ServletStubImpl.execute(ServletStubImpl.java:272)\n\tat weblogic.servlet.internal.ServletStubImpl.execute(ServletStubImpl.java:165)\n\tat weblogic.servlet.internal.WebAppServletContext$ServletInvocationAction.run(WebAppServletContext.java:3022)\n\tat weblogic.security.acl.internal.AuthenticatedSubject.doAs(AuthenticatedSubject.java:321)\n\tat weblogic.security.service.SecurityManager.runAs(SecurityManager.java:121)\n\tat weblogic.servlet.internal.WebAppServletContext.securedExecute(WebAppServletContext.java:1925)\n\tat weblogic.servlet.internal.WebAppServletContext.execute(WebAppServletContext.java:1848)\n\tat weblogic.servlet.internal.ServletRequestImpl.run(ServletRequestImpl.java:1288)\n\tat weblogic.work.ExecuteThread.execute(ExecuteThread.java:207)\n\tat weblogic.work.ExecuteThread.run(ExecuteThread.java:179)",
+    "I have debuged the code.It seems that BirtOdaPlugin can be released correctly by OSGI, the stop method has been called. But OdaPlugin not, the stop method was not called by OSGI. So Platform.getExtensionRegistry() returned null. Cause NPE.",
+    "I\u0027d fixed the NPE problem when Platform.getExtensionRegistry() returns null. (This will be in next Wed. 8/9 DTP daily build, or get the latest ODA source from DTP CVS before that.)  This however does not address the root cause.\n\nWhen using the DTP ODA plugin with the report designer, its OdaPlugin.stop method does get called by OSGi when the designer exits.  Its implementation of cleaning up static variables is similar to that of BirtOdaPlugin.\nSo not clear why BirtOdaPlugin stop method gets called in web deployment platform, but not the OdaPlugin\u0027s.  Perhaps it has something to do with the way it is packaged for web deployment?  \nNeed further investigation by the Viewer or Engine team.\n\n",
+    "NPE issue has gone. OdaPlugin.stop can work. But new issue is: can\u0027t load DataSource correctly. The properties of datasource disappeared.DTE has done the debug.It seems that Engine passed a wrong datasource to DTE. Maybe the issue is in Engine or Model. Engine please do check it. Thanks.",
+    "Found additional singleton instances used in the Data Engine odaconsumer package.\nThey are now released when the Data Engine bundle is stopped by OSGi.",
+    "As it only happends when user stop/restart the web applciation (the user can alwasy use stop/restart the applicatin server to avoid this), so we can finish it in 2.2",
+    "as a temporary work around before we fix all the OSGi clean up issue, please do not stop and restart the web app, but stop and restart the app server.",
+    "*** Bug 164781 has been marked as a duplicate of this bug. ***",
+    "Deploy BIRT in Weblogic, redeploy it, get an exception when load the class DerbyDriver.\n\nreassign the bug to Data Team.",
+    "DtE needs more time to investigate the bug so that this bug might not be able to be fixed in M5.Mark the priority to p5.",
+    "DtE doesn\u0027t have resource to handle this case in M6. Mark it as P5.",
+    "We still need time to investigate this bug. Due to limit resource it is difficult to resolve the bug in RC0.",
+    "As the depended eclipse osgi bug is targeting M4, mark this bug as p5.",
+    "The bug is fixed when 198525 is fixed. Please note that the fix is done in Eclipse 3.4M2. So the bug can only be verified under eclipse version 3.4M2 or later."
+  ],
+  "commentCreationDates": [
+    "2006-01-16T16:04:54+01:00",
+    "2006-01-16T16:27:12+01:00",
+    "2006-01-16T16:36:40+01:00",
+    "2006-01-17T20:57:35+01:00",
+    "2006-01-24T21:06:11+01:00",
+    "2006-02-05T07:23:25+01:00",
+    "2006-03-09T07:00:01+01:00",
+    "2006-03-09T08:18:00+01:00",
+    "2006-04-06T02:58:08+02:00",
+    "2006-04-18T03:46:52+02:00",
+    "2006-04-26T11:04:59+02:00",
+    "2006-05-15T11:02:31+02:00",
+    "2006-05-17T10:48:04+02:00",
+    "2006-05-26T05:38:13+02:00",
+    "2006-05-26T10:15:50+02:00",
+    "2006-05-26T10:19:06+02:00",
+    "2006-05-29T10:20:53+02:00",
+    "2006-06-02T03:58:29+02:00",
+    "2006-07-24T12:04:32+02:00",
+    "2006-07-25T05:08:10+02:00",
+    "2006-07-25T05:09:12+02:00",
+    "2006-07-26T11:20:57+02:00",
+    "2006-07-26T23:19:02+02:00",
+    "2006-07-29T01:07:24+02:00",
+    "2006-07-31T11:49:56+02:00",
+    "2006-08-01T23:03:14+02:00",
+    "2006-08-04T04:48:32+02:00",
+    "2006-08-04T08:41:48+02:00",
+    "2006-08-04T23:15:34+02:00",
+    "2006-08-14T05:25:02+02:00",
+    "2006-08-23T04:56:13+02:00",
+    "2006-08-25T02:04:10+02:00",
+    "2006-08-25T03:42:42+02:00",
+    "2006-11-20T05:50:42+01:00",
+    "2007-01-10T08:12:39+01:00",
+    "2007-01-30T03:33:54+01:00",
+    "2007-03-20T08:32:22+01:00",
+    "2007-05-08T13:56:15+02:00",
+    "2007-08-09T03:45:40+02:00",
+    "2007-08-28T08:23:10+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "elements": [
+        {
+          "method": "com.ibm.icu.impl.ICUResourceBundle.findResourceWithFallback",
+          "source": "ICUResourceBundle.java:1101"
+        },
+        {
+          "method": "com.ibm.icu.impl.ICUResourceBundle.getWithFallback",
+          "source": "ICUResourceBundle.java:652"
+        },
+        {
+          "method": "com.ibm.icu.impl.CalendarData.get",
+          "source": "CalendarData.java:51"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 13,
+      "bugId": "123976",
+      "date": "2006-05-26T05:38:13+02:00",
+      "product": "BIRT",
+      "component": "Data",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.datatools.connectivity.oda.util.manifest.ManifestExplorer.getExtensions",
+          "source": "ManifestExplorer.java:341"
+        },
+        {
+          "method": "org.eclipse.datatools.connectivity.oda.util.manifest.ManifestExplorer.getExtensionManifests",
+          "source": "ManifestExplorer.java:261"
+        },
+        {
+          "method": "org.eclipse.birt.data.oda.util.manifest.DtpManifestExplorer.getExtensionManifests",
+          "source": "DtpManifestExplorer.java:128"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.plugin.ODAManifestUtil.getDataSetExtension",
+          "source": "ODAManifestUtil.java:65"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.plugin.OdaExtensibilityProvider.isValidODADataSetExtensionID",
+          "source": "OdaExtensibilityProvider.java:194"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.OdaDataSetState.parseODADataSetExtensionID",
+          "source": "OdaDataSetState.java:206"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.OdaDataSetState.parseAttrs",
+          "source": "OdaDataSetState.java:119"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.ModuleParserHandler.startElement",
+          "source": "ModuleParserHandler.java:159"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.startElement",
+          "source": "AbstractSAXParser.java:533"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanStartElement",
+          "source": "XMLDocumentFragmentScannerImpl.java:878"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch",
+          "source": "XMLDocumentFragmentScannerImpl.java:1693"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanDocument",
+          "source": "XMLDocumentFragmentScannerImpl.java:368"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse",
+          "source": "XML11Configuration.java:834"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse",
+          "source": "XML11Configuration.java:764"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.XMLParser.parse",
+          "source": "XMLParser.java:148"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.parse",
+          "source": "AbstractSAXParser.java:1242"
+        },
+        {
+          "method": "weblogic.xml.jaxp.WebLogicXMLReader.parse",
+          "source": "WebLogicXMLReader.java:133"
+        },
+        {
+          "method": "weblogic.xml.jaxp.RegistryXMLReader.parse",
+          "source": "RegistryXMLReader.java:153"
+        },
+        {
+          "method": "javax.xml.parsers.SAXParser.parse",
+          "source": "SAXParser.java:375"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.ModuleReader.readModule",
+          "source": "ModuleReader.java:90"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.DesignReader.read",
+          "source": "DesignReader.java:86"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.core.DesignSession.openDesign",
+          "source": "DesignSession.java:239"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.api.SessionHandle.openDesign",
+          "source": "SessionHandle.java:199"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.parser.ReportParser.getDesignHandle",
+          "source": "ReportParser.java:131"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.ReportEngineHelper.openReportDesign",
+          "source": "ReportEngineHelper.java:196"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.ReportEngineHelper.openReportDesign",
+          "source": "ReportEngineHelper.java:176"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.ReportEngineHelper.openReportDesign",
+          "source": "ReportEngineHelper.java:153"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.ReportEngine.openReportDesign",
+          "source": "ReportEngine.java:255"
+        },
+        {
+          "method": "org.eclipse.birt.report.service.ReportEngineService.openReportDesign",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.context.ViewerAttributeBean.getDesignHandle",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.context.ViewerAttributeBean.__initParameters",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.context.ViewerAttributeBean.__init",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.context.BaseAttributeBean.init",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.context.ViewerAttributeBean.\u003cinit\u003e",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.context.BirtContext.__init",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.context.BaseContext.\u003cinit\u003e",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.context.BirtContext.\u003cinit\u003e",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.servlet.ViewerServlet.__getContext",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.servlet.BirtSoapMessageDispatcherServlet.doGet",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:743"
+        },
+        {
+          "method": "org.apache.axis.transport.http.AxisServletBase.service",
+          "source": "AxisServletBase.java:327"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:856"
+        },
+        {
+          "method": "weblogic.servlet.internal.StubSecurityHelper$ServletServiceAction.run",
+          "source": "StubSecurityHelper.java:214"
+        },
+        {
+          "method": "weblogic.servlet.internal.StubSecurityHelper.invokeServlet",
+          "source": "StubSecurityHelper.java:120"
+        },
+        {
+          "method": "weblogic.servlet.internal.ServletStubImpl.execute",
+          "source": "ServletStubImpl.java:272"
+        },
+        {
+          "method": "weblogic.servlet.internal.ServletStubImpl.execute",
+          "source": "ServletStubImpl.java:165"
+        },
+        {
+          "method": "weblogic.servlet.internal.WebAppServletContext$ServletInvocationAction.run",
+          "source": "WebAppServletContext.java:3022"
+        },
+        {
+          "method": "weblogic.security.acl.internal.AuthenticatedSubject.doAs",
+          "source": "AuthenticatedSubject.java:321"
+        },
+        {
+          "method": "weblogic.security.service.SecurityManager.runAs",
+          "source": "SecurityManager.java:121"
+        },
+        {
+          "method": "weblogic.servlet.internal.WebAppServletContext.securedExecute",
+          "source": "WebAppServletContext.java:1925"
+        },
+        {
+          "method": "weblogic.servlet.internal.WebAppServletContext.execute",
+          "source": "WebAppServletContext.java:1848"
+        },
+        {
+          "method": "weblogic.servlet.internal.ServletRequestImpl.run",
+          "source": "ServletRequestImpl.java:1288"
+        },
+        {
+          "method": "weblogic.work.ExecuteThread.execute",
+          "source": "ExecuteThread.java:207"
+        },
+        {
+          "method": "weblogic.work.ExecuteThread.run",
+          "source": "ExecuteThread.java:179"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 26,
+      "bugId": "123976",
+      "date": "2006-08-04T04:48:32+02:00",
+      "product": "BIRT",
+      "component": "Data",
+      "severity": "major"
+    }
+  ],
+  "groupId": "123976",
+  "bugId": "123976",
+  "date": "2006-01-16T16:04:54+01:00",
+  "product": "BIRT",
+  "component": "Data",
+  "severity": "major"
+}

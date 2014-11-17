@@ -1,0 +1,336 @@
+{
+  "comments": [
+    "I\u0027m not sure if the Eclipse compiler is correct or if javac is.\n\nFound in 3.1M7.  The following code, each in their own file:\n\npublic class Key\u003c Environment, T extends Type\u003c Environment, T, K, S \u003e, K extends\nKey\u003c Environment, T, K, S \u003e, S extends State\u003c S \u003e \u003e { }\n\npublic class State\u003c S extends State \u003e { }\n\npublic class Type\u003c Environment, T extends Type\u003c Environment, T, K, S \u003e, K\nextends Key\u003c Environment, T, K, S \u003e, S extends State\u003c S \u003e \u003e { }\n\npublic class Store\u003c Environment, T extends Type\u003c Environment, T, K, S \u003e, K\nextends Key\u003c Environment, T, K, S \u003e, S extends State\u003c S \u003e \u003e { }\n\npublic class Test\u003c Environment \u003e\n{\n    List\u003c Store\u003c Environment, ?, ? extends Key\u003c Environment, ?, ?, ? \u003e, ?\nextends State\u003c ? \u003e \u003e \u003e stores;\n}\n\nCompiles without error or warning using javac -Xlint:all.  Eclipse generates an\nerror in Test:\n\nSeverity\tDescription\tResource\tIn Folder\tLocation\tCreation Time\n2\tBound mismatch: The type ? extends Key\u003cEnvironment,?,?,?\u003e is not a valid\nsubstitute for the bounded parameter \u003cK extends Key\u003cEnvironment,T,K,S\u003e\u003e of the\ntype Store\u003cEnvironment,T,K,S\u003e\tTest.java\tBugTest/src\tline 5\tMay 17, 2005 12:34:01 PM",
+    "Simpler testcase:\nclass Key\u003cE extends Key\u003cE\u003e\u003e {}\nclass Store\u003cA, B extends Key\u003cB\u003e\u003e {}\n\npublic class X\u003cT\u003e {\n\tStore\u003cT, ? extends Key\u003cT\u003e\u003e store;\n}",
+    "Even simpler:\nclass Key\u003cE extends Key\u003cE\u003e\u003e {}\nclass Store\u003cF extends Key\u003cF\u003e\u003e {}\n\npublic class X\u003cT\u003e {\n\tStore\u003c? extends Key\u003cT\u003e\u003e store;\n}\n\nNow appears the origin of the compiler diagnostic.\nKey requires its argument E to be a subtype of Key\u003cE\u003e.\nHowever, when used in store field definition, Key\u003cT\u003e is wrong since T has no\nbound, and doesn\u0027t meet expectation (subtype of Key\u003cE\u003e).\nIn order to compile it clear, you should do:\n\nclass Key\u003cE extends Key\u003cE\u003e\u003e {}\nclass Store\u003cF extends Key\u003cF\u003e\u003e {}\n\npublic class X\u003cT extends Key\u003cT\u003e\u003e {\n\tStore\u003c? extends Key\u003cT\u003e\u003e store;\n}\n\nI believe this is rather a bug in javac.",
+    "Unfortunately by eliminating Environment your examples changed the meaning.  This:\n\nclass Key\u003c E, K extends Key\u003c E, K \u003e \u003e { }\n\nclass Store\u003c E, K extends Key\u003c E, K \u003e \u003e { }\n\nclass X\u003c E \u003e {\n    Store\u003c E, ? \u003e store1;\n    Store\u003c E, ? extends Key\u003c E, ? \u003e \u003e store2;\n}\n\nis more in line with what I was trying to accomplish.  Unfortunately store1\u0027s\ntype is not restrictive enough; it doesn\u0027t indicate that all the Key\u0027s have type\nKey\u003c E, ? \u003e.  store2 adds this information, but generates the same bug as I\nreported above.\n\nNow store2 isn\u0027t perfect either, as the fact that the two ?\u0027s should be equal\nisn\u0027t evident.  However this could be realized by looking at Store\u0027s\nrestrictions, could it not?  I\u0027m not sure what the JLS says about cases like this.\n\nFurther your examples introduced T which fixes the type of the Key being used,\nwhile I\u0027m trying to range over many subtypes.  Perhaps this simply isn\u0027t\nexpressible with java\u0027s type system, but it seems that my store2 example does at\nleast get close.",
+    "I simplified the example as long as I could preserve the discrepancy between\njavac and us. Also, renaming type variables (and uses) has no effect on\nsemantics, I was trying to better separate the various cases.\n\nWhen adding a bound onto T, I fixed the simplified issue for us; in a way which\nsuggests javac failed a bound check (when bound was missing).\n\nI will look into your simpler example",
+    "Problem is that both wildcards may represent a different type, which could burn\nthe bound check. javac seems to miss this case.\n\nIf you make both be the same type, by introducing an extra type parameter, then\nwe will compile it clean. I was guessing you could hide it from the outside, by\nusing a member type ?\n\nclass Key\u003cE, K extends Key\u003cE, K\u003e\u003e {}\nclass Store\u003cE, K extends Key\u003cE, K\u003e\u003e {}\nclass X\u003cE\u003e {\n\tclass Y \u003cF extends Key\u003cE, F\u003e\u003e {\n\t\tStore\u003cE, F\u003e store;\n\t}\n}\n}",
+    "Last thinking is that your scenario would be valid, and our diagnostic wrong.",
+    "Added GenericTypeTest#test673-675,679-681.\n",
+    "Changed bound check to better reflect capture mechanism, performing an\nintersection check.\nAlso removed unnecessary bounds from wildcard, since these are only held on by\nthe actual capture.\n\nFixed",
+    "Unfortunately, it seems that test case of comment 0 produce an NPE...\nSelect Type in\"..., T extends Type\u003cEnvironment,...\" and hit F3\n\u003d\u003e Error Excuting Command... Reason NPE\n\nStack trace:\njava.lang.NullPointerException\n\tat\norg.eclipse.jdt.internal.compiler.lookup.TypeVariableBinding.boundCheck(TypeVariableBinding.java:112)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding.boundCheck(ParameterizedTypeBinding.java:59)\n\tat\norg.eclipse.jdt.internal.compiler.ast.ParameterizedSingleTypeReference.checkBounds(ParameterizedSingleTypeReference.java:40)\n\tat\norg.eclipse.jdt.internal.compiler.ast.TypeParameter.checkBounds(TypeParameter.java:36)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.ClassScope.checkParameterizedTypeBounds(ClassScope.java:699)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.ClassScope.connectTypeHierarchy(ClassScope.java:886)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope.connectTypeHierarchy(CompilationUnitScope.java:254)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.completeTypeBindings(LookupEnvironment.java:249)\n\tat org.eclipse.jdt.internal.codeassist.impl.Engine.accept(Engine.java:92)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.askForType(LookupEnvironment.java:131)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.PackageBinding.getTypeOrPackage(PackageBinding.java:178)\n\tat org.eclipse.jdt.internal.compiler.lookup.Scope.getTypeOrPackage(Scope.java:2491)\n\tat org.eclipse.jdt.internal.compiler.lookup.Scope.getType(Scope.java:2237)\n\tat\norg.eclipse.jdt.internal.compiler.ast.ParameterizedSingleTypeReference.internalResolveType(ParameterizedSingleTypeReference.java:99)\n\tat\norg.eclipse.jdt.internal.compiler.ast.ParameterizedSingleTypeReference.resolveType(ParameterizedSingleTypeReference.java:209)\n\tat\norg.eclipse.jdt.internal.codeassist.select.SelectionOnParameterizedSingleTypeReference.resolveType(SelectionOnParameterizedSingleTypeReference.java:30)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.Scope.connectTypeVariables(Scope.java:402)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.ClassScope.connectTypeHierarchy(ClassScope.java:880)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope.connectTypeHierarchy(CompilationUnitScope.java:254)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.completeTypeBindings(LookupEnvironment.java:249)\n\tat\norg.eclipse.jdt.internal.codeassist.SelectionEngine.select(SelectionEngine.java:657)\n\tat org.eclipse.jdt.internal.core.Openable.codeSelect(Openable.java:165)\n\tat\norg.eclipse.jdt.internal.core.CompilationUnit.codeSelect(CompilationUnit.java:314)\n\tat\norg.eclipse.jdt.internal.core.CompilationUnit.codeSelect(CompilationUnit.java:308)\n\tat\norg.eclipse.jdt.internal.ui.actions.SelectionConverter.codeResolve(SelectionConverter.java:219)\n\tat\norg.eclipse.jdt.internal.ui.actions.SelectionConverter.codeResolve(SelectionConverter.java:153)\n\tat\norg.eclipse.jdt.internal.ui.actions.SelectionConverter.codeResolve(SelectionConverter.java:162)\n\tat org.eclipse.jdt.ui.actions.OpenAction.run(OpenAction.java:128)\n\tat\norg.eclipse.jdt.ui.actions.SelectionDispatchAction.dispatchRun(SelectionDispatchAction.java:226)\n\tat\norg.eclipse.jdt.ui.actions.SelectionDispatchAction.run(SelectionDispatchAction.java:198)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:996)\n\tat org.eclipse.ui.commands.ActionHandler.execute(ActionHandler.java:182)\n\tat\norg.eclipse.ui.internal.handlers.LegacyHandlerWrapper.execute(LegacyHandlerWrapper.java:108)\n\tat org.eclipse.core.commands.Command.execute(Command.java:311)\n\tat\norg.eclipse.core.commands.ParameterizedCommand.execute(ParameterizedCommand.java:396)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard.executeCommand(WorkbenchKeyboard.java:459)\n\tat org.eclipse.ui.internal.keys.WorkbenchKeyboard.press(WorkbenchKeyboard.java:781)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard.processKeyEvent(WorkbenchKeyboard.java:828)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard.filterKeySequenceBindings(WorkbenchKeyboard.java:550)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard.access$3(WorkbenchKeyboard.java:493)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard$KeyDownFilter.handleEvent(WorkbenchKeyboard.java:117)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Display.filterEvent(Display.java:788)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:843)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:868)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:853)\n\tat org.eclipse.swt.widgets.Widget.sendKeyEvent(Widget.java:881)\n\tat org.eclipse.swt.widgets.Widget.sendKeyEvent(Widget.java:877)\n\tat org.eclipse.swt.widgets.Widget.wmKeyDown(Widget.java:1469)\n\tat org.eclipse.swt.widgets.Control.WM_KEYDOWN(Control.java:3348)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:3067)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:3553)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessageW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessage(OS.java:1650)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2560)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1694)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1658)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:366)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:103)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:226)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:375)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:162)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:334)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:278)\n\tat org.eclipse.core.launcher.Main.run(Main.java:973)\n\tat org.eclipse.core.launcher.Main.main(Main.java:948)",
+    "To be fair, that looks the same as bug 95481.  Unfortunately 95481 was marked as\nRC2, which sucks since two small, simple files reduce the JDT to functionality\nbarely above Notepad. :(",
+    "Closing, other issue is separate and got addressed indpendantly in bug 95481.\nFrederic - pls verify the original defect.",
+    "Verified with build I20050527-1300 that there\u0027s no compile error."
+  ],
+  "commentCreationDates": [
+    "2005-05-17T21:47:14+02:00",
+    "2005-05-18T12:33:55+02:00",
+    "2005-05-18T12:53:03+02:00",
+    "2005-05-18T19:44:21+02:00",
+    "2005-05-18T22:22:27+02:00",
+    "2005-05-18T23:13:44+02:00",
+    "2005-05-20T00:28:14+02:00",
+    "2005-05-26T15:30:11+02:00",
+    "2005-05-26T15:45:39+02:00",
+    "2005-05-27T16:42:53+02:00",
+    "2005-05-27T19:14:10+02:00",
+    "2005-05-30T17:15:07+02:00",
+    "2005-05-31T11:37:42+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.TypeVariableBinding.boundCheck",
+          "source": "TypeVariableBinding.java:112"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding.boundCheck",
+          "source": "ParameterizedTypeBinding.java:59"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.ParameterizedSingleTypeReference.checkBounds",
+          "source": "ParameterizedSingleTypeReference.java:40"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeParameter.checkBounds",
+          "source": "TypeParameter.java:36"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ClassScope.checkParameterizedTypeBounds",
+          "source": "ClassScope.java:699"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ClassScope.connectTypeHierarchy",
+          "source": "ClassScope.java:886"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope.connectTypeHierarchy",
+          "source": "CompilationUnitScope.java:254"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.completeTypeBindings",
+          "source": "LookupEnvironment.java:249"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.impl.Engine.accept",
+          "source": "Engine.java:92"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.askForType",
+          "source": "LookupEnvironment.java:131"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.PackageBinding.getTypeOrPackage",
+          "source": "PackageBinding.java:178"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.getTypeOrPackage",
+          "source": "Scope.java:2491"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.getType",
+          "source": "Scope.java:2237"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.ParameterizedSingleTypeReference.internalResolveType",
+          "source": "ParameterizedSingleTypeReference.java:99"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.ParameterizedSingleTypeReference.resolveType",
+          "source": "ParameterizedSingleTypeReference.java:209"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.select.SelectionOnParameterizedSingleTypeReference.resolveType",
+          "source": "SelectionOnParameterizedSingleTypeReference.java:30"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.connectTypeVariables",
+          "source": "Scope.java:402"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ClassScope.connectTypeHierarchy",
+          "source": "ClassScope.java:880"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope.connectTypeHierarchy",
+          "source": "CompilationUnitScope.java:254"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.completeTypeBindings",
+          "source": "LookupEnvironment.java:249"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.SelectionEngine.select",
+          "source": "SelectionEngine.java:657"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.Openable.codeSelect",
+          "source": "Openable.java:165"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.codeSelect",
+          "source": "CompilationUnit.java:314"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.codeSelect",
+          "source": "CompilationUnit.java:308"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.actions.SelectionConverter.codeResolve",
+          "source": "SelectionConverter.java:219"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.actions.SelectionConverter.codeResolve",
+          "source": "SelectionConverter.java:153"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.actions.SelectionConverter.codeResolve",
+          "source": "SelectionConverter.java:162"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.OpenAction.run",
+          "source": "OpenAction.java:128"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.SelectionDispatchAction.dispatchRun",
+          "source": "SelectionDispatchAction.java:226"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.SelectionDispatchAction.run",
+          "source": "SelectionDispatchAction.java:198"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:996"
+        },
+        {
+          "method": "org.eclipse.ui.commands.ActionHandler.execute",
+          "source": "ActionHandler.java:182"
+        },
+        {
+          "method": "org.eclipse.ui.internal.handlers.LegacyHandlerWrapper.execute",
+          "source": "LegacyHandlerWrapper.java:108"
+        },
+        {
+          "method": "org.eclipse.core.commands.Command.execute",
+          "source": "Command.java:311"
+        },
+        {
+          "method": "org.eclipse.core.commands.ParameterizedCommand.execute",
+          "source": "ParameterizedCommand.java:396"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.executeCommand",
+          "source": "WorkbenchKeyboard.java:459"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.press",
+          "source": "WorkbenchKeyboard.java:781"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.processKeyEvent",
+          "source": "WorkbenchKeyboard.java:828"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.filterKeySequenceBindings",
+          "source": "WorkbenchKeyboard.java:550"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.access$3",
+          "source": "WorkbenchKeyboard.java:493"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard$KeyDownFilter.handleEvent",
+          "source": "WorkbenchKeyboard.java:117"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.filterEvent",
+          "source": "Display.java:788"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:843"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:868"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:853"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendKeyEvent",
+          "source": "Widget.java:881"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendKeyEvent",
+          "source": "Widget.java:877"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.wmKeyDown",
+          "source": "Widget.java:1469"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_KEYDOWN",
+          "source": "Control.java:3348"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3067"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:3553"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessage",
+          "source": "OS.java:1650"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2560"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1694"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1658"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:366"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:103"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:226"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:375"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:162"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:334"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:278"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:973"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:948"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 9,
+      "bugId": "95638",
+      "date": "2005-05-27T16:42:53+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "95638",
+  "bugId": "95638",
+  "date": "2005-05-17T21:47:14+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

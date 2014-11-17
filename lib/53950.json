@@ -1,0 +1,232 @@
+{
+  "comments": [
+    "build I20040304\n\n1 )load all of Platform UI projects + SWT and SWT win32.  \n2) Opened preferences and set the Java \u003e compiler \u003e Unused Imports option to \nerror\n3) dialog prompts for a rebuild due to the change, say yes (or ok?)\n4) out of memory error during rebuild.\n\n\n\n!MESSAGE Internal Error\n!STACK 0\njava.lang.reflect.InvocationTargetException\n\tat org.eclipse.jface.operation.ModalContext.run(ModalContext.java:283)\n\tat org.eclipse.jface.dialogs.ProgressMonitorDialog.run\n(ProgressMonitorDialog.java:394)\n\tat \norg.eclipse.jdt.internal.ui.preferences.OptionsConfigurationBlock.doFullBuild\n(OptionsConfigurationBlock.java:428)\n\tat \norg.eclipse.jdt.internal.ui.preferences.OptionsConfigurationBlock.performOk\n(OptionsConfigurationBlock.java:417)\n\tat \norg.eclipse.jdt.internal.ui.preferences.CompilerPreferencePage.performOk\n(CompilerPreferencePage.java:74)\n\tat org.eclipse.jface.preference.PreferenceDialog.okPressed\n(PreferenceDialog.java:777)\n\tat org.eclipse.jface.preference.PreferenceDialog.buttonPressed\n(PreferenceDialog.java:210)\n\tat \norg.eclipse.ui.internal.dialogs.WorkbenchPreferenceDialog.buttonPressed\n(WorkbenchPreferenceDialog.java:75)\n\tat org.eclipse.jface.dialogs.Dialog$1.widgetSelected(Dialog.java:402)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent\n(TypedListener.java:89)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:833)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2352)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2033)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:638)\n\tat org.eclipse.jface.window.Window.open(Window.java:618)\n\tat org.eclipse.ui.internal.OpenPreferencesAction.run\n(OpenPreferencesAction.java:72)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:881)\n\tat \norg.eclipse.jface.action.ActionContributionItem.handleWidgetSelection\n(ActionContributionItem.java:550)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2\n(ActionContributionItem.java:502)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent\n(ActionContributionItem.java:435)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:833)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2352)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2033)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1509)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1480)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.java:257)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:139)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run\n(IDEApplication.java:48)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:260)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:173)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:106)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:305)\n\tat org.eclipse.core.launcher.Main.run(Main.java:745)\n\tat org.eclipse.core.launcher.Main.main(Main.java:713)\nCaused by: java.lang.OutOfMemoryError",
+    "Moving to JDT for investigation. The stack track is only showing the one thread, but the problem seems \nlike it must be somewhere else.\n\nMike, how much memory were you running with? Is this repeatable?",
+    "this is how I start eclipse\n\n\neclipse -vm d:\\jdk1.4.1_01\\jre\\bin\\java -data C:\\workspaces\\HEAD -debug\n\nno extra memory options.  I have not had this happen again yet.",
+    "Must be standard memory peak during compile.\nWe could reduce the amount of files built at once so as to reduce the peak, and \nmake the build take longer, but this would need to be adjusted based on \navailable memory.",
+    "Sounds like another place where knowing when memory was constrained would be useful.\n",
+    "Changing the memory requirement from -Xmx256Mb back to defaults is a major \nissue for us, as compiling, searching are memory intensive.\nWe have to revisit all our algorithms/heuristics to take this new requirement \ninto account, and this is not compatible with 1.5 effort.",
+    "relax. at this point, i\u0027ve just been floating the idea that we need to think about working more effectively \nin low memory configurations. i have *not* suggested that we go back to the defaults. \n\nhonestly though, to me it seems that if you are implementing something that takes a lot of memory (as \nthis appears to) then you need to at least think about watching for low memory conditions. remember: \nif the vm runs out of memory then you can not trust *anything* about the memory state afterwards. it \nis essentially a completely unrecoverable state.\n\ncan you estimate how much memory you are likely to use for a given compile?\n",
+    "All I tried to explain (still relaxed) is that we made our algorithms behave on \nVMs which had a decent amount of memory (-Xmx256Mb). For the past years, we \ninstructed our users to add this command line arg each time they would get an \nOutOfMemoryError. This is why the memory requirement is a very delicate \nquestion for us. \n\nWe are bounding some tasks already (compile 1000 files at once, search 500 \nfiles at once, ...). We could make these numbers smaller but this will take \nreal investigation to get to an acceptable compromise (compile 500 files at \nonce means perform 2 separate compilations, thus load/parse common referenced \nclassfiles twice, open zips twice, etc...). \n\n",
+    "Ran some build tests (with jdk 1.4.2) on Jeff\u0027s big eclipse workspace (based \non a 2.1 drop, 134 projects, 16,240 .java files, 12,436 .class files) \u0026 \nwatched the heap size \u0026 peak.\n\nThe heap starts at 44Mb with the Java perspective open but no editors. Why so \nmuch? Don\u0027t know... an empty workspace with the Java perspective open takes \n6Mb. That\u0027s 38Mb to put 134 projects in the package explorer!\n\nWith the Resource perspective open instead of the Java perspective, the heap \nis at 30Mb... closing it \u0026 opening the Java perspective takes us up to 44Mb... \nso what is in the 24Mb (30-6) to open the Resource perspective?\n\n\nAfter each full build \u0026 a GC, the heap settles down to 59Mb, regardless of \npeak. Need to look into the retained 15Mb... build states?\n\nCould not complete the full build with the default 64Mb or 75Mb, ran out of \nmemory.\n\nWith 80Mb, the heap grew to 75Mb \u0026 did most of the build b/w 67-75. It took \n4:04.\n\nWith 96Mb, the heap grew to 89Mb \u0026 took 3:30.\n\nWith 160/250Mb, the heap grew to 128/129Mb \u0026 took 3:17-3:22.\n\nSo we definitely reach a point where the VM won\u0027t use more memory even though \nits available.\n\nI also varied the # of files compiled in each compile loop from 100 to 200 to \n500 to our normal 1000 (only a few projects have \u003e250 source files... jdt.core \n@ 813 \u0026 ui.workbench @ 697 are the biggest)... memory usage did not drop, but \nbuild times went up.\n\nIf we could reduce the 24-38Mb just to start up the workspace, we could \npossibly build in the default 64Mb, but for performance reasons we should \ncontinue to recommend at least 128Mb.",
+    "The Resource tree is likely taking most of the ~24Mb (30-6) growth (delta to \nopen big workspace with Resource perspective).\n\n6Mb of the 12-14Mb (42/44-30) is from the AllTypesCache. The build states \u0026 \nreference info do not account for any of the other 6-8Mb since a build hasn\u0027t \nhappened yet... need to track this down.\n\nBut the states \u0026 reference info do account for 7 of the 15Mb growth (actually \nit looks to be only 11Mb growth... need to wait 1 minute for another GC to \nreclaim more) after the first full build is complete... need to find the other \n~5Mb.",
+    "With today\u0027s M9 build (20040519) on jdk1.4.2, I see the heap at:\n\n- 6Mb for Empty workspace open on Java perspective\n- 19Mb for Big workspace open on Resource perspective\n- 37Mb for Big workspace open on Java perspective\n\nTried some full build tests with -Xmx128M\n- first full clean/build started with 37Mb allocated \u0026 peaked at 126Mb... it \ntook 3:30 \u0026 after GC heap was at 53Mb... after the periodic workspace save, \nthe heap dropped to 50Mb\n- did another full clean/build, which started with 50Mb allocated... it took \n3:19 \u0026 after GC heap was at 53Mb... after the periodic workspace save, the \nheap dropped to 50Mb also\n\n\nSo based on these numbers, I\u0027m seeing 13Mb (19-6) for the resource tree \u0026 \nunknowns... 18Mb (37-19) for the AllTypesCache \u0026 unknowns... 13Mb (50-37) for \nbuild states, reference info \u0026 unknowns",
+    "Should also add...\n\n- 4Mb for Empty workspace open on Resource perspective",
+    "So that would be:\n\n15Mb (19-4) for the resource tree \u0026 unknowns\n16Mb (37-6-15) for the AllTypesCache \u0026 unknowns\n13Mb (50-37) for build states, reference info \u0026 unknowns",
+    "Breaking down the 12-13Mb growth from a full build...\n\nWe end up compiling 8,469 source files into 13,690 .class files. The earlier # \nin comment 8 of 16,240 source files includes all the source files used by the \ntests \u0026 are not compiled during a build.\n\nWe create \u0026 keep 1 ReferenceCollection per source file. Each \nReferenceCollection has 2 arrays of interned compound char[][] \u0026 simple char\n[]. Adding it up, I\u0027m seeing 3Mb for the ReferenceCollections(2) \u0026 intern sets\n(1).\n\nA decent chunk of the build growth (4-5Mb) is from the JavaModelCache, which \nis being populated during builds from ManifestConsistencyChecker.validJava(), \nwhich calls JavaProject.findType(), for tons of types!",
+    "Can someone please tell me why anyone would write code like this!!!!\n\nIType baseTypeElement \u003d javaProject.findType(baseType);\nif (baseTypeElement !\u003d null) {\n}\nif (baseInterface !\u003d null) {\n  IJavaElement baseInterfaceElement \u003d javaProject.findType(baseInterface);\n  if (baseInterfaceElement !\u003d null) {\n  }\n}\n\nAnd no I didn\u0027t remove the contents of the blocks...",
+    "Please enter a defect against PDE for the ManifestConsistencyChecker. It \nshouldn\u0027t programmatically cause the model to be largely populated for free.",
+    "ManifestConsistencyChecker.validJava() is populating the JavaModel to the tune \nof ~3Mb... see bug 63438.",
+    "Released a change to reclaim 900K out of the build states, by sharing some char\n[] using String.subString().",
+    "Status: some fixes made. confirm we are not populating java model. open other \ndefects (if discovered).\n\nMust assess by RC3.",
+    "Tests with RC2 - default memory :\nNow, there\u0027s no Out Of Memory on initial test case (ie. with 12 org.eclipse.ui.*\n+ 2 org.eclipse.swt.* projects).\nIt also works with 56 projects loaded in my workspace (pde-ui project and all\nits pre-req...).\nHowever, OOM still happens while performing full build on 87 loaded projects in\nworkspace...\n\nSet this bug fixed as this clearly demonstrates that we\u0027ve improved performance\non initial test case. If number of projects is too large, then finally there\nwon\u0027t be other solution than apply initial workaround and modify VM heap size...\n\n",
+    "I confirm that Java Model is populated *only* when Plug-in Development -\u003e\nCompiler -\u003e Unknown classes is activated.\nAlthough 2 unnecessary findType(...) calls were removed in validateJava(...)\nmethod of ManifestConsistencyChecker, there\u0027s still one call remaining despite\nof what is said in bug 63438 comment 2...\nI will make some additional tests to in order to size memory still consumed by\nthis remaining call and append results to that bug...",
+    "Note that when PDE compiler option is activated then OutOfMemory error happens\nduring full build in workspace with 56 projects.\nThe limit with this option is 46 projects (jdt-ui plugin + all its pre-req)...\nI will reopen bug 63438 as PDE option still populates java model and so consumes\nmemory unnecessarily...",
+    "Verified for 3.0RC3 I200406180800"
+  ],
+  "commentCreationDates": [
+    "2004-03-05T22:08:40+01:00",
+    "2004-03-06T13:38:32+01:00",
+    "2004-03-08T03:52:30+01:00",
+    "2004-03-08T23:18:50+01:00",
+    "2004-03-09T14:28:26+01:00",
+    "2004-03-09T14:38:05+01:00",
+    "2004-03-09T15:02:01+01:00",
+    "2004-03-09T17:55:18+01:00",
+    "2004-05-18T22:31:08+02:00",
+    "2004-05-19T00:26:29+02:00",
+    "2004-05-19T18:51:17+02:00",
+    "2004-05-19T18:53:46+02:00",
+    "2004-05-19T18:56:00+02:00",
+    "2004-05-20T23:30:05+02:00",
+    "2004-05-20T23:45:04+02:00",
+    "2004-05-21T14:19:26+02:00",
+    "2004-05-21T17:45:35+02:00",
+    "2004-05-21T21:05:25+02:00",
+    "2004-06-14T11:54:34+02:00",
+    "2004-06-14T21:02:58+02:00",
+    "2004-06-15T18:34:38+02:00",
+    "2004-06-17T18:02:39+02:00",
+    "2004-06-18T19:18:33+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.reflect.InvocationTargetException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.run",
+          "source": "ModalContext.java:283"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.ProgressMonitorDialog.run",
+          "source": "ProgressMonitorDialog.java:394"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.preferences.OptionsConfigurationBlock.doFullBuild",
+          "source": "OptionsConfigurationBlock.java:428"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.preferences.OptionsConfigurationBlock.performOk",
+          "source": "OptionsConfigurationBlock.java:417"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.preferences.CompilerPreferencePage.performOk",
+          "source": "CompilerPreferencePage.java:74"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog.okPressed",
+          "source": "PreferenceDialog.java:777"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog.buttonPressed",
+          "source": "PreferenceDialog.java:210"
+        },
+        {
+          "method": "org.eclipse.ui.internal.dialogs.WorkbenchPreferenceDialog.buttonPressed",
+          "source": "WorkbenchPreferenceDialog.java:75"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.Dialog$1.widgetSelected",
+          "source": "Dialog.java:402"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:89"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:833"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2352"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2033"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:638"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:618"
+        },
+        {
+          "method": "org.eclipse.ui.internal.OpenPreferencesAction.run",
+          "source": "OpenPreferencesAction.java:72"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:881"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:550"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:502"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:435"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:833"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2352"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2033"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1509"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1480"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:257"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:139"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:48"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:260"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:173"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:106"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:305"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:745"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:713"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "53950",
+      "date": "2004-03-05T22:08:40+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "53950",
+  "bugId": "53950",
+  "date": "2004-03-05T22:08:40+01:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

@@ -1,0 +1,214 @@
+{
+  "comments": [
+    "- Launch RSE 2.0\n- Expand Locals node\n- Select Local Shells\n- Use keyboard shortcut F5 to refresh node\n- Unhandled exception in event loop is thrown\n\norg.eclipse.swt.SWTException: Failed to execute runnable (java.lang.AssertionError: EVENT_REFRESH_REMOTE outside subsystem)\nat org.eclipse.swt.SWT.error(SWT.java:3563)\nat org.eclipse.swt.SWT.error(SWT.java:3481)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:126)\nat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3659)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3296)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2389)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2353)\nat org.eclipse.ui.internal.Workbench.access$4(Workbench.java:2219)\nat org.eclipse.ui.internal.Workbench$4.run(Workbench.java:466)\nat org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:289)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:461)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\nat org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:106)\nat org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:153)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:106)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:76)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:363)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:176)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\nat java.lang.reflect.Method.invoke(Method.java:585)\nat org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:504)\nat org.eclipse.equinox.launcher.Main.basicRun(Main.java:443)\nat org.eclipse.equinox.launcher.Main.run(Main.java:1169)\nat org.eclipse.equinox.launcher.Main.main(Main.java:1144)\nCaused by: java.lang.AssertionError: EVENT_REFRESH_REMOTE outside subsystem\nat org.eclipse.rse.internal.ui.view.SystemView.refreshRemoteObject(SystemView.java:2903)\nat org.eclipse.rse.internal.ui.view.SystemView$ResourceChangedJob.runInUIThread(SystemView.java:2170)\nat org.eclipse.ui.progress.UIJob$1.run(UIJob.java:94)\nat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n... 23 more",
+    "Uwe - why do you think this is major? I cannot see any major loss of functionality, at the most a dialog pops up that the user can click away, so I\u0027m reducing to severity normal. Leaving P2 for now unless you can confirm that this is not urgent.\n\nI guess the interesting part of the backtrace is this, and we need to understand why refreshing on a Shell Subsystem tries to fire an EVENT_REFRESH_REMOTE:\n\nCaused by: java.lang.AssertionError: EVENT_REFRESH_REMOTE outside subsystem\nat\norg.eclipse.rse.internal.ui.view.SystemView.refreshRemoteObject(SystemView.java:2903)\nat\norg.eclipse.rse.internal.ui.view.SystemView$ResourceChangedJob.runInUIThread(SystemView.java:2170)\n\n",
+    "If you do something such simple and exceptions are thrown, that is always major. You cannot do what you want to do and you have major loss of functionality as the requested functionality is not executed. IMHO \"normal\" is to low for everything like this, but it is your call.",
+    "Ok, I see your point... Not being able to refresh the Shell Subsystem may not be much of an issue, but not being able to refresh a custom debugger subsystem is an issue.\n\nBut I cannot reproduce your problem on TM 2.0 -- tried the Local Shell, Local Files, DStore Files/Processes/SHell both while connected and unconnected, even the Tests and Daytime and all worked fine. Only problem I found was a different NPE than yours when trying to refresh a local shell (filed as bug #194898).\n\nWhat version of RSE did you test? Can you try reproducing with the 2.0 Release? Could this be an issue with your own extension on top of RSE?",
+    "\u003eWhat version of RSE did you test? Can you try reproducing with the 2.0 Release?\n\nCVS HEAD version. Should be \u003d\u003d 2.0, shouldn\u0027t it?\n\n\u003eCould this be an issue with your own extension on top of RSE?\n\nNope. Because I used a RSE only workspace and target platform.\n",
+    "Hm... 4 fixes went into rse.ui yesterday: bug 192716, bug 177587, bug 182403, bug 187707.\n\nSince I cannot reproduce it on R2_0, could you try select rse.ui and Team \u003e Switch to another branch or version \u003e R2_0 and see if you can still reproduce it? If not, then one of the four bugs mentioned introduced a regression.",
+    "Falling back to R2_0 of org.eclipse.rse.ui. Same issue.",
+    "I can\u0027t reproduce this on my dev driver.",
+    "I can reproduce this in my dev driver and rse 2.0, if I create a Local Shell and press F5 on that shell.  Pressing F5 on \"Local Shells\" doesn\u0027t give me an error.",
+    "I think what you see by doing F5 on a Shell is bug #194898 and not this one -- did you compare the backtraces seen?",
+    "Martin, what I described is bug #194898.  Thought I had already posted this after making my initial post.",
+    "Ok, now I know why I first could not reproduce it: The exception is only seen when launching in the debugger, and on the Launch Configuration\u0027s 2nd tab (\"Arguments\") the following is entered:\n\nProgram Arguments:\n-debug\nVM Arguments:\n-ea -esa\n\nIn other words, the application needs to be launched with assertions enabled. I\u0027d recommend every TM developer / committer change his launch configurations to enable assertions as mentioned above.",
+    "After following Martin\u0027s suggestion, I hit the assert exception.  What\u0027s happening is that on remote refresh, we\u0027re getting the parent of the subsystem (the IHost) and calling refreshRemoteObject() on it.  The code expects there to be an associated subsystem, but for an IHost, the view adapter returns null hence the failed assertion.",
+    "I guess the bug is that when refreshing a subsystem, we should NOT refresh the parent instead. Same when refreshing a host -- if I\u0027m not mistaken there is a separate bug saying that \"Refresh All\" is done for refresh on a host.",
+    "I don\u0027t think we should be doing a refresh remote for non-remote things like subsystems.  That\u0027s not what that event was intended for.  For now, I will make sure that non-remote objects don\u0027t go into refreshRemoteObject().",
+    "I take that back, a subsystem could contain remote objects directly (as opposed to via filters) so we\u0027ll need to keep the refreshRemoteObject for subsystems.",
+    "I\u0027ve changed this to not refresh on the parent if the object is a subsystem.  I\u0027ve committed this to cvs."
+  ],
+  "commentCreationDates": [
+    "2007-06-29T11:52:54+02:00",
+    "2007-06-29T12:26:36+02:00",
+    "2007-06-29T12:32:21+02:00",
+    "2007-06-29T13:10:19+02:00",
+    "2007-06-29T13:40:31+02:00",
+    "2007-06-29T14:00:09+02:00",
+    "2007-06-29T14:15:55+02:00",
+    "2007-06-29T17:06:26+02:00",
+    "2007-06-29T23:54:19+02:00",
+    "2007-07-02T12:54:34+02:00",
+    "2007-07-03T15:09:58+02:00",
+    "2007-07-04T13:06:46+02:00",
+    "2007-07-04T16:01:00+02:00",
+    "2007-07-04T16:44:32+02:00",
+    "2007-07-04T18:15:56+02:00",
+    "2007-07-04T18:27:03+02:00",
+    "2007-07-04T18:30:31+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.AssertionError",
+      "message": "EVENT_REFRESH_REMOTE outside subsystem)",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3563"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3481"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:126"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3659"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3296"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2389"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2353"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:2219"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$4.run",
+          "source": "Workbench.java:466"
+        },
+        {
+          "method": "org.eclipse.core.databinding.observable.Realm.runWithDefault",
+          "source": "Realm.java:289"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:461"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.application.IDEApplication.start",
+          "source": "IDEApplication.java:106"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:153"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:106"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:76"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:363"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:176"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:504"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:443"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1169"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.main",
+          "source": "Main.java:1144"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.AssertionError",
+        "message": "EVENT_REFRESH_REMOTE outside subsystem",
+        "elements": [
+          {
+            "method": "org.eclipse.rse.internal.ui.view.SystemView.refreshRemoteObject",
+            "source": "SystemView.java:2903"
+          },
+          {
+            "method": "org.eclipse.rse.internal.ui.view.SystemView$ResourceChangedJob.runInUIThread",
+            "source": "SystemView.java:2170"
+          },
+          {
+            "method": "org.eclipse.ui.progress.UIJob$1.run",
+            "source": "UIJob.java:94"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.RunnableLock.run",
+            "source": "RunnableLock.java:35"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+            "source": "Synchronizer.java:123"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "194897",
+      "date": "2007-06-29T11:52:54+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.AssertionError",
+      "message": "EVENT_REFRESH_REMOTE outside subsystem",
+      "elements": [
+        {
+          "method": "org.eclipse.rse.internal.ui.view.SystemView.refreshRemoteObject",
+          "source": "SystemView.java:2903"
+        },
+        {
+          "method": "org.eclipse.rse.internal.ui.view.SystemView$ResourceChangedJob.runInUIThread",
+          "source": "SystemView.java:2170"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 1,
+      "bugId": "194897",
+      "date": "2007-06-29T12:26:36+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "194897",
+  "bugId": "194897",
+  "date": "2007-06-29T11:52:54+02:00",
+  "product": "Target Management",
+  "component": "RSE",
+  "severity": "normal"
+}

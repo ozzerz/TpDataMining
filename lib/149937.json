@@ -1,0 +1,74 @@
+{
+  "comments": [
+    "XPCOMException when terminating an app when stopped on an exception break\n\nSet the option to suspend on an exception. In your JavaScript file cause an exception by adding throw \"message\"; statement. When the program suspends on the exception, press the red terminate button in the debug view and the following exception is thrown. \n\norg.mozilla.xpcom.XPCOMException: The function \"removeObserver\" returned an error condition  (0x80004005)\nat org.mozilla.xpcom.internal.XPCOMJavaProxy.callXPCOMMethod(Native Method)\nat org.mozilla.xpcom.internal.XPCOMJavaProxy.invoke(XPCOMJavaProxy.java:140)\nat $Proxy36.removeObserver(Unknown Source)\nat org.eclipse.atf.mozilla.ide.ui.xhrmon.XHRObserver.stopObserving(XHRObserver.java:71)\nat org.eclipse.atf.mozilla.ide.ui.xhrmon.XHRMonitorView.doDestroyPage(XHRMonitorView.java:86)\nat org.eclipse.ui.part.PageBookView.removePage(PageBookView.java:854)\nat org.eclipse.ui.part.PageBookView.dispose(PageBookView.java:506)\nat org.eclipse.atf.mozilla.ide.ui.xhrmon.XHRMonitorView.dispose(XHRMonitorView.java:113)\n\nIf the application is terminated by closing the browser the follow exception is thrown \n\norg.mozilla.xpcom.XPCOMException: The function \"jsClassName\" returned an error condition  (0x80040111)\n\tat org.mozilla.xpcom.internal.XPCOMJavaProxy.callXPCOMMethod(Native Method)\n\tat org.mozilla.xpcom.internal.XPCOMJavaProxy.invoke(XPCOMJavaProxy.java:140)\n\tat $Proxy37.getJsClassName(Unknown Source)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)",
+    "Created an attachment (id\u003d45900)\nHere is my test script where I\u0027m getting the error\n\n",
+    "Created an attachment (id\u003d45947)\nJSDebugThread patch\n\nThis patch fixes the \"jsClassName\" exception (and a similar exception with \"setScriptsEnabled\").  Problem was that some of the methods in JSDebugThread are callbacks on a separate thread, but they can get called after the debugger has terminated.  For these two methods, I added a check to JSDebugTarget.isTerminated().\n\nAre most of the methods in this class callbacks?  Should all of them have this check?",
+    "Created an attachment (id\u003d45975)\nJSDebugTarget patch\n\nOK, I think I found out the real fix for this.  When JSDebugTarget.terminate() is called, it first calls shutdown(), then goes through each JSDebugThread and terminates them.  However, shutdown() was setting the _threads array to zero length first, so none of the threads were ever getting terminated.  This had the effect that the Eclipse debugger framework would later call in to some of these JSDebugThreads, thinking they were still active.  Now, with this fix, the debugger framework sees that the threads are terminated, and doesn\u0027t call into them.\n\nThis also seems to fix another issue that Bob was seeing, where under certain instances, the debugger wouldn\u0027t stop on breakpoints.  Bob, try out this patch and see if it works for you.\n\nThe method JSDebugThread.disconnect() is similar to terminate(), but the call to JSDebugThread.terminate() is commented out, with a TODO.  Adam, is this your change?  Should that be uncommented?\n\nI\u0027m not sure if this fixes the \"removeObserver\" exception, since I haven\u0027t been able to recreate.",
+    "The patch fixes problem of the debugger not stopping on braekpoint when you click on a process to terminate the application. It doesn\u0027t fix the problem when you click on the thread to terminate the application. This seems to be a cause by the method handleDebugEvents in JSDebugTarget. It is also clearing the threads before calling terminate. ",
+    "(From update of attachment 45975)\nwill submit new patch\n",
+    "Created an attachment (id\u003d46028)\nPatch for main truck\n\n",
+    "Created an attachment (id\u003d46029)\nPatch for branch WTP1_RC6.txt\n\n",
+    "Checked in to HEAD and wtp1_5RC6 branch.  -\u003eFIXED"
+  ],
+  "commentCreationDates": [
+    "2006-07-07T03:36:30+02:00",
+    "2006-07-07T03:37:20+02:00",
+    "2006-07-07T20:37:33+02:00",
+    "2006-07-08T00:10:49+02:00",
+    "2006-07-10T16:23:55+02:00",
+    "2006-07-10T20:20:41+02:00",
+    "2006-07-10T20:21:39+02:00",
+    "2006-07-10T20:22:37+02:00",
+    "2006-07-10T21:00:15+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.mozilla.xpcom.XPCOMException",
+      "message": "The function \"removeObserver\" returned an error condition  (0x80004005)",
+      "elements": [
+        {
+          "method": "org.mozilla.xpcom.internal.XPCOMJavaProxy.callXPCOMMethod",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.mozilla.xpcom.internal.XPCOMJavaProxy.invoke",
+          "source": "XPCOMJavaProxy.java:140"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "149937",
+      "date": "2006-07-07T03:36:30+02:00",
+      "product": "ATF",
+      "component": "mozide",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.mozilla.xpcom.XPCOMException",
+      "message": "The function \"jsClassName\" returned an error condition  (0x80040111)",
+      "elements": [
+        {
+          "method": "org.mozilla.xpcom.internal.XPCOMJavaProxy.callXPCOMMethod",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.mozilla.xpcom.internal.XPCOMJavaProxy.invoke",
+          "source": "XPCOMJavaProxy.java:140"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "149937",
+      "date": "2006-07-07T03:36:30+02:00",
+      "product": "ATF",
+      "component": "mozide",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "149937",
+  "bugId": "149937",
+  "date": "2006-07-07T03:36:30+02:00",
+  "product": "ATF",
+  "component": "mozide",
+  "severity": "normal"
+}

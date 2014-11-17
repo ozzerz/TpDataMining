@@ -1,0 +1,173 @@
+{
+  "comments": [
+    "Build ID: M20060921-0945\n\nSteps To Reproduce:\nUsing \"SWT application to reproduce crash\" in Bugzilla 74095:\n\n(Copied from comment #74)\n1. Double Click \u0027hello\u0027\n2. Drag \"Drag me!\" over the in-place text editor.  Start at the \u0027h\u0027 and slowly\ndrag to the right.  Eventually you\u0027ll get an IllegalArgumentException (stack\nbelow).\n3. Drop the text.  It doesn\u0027t seem to matter if it drops successfully or not\n4. Drag \"Drag me!\" again.  Drop it into the text editor.  It doesn\u0027t seem to\nmatter if it drops successfully.\n5. Enter 1 iterations\n6. Hit run\n7. You should get a stack overflow exception (stack below).\n\njava.lang.IllegalArgumentException: bad position: 6\n        at\njavax.swing.text.JTextComponent.setCaretPosition(JTextComponent.java:1398)\n        at\njavax.swing.plaf.basic.BasicTextUI$TextDropTargetListener.updateInsertionLocation(BasicTextUI.java:2124)\n        at\njavax.swing.plaf.basic.BasicDropTargetListener.dragOver(BasicDropTargetListener.java:233)\n        at\njavax.swing.TransferHandler$SwingDropTarget.dragOver(TransferHandler.java:590)\n        at\nsun.awt.dnd.SunDropTargetContextPeer.processMotionMessage(SunDropTargetContextPeer.java:439)\n        at\nsun.awt.dnd.SunDropTargetContextPeer.access$600(SunDropTargetContextPeer.java:53)\n        at\nsun.awt.dnd.SunDropTargetContextPeer$EventDispatcher.dispatchMotionEvent(SunDropTargetContextPeer.java:784)\n        at\nsun.awt.dnd.SunDropTargetContextPeer$EventDispatcher.dispatchEvent(SunDropTargetContextPeer.java:730)\n        at sun.awt.dnd.SunDropTargetEvent.dispatch(SunDropTargetEvent.java:29)\n        at java.awt.Component.dispatchEventImpl(Component.java:3826)\n        at java.awt.Container.dispatchEventImpl(Container.java:2024)\n        at java.awt.Component.dispatchEvent(Component.java:3803)\n        at\njava.awt.LightweightDispatcher.retargetMouseEvent(Container.java:4212)\n        at\njava.awt.LightweightDispatcher.processDropTargetEvent(Container.java:3963)\n        at java.awt.LightweightDispatcher.dispatchEvent(Container.java:3817)\n        at java.awt.Container.dispatchEventImpl(Container.java:2010)\n        at java.awt.Window.dispatchEventImpl(Window.java:1778)\n        at java.awt.Component.dispatchEvent(Component.java:3803)\n        at java.awt.EventQueue.dispatchEvent(EventQueue.java:463)\n        at\njava.awt.EventDispatchThread.pumpOneEventForHierarchy(EventDispatchThread.java:242)\n        at\njava.awt.EventDispatchThread.pumpEventsForHierarchy(EventDispatchThread.java:163)\n        at\njava.awt.EventDispatchThread.pumpEvents(EventDispatchThread.java:157)\n        at\njava.awt.EventDispatchThread.pumpEvents(EventDispatchThread.java:149)\n        at java.awt.EventDispatchThread.run(EventDispatchThread.java:110)\n\njava.lang.StackOverflowError\n        at sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n        at sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n        at sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)\n        at sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n        at sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n        at sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)\n\n\nAs a follow up, (copied from comment #75)\nI can also reproduce this problem mentioned in Comment #74 a lot more\nsporadically without having it throw the IllegalArgumentException first.\n\n1) Double click hello\n2) Drag \"Drag Me!\" all around the dialog repeatedly, making sure to enter/exit\nthe in place text editor often.  Drop it (anywhere seems to work).\n3) Do Step 2 again.\n4) Enter 1 iteration and hit run.\n5) Repeat until you get a stack overflow.  It usually takes me 2-5 iterations\nof this process to get the exception.\n\n\nMore information:\nUsing Eclipse v3.2.1\n\n\u003e cat /etc/SuSE-release\nSUSE LINUX Enterprise Server 9 (i586)\nVERSION \u003d 9\nPATCHLEVEL \u003d 3\n\n\u003e uname -a\nLinux van-w-02-msiege 2.6.5-7.244-default #1 Mon Dec 12 18:32:25 UTC 2005 i686\ni686 i386 GNU/Linux\n\nJava version: SUN JDK 1.5.0_08",
+    "Yup.  I worked on this for a bit, recreated it but ran out of time.  SSQ and I will look into it again.",
+    "Created an attachment (id\u003d57368)\nSWT Application reproducing StackOverflowError\n\nAttaching source to the reproduction application.",
+    "Mark, are you really stuck on this?  I\u0027ve been super busy and unable to look at it.",
+    "For the most part, I haven\u0027t been working on debugging this issue since creating the reproduction app.  Also while debugging the issue I wasn\u0027t really able to get anywhere beyond reproducing the problem.",
+    "Ok, after spending a whole day (and night) to analyze and debug\nthis problem, I came to following conclusion:\n\nBoth AWT and GTK temporary change the X Windows error handler. E.g.\n\noldErrorHandler \u003d XSetErrorHandler( tempErrorHandler );\n// do something\nXSetErrorHandler( oldErrorHandler );\n\nIn AWT this is done in sun.awt.X11.XToolkit.WITH_XERROR_HANDLER()\nand sun.awt.X11.XToolkit.RESTORE_XERROR_HANDLER().\n\nIn GTK, gdk_error_trap_push() and gdk_error_trap_pop() is used.\n\nAll four methods invoke \"int XSetErrorHandler(int)\".\nXSetErrorHandler() returns the old error handler.\n\n\n\nThe problem is threading. AWT runs on the \"AWT-XAWT\" thread and\nGTK on the \"main\" thread. Following situation may occur e.g. when\ndragging a SWT splitter between two AWT/Swing frames:\n\nAWT thread: invokes XToolkit.WITH_XERROR_HANDLER()\n            it does: saved_error_handler \u003d XSetErrorHandler(XlibWrapper.ToolkitErrorHandler)\n\nGTK thread: invokes gdk_error_trap_push() and remembers the temporary\n            AWT toolkit error handler (XlibWrapper.ToolkitErrorHandler)\n\nAWT thread: invokes XToolkit.RESTORE_XERROR_HANDLER()\n            it does: XSetErrorHandler(saved_error_handler)\n\nGTK thread: invokes gdk_error_trap_pop() and again sets\n            the X error handler to XlibWrapper.ToolkitErrorHandler\n\nAnd now we have the problem!\n\nAWT thread: invokes XToolkit.WITH_XERROR_HANDLER()\n            XToolkit.saved_error_handler is now set to\n            XlibWrapper.ToolkitErrorHandler\n\n\nIf now an X error occurs in AWT, XlibWrapper.ToolkitErrorHandler is invoked,\nwhich invokes XToolkit.GlobalErrorHandler(), which invokes \nXToolkit.SAVED_ERROR_HANDLER() (because XToolkit.curErrorHandler is null),\nwhich invokes XlibWrapper.ToolkitErrorHandler,\nwhich invokes XToolkit.GlobalErrorHandler(), and so on...\n\n\nWhy do I think that the above scenario really happens? Well, I\u0027ve modified\nsun.awt.X11.XToolkit and added some println\u0027s to WITH_XERROR_HANDLER()\nand RESTORE_XERROR_HANDLER(). At some time, XlibWrapper.SetToolkitErrorHandler()\ninvoked from WITH_XERROR_HANDLER() returns XlibWrapper.ToolkitErrorHandler.\nI also can see that the X error handler was modified between the\nWITH_XERROR_HANDLER() and RESTORE_XERROR_HANDLER() methods.\n\n\nThe StackOverflowError could be fixed in AWT (sun.awt.X11.XToolkit),\nbut this does not solve the general problem with threading and temporary\nchanging the X error handler.\n\n\nWithout having\n  synchronized(XErrorLock) {\n    oldErrorHandler \u003d XSetErrorHandler( tempErrorHandler );\n    // do something\n    XSetErrorHandler( oldErrorHandler );\n  }\nin AWT and GTK, it is always possible that one GUI toolkit replaces the\nX error handler of the other GUI toolkit.\n\nAny ideas?",
+    "Also seen on RHEL3 Linux 2.4.21-40.ELsmp / Eclipse 3.2.1 / Sun JDK 1.5.0_03"
+  ],
+  "commentCreationDates": [
+    "2007-01-23T17:57:49+01:00",
+    "2007-01-23T18:07:35+01:00",
+    "2007-01-23T19:19:07+01:00",
+    "2007-02-02T01:58:15+01:00",
+    "2007-02-26T17:30:04+01:00",
+    "2007-05-31T03:25:22+02:00",
+    "2007-07-31T18:13:29+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "bad position: 6",
+      "elements": [
+        {
+          "method": "javax.swing.text.JTextComponent.setCaretPosition",
+          "source": "JTextComponent.java:1398"
+        },
+        {
+          "method": "javax.swing.plaf.basic.BasicTextUI$TextDropTargetListener.updateInsertionLocation",
+          "source": "BasicTextUI.java:2124"
+        },
+        {
+          "method": "javax.swing.plaf.basic.BasicDropTargetListener.dragOver",
+          "source": "BasicDropTargetListener.java:233"
+        },
+        {
+          "method": "javax.swing.TransferHandler$SwingDropTarget.dragOver",
+          "source": "TransferHandler.java:590"
+        },
+        {
+          "method": "sun.awt.dnd.SunDropTargetContextPeer.processMotionMessage",
+          "source": "SunDropTargetContextPeer.java:439"
+        },
+        {
+          "method": "sun.awt.dnd.SunDropTargetContextPeer.access$600",
+          "source": "SunDropTargetContextPeer.java:53"
+        },
+        {
+          "method": "sun.awt.dnd.SunDropTargetContextPeer$EventDispatcher.dispatchMotionEvent",
+          "source": "SunDropTargetContextPeer.java:784"
+        },
+        {
+          "method": "sun.awt.dnd.SunDropTargetContextPeer$EventDispatcher.dispatchEvent",
+          "source": "SunDropTargetContextPeer.java:730"
+        },
+        {
+          "method": "sun.awt.dnd.SunDropTargetEvent.dispatch",
+          "source": "SunDropTargetEvent.java:29"
+        },
+        {
+          "method": "java.awt.Component.dispatchEventImpl",
+          "source": "Component.java:3826"
+        },
+        {
+          "method": "java.awt.Container.dispatchEventImpl",
+          "source": "Container.java:2024"
+        },
+        {
+          "method": "java.awt.Component.dispatchEvent",
+          "source": "Component.java:3803"
+        },
+        {
+          "method": "java.awt.LightweightDispatcher.retargetMouseEvent",
+          "source": "Container.java:4212"
+        },
+        {
+          "method": "java.awt.LightweightDispatcher.processDropTargetEvent",
+          "source": "Container.java:3963"
+        },
+        {
+          "method": "java.awt.LightweightDispatcher.dispatchEvent",
+          "source": "Container.java:3817"
+        },
+        {
+          "method": "java.awt.Container.dispatchEventImpl",
+          "source": "Container.java:2010"
+        },
+        {
+          "method": "java.awt.Window.dispatchEventImpl",
+          "source": "Window.java:1778"
+        },
+        {
+          "method": "java.awt.Component.dispatchEvent",
+          "source": "Component.java:3803"
+        },
+        {
+          "method": "java.awt.EventQueue.dispatchEvent",
+          "source": "EventQueue.java:463"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpOneEventForHierarchy",
+          "source": "EventDispatchThread.java:242"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEventsForHierarchy",
+          "source": "EventDispatchThread.java:163"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:157"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:149"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.run",
+          "source": "EventDispatchThread.java:110"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "171432",
+      "date": "2007-01-23T17:57:49+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.StackOverflowError",
+      "elements": [
+        {
+          "method": "sun.awt.X11.XlibWrapper.CallErrorHandler",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER",
+          "source": "XToolkit.java:131"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.GlobalErrorHandler",
+          "source": "XToolkit.java:142"
+        },
+        {
+          "method": "sun.awt.X11.XlibWrapper.CallErrorHandler",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER",
+          "source": "XToolkit.java:131"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.GlobalErrorHandler",
+          "source": "XToolkit.java:142"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "171432",
+      "date": "2007-01-23T17:57:49+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "171432",
+  "bugId": "171432",
+  "date": "2007-01-23T17:57:49+01:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "critical"
+}

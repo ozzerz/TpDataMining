@@ -1,0 +1,71 @@
+{
+  "comments": [
+    "hello..\n\nMy test snippet creates a small and simple image (100x100) with a cup of transparent pixels; it also imitates the double buffering mechanism - so this image (testImage) is created once and then drawn into an other image (shadowImage) using a zoom factor.. then the shadowImage is clipped into PaintEvent\u0027s GC. \nA mouse click into the shell causes the view to appear zoomed in/out.. but if you try it out, you will notice, that \n1) somewhere along the way nothing more is painted\n2) some later an SWTError is thrown: \norg.eclipse.swt.SWTError: No more handles\n\tat org.eclipse.swt.SWT.error(SWT.java:2968)\n\tat org.eclipse.swt.SWT.error(SWT.java:2865)\n\tat org.eclipse.swt.SWT.error(SWT.java:2836)\n\tat org.eclipse.swt.graphics.GC.drawBitmapAlpha(GC.java:900)\n\tat org.eclipse.swt.graphics.GC.drawBitmap(GC.java:863)\n\tat org.eclipse.swt.graphics.GC.drawImage(GC.java:705)\n\tat org.eclipse.swt.graphics.GC.drawImage(GC.java:665)\n\tat DIBTest$1.paintControl(DIBTest.java:xx)\n\nimport org.eclipse.swt.SWT;\nimport org.eclipse.swt.events.*;\nimport org.eclipse.swt.graphics.*;\nimport org.eclipse.swt.widgets.*;\n\npublic class DIBTest {\n\tstatic final boolean SHADOWED \u003d true;\n\n\tstatic final int MAX_ZOOM \u003d 512;\n\tstatic final int MIN_ZOOM \u003d 1;\n\tstatic final int WIDTH \u003d 100;\n\tstatic final int HEIGHT \u003d 100;\n\tstatic int zoom \u003d MIN_ZOOM;\n\tstatic boolean zoomIn \u003d true;\n\n\tstatic Image createTestImage(Display display, int width, int height) {\n\t\tImageData imageData \u003d new ImageData(width, height, 32, new PaletteData(\n\t\t\t\t255, 255, 255), 1, new byte[height * 4 * width * 4]);\n\t\tfor (int x \u003d 0; x \u003c width; x++) {\n\t\t\tfor (int y \u003d 0; y \u003c height; y++) {\n\t\t\t\tif (y \u003d\u003d x || x \u003d\u003d width - y - 1 || x \u003d\u003d 0 || x \u003d\u003d height - 1\n\t\t\t\t\t\t|| y \u003d\u003d 0 || y \u003d\u003d width - 1) {\n\t\t\t\t\timageData.setAlpha(x, y, 0xFF);\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\treturn new Image(display, imageData);\n\t}\n\n\tstatic void test(Composite composite) {\n\t\tif (zoomIn) {\n\t\t\tzoom *\u003d 2;\n\t\t} else {\n\t\t\tzoom /\u003d 2;\n\t\t}\n\t\tif (zoom \u003e\u003d MAX_ZOOM) {\n\t\t\tzoomIn \u003d false;\n\t\t} else if (zoom \u003c\u003d MIN_ZOOM) {\n\t\t\tzoomIn \u003d true;\n\t\t}\n\t\tcomposite.redraw();\n\t}\n\n\tpublic static void main(String[] args) {\n\t\tfinal Display display \u003d new Display();\n\t\tfinal Shell shell \u003d new Shell(display);\n\n\t\tfinal Image testImage \u003d createTestImage(display, WIDTH, HEIGHT);\n\t\tfinal Image shadowImage \u003d new Image(display, WIDTH, HEIGHT);\n\t\tfinal GC shadowGc \u003d new GC(shadowImage);\n\t\tshell.addPaintListener(new PaintListener() {\n\t\t\tint _i \u003d 0;\n\n\t\t\tpublic void paintControl(PaintEvent e) {\n\t\t\t\tif (SHADOWED \u003d\u003d true) {\n\t\t\t\t\tshadowGc.fillRectangle(e.gc.getClipping());\n\t\t\t\t\tshadowGc.drawImage(testImage, 0, 0, WIDTH, HEIGHT, 0, 0,\n\t\t\t\t\t\t\tzoom * WIDTH, zoom * HEIGHT);\n\t\t\t\t\te.gc.drawImage(shadowImage, 0, 0);\n\t\t\t\t} else {\n\t\t\t\t\te.gc.fillRectangle(e.gc.getClipping());\n\t\t\t\t\te.gc.drawImage(testImage, 0, 0, WIDTH, HEIGHT, 0, 0, zoom\n\t\t\t\t\t\t\t* WIDTH, zoom * HEIGHT);\n\t\t\t\t}\n\n\t\t\t\tSystem.out.println(\"zoom: \" + zoom + \"; \" + (++_i)\n\t\t\t\t\t\t+ \" paint event\");\n\t\t\t}\n\t\t});\n\t\tshell.addMouseListener(new MouseAdapter() {\n\t\t\tpublic void mouseDown(MouseEvent e) {\n\t\t\t\ttest(shell);\n\t\t\t}\n\t\t});\n\t\tshell.setBounds(shell.computeTrim(50, 50, WIDTH, HEIGHT));\n\t\tshell.open();\n\t\twhile (!shell.isDisposed()) {\n\t\t\tif (!display.readAndDispatch()) {\n\t\t\t\tdisplay.sleep();\n\t\t\t}\n\t\t}\n\t}\n}\n\nThis code at its own doesn\u0027t make sense.. but I have a real application, which has to visualize data from different sources (testImages) at same time.. I\u0027m kinda perplexed, that if I turn off this double buffering hocus-pocus (SHADOWED\u003dfalse), the problem doesn\u0027t occur. Any Idea? \n\nbest regards\nSaibel\n\nPS: I would point out that after the initialization no new images (nor any other OS resources) are created -\u003e misleading SWT.ERROR_NO_HANDLES error.",
+    "I can reproduce the problem using your snippet in 3.1.2, but it works well for me in 3.2, so this appears to have been fixed.  If you still have problems in 3.2 (official announcement/release should be later today) then please reopen this report, thanks.\n",
+    "OK, the second effect (SWT.ERROR_NO_HANDLES) is fixed, \nBUT: the first one (nothing more is painted) still remains - on my machine with SWT 3229@win32 it occurs at a zoom factor of \u003e\u003d 512.\nAND: it doesn\u0027t matter whether I use the double buffering technique or not.\n\nthx\n",
+    "AlphaBlend() function is failing when the zoom factor is too big. I am not sure how to work around this problem.",
+    "Does it return a fail code when it fails?  Can we run (slower) emulated code?",
+    "No, it always return true (success). GetLastError() also returns no error."
+  ],
+  "commentCreationDates": [
+    "2006-06-21T15:55:30+02:00",
+    "2006-06-30T17:07:54+02:00",
+    "2006-07-04T09:22:20+02:00",
+    "2006-10-25T17:02:54+02:00",
+    "2006-10-25T19:24:58+02:00",
+    "2006-10-26T16:26:10+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "No more handles",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2968"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2865"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2836"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.GC.drawBitmapAlpha",
+          "source": "GC.java:900"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.GC.drawBitmap",
+          "source": "GC.java:863"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.GC.drawImage",
+          "source": "GC.java:705"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.GC.drawImage",
+          "source": "GC.java:665"
+        },
+        {
+          "method": "DIBTest$1.paintControl",
+          "source": "DIBTest.java:xx"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "148035",
+      "date": "2006-06-21T15:55:30+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "148035",
+  "bugId": "148035",
+  "date": "2006-06-21T15:55:30+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

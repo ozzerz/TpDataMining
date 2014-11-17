@@ -1,0 +1,108 @@
+{
+  "comments": [
+    "Build ID: eclipse.buildId\u003dI20070625-1500\n\nSteps To Reproduce:\nI have not been able reproduce the problem reliably. I have the history view open in the Java perspective. Sometimes, when switching editors or saving a file, I get the following error:\n\nAn internal error occurred during: \"Fetching CVS revision history\".\n\njava.lang.NullPointerException\nat org.eclipse.team.internal.core.streams.PollingInputStream.close(PollingInputStream.java:76)\nat java.io.BufferedInputStream.close(BufferedInputStream.java:451)\nat org.eclipse.team.internal.ccvs.core.connection.PServerConnection.cleanUpAfterFailedConnection(PServerConnection.java:253)\nat org.eclipse.team.internal.ccvs.core.connection.PServerConnection.open(PServerConnection.java:140)\nat org.eclipse.team.internal.ccvs.core.connection.Connection.open(Connection.java:132)\nat org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.createConnection(CVSRepositoryLocation.java:537)\nat org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.openConnection(CVSRepositoryLocation.java:781)\nat org.eclipse.team.internal.ccvs.core.client.Session.open(Session.java:159)\nat org.eclipse.team.internal.ccvs.core.resources.RemoteFile.getLogEntries(RemoteFile.java:279)\nat org.eclipse.team.internal.ccvs.core.resources.EclipseFile.getLogEntries(EclipseFile.java:287)\nat org.eclipse.team.internal.ccvs.core.filehistory.CVSFileHistory.refresh(CVSFileHistory.java:98)\nat org.eclipse.team.internal.ccvs.ui.CVSHistoryPage$RefreshCVSFileHistory.run(CVSHistoryPage.java:1319)\nat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)\n\n\n\n\n\n\nMore information:\nFrom what I see in the sourcecode, PollingInputStream does not check \nif the \"in\" field is null in the finally clause of the close() method. \nI guess, readPendingInput() must have thrown a NPE before, because it \nalso relies on \"in\" not being null, however that is masked by the NPE \nin the finally block.\n\nI cannot tell why the connection to CVS pserver failed, because we work\nwith it all the time; nevertheless even if there is a problem, this should not be a user visible error message.\n\n\npublic void close() throws IOException {\n    int attempts \u003d 0;\n    try {\n        readPendingInput();\n    } catch (IOException e) {\n        // We shouldn\u0027t get an exception when we\u0027re getting the available input.\n        // If we do, just log it so we can close.\n        TeamPlugin.log(IStatus.ERROR, e.getMessage(), e);\n    } finally {\n        boolean stop \u003d false;\n        while (!stop) {\n            try {\n\n                in.close();  \u003c\u003d\u003d This can be null\n\n                stop \u003d true;\n            } catch (InterruptedIOException e) {\n                if (checkCancellation()) throw new OperationCanceledException();\n                if (++attempts \u003d\u003d numAttempts)\n                    throw new InterruptedIOException(Messages.PollingInputStream_closeTimeout); \n                if (DEBUG) System.out.println(\"close retry\u003d\" + attempts); //$NON-NLS-1$\n            }\n        }\n    }\n}",
+    "Created an attachment (id\u003d78461)\nProposiotion of modifications 001\n\nI made simple fix which should protect before NPE. \nDaniel, could you apply it on org.eclipse.team.core, org.eclipse.team.cvs.core and test if the problem still exists.",
+    "I am sorry, I have only looked at the source in the web repository browser. I would really love to assist and applying that patch, however that would require some instructions on how to get it going.",
+    "Created an attachment (id\u003d78755)\nProposition of modification 002\n\nI\u0027m surprised that previous simple patch did cause NPE. In my opinion FilterInputStream#close() should protect against NPE or at least JavaDocs for it should describe that it could throw NPE. ",
+    "Daniel, what VM version are you using? I wonder if the problem is VM specific.",
+    "At the time I was using JDK 1.6.0_02 via the -vm parameter.\nHowever I have now reverted to 1.5.0_12, because we have seen other problems with a required plugin - we could not change properties in a view using dropdown menus. With 1.5 I have not seen that GUI bug and so far no pserver-related problems either.",
+    "Tomasz, can you please review that patch?",
+    "The second patch looks fine. The check is in the place and I agree with Krzysztof that cleanUpAfterFailedConnection method is redundant.",
+    "The patch looks good. The only suggestion I have is that, when close() is called, we may want to catch and ignore any IOExceptions that occur. I have found that exceptions thrown by the close method are rarely of any use and often mask the real problem (i.e. a previous exception that was thrown). Assigning to Tomek to commit.",
+    "From my point of view, we shouldn\u0027t ignore IOException inside PollingInputStream#close() as someone could expect it to be thrown. Generally I expect that a call to FilterInputStream#close() can throw an IOException. If we want to ignore it inside PollingInputStrem#close() we should consider removing possible unnecessary catches eg. inside Connection#close() etc... ",
+    "In practice I have never encountered an exception during a close that was meaningful. On the other hand, I have encountered several situations where an exception that was thrown on a close has masked a previous exception that was more meaningful. We used to wrap the close and log any exceptions just so the exception on close wasn\u0027t lost but we found that, in some situations, this resulted in the logging of several exceptions that, in reality, were meaningless and only confused the user (i.e. we got plenty of bug reports about the logged exceptions that didn\u0027t indicate a problem).",
+    "Created an attachment (id\u003d80651)\nProposition of modification 003\n\nMichael, in the patch I did catch and ignore the IOException as you suggested, even though I can see Krzysztof\u0027s point. As a consequence of this, I thought we need to slightly modify signature of the method. So, instead of throwing an IOException I thought that \"throws InterruptedIOException\" would be closer to the truth. What do you think about it? Could you take a quick look at the patch?",
+    "Oh, now I can see that you\u0027ve already reviewed the patch from Krzysztof and gave it a \"+\". To save your time I will release the latest patch and if you don\u0027t like it I could either reopen this bug or a log a new one for the IOException issue.",
+    "Released to HEAD.",
+    "Verified in I20071029-1800 and by a code inspection."
+  ],
+  "commentCreationDates": [
+    "2007-09-14T12:24:16+02:00",
+    "2007-09-14T21:28:02+02:00",
+    "2007-09-17T14:09:25+02:00",
+    "2007-09-19T16:53:11+02:00",
+    "2007-09-19T17:00:36+02:00",
+    "2007-09-20T08:07:47+02:00",
+    "2007-09-25T10:27:39+02:00",
+    "2007-10-02T11:26:11+02:00",
+    "2007-10-12T19:20:08+02:00",
+    "2007-10-15T13:52:26+02:00",
+    "2007-10-15T15:29:12+02:00",
+    "2007-10-18T12:57:47+02:00",
+    "2007-10-18T13:10:59+02:00",
+    "2007-10-18T13:38:05+02:00",
+    "2007-10-31T14:35:38+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.team.internal.core.streams.PollingInputStream.close",
+          "source": "PollingInputStream.java:76"
+        },
+        {
+          "method": "java.io.BufferedInputStream.close",
+          "source": "BufferedInputStream.java:451"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.PServerConnection.cleanUpAfterFailedConnection",
+          "source": "PServerConnection.java:253"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.PServerConnection.open",
+          "source": "PServerConnection.java:140"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.Connection.open",
+          "source": "Connection.java:132"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.createConnection",
+          "source": "CVSRepositoryLocation.java:537"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.openConnection",
+          "source": "CVSRepositoryLocation.java:781"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Session.open",
+          "source": "Session.java:159"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.RemoteFile.getLogEntries",
+          "source": "RemoteFile.java:279"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseFile.getLogEntries",
+          "source": "EclipseFile.java:287"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.filehistory.CVSFileHistory.refresh",
+          "source": "CVSFileHistory.java:98"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.CVSHistoryPage$RefreshCVSFileHistory.run",
+          "source": "CVSHistoryPage.java:1319"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "203423",
+      "date": "2007-09-14T12:24:16+02:00",
+      "product": "Platform",
+      "component": "Team",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "203423",
+  "bugId": "203423",
+  "date": "2007-09-14T12:24:16+02:00",
+  "product": "Platform",
+  "component": "Team",
+  "severity": "normal"
+}

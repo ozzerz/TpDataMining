@@ -1,0 +1,112 @@
+{
+  "comments": [
+    "Clients calling validate on a separate thread will get a NPE since Display.getCurrent returns null.  Since, the queueWork is called asyncExec anyway, we should call Display.getDefault() instead.\n\nHere\u0027s the suggested code change:\n/**\n * Posts an {@link UpdateRequest} using {@link Display#asyncExec(Runnable)}.  If work has\n * already been queued, a new request is not needed.\n */\nprotected void queueWork() {\n\tif (!updateQueued) {\n\t\tif (Display.getCurrent() !\u003d null)\n\t\t\tDisplay.getCurrent().asyncExec(new UpdateRequest());\n\t\telse\n\t\t\tDisplay.getDefault().asyncExec(new UpdateRequest());\n\t\tupdateQueued \u003d true;\n\t}\n}",
+    "Figures are not thread-safe, nor is DeferredUpdateManager. Since this method is primarily invoked indirectly from figures, it doesn\u0027t make sense to support calling it from background threads.\n\nThis is not critical since the obvious workaround is to call the method from the UI thread. I would argue that we shouldn\u0027t change anything, since fixing a reproducible NullPointerException is much easier than tracking down subtle thread-related bugs.",
+    "It can be a valid assumption that figures must be painted on the main thread - and the asyncExec call to queue the paint ensures that.  However, is it a valid assumption that just queuing of the repaint via the DeferredUpdateManager must be on the main thread?  Since it is already ensuring that the update job is on the main thread and isn\u0027t forcing any updates I think it is reasonable to ensure it is thread safe.",
+    "If you were simply calling UpdateManager#addInvalidFigure(IFigure), then what you are saying is true, and we might be able to support it. But, that is not what is happening in bug 124678. The client is accessing figures from multiple threads, which is not supported. So without some valid use case, I think it\u0027s better to force the client to correct their code by throwing the exception.",
+    "The client in this case is doing 2 things, they are creating shapes on a separate thread, which spawns a revalidate call after the figure is added.  The other case is in a command for layout which depends on the figure position and sizes being updated before it can execute since the size is not persisted on the model size (autosize).  These need to be executed on a separate thread in order for the progress meter to cancellable.\n\nIf I make the suggested change in DeferredUpdateManager, the commands run perfectly fine.  There is a little more work to be done to avoid redundant updates however,  The updateQueued variable needs to be turned into a map which keeps track of the update status on a per thread basis.  I will post a patch for consideration.",
+    "Perhaps another alternative is too simply disable the UpdateManager in these specific cases (spawning a thread for creation etc.).  Since the progress meter is taking control over the main thread, there is no need to perform update until after the progress meter is disposed.",
+    "I had success turning off the update manager if this case.  However, I needed to make some minor changes in LightweightSystem - \ncontrolResized() and paint() both reference \"manager\" attribute directly instead of accessing getUpdateManager().  Otherwise, I can\u0027t override the update manager to use mine (which can be toggled off)...",
+    "\u003e These need to be executed on a separate thread in order for the\n\u003e progress meter to cancellable.\n\nThis is not true. It is the same as if you were updating a native Tree in SWT. You have to use the UI thread. You can use syncExec to update the view. There are tons of background jobs in the Eclipse SDK that update widgets on the UI thread. For example, retreiving contents of a CVS folder in the repository explorer view. You should use the same techniques here.",
+    "If you can\u0027t override the update manager behavior in a LWS, that sounds like a separate bug that should be addressed.",
+    "Logged https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d125337\n\nAny chance this could be released for today\u0027s integration build?  It\u0027s a trivial change and extremely safe...",
+    "*** Bug 133942 has been marked as a duplicate of this bug. ***",
+    "Apparently this not a closed issue. So let\u0027s discuss it more.\n\n(In reply to comment #4)\n\u003e The client in this case is doing 2 things, they are creating shapes on a\n\u003e separate thread, which spawns a revalidate call after the figure is added.\n\nCalling IFigure#add(...) from any thread other than the display thread is not safe or valid and can cause very hard to reproduce threading bugs. In future releases of GEF, it might fail more frequently or all the time.\n\n\u003e other case is in a command for layout which depends on the figure position and\n\u003e sizes being updated before it can execute since the size is not persisted on\n\u003e the model size (autosize).  These need to be executed on a separate thread in\n\u003e order for the progress meter to cancellable.\n\nWe discussed the second case already. Perform the calculations, then apply them using async/syncExec.",
+    "I don\u0027t disagree in principle.  However, in practice clients are executing semantic model changes on a separate thread - sometimes not by choice, i.e. responding to Java refactoring operations.  GEF / GMF is listening to these changes and responding to the model adds through the MVC synchronization.  Responding to the event inside a Display.asych will effectively destroy performance.  \n\nIn light of this, we can recommend best practices, but I think spawning an asynchonous execution from the update manager should be less brittle to threading usecases - hence this fix.",
+    "\u003e I don\u0027t disagree in principle.  However, in practice clients are executing\n\u003e semantic model changes on a separate thread - sometimes not by choice, i.e.\n\u003e responding to Java refactoring operations.  GEF / GMF is listening to these\n\u003e changes and responding to the model adds through the MVC synchronization. \n\u003e Responding to the event inside a Display.asych will effectively destroy\n\u003e performance.\n\nPlease provide a benchmark. AFAIK, UI updates occur all the time from background threads, and in every case (because the OS requires it), the UI is accessed using either syncExec or asyncExec. I think this is how source annotations, compile error decorating, marker filtering, CVS browsing, etc. work. Single-thread access works for tables and trees, so I\u0027m sure it can work for GEF too.\n\n\u003e In light of this, we can recommend best practices, but I think spawning an\n\u003e asynchonous execution from the update manager should be less brittle to\n\u003e threading usecases - hence this fix.\n\nI spotted two mistakes in the change that was released (which would result in either none or duplicate updates occurring), and I have no actual experience in concurrent programming.",
+    "I should probably not comment without reviewing all the code in question, but ... that\u0027s never stoped me before. :)\n\nThere\u0027s a few things that stand out to me in this thread of discussion. \n\n1. Disply.getCurrent and Display.getDefault are not perfectly equvilent ... at least, not on systems that have more than one display (e.g. X-windows!?) so ... I\u0027m not sure its ever safe to just swap that in ... especially in a graphical API! You\u0027d always want the Dislay of the relevent componet. This is sort of a hidden assumption, currently, since \"getcurrent()\" is a pretty indirect way of saying it. I think using them interchanably can lead to some subtle bugs that are hard to find ... and then, you might have to make an \"API Breaking\" change to fix it (such as require clients to give you the approriate Display). \n\n2. IMHO, synchExec and aynchExec should be deprecated :) and avoided when ever possible. syncExec increases the chances of deadlocks. And asynchExec gives two two false senses of security: A. That you are *just* moving from non-display thread to display thread ... in reality, you don\u0027t really know when your runnable will be ran -- by the time it does, you might end up with hundreds of runnables in the Display\u0027s asynch que, the semantic information of your model may have changed, there\u0027s really no opportunity to cancel it (easily), etc. B. the runnables on the asynch que are no longer gaunteed to run in the order they were put on the que. Sometimes the order is \"switched\" to avoid deadlock. Its probably rare, but, that makes those bugs all the harder to track down. [Again, these are just general comments, I do not know that they all apply to this case.]. \n\n3. The \"modern\" Eclipse way for a background job to contribute things to the UI is through a UI Job. These are much easier to manage and control (if needed) so I\u0027d encourage GEF not to try and \"make things easy\" for background jobs, since it wasn\u0027t really designed for that ... but UI Jobs were (sort of). \n\n4. I think since GEF was designed to run entirely on a UI thread, it would be fair to do like SWT does ... assert if not called from a UI thread. As frustrating as those are, they do give a \"fast fail\" with a bit more informative message than \"NPE\". \n\nSo ... hope these comments help spur some ideas on an appropriate solution ... but, if they just reflect my ignorance of DeferredUpdateManager, ... then, nevermind :) \n\n",
+    "I\u0027m not sure what problems in the code Randy was referring to.  The change was trivial in that it simply checked whether Display.getCurrent() was null and if so used Display.getDefault instead.\n\nRe: 1.  This may be true, but in which case no matter where in the stack you tried to synchronize with the UI thread, then you would have problems.  This is a general problem at all levels for worker threads.\n\n2. The code in DeferredUpdateManager was already executing a asyncExec to update the Display.  This would be an existing issue with the current code.\n\n3. I\u0027m not sure that the solution proposed is supposed to \"make it easy\", it just \"makes it work\".  This doesn\u0027t eliminate the need for clients to ensure they don\u0027t access SWT off the UI thread.  Frankly it\u0027s ridiculous to assume that people won\u0027t access GEF from a worker thread.  When executing commands it is very reasonable to assume this will be done on a worker thread with the progress meter on the main UI thread.  When the command is finished executing this will spawn events in the model which get handled by EditParts.  The events coming into the EditPart cannot be handled asynchronous since this would compromise ordering assumptions and forcing a syncExec would encourage deadlock scenarios.\n\nAdditionally, if you look closely at the DeferredUpdateManager it has been very carefully instrumented with \"synchronized\" qualifiers for most methods.  If the assumption is that this would always be called from the UI thread - why would this be necessary?\n\n",
+    "(In reply to comment #15)\n\u003e I\u0027m not sure what problems in the code Randy was referring to.  The change was\n\u003e trivial in that it simply checked whether Display.getCurrent() was null and if\n\u003e so used Display.getDefault instead.\n\nThe change simply avoids an NPE. It does not correctly guarantee that an update will follow, which is the purpose of the method. If the UI thread is in the middle of painting or laying out when the background thread makes the call, there will be issues.  If the clients machine has multiple CPUs, the queued flag could be cached incorrectly on one of the CPUs.\n\n\u003e 2. The code in DeferredUpdateManager was already executing a asyncExec to\n\u003e update the Display.  This would be an existing issue with the current code.\n\nI\u0027m not sure why David was complaining about these methods. They are necessary evils when working across threads. But in our case, we are using it to queue lower-priority work, even though we are already on the UI thread.\n\n\u003e 3. I\u0027m not sure that the solution proposed is supposed to \"make it easy\", it\n\u003e just \"makes it work\".  This doesn\u0027t eliminate the need for clients to ensure\n\u003e they don\u0027t access SWT off the UI thread.  Frankly it\u0027s ridiculous to assume\n\u003e that people won\u0027t access GEF from a worker thread.\n\nObviously they don\u0027t because it doesn\u0027t work. How do you update a Tree (e.g. outline view) when commands are running in the background? The way that you update a native tree is the same way you update draw2d. There must be solutions out there because I see people using the native widgets.\n\n\u003e is very reasonable to assume this will be done on a worker thread with the\n\u003e progress meter on the main UI thread.  When the command is finished executing\n\u003e this will spawn events in the model which get handled by EditParts.  The events\n\u003e coming into the EditPart cannot be handled asynchronous since this would\n\u003e compromise ordering assumptions and forcing a syncExec would encourage deadlock\n\u003e scenarios.\n\nYou can batch the handling of notifications (maintaining order), even if the notifications themselves are not batched. It would be your own update manager for model changes. Or, you could throw the commands onto the UI thread from the job, and have the model modified on the UI thread.\n\n\u003e Additionally, if you look closely at the DeferredUpdateManager it has been very\n\u003e carefully instrumented with \"synchronized\" qualifiers for most methods.  If the\n\u003e assumption is that this would always be called from the UI thread - why would\n\u003e this be necessary?\n\nIt isn\u0027t necessary. This was unfortunately copied from the way Swing\u0027s update machanism works, even though it never gets exercised in draw2d. Try searching the web for Swing and threading issues to see how many people incorrectly assume they can update their Swing widgets from background threads.  In Swing, 99.9% of the time you don\u0027t see any symptoms, but good luck tracking down the 0.1%.",
+    "An alternate solution which is thread safe and recommended instead of Display.getDefault() is to use PlatformUI.getWorkbench().getDisplay().\n\ni.e.\nprotected void queueWork() {\n\tif (!updateQueued) {\n\t\tPlatformUI.getWorkbench().getDisplay().asyncExec(new UpdateRequest());\n\t\tupdateQueued \u003d true;\n\t}\n}\n\nAs I have mentioned, this doesn\u0027t absolve the client from the restrictions of SWT but allows GEF as a framework to be flexible to different execution permutations.  This is a very critical issue...",
+    "PlatformUI dependency is not an option since it would require draw2d to add a dependency to org.eclipse.ui.\n\nThe other options is open up the api to allow clients to override the queueWork method to meet their individual requirements.  In this case, I would add protected accessors to updateQueued variable.",
+    "Created an attachment (id\u003d37612)\npatch to allow override of queueWork\n\nPatch adding protected accessors for updatedQueued variable.",
+    "Created an attachment (id\u003d37613)\npatch to allow override of queueWork\n\nPatch adding protected accessors for updatedQueued variable.",
+    "Created an attachment (id\u003d37617)\nupdated patch\n\n- Adds accessors and constructor protected class UpdateRequest.\n- queueWork method is unmodified.  Current GEF clients are completely unaffected.",
+    "If you are just concerned about the Display being null, and not all the other problems that come with concurrent access to figures, you can handle background thread access by subclassing the existing code and overriding one method. There is no need to expose the current implementation details to subclasses.\n\npublic class ConcurrentUpdateManager extends DeferredUpdateManager {\n\nprivate volatile List invalid \u003d null;\n\npublic synchronized void addInvalidFigure(final IFigure f) {\n  if (Display.getCurrent() !\u003d null) {\n    super.addInvalidFigure(f);\n    if (invalid !\u003d null)\n      for (int i \u003d 0; i \u003c invalid.size(); i++)\n        super.addInvalidFigure((IFigure) invalid.get(i));\n    invalid \u003d null;\n  } else {\n    if (invalid \u003d\u003d null) {\n      //Create a list for any additional invalid figures\n      invalid \u003d new ArrayList();\n      Display.getDefault().asyncExec(new Runnable() {\n        public void run() {\n          addInvalidFigure(f);\n        }\n      });\n    } else if (!invalid.contains(f))\n      invalid.add(f);\n  }\n}\n\n}\n",
+    "Steve, please try the workaround code above in GMF instead of opening up internals to subclasses. If it works for you, please resolve as WORKSFORME.",
+    "Doesn\u0027t work since addDirtyRegion calls queueWork.\n\njava.lang.NullPointerException\n\tat org.eclipse.draw2d.DeferredUpdateManager.queueWork(DeferredUpdateManager.java:210)\n\tat org.eclipse.draw2d.DeferredUpdateManager.addDirtyRegion(DeferredUpdateManager.java:106)\n\tat org.eclipse.draw2d.Figure.repaint(Figure.java:1319)\n\tat org.eclipse.draw2d.Figure.erase(Figure.java:311)\n\tat org.eclipse.draw2d.Figure.remove(Figure.java:1178)\n\tat org.eclipse.gef.editparts.AbstractGraphicalEditPart.removeChildVisual(AbstractGraphicalEditPart.java:684)\n\tat org.eclipse.gef.editparts.AbstractEditPart.removeChild(AbstractEditPart.java:812)\n\n",
+    "Created an attachment (id\u003d37675)\nupdate patch\n\nHere is another patch that I think should be acceptable.  It exposes a new protected method sendUpdateRequest which is called from queueWork.  There are no \"implementation details\" exposed and it could provide additional flexibility for clients wishing to update multiple displays perhaps.  It also does not affect current GEF clients in any way.",
+    "Committed minor api change that allow clients to override if desired to change how update request is sent.\n\nAdded protected method sendUpdateRequest",
+    "Steve, the fundamental problem is that you have a model (draw2d figures) that is being READ on the UI thread (e.g. during painting and layout). And, you are WRITING to that model from a background thread. This is the classic multi-threaded problem. You can not read and write to a model simultaneously. It is not safe, there is no locking in place for this! You are going to see problems like ArrayIndexOutOfBounds exceptions when draw2d loops through the list of children while it is being modified on another thread. Or, you will see NullPointerExceptions when a figure checks if it has a parent, then tries to access that parent again and suddenly it is NULL. This change is pointless because your use case is still broken.",
+    "Randy - I understand multi-threading issues.\n\nThe use-case I\u0027m interested in doesn\u0027t expose these issues.  There is a UI thread with a progress meter and the worker thread spawns the actual execution.  \n\nThe client, in this case GMF, takes responsibility for any issues.  End of discussion..."
+  ],
+  "commentCreationDates": [
+    "2006-01-25T16:50:06+01:00",
+    "2006-01-25T18:07:27+01:00",
+    "2006-01-25T18:20:33+01:00",
+    "2006-01-25T18:38:17+01:00",
+    "2006-01-25T20:09:12+01:00",
+    "2006-01-25T20:41:01+01:00",
+    "2006-01-25T21:38:40+01:00",
+    "2006-01-26T15:07:53+01:00",
+    "2006-01-26T15:08:38+01:00",
+    "2006-01-26T15:14:14+01:00",
+    "2006-03-31T21:06:20+02:00",
+    "2006-03-31T21:18:30+02:00",
+    "2006-03-31T23:06:43+02:00",
+    "2006-04-01T04:48:58+02:00",
+    "2006-04-01T06:17:11+02:00",
+    "2006-04-03T23:32:28+02:00",
+    "2006-04-04T00:20:11+02:00",
+    "2006-04-04T03:52:20+02:00",
+    "2006-04-04T14:54:44+02:00",
+    "2006-04-04T15:00:20+02:00",
+    "2006-04-04T15:01:24+02:00",
+    "2006-04-04T15:27:45+02:00",
+    "2006-04-04T17:06:55+02:00",
+    "2006-04-04T17:16:37+02:00",
+    "2006-04-04T19:54:56+02:00",
+    "2006-04-04T23:01:05+02:00",
+    "2006-04-05T16:28:15+02:00",
+    "2006-04-05T23:57:07+02:00",
+    "2006-04-06T00:04:28+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.draw2d.DeferredUpdateManager.queueWork",
+          "source": "DeferredUpdateManager.java:210"
+        },
+        {
+          "method": "org.eclipse.draw2d.DeferredUpdateManager.addDirtyRegion",
+          "source": "DeferredUpdateManager.java:106"
+        },
+        {
+          "method": "org.eclipse.draw2d.Figure.repaint",
+          "source": "Figure.java:1319"
+        },
+        {
+          "method": "org.eclipse.draw2d.Figure.erase",
+          "source": "Figure.java:311"
+        },
+        {
+          "method": "org.eclipse.draw2d.Figure.remove",
+          "source": "Figure.java:1178"
+        },
+        {
+          "method": "org.eclipse.gef.editparts.AbstractGraphicalEditPart.removeChildVisual",
+          "source": "AbstractGraphicalEditPart.java:684"
+        },
+        {
+          "method": "org.eclipse.gef.editparts.AbstractEditPart.removeChild",
+          "source": "AbstractEditPart.java:812"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 24,
+      "bugId": "125197",
+      "date": "2006-04-04T19:54:56+02:00",
+      "product": "GEF",
+      "component": "draw2d",
+      "severity": "major"
+    }
+  ],
+  "groupId": "125197",
+  "bugId": "125197",
+  "date": "2006-01-25T16:50:06+01:00",
+  "product": "GEF",
+  "component": "draw2d",
+  "severity": "major"
+}

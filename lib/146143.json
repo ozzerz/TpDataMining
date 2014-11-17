@@ -1,0 +1,114 @@
+{
+  "comments": [
+    "If you define a fragment containing a libcore_3_1_0.so, but the library\nfails to load, it fails silently. The java.lang.UnsatisfiedLinkError is suppressed.\nWe  found the problem by instrumenting org.eclipse.core.resources_3.1.2 to post\nthe whole error message.\n\nHere is the whole story...\n\nWe are trying to apply the libcore_3_1_0.so fragment for Solaris sparc and Linux IA64.\nIt is working for us on IA64.\nHowever, for some Solaris machines, eclipse can find our fragment\u0027s libcore_3_1_0.so...but doesn\u0027t use it.\n\nInstrumenting the platform, we see\n\nBundleClassLoader[BundleData for org.eclipse.core.resources       (15)].loadClass(java.lang.UnsatisfiedLinkError)\nBundleLoader[BundleData for org.eclipse.core.resources (15)].loadBundleClass(java.lang.UnsatisfiedLinkError)\nmapped library name: libcore_3_1_0.so\nlibrary does not exist: libcore_3_1_0.so\nreturning library: null\nLibrary Variants:\nws/gtk/\nos/solaris/sparc/\nos/solaris/\nnl/en/\n\nFind Lib Name: core_3_1_0 in fragment org.eclipse.core.resources\nLib Name after mapping: libcore_3_1_0.so\nSearching variants for library:\nlib entry for ws/gtk/libcore_3_1_0.so not found\nlib entry for os/solaris/sparc/libcore_3_1_0.so not found\nlib entry for os/solaris/libcore_3_1_0.so not found\nlib entry for nl/en/libcore_3_1_0.so not found\nlib entry for libcore_3_1_0.so not found\nmapped library name: libcore_3_1_0.so\nlibrary does not exist: libcore_3_1_0.so\nreturning library: null\nLibrary Variants:\nws/gtk/\nos/solaris/sparc/\nos/solaris/\nnl/en/\n\nFind Lib Name: core_3_1_0 in fragment org.eclipse.core.resources.compatibility\nLib Name after mapping: libcore_3_1_0.so\nSearching variants for library:\nlib entry for ws/gtk/libcore_3_1_0.so not found\nlib entry for os/solaris/sparc/libcore_3_1_0.so not found\nlib entry for os/solaris/libcore_3_1_0.so not found\nlib entry for nl/en/libcore_3_1_0.so not found\nlib entry for libcore_3_1_0.so not found\nmapped library name: libcore_3_1_0.so\nlibrary does not exist: libcore_3_1_0.so\nreturning library: null\nLibrary Variants:\nws/gtk/\nos/solaris/sparc/\nos/solaris/\nnl/en/\n\nFind Lib Name: core_3_1_0 in fragment com.kabira.ide.resources.solaris\nLib Name after mapping: libcore_3_1_0.so\nSearching variants for library:\nlib entry for ws/gtk/libcore_3_1_0.so not found\nlib entry for os/solaris/sparc/libcore_3_1_0.so not found\nlib entry for os/solaris/libcore_3_1_0.so is file:/opt/kabira/users/kjc/distrib/xxx/ide/eclipse/plugins/com.kabira.ide.resources.solaris_1.0.0/os/solaris/libcore_3_1_0.solibFile.getAbsolutePath(): /opt/kabira/users/kjc/distrib/xxx/ide/eclipse/plugins/com.kabira.ide.resources.solaris_1.0.0/os/solaris/libcore_3_1_0.so\n\n\nSo you see it finds the file.\nHowever, in .log we still see the famous warning...\n\neclipse.buildId\u003dM20060118-1600\njava.version\u003d1.4.2_08\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dsolaris, ARCH\u003dsparc, WS\u003dgtk, NL\u003den\nCommand-line arguments: -os solaris -ws gtk -arch sparc -clean\n\n!ENTRY org.eclipse.core.resources 1 1 2006-06-02 14:20:48.892\n!MESSAGE Could not load library: libcore_3_1_0.so. This library provides platform-specific optimizations for certain file system operations. This library is not present on all platforms, so this may not be an error. The resources plug-in will safely fall back to using java.io.File functionality.\n\n\nAnd futher tests (attempting to set execute permission,\nattempting to CVS check-out files with execute permission)\nshow our libcore_3_1_0.so is not being used. \n\nCode inspection showed that a java.lang.UnsatisfiedLinkError exception was occuring. We instrumented and re-compiled org.eclipse.core.resources_3.1.2\nto post the full error message.\n\nWe saw\n\njava.lang.UnsatisfiedLinkError: /opt/xxx/users/kjc/distrib/xxx/ide/eclipse/plugins/com.xxx.ide.resources.solaris_1.0.0/os/solaris/libcore_3_1_0.so: ld.so.1: java: fatal: libgcc_s.so.1: open failed: No such file or directory\nat java.lang.ClassLoader$NativeLibrary.load(Native Method)\nat java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1586)\nat java.lang.ClassLoader.loadLibrary(ClassLoader.java:1495)\nat java.lang.Runtime.loadLibrary0(Runtime.java:788)\nat java.lang.System.loadLibrary(System.java:834)\nat org.eclipse.core.internal.localstore.CoreFileSystemLibrary. (CoreFileSystemLibrary.java:61)\nat org.eclipse.core.internal.resources.Resource.checkDoesNotExist(Resource.java:266)\nat org.eclipse.core.internal.resources.Project.create(Project.java:251)\nat org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard.createProject(BasicNewProjectResourceWizard.java:265)\nat org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard$1.execute(BasicNewProjectResourceWizard.java:198)\nat org.eclipse.ui.actions.WorkspaceModifyOperation$1.run(WorkspaceModifyOperation.java:98)\nat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1721)\nat org.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:110)\nat org.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)\n\n\nSo a simple addition of a path to LD_LIBRARY_PATH to pick up libgcc_s.so.1 \nsolved the issue, but at the cost of several days debugging.",
+    "The \"Could not load library: libcore_3_1_0.so\" message is exactly what we print in the case of an UnsatisfiedLinkError.  We change the phrasing of the error in the log file to make it look less scary because this is an expected condition on some platforms.  Are you simply saying you prefer the \"UnsatisfiedLinkError\" message instead of our current \"Could not load library\" error?",
+    "\u003e Are you simply saying you prefer the \"UnsatisfiedLinkError\"\n\u003e message instead of our current \"Could not load library\" error?\n\nI need both.  I need to see \n\n\u003ejava.lang.UnsatisfiedLinkError:\n\u003e/opt/xxx/users/kjc/distrib/xxx/ide/eclipse/plugins/com.xxx.ide.resources.solaris_1.0.0/os/solaris/libcore_3_1_0.so:\n\u003eld.so.1: java: fatal: libgcc_s.so.1: open failed: No such file or directory\n\nso I know why my load failed.   And then it still makes sense to \nto tell me that you are falling back to the native library (although at\nmy company we would exit at this point rather use a configuration that was\nnot the intent of the user)\n\nIn my opinion, if the platform achieves its goal of loading a libcore library,\nit should be silent.  I don\u0027t need to know that it went looking for an override\nand there was none. I only need to know if something I attempted to do\nfailed - in other words, I attempted to override the library, but it failed\nto load.\n\nThanks for taking a look at this!",
+    "Ok, I have changed it to include the message and stack trace of the UnsatisfiedLinkError in addition to our usual message.  As I said, we didn\u0027t do this in the past because we didn\u0027t want people to see the UnsatisfiedLinkError in the log and perceive it as a severe problem.  However, our message explains it clearly so we\u0027ll see how it goes with the stack and error message included.  The .log file is intended as a resource for developers, and clearly it failed you in this case by not reporting the details of the error.  Fix released.\n\nBy the way, natives for 64 bit linux were added in Eclipse 3.2 (bug 12358 comment 20), so that will be one less platform to worry about if/when you move to Eclipse 3.2.",
+    "Moving to new M1 milestone",
+    "(In reply to comment #0)\n\u003e If you define a fragment containing a libcore_3_1_0.so, but the library\n\u003e fails to load, it fails silently. The java.lang.UnsatisfiedLinkError is\n\u003e suppressed.\n\u003e We  found the problem by instrumenting org.eclipse.core.resources_3.1.2 to post\n\u003e the whole error message.\n\u003e \n\u003e Here is the whole story...\n\u003e \n\u003e We are trying to apply the libcore_3_1_0.so fragment for Solaris sparc and\n\u003e Linux IA64.\n\u003e It is working for us on IA64.\n\u003e However, for some Solaris machines, eclipse can find our fragment\u0027s\n\u003e libcore_3_1_0.so...but doesn\u0027t use it.\n\u003e \n\u003e Instrumenting the platform, we see\n\u003e \n\u003e BundleClassLoader[BundleData for org.eclipse.core.resources      \n\u003e (15)].loadClass(java.lang.UnsatisfiedLinkError)\n\u003e BundleLoader[BundleData for org.eclipse.core.resources\n\u003e (15)].loadBundleClass(java.lang.UnsatisfiedLinkError)\n\u003e mapped library name: libcore_3_1_0.so\n\u003e library does not exist: libcore_3_1_0.so\n\u003e returning library: null\n\u003e Library Variants:\n\u003e ws/gtk/\n\u003e os/solaris/sparc/\n\u003e os/solaris/\n\u003e nl/en/\n\u003e \n\u003e Find Lib Name: core_3_1_0 in fragment org.eclipse.core.resources\n\u003e Lib Name after mapping: libcore_3_1_0.so\n\u003e Searching variants for library:\n\u003e lib entry for ws/gtk/libcore_3_1_0.so not found\n\u003e lib entry for os/solaris/sparc/libcore_3_1_0.so not found\n\u003e lib entry for os/solaris/libcore_3_1_0.so not found\n\u003e lib entry for nl/en/libcore_3_1_0.so not found\n\u003e lib entry for libcore_3_1_0.so not found\n\u003e mapped library name: libcore_3_1_0.so\n\u003e library does not exist: libcore_3_1_0.so\n\u003e returning library: null\n\u003e Library Variants:\n\u003e ws/gtk/\n\u003e os/solaris/sparc/\n\u003e os/solaris/\n\u003e nl/en/\n\u003e \n\u003e Find Lib Name: core_3_1_0 in fragment org.eclipse.core.resources.compatibility\n\u003e Lib Name after mapping: libcore_3_1_0.so\n\u003e Searching variants for library:\n\u003e lib entry for ws/gtk/libcore_3_1_0.so not found\n\u003e lib entry for os/solaris/sparc/libcore_3_1_0.so not found\n\u003e lib entry for os/solaris/libcore_3_1_0.so not found\n\u003e lib entry for nl/en/libcore_3_1_0.so not found\n\u003e lib entry for libcore_3_1_0.so not found\n\u003e mapped library name: libcore_3_1_0.so\n\u003e library does not exist: libcore_3_1_0.so\n\u003e returning library: null\n\u003e Library Variants:\n\u003e ws/gtk/\n\u003e os/solaris/sparc/\n\u003e os/solaris/\n\u003e nl/en/\n\u003e \n\u003e Find Lib Name: core_3_1_0 in fragment com.kabira.ide.resources.solaris\n\u003e Lib Name after mapping: libcore_3_1_0.so\n\u003e Searching variants for library:\n\u003e lib entry for ws/gtk/libcore_3_1_0.so not found\n\u003e lib entry for os/solaris/sparc/libcore_3_1_0.so not found\n\u003e lib entry for os/solaris/libcore_3_1_0.so is\n\u003e file:/opt/kabira/users/kjc/distrib/xxx/ide/eclipse/plugins/com.kabira.ide.resources.solaris_1.0.0/os/solaris/libcore_3_1_0.solibFile.getAbsolutePath():\n\u003e /opt/kabira/users/kjc/distrib/xxx/ide/eclipse/plugins/com.kabira.ide.resources.solaris_1.0.0/os/solaris/libcore_3_1_0.so\n\u003e \n\u003e \n\u003e So you see it finds the file.\n\u003e However, in .log we still see the famous warning...\n\u003e \n\u003e eclipse.buildId\u003dM20060118-1600\n\u003e java.version\u003d1.4.2_08\n\u003e java.vendor\u003dSun Microsystems Inc.\n\u003e BootLoader constants: OS\u003dsolaris, ARCH\u003dsparc, WS\u003dgtk, NL\u003den\n\u003e Command-line arguments: -os solaris -ws gtk -arch sparc -clean\n\u003e \n\u003e !ENTRY org.eclipse.core.resources 1 1 2006-06-02 14:20:48.892\n\u003e !MESSAGE Could not load library: libcore_3_1_0.so. This library provides\n\u003e platform-specific optimizations for certain file system operations. This\n\u003e library is not present on all platforms, so this may not be an error. The\n\u003e resources plug-in will safely fall back to using java.io.File functionality.\n\u003e \n\u003e \n\u003e And futher tests (attempting to set execute permission,\n\u003e attempting to CVS check-out files with execute permission)\n\u003e show our libcore_3_1_0.so is not being used. \n\u003e \n\u003e Code inspection showed that a java.lang.UnsatisfiedLinkError exception was\n\u003e occuring. We instrumented and re-compiled org.eclipse.core.resources_3.1.2\n\u003e to post the full error message.\n\u003e \n\u003e We saw\n\u003e \n\u003e java.lang.UnsatisfiedLinkError:\n\u003e /opt/xxx/users/kjc/distrib/xxx/ide/eclipse/plugins/com.xxx.ide.resources.solaris_1.0.0/os/solaris/libcore_3_1_0.so:\n\u003e ld.so.1: java: fatal: libgcc_s.so.1: open failed: No such file or directory\n\u003e at java.lang.ClassLoader$NativeLibrary.load(Native Method)\n\u003e at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1586)\n\u003e at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1495)\n\u003e at java.lang.Runtime.loadLibrary0(Runtime.java:788)\n\u003e at java.lang.System.loadLibrary(System.java:834)\n\u003e at org.eclipse.core.internal.localstore.CoreFileSystemLibrary.\n\u003e (CoreFileSystemLibrary.java:61)\n\u003e at\n\u003e org.eclipse.core.internal.resources.Resource.checkDoesNotExist(Resource.java:266)\n\u003e at org.eclipse.core.internal.resources.Project.create(Project.java:251)\n\u003e at\n\u003e org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard.createProject(BasicNewProjectResourceWizard.java:265)\n\u003e at\n\u003e org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard$1.execute(BasicNewProjectResourceWizard.java:198)\n\u003e at\n\u003e org.eclipse.ui.actions.WorkspaceModifyOperation$1.run(WorkspaceModifyOperation.java:98)\n\u003e at org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1721)\n\u003e at\n\u003e org.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:110)\n\u003e at\n\u003e org.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)\n\u003e \n\u003e \n\u003e So a simple addition of a path to LD_LIBRARY_PATH to pick up libgcc_s.so.1 \n\u003e solved the issue, but at the cost of several days debugging.\n\u003e \n\n\nHi,\nI am also getting exactly same error :\n\"Could not load library: libcore_3_1_0.so\".\nCan you please given me the location where can I find libcore_3_1_0.so\nso as to modify LD_LIBRARY_PATH. I am using Eclipse 3.1.1 and could not\nget any location for libcore_3_1_0.so.\n\nThanx in advance,\nRegards,\nSantosh",
+    "(In reply to comment #5)\n\nIf the full text of your message is\n\n\u003e!MESSAGE Could not load library: libcore_3_1_0.so. This library provides\n\u003eplatform-specific optimizations for certain file system operations. This\n\u003elibrary is not present on all platforms, so this may not be an error. The\n\u003eresources plug-in will safely fall back to using java.io.File functionality.\n\nThis is not an error - unless you are trying to use a fragment containing\nlibcore_3_1_0.so.\n\nIf you are trying to add a fragment containing libcore_3_1_0.so, you will\nneed to make certain the fragment is installed and configured correctly.\n\nIn my situation, Eclipse found libcore_3_1_0.so, but could not load it\nbecause libcore_3_1_0.so depended on libgcc_s.so.1, and eclipse could not find my libgcc_s.so.1. \n\nAssuming you have the same situation as me, I am not able to tell you why your\nlibcore_3_1_0.so is failing to load and I am not able to tell you what\nmight be missing from your LD_LIBRARY_PATH.\n\nHope that helps."
+  ],
+  "commentCreationDates": [
+    "2006-06-09T00:57:13+02:00",
+    "2006-06-09T15:27:20+02:00",
+    "2006-06-09T18:56:55+02:00",
+    "2006-06-09T20:13:51+02:00",
+    "2006-06-12T23:15:55+02:00",
+    "2006-06-13T09:16:39+02:00",
+    "2006-06-14T20:05:42+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.UnsatisfiedLinkError",
+      "message": "/opt/xxx/users/kjc/distrib/xxx/ide/eclipse/plugins/com.xxx.ide.resources.solaris_1.0.0/os/solaris/libcore_3_1_0.so: ld.so.1: java: fatal: libgcc_s.so.1: open failed: No such file or directory",
+      "elements": [
+        {
+          "method": "java.lang.ClassLoader$NativeLibrary.load",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadLibrary0",
+          "source": "ClassLoader.java:1586"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadLibrary",
+          "source": "ClassLoader.java:1495"
+        },
+        {
+          "method": "java.lang.Runtime.loadLibrary0",
+          "source": "Runtime.java:788"
+        },
+        {
+          "method": "java.lang.System.loadLibrary",
+          "source": "System.java:834"
+        },
+        {
+          "method": "org.eclipse.core.internal.localstore.CoreFileSystemLibrary.",
+          "source": "CoreFileSystemLibrary.java:61"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.checkDoesNotExist",
+          "source": "Resource.java:266"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Project.create",
+          "source": "Project.java:251"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard.createProject",
+          "source": "BasicNewProjectResourceWizard.java:265"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard$1.execute",
+          "source": "BasicNewProjectResourceWizard.java:198"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation$1.run",
+          "source": "WorkspaceModifyOperation.java:98"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1721"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:110"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:113"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "146143",
+      "date": "2006-06-09T00:57:13+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.UnsatisfiedLinkError",
+      "message": "\u003e /opt/xxx/users/kjc/distrib/xxx/ide/eclipse/plugins/com.xxx.ide.resources.solaris_1.0.0/os/solaris/libcore_3_1_0.so: \u003e ld.so.1: java: fatal: libgcc_s.so.1: open failed: No such file or directory \u003e",
+      "elements": [
+        {
+          "method": "java.lang.ClassLoader$NativeLibrary.load",
+          "source": "Native Method"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 5,
+      "bugId": "146143",
+      "date": "2006-06-13T09:16:39+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "146143",
+  "bugId": "146143",
+  "date": "2006-06-09T00:57:13+02:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "normal"
+}

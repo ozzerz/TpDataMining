@@ -1,0 +1,41 @@
+{
+  "comments": [
+    "Having a read at Aspect-J documentation, it is a requirement that the user\nadds the aspectjtools.jar and aspectjrt.jat to his $CLASSPATH environment\nvariable. If you do not do that, then the Ant Task does not run - even if\nyou have added lines like, as instance :\n\n\u003cajc ...\n  \u003cclasspath\u003e\n    \u003cpathelement location\u003d\"$(aspectj)/aspectjrt.jar\"\u003e\n    \u003cpathelement location\u003d\"$(aspectj)/aspectjtools.jar\"\u003e\n\nIMHO, this restriction should be cleared. The problem is that Ant\ndefines its own ClassLoader, thus lines like :\n(org.aspectj.tools.ant.taskdefs.Ajc:483)\n\n    protected Class findClass(String classname, Path classpathPath) {\n                // ...\n                return Class.forName(classname);\n\nAre all likely to fail since \u0027Class.forName\u0027 does not use the Ant Class Loader.\n\nI solved similar problems defining my own Ant task. The solution was to use\nthe Ant Class loader. The previous code could be rewritten with something like\n\n    protected Class findClass(String classname, Path classpathPath) {\n        // project is a member in the Ajc task\n        ClassLoader cl \u003d new AntClassLoader(project,classpath)\n                // ...\n                return cl.loadClass(classname);\n\nWhat do you think about such an improvement ?",
+    "Thanks for the feedback.\n\nActually, only aspectjrt.jar should be on the CLASSPATH\n(it\u0027s a bug when the AspectJ-README says otherwise, and\nI recommend against using environment variables like\nCLASSPATH anyway).\n\nFor Ant, nothing need be on the CLASSPATH.  You need only:\n- specify path to aspectjrt.jar for the user class path\n  when building, as with any library; \n    \u003cajc classpath\u003d\"../lib/aspectjrt.jar\" ... /\u003e\n  and\n\n- specify path to aspectjtools.jar for the task class path\n  when defining it, as with any custom task; \n    \u003ctaskdef ...\u003e\n      \u003cclasspath pathelement\u003d\"../lib/aspectjtools.jar\" ... /\u003e\n    \u003c/taskdef\u003e\n  or\n\n- if using the build.compiler property (compiler adapter),\n  put aspectjtools.jar on the classpath when invoking Ant\n  as you would any compiler adapter:\n\n  cp aspectjtools.jar ${ANT_HOME}/lib\n\nI believe this is all covered in the documentation for\nthe Ant taskdefs.  I run without aspectjtools.jar on \nmy CLASSPATH or in ant\u0027s lib/ directory all the time.\n\nPlease close this bug if you agree, or show me what part\nof the Ant task docs need to be fixed.\n\nThanks!\n",
+    "Thank you for your quick response !\n\nYou are right highligting the fact that I do not follow\nthe documentation recommandations, but my problem is that\nI can not start the Task with an empty CLASSPATH (I have\ndone and re-done the test before posting) and as you\npointed it out, nobody likes environment variables...\n\nYou also made me notice that Ant has special regards to\ncompiler tasks, which is a point that I missed...\n\nAnyway, I think things could be clarified with a short\nexample (suppose my build.xml is ok, has the appropriate\nPATHs set into both the \u003ctaskdef\u003e and the \u003cajc\u003e tags\n- Important(?): I do not use \"classpath\u003d\" attribute, but\n\u003cpathelements\u003e tag - ) :\n\nbash.exe-2.04$export CLASSPATH\u003d\"\"\nbash.exe-2.04$ant -v\n\n      [ajc] Compiling 15 source and 0 arg files to C:\\Home\\alepoint\\dev\\main\\mai\nnworkspace\\bin\n      [ajc] java.lang.ClassNotFoundException: org.aspectj.tools.ajc.Main\n      [ajc]     at java.net.URLClassLoader$1.run(URLClassLoader.java:198)\n      [ajc]     at java.security.AccessController.doPrivileged(Native Method)\n      [ajc]     at java.net.URLClassLoader.findClass(URLClassLoader.java:186)\n      [ajc]     at java.lang.ClassLoader.loadClass(ClassLoader.java:306)\n      [ajc]     at sun.misc.Launcher$AppClassLoader.loadClass(Launcher.java:265)\n\n      [ajc]     at java.lang.ClassLoader.loadClass(ClassLoader.java:262)\n      [ajc]     at java.lang.ClassLoader.loadClassInternal(ClassLoader.java:322)\n\n      [ajc]     at java.lang.Class.forName0(Native Method)\n      [ajc]     at java.lang.Class.forName(Class.java:130)\n      [ajc]     at org.aspectj.tools.ant.taskdefs.Ajc.spoon(Ajc.java:550)\n\nThe problem occurs in the Ajc Task. If I change the lines\nin org.aspectj.tools.ant.taskdefs.Ajc.spoon(Ajc.java:550) to something like :\n\n    protected int spoon() throws BuildException {\n        if (version) version(null);\n        try {\n            log(\"Running  in-process \" + AJC_CLASSNAME + \" using \" \n                + Ajc.render(cmd.getCommandline()), Project.MSG_VERBOSE);\n            // force use of the Ant ClassLoader\n            ClassLoader cl \u003d new AntClassLoader(project,classpath);\n            Class mainClass \u003d cl.loadClass(AJC_CLASSNAME);\n            Object main \u003d mainClass.newInstance();\n/*            Object main \u003d\n                Class.forName(AJC_CLASSNAME).newInstance();*/\n\nThen (after rebuilding aspectjant.jar) :\nbash.exe-2.04$export CLASSPATH\u003d\"\"\nbash.exe-2.04$ant\n\n      [ajc] Compiling 15 source and 0 arg files to C:\\Home\\alepoint\\dev\\main\\mai\nnworkspace\\bin\n\nBUILD SUCCESSFUL\n\nI am now able to compile AspectJ programs without having performed\nthe mandatory step of setting CLASSPATH\u003d$ASPECTJ_HOME/lib/aspectjrt.jar.\n\nAs said in the \u0027Priority\u0027 topic, this is an improvement to the AspectJ Ant Task,\nnot a bug or even a claim for a misdocumented feature. I would not like to\nadd a feature that would bloat the nice existing code, and I also do not\nwant to make a hack in the official code for my own needs...\n\n  If you think the proposed feature is not interesting enough, then I will\nremain satisfied with the existing behaviour. On the other hand, I propose\nto relax an installation constrain and your opinion is of great help.\n\nThank you again !\n\n-- my configuration --\nbash.exe-2.04[main]$ant -version\nApache Ant version 1.5.3 compiled on April 9 2003\nbash.exe-2.04[main]$java -version\njava version \"1.4.0_01\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.0_01-b03\nJava HotSpot(TM) Client VM (build 1.4.0_01-b03, mixed mode)\n",
+    "Thank you very much for the code suggestion.  It\u0027s good, and it clarified that \nyou are working with some very old Ant task code.  I\u0027d be interested in whether \nthe current 1.1 Ant tasks suit your needs.\n\n(As for the suggestion, I thought that the defining class loader used by \nClass.forName(..) *was* the task\u0027s Ant class loader, so I thought it would have \nworked. It wouldn\u0027t work if the aspectj ant tasks jar was on the classpath, but \nthe aspectjtools.jar or the aspectjrt.jar was only on the task classpath).\n\n",
+    "You were right, it seems my Ant task was outdated, which I can not explain\nsince I downloaded it a quarter ago on the eclipse portal... anyway, things\nwork fine with the latest 1.0.6 distribution (the ant task 1.1 is not available\n- I mean as a standalone task, not bundled in the eclipse GUI) !\nI am sorry not having tried a re-install from scratch first...\nThank you again for your support."
+  ],
+  "commentCreationDates": [
+    "2003-05-05T14:57:37+02:00",
+    "2003-05-05T15:25:26+02:00",
+    "2003-05-05T16:54:31+02:00",
+    "2003-05-05T20:39:52+02:00",
+    "2003-05-06T12:08:25+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassNotFoundException",
+      "message": "org.aspectj.tools.ajc.Main       [ajc]",
+      "elements": [
+        {
+          "method": "java.net.URLClassLoader$1.run",
+          "source": "URLClassLoader.java:198"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "37213",
+      "date": "2003-05-05T16:54:31+02:00",
+      "product": "AspectJ",
+      "component": "Ant",
+      "severity": "enhancement"
+    }
+  ],
+  "groupId": "37213",
+  "bugId": "37213",
+  "date": "2003-05-05T14:57:37+02:00",
+  "product": "AspectJ",
+  "component": "Ant",
+  "severity": "enhancement"
+}

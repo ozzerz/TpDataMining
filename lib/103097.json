@@ -1,0 +1,46 @@
+{
+  "comments": [
+    "The following program should not print a stack trace. It does:\n\nimport java.io.IOException;\n\npublic aspect SoftenAdviceCall {\n    declare soft: IOException: within(SoftenAdviceCall) \u0026\u0026 !withincode(* *\n(..)) \u0026\u0026\n\t!call(* *(..));\n\n    before() : execution(* main(..)) {\n        try {\n\t    doThrow();\n\t} catch (IOException e) {\n            // swallow\n\t}\n    }\n\n    public static void doThrow() throws IOException {\n        throw new IOException(\"test\");\n    }\n\n    public static void main(String args[]) {\n    }\n}\n\nC:\\devel\\scratch\\err\u003eajc SoftenAdviceCall.aj\n\nC:\\devel\\scratch\\err\u003ejava SoftenAdviceCall\norg.aspectj.lang.SoftException\n        at SoftenAdviceCall.doThrow(SoftenAdviceCall.aj:16)\n        at SoftenAdviceCall.ajc$before$SoftenAdviceCall$1$27606269\n(SoftenAdviceC\nall.aj:9)\n        at SoftenAdviceCall.main(SoftenAdviceCall.aj:20)\nCaused by: java.io.IOException: test\n        ... 3 more\n\n\nSurprisingly, if you add \u0026\u0026 !execution(* *(..)), then the program behaves as \nexpected\n\nI have also found that excluded kinded pointcuts from declare soft seems to \nactually include them, at least in AJDT!!",
+    "Created an attachment (id\u003d28225)\nthis is a log of all the aspect/instance loading done on my startup when\nweaving into tomcat: showing how important it is to make those reads efficient.\nObviously don\u0027t include the patch System.err \n",
+    "I traced this through and it seems to be working as expected to me:\n\nThe declare soft statement matches the following join points:\n\nstaticinitialization(SoftenAdviceCall)                   [CORRECT]\nconstructor-execution(SoftenAdviceCall.new())   [CORRECT]\ninitialization(SoftenAdviceCall.new())                  [CORRECT]\npreinitialization(SoftenAdviceCall.new())             [CORRECT]\nhandler(IOException)                                          [CORRECT]\nadviceexecution()                                                [CORRECT]\nexecution(SoftenAdviceCall.doThrow())               [CORRECT]  ****\nexecution(SoftenAdviceCall.main())                     [CORRECT]\n\nit is correct to soften on execution of doThrow since it is\n - within(SoftenAdviceCall)\n - !withincode(* *)  (the execution join point is not withincode of anything)\n - !call(* *(..))\n\nSince doThrow execution is softened, the doThrow join point leaves with a SoftException, which is not then swallowed by your before advice exception handler, and hence the program behaviour. This also explains why adding \"!execution(* *(..))\" gives the behaviour you expected as it would now be excluding the doThrow execution join point.",
+    "That will teach me to write everything in one type... I should have put doThrow in a helper class. But the revised test works so there\u0027s no bug."
+  ],
+  "commentCreationDates": [
+    "2005-07-08T00:31:10+02:00",
+    "2005-10-13T12:55:19+02:00",
+    "2005-11-22T09:44:04+01:00",
+    "2005-11-22T16:50:13+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.aspectj.lang.SoftException",
+      "elements": [
+        {
+          "method": "SoftenAdviceCall.doThrow",
+          "source": "SoftenAdviceCall.aj:16"
+        },
+        {
+          "method": "SoftenAdviceCall.ajc$before$SoftenAdviceCall$1$27606269",
+          "source": "SoftenAdviceC all.aj:9"
+        },
+        {
+          "method": "SoftenAdviceCall.main",
+          "source": "SoftenAdviceCall.aj:20"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "103097",
+      "date": "2005-07-08T00:31:10+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "103097",
+  "bugId": "103097",
+  "date": "2005-07-08T00:31:10+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

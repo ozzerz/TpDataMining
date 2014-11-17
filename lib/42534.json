@@ -1,0 +1,111 @@
+{
+  "comments": [
+    "I am running Eclipse (N20030904) on RedHat 9.0 under GTKusing Sun 1.4.2. When I\ntry to launch my PDE JUnit test suite, it terminates with no error message. When\nI try to debug instead of run, I get the error message \"Cannot connect to VM\"\nand the following stack trace appears in the log. I am marking this as major\nbecause I should be able to launch to test on GTK.\n\njava.net.SocketException: Socket closed\nat java.net.PlainSocketImpl.socketAccept(Native Method)\nat java.net.PlainSocketImpl.accept(PlainSocketImpl.java:353)\nat java.net.ServerSocket.implAccept(ServerSocket.java:448)\nat java.net.ServerSocket.accept(ServerSocket.java:419)\nat\norg.eclipse.jdi.internal.connect.SocketTransportImpl.accept(SocketTransportImpl.java:87)\nat\norg.eclipse.jdi.internal.connect.SocketListeningConnectorImpl.accept(SocketListeningConnectorImpl.java:123)\nat\norg.eclipse.jdt.internal.launching.StandardVMDebugger$ConnectRunnable.run(StandardVMDebugger.java:77)\nat java.lang.Thread.run(Thread.java:534)",
+    "Darin,\nany thoughts as to might be going on?",
+    "I have seen this error intermittenly when running our test suite... the test \nsuite launches many VMs seqeuntially, and the odd time I see this error. \nHowever, it is not reproduceable consistently - it appears that for some \nreason, the socket that we chose (randomlly), and checked to be \"free\" is \nsomehow closed/unavailable when we try to use it.\n\nIs the problem consistently reproduceable? Could there be a TCP configuration \nproblem on the machine?",
+    "I get it every time I try to launch a JUnit test suite. Launching an Eclipse \nworkbench works fine. It could be a configuration problem. I\u0027m using an out-of-\nthe-box RedHat 9.0 install. I haven\u0027t done anything special with it.",
+    "In PDE Junit, when we launch, we pass a port number which we receive via a \ncall to SocketUtil.findFreePort() from jdt.launching.\nAt my end, I am making the assumption that the port number is always good and \npassing it to the application as-is.\nI should be checking if the port number returned is -1, in which case I should \ndo something.  \nDarin, should I attempt to call SocketUtil.findFreePort() again to find a new \nport number if the returned value of the first call was -1.  If so, how many \nattempts?",
+    "I set the LD_ASSUME_KERNEL\u003d2.2.5 environment variable and I am now getting a \ndialog indicating that a failure occured and the log contains the stacktrace. \nIt seems to be related to SWT.\n\nOur tests for CVS are arranged such that the tests reference UI/SWT code but \nare run using the core test application. This works fine since the tests don\u0027t \nactually show any UI. When I try to run the tests on GTK now, I am getting an \nexception that indicates that the SWT Device class could not be loaded. If I \nswitch the application to the UI application, I get an error saying that the \nSWT Listerner interface could not be loaded (from gtk specific fragment). Any \nideas what might be going on?",
+    "Looking at the doc for ServerSocket, it should be providing us with a free port \n(by specifying \"0\" as the port to use in the constructor). It looks like there \nmay be a change that the port is not yet bound when we then ask it for the port \nit chose (#getLocalPort()). ",
+    "Michael, there seems to be two problems here:\n1. As for the socket closed issue, in the debug view, please check the program \narguments on the launch that failed and let me know if the value of the -port \nargument is -1 or a valid port number \n2. As for the classloading problem, make sure the swt plug-in and swt.gtk \nfragment are either in your workspace or enabled on the target platform page.",
+    "Answers to above:\n1. There is no -port argument in the program arguments\n2. I can launch a runtime-workbench so I assume that SWT is configured \nproperly in my workspace. Both launch configurations are configured to use the \nplugins in my workspace and I have SWT loaded as binary projects.",
+    "It\u0027s impossible.  There has to be a -port argument.\nIn the Debug view, right-click on the process corresponding to the launch that \nfailed and select \u0027Properties\u0027.\nYou will see the command line.  Towards the end, there must be -port argument \n(sequence of arguments should go something like(... -nl en_US -consolelog -\nport xxxx)",
+    "Sorry, I thought you meant the program arguments in the launch configuration \ndialog. The port number is 35335.",
+    "Michael, what project contains the tests you are running?\nI\u0027ll check it out from CVS, try to get it running on gtk, and I\u0027ll send you \nany special instructions to solve your problem.",
+    "removing darin from cc so that we don\u0027t bother him anymore.",
+    "I am running the CVS tests. You\u0027ll need to load the following plugins\n\norg.eclipse.core.tests.harness\norg.eclipse.team.tests.core\norg.eclipse.team.tests.cvs\n\nThe CVS tests contain a shared launch configuration (All CVS Tests) that you \ncan try.",
+    "Wassim, I tried to return your call but there was no answer. I suspect the \ncompile errors are due to changes since the integration build. You can either \nreplace the team plugins with those from HEAD or repalce the two team test \nplugins with versions I20030822.",
+    "I have sorted this out. I\u0027m not sure why it didn\u0027t work originally but the \nproblem was probably due to that fact that we shared a launch configuration \nbetween Windows and Linux. I changed all the relevant fields in the UI but \nperhaps there was some hidden value that was causing trouble. Is it envisioned \nthat launch configurations will be sharable between windows and Linus boxes?\n\nThe other problem is that exceptions thrown in a TestDecorator are captured by \nthe framework but not surfaced to the user anywhere. That is, the JUnit view \nindicates that and error occured but I could not find the error anywhere. It \nturned out there was an NPE in the setup code of the decorator. I\u0027m leaving \nthis open because the exception should be shown to the user.",
+    "One main reason why launch configurations would not be sharable between \nwindows and linux is because the workspace data directory that is hardcoded in \nthe configuration is platform-specific",
+    "Yes but I changed this path. Also, doesn\u0027t the launch framework support \nvariabled for this very reason?",
+    "I have no idea what Michael is referring to.  Adding Darin for comment.",
+    "There is support for variables (string substitutions), and this will become \nit\u0027s own plug-in in M5 - org.eclipse.core.variables. Currently, the classes are \ninternal to the debug plug-in, and only external tools and Ant leverage the \nsupport. Variables have to be supported by the launch delegate associated with \na launch configuration for them to work (you can\u0027t just use them anywhere and \nexpect them to work).\n\nFor a preview of the variables (string substitution API), see \nIStringVariableManager and related classes.\n\nI am still interested in the \"socket closed\" error. This is consistently \nreproduceable? It sounds like we may have a bug in our code that locates a free \nsocket.",
+    "I get the connection failure error when using the SC VM. With the Sun 1.4.2 \nVM, I get the class loading errors. Both are caused by using the windows \nconfiguration on Linux.\n\nIt turns out the cause of the error is pretty obvious. I missed changing the \nprogram arguments so it was using win32 settings. It is a minor point, but it \nwould be better if default values were not persisted in the launch \nconfiguration. Only those values explicitly defined by the user should be \npersisted.",
+    "\u003eit would be better if default values were not persisted in the launch \n\u003econfiguration\n\"better\" is definitely a judgment call here.  We have had many requests to \ninitialize and persist that information in the launch configuration, as users \nwho set arbitrary env values on the Target Environment preference page should \nnot have to reset these values in the launch configuration.",
+    "Your last statement is unlcear to me. Are you saying that, if a user sets a \nvalue in the users preferences, these settings are pesisted in the launch \nconfiguration so that the user does not need to specify the preference in the \nfuture?",
+    "I\u0027m saying that values set on the target env pref page are used to initialize \nthese values when a new launch config is created.\nAll the arguments in the \u0027Program Arguments\u0027 field of the launch \nconfiguration, including any you would have added/modified, are then saved as \nthey are in the configuration.\nSo if you do not want your env variables to be saved in the configuration, all \nyou would need to do is delete them from the program arguments field.",
+    "I find it odd that, in the launcher, the program arguments are a text string \nbut in the preference page, I can choose from lists for the various options (I \ndidn\u0027t even know there was a preferecne page until now). How is a user \nsupposed to know that they can go to a preference page to select appropriate \nvalues for these. Wouldn\u0027t it be better if these choices were available in the \nlaunch configuration dialog? I understand that the user can specify other \narguments as well but it seems like there is a bit of a disconnect here that \nmakes it difficult for users in certain situations.\n\nAs for my particular case, I would be happy to use whatever the platform \ndefaults are. In other words, if the launch configuration and preferences have \nnot changed, then don\u0027t persist the program arguments. Given that there is a \nRestore Defaults button, I am marking this as minor. ",
+    "Values used on the target platform preference page have more than one use:\n1. they are used when we resolve library paths during classpath computation, \ne.g. swt libraries have $ws$ in the path.\n2. they are also used during import for source code lookup.\n3. they are used to initialize program arguments for new launch configurations.\nSince env variables are nothing special in the launch configuration, they are \nlumped together with all other program arguments.\n\nIt seems unnecessary however to set the env variables in a new launch config \nif the target environment is the same as the environment of the host workbench.\nTherefore, now, we will only pre-set -os/-ws/-nl/-arch prog arguments on a new \nlaunch config only it the two environments are different."
+  ],
+  "commentCreationDates": [
+    "2003-09-04T16:52:12+02:00",
+    "2003-09-04T18:32:47+02:00",
+    "2003-09-04T18:44:06+02:00",
+    "2003-09-04T19:16:17+02:00",
+    "2003-09-04T19:26:09+02:00",
+    "2003-09-04T19:40:32+02:00",
+    "2003-09-04T20:01:34+02:00",
+    "2003-09-05T00:12:10+02:00",
+    "2003-09-05T14:27:29+02:00",
+    "2003-09-05T15:54:56+02:00",
+    "2003-09-05T16:10:13+02:00",
+    "2003-09-05T18:39:49+02:00",
+    "2003-09-05T18:41:27+02:00",
+    "2003-09-05T18:46:34+02:00",
+    "2003-09-05T20:16:43+02:00",
+    "2003-10-07T21:09:34+02:00",
+    "2003-10-07T21:15:02+02:00",
+    "2003-10-07T21:34:15+02:00",
+    "2003-10-08T04:09:22+02:00",
+    "2003-10-08T04:26:44+02:00",
+    "2003-10-08T15:28:55+02:00",
+    "2003-10-08T16:39:47+02:00",
+    "2003-10-08T16:47:57+02:00",
+    "2003-10-08T16:53:36+02:00",
+    "2003-10-08T17:48:06+02:00",
+    "2003-10-22T08:02:25+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.net.SocketException",
+      "message": "Socket closed",
+      "elements": [
+        {
+          "method": "java.net.PlainSocketImpl.socketAccept",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.net.PlainSocketImpl.accept",
+          "source": "PlainSocketImpl.java:353"
+        },
+        {
+          "method": "java.net.ServerSocket.implAccept",
+          "source": "ServerSocket.java:448"
+        },
+        {
+          "method": "java.net.ServerSocket.accept",
+          "source": "ServerSocket.java:419"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.connect.SocketTransportImpl.accept",
+          "source": "SocketTransportImpl.java:87"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.connect.SocketListeningConnectorImpl.accept",
+          "source": "SocketListeningConnectorImpl.java:123"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.StandardVMDebugger$ConnectRunnable.run",
+          "source": "StandardVMDebugger.java:77"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:534"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "42534",
+      "date": "2003-09-04T16:52:12+02:00",
+      "product": "PDE",
+      "component": "UI",
+      "severity": "minor"
+    }
+  ],
+  "groupId": "42534",
+  "bugId": "42534",
+  "date": "2003-09-04T16:52:12+02:00",
+  "product": "PDE",
+  "component": "UI",
+  "severity": "minor"
+}

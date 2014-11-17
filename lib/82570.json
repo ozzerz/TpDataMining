@@ -1,0 +1,82 @@
+{
+  "comments": [
+    "I am attempting to use AspectJ and output all classes in debug mode (required by\nour code coverage instrumentor). However any code introduced by our aspects to\nproduction classes does not include debug line information.\n\nOur ant script uses the iajc task as follows:\n\n \u003ciajc ... debug\u003d\"true\" .. /\u003e\n\nWe have an aspect that introduces a public, no-arguments constructor into\nvarious classes. If I enable this aspect, then do a clean build, I get the\nfollowing error from our code coverage tool:\n\n [jblanket] java.lang.UnsupportedOperationException: No line numbers detected in\n com.abmuk.oms.core.model.core.XMLObject.\u003cinit\u003e. Either remove the \u0027oneLineFile\u0027\n tag or turn debug on when compiling.\n\nIf I remove that aspect, we get no errors about debug line information.\n\nI\u0027ve tried debug\u003d\"true\" or debugLevel\u003d\"lines,vars,source\", with no success.\n\nThis issue is preventing our Unit Test suite from executing.\n\nIf you require any further information, please don\u0027t hesitate to email me.\n\nCheers,\n\n  Chris Nappin.",
+    "We don\u0027t currently create line number information for members created in a\ntarget type to support ITDs.  The reason is that the methods/ctors added to the\ntarget type are simply forwarding methods that delegate to the aspect to execute\nthe intended behavior.  Here is a decompiled class that had a method and ctor\nITD\u0027d upon it:\n\npublic A();\n  Code:\n   Stack\u003d1, Locals\u003d2, Args_size\u003d1\n   0:   invokestatic    #30; //Method\nX.ajc$preInterConstructor$X$A:()[Ljava/lang/Object;\n   3:   astore_1\n   4:   aload_0\n   5:   invokespecial   #11; //Method java/lang/Object.\"\u003cinit\u003e\":()V\n   8:   aload_0\n   9:   invokestatic    #33; //Method X.ajc$postInterConstructor$X$A:(LA;)V\n   12:  return\n\npublic void sayhi();\n  Code:\n   Stack\u003d1, Locals\u003d1, Args_size\u003d1\n   0:   aload_0\n   1:   invokestatic    #25; //Method X.ajc$interMethod$X$A$sayhi:(LA;)V\n   4:   return\n\nYou can see in each case the body of the member in the class simply forwards the\nrequest to an ajc$XXX method in the aspect (called X in this case).\n\nSo, any line number information we did add to the members added to a class for\nITDs would be \u0027fake\u0027 - as it wouldn\u0027t refer to anything that really existed in\nthe source file for the class.  However, we can do this - there is a precedent\nin that we already do create fake line number tables for methods to support\ninlined around advice.  I\u0027m just not sure that I want to create too much \u0027fake\u0027\ninformation in everything the weaver creates just to support this use case - I\nthink we\u0027d get a lot of push back about unnecessary code bloat.\n\nBut I\u0027m keen to help you if we can - I\u0027m currently right in the midst of our\ndebug support so you raised this bug at the right time :)  Is there no way the\ntool can be tailored to be a little less strict on what should have debug info\nattached? After all, coverage information for these delegator methods would\nsimply be measuring coverage of AspectJ \u0027generated\u0027 code - coverage of the\nactual body of the ctor would count when the delegated ctor (in the aspect) was\nexecuted.\n\nAndy.",
+    "Thanks for looking into this so quickly! I\u0027m not sure about your comment on \ncode bloat, if compiling classes in debug mode then I\u0027d certainly expect to \nget larger class files?\n\nI will try to see if I can get the coverage tool we\u0027re using (JBlanket) to \nside-step these constructors as a special case. I couldn\u0027t get it to ignore \nmethods previously, although it should be able to, and I\u0027m not sure it \nsupports ignoring constructors. It may be that we have to move to a different \ncoverage tool, but I believe a lot of them instrument code in a very similar \nway, using classes built in debug mode, and the CGLIB or bcel libraries.\n\nChris.",
+    "Hi,\n\n  I\u0027ve had a play with JBlanket\u0027s exclusion mechanism and unfortunately it \nseems to work by filtering the results, rather than reducing which blocks of \ncode it adds instrumentation to. I imagine that other tools work in a similar \nway. Is there any possibility that AspectJ can be updated to honour \nthe \"debug\" flag for introduced code?\n\nChris. ",
+    "I\u0027ve just tried a comparable case that occurs in pure java - to see what happens\nfor generated code like this.  Here is a simple program:\n\npublic class Test {\n  private int i;\n  private  class Inner {\n    public void aMethod() {\n     System.err.println(i);\n    }\n  }\n}\n\nSo that \u0027Inner\u0027 can see \u0027i\u0027, an accessor method for it is generated when you\ncompile this program, on javap -verbose I see this:\n\npublic Test();\n  Code:\n   Stack\u003d1, Locals\u003d1, Args_size\u003d1\n   0:   aload_0\n   1:   invokespecial   #2; //Method java/lang/Object.\"\u003cinit\u003e\":()V\n   4:   return\n  LineNumberTable:\n   line 1: 0\n   line 6: 4\n\nstatic int access$000(Test);\n  Code:\n   Stack\u003d1, Locals\u003d1, Args_size\u003d1\n   0:   aload_0\n   1:   getfield        #1; //Field i:I\n   4:   ireturn\n  LineNumberTable:\n   line 1: 0\n  Synthetic: true\n\n}\n\nSo, there is a line number table with just one entry in for the generated method\n(and it is marked synthetic) - I guess we should do the same for AspectJ\ngenerated methods !",
+    "Fix checked in - we add a single line number table entry if one does not exist\nfor the generated methods.  This adds 12bytes per method that previously didn\u0027t\nhave a table.  Creation of it could be made conditional on the value of the -g:\nflag - but after some minimal testing we don\u0027t seem to respect -g:none correctly\nso I\u0027m leaving someone else to fix that in a separate bug.\n\nI\u0027ve not added extra logic to add extra synthetic markers here and there - it\ndoesn\u0027t seem necessary to ensure the tests pass, but I hope debuggers don\u0027t\nstart having problems with these unusual tables around.\n\nWaiting for build ...",
+    "BUILD COMPLETE -  build.439\nDate of build: 01/19/2005 11:53:40\nTime to build: 112 minutes 16 seconds\nLast changed: 01/19/2005 09:36:48\nLast log entry: Fix for Bug 82570: Weaved code does not include debug lines\nLatest good AspectJ jar available at:\ndownload.eclipse.org/technology/ajdt/dev/aspectj-DEVELOPMENT.jar",
+    "Hi, I\u0027m now trying again to introduce AspectJ into our project, but am hitting against this same issue again. \n\nI\u0027m now using AspectJ 1.5.0, JDK 1.4.2 and Windows XP.\n\nThis time I have one simple Aspect that has a single \"around\" advice added to various classes in our project. I\u0027m compiling using iajc with debug set to \"true\", but I get the following error from JBlanket:\n\n [jblanket] java.lang.UnsupportedOperationException: No line numbers detected in\n com.abmuk.oms.core.common.logging.Timer.ajc$around$com_abmuk_oms_core_common_lo\ngging_Timer$1$e548cc5bproceed. Either remove the \u0027oneLineFile\u0027 tag or turn debug\n on when compiling.\n [jblanket]     at csdl.jblanket.modifier.MethodModifier.processMethod(MethodMod\nifier.java:121)\n [jblanket]     at csdl.jblanket.modifier.ClassModifier.modifyMethods(ClassModif\nier.java:123)\n [jblanket]     at csdl.jblanket.modifier.Modifier.processIncludeClasses(Modifie\nr.java:282)\n [jblanket]     at csdl.jblanket.modifier.Modifier.modify(Modifier.java:520)\n [jblanket]     at csdl.jblanket.modifier.Modifier.main(Modifier.java:662)\n [jblanket]     at csdl.jblanket.ant.JBlanketModifierTask.execute(JBlanketModifi\nerTask.java:366)\n",
+    "you could try compiling with -XnoInline to see if that helps...",
+    "Thanks for the suggestion. Unfortunately this has no affect, I still get the same error about missing line numbers:\n\n [jblanket] java.lang.UnsupportedOperationException: No line numbers detected in\n com.abmuk.oms.core.common.logging.Timer.ajc$around$com_abmuk_oms_core_common_lo\ngging_Timer$1$e548cc5bproceed. Either remove the \u0027oneLineFile\u0027 tag or turn debug\n on when compiling.\n [jblanket]     at csdl.jblanket.modifier.MethodModifier.processMethod(MethodMod\nifier.java:121)\n ...\n\nTo clarify, the ant entry I\u0027m using is as follows:\n\n\u003ciajc sourceroots\u003d\"${core.java}\" destdir\u003d\"${build.classes}\"\n deprecation\u003d\"true\" debug\u003d\"true\" xlintwarnings\u003d\"true\"\n classpathref\u003d\"build.path\" source\u003d\"1.4\" target\u003d\"1.4\" x\u003d\"noInline\"/\u003e",
+    "Hi,\n\n  I\u0027ve just re-tested with AspectJ 1.5.1a and unfortunately the fault is still present. Is there any chance the priority of this issue can be increased?\n\nAt the moment it means that none of the code executed in a Unit test environment can include any AOP code.\n\n  Thanks,\n\nChris.",
+    "let me give it some kind of priority for 1.5.2 ... not sure what I\u0027ll do for it yet tho:\n\n- adding line number info for generated code is a bogus as the code never existed in source....\n- adding synthetic attribute to the code may be something we have to look into again, or ... maybe the bridge flag makes sense actually for some of these ...\n- asking jblanket to respect the ajsynthetic attribute in addition to the synthetic attribute would be another option...\n",
+    "Hi, thanks for considering to resolve this issue.\n\n\u003e - adding line number info for generated code is a bogus as the code \n\u003e never existed in source....\n\nI thought the result of your investigation on the Sun javac compiler (comment #4 below) was that it generates \"bogus\" line numbers if in debug mode, and aspectj should merely do the same?\n\n\u003e - asking jblanket to respect the ajsynthetic attribute in addition to the\n\u003e synthetic attribute would be another option...\n\nI have tried out a few other Code Coverage tools and they also suffer from the same problem. Rather than changing every code coverage tool on the market it might be easier to change aspectj?\n\nIf you require any further info to help you out, please just let me know.\n\nThanks,\n\n  Chris Nappin.",
+    "I just committed a change to add blank line number tables for the XXXproceed() method you are hitting and aspectOf/hasAspect methods - we should investigate proper use of synthetic but this is a suitable temporary workaround as we dont have the time to do that investigation right now.  When the dev build is available I will close this bug report.",
+    "dev build is available with the proposed changes in.  There may be other methods that exhibit this problem .. please reopen this if you come across them.",
+    "Thanks, downloading the latest development build that seems to have resolved all our use of Aspects so far.\n\nDo you know when the 1.5.2 release is expected to be available?",
+    "from our plans page :\n\nhttp://www.eclipse.org/aspectj/plans.php\n\nwe are looking at end of June 2006 for 1.5.2\n"
+  ],
+  "commentCreationDates": [
+    "2005-01-11T16:17:46+01:00",
+    "2005-01-11T22:47:06+01:00",
+    "2005-01-12T09:42:28+01:00",
+    "2005-01-12T14:32:10+01:00",
+    "2005-01-12T16:39:38+01:00",
+    "2005-01-19T10:26:11+01:00",
+    "2005-01-19T16:12:38+01:00",
+    "2006-03-07T14:51:55+01:00",
+    "2006-03-07T17:04:42+01:00",
+    "2006-03-08T11:18:45+01:00",
+    "2006-05-09T15:50:36+02:00",
+    "2006-05-09T18:36:38+02:00",
+    "2006-05-11T11:21:01+02:00",
+    "2006-05-16T13:45:40+02:00",
+    "2006-05-16T15:46:34+02:00",
+    "2006-05-16T16:17:23+02:00",
+    "2006-05-16T16:38:34+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.UnsupportedOperationException",
+      "message": "No line numbers detected in  com.abmuk.oms.core.common.logging.Timer.ajc$around$com_abmuk_oms_core_common_lo gging_Timer$1$e548cc5bproceed. Either remove the \u0027oneLineFile\u0027 tag or turn debug  on when compiling.  [jblanket]",
+      "elements": [
+        {
+          "method": "csdl.jblanket.modifier.MethodModifier.processMethod",
+          "source": "MethodMod ifier.java:121"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 7,
+      "bugId": "82570",
+      "date": "2006-03-07T14:51:55+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "blocker"
+    },
+    {
+      "exceptionType": "java.lang.UnsupportedOperationException",
+      "message": "No line numbers detected in  com.abmuk.oms.core.common.logging.Timer.ajc$around$com_abmuk_oms_core_common_lo gging_Timer$1$e548cc5bproceed. Either remove the \u0027oneLineFile\u0027 tag or turn debug  on when compiling.  [jblanket]",
+      "elements": [
+        {
+          "method": "csdl.jblanket.modifier.MethodModifier.processMethod",
+          "source": "MethodMod ifier.java:121"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 9,
+      "bugId": "82570",
+      "date": "2006-03-08T11:18:45+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "blocker"
+    }
+  ],
+  "groupId": "82570",
+  "bugId": "82570",
+  "date": "2005-01-11T16:17:46+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "blocker"
+}

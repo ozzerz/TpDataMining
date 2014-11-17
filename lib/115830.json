@@ -1,0 +1,929 @@
+{
+  "comments": [
+    "This may be related to bug #115821, but I\u0027m not sure. In that bug we are seeing\nan intermittent NPE getting EMF resources during an auto build job. We tried\nmore workarounds in our code so that we would not access any artifact edits\nwhile a build was running by joining the auto build job before making any WTP calls:\n\n    Platform.getJobManager().join(ResourcesPlugin.FAMILY_AUTO_BUILD, null);\n\nWhen we did this, we no longer get the NPE in bug #115821, but now we are seeing\na different set of NPE\u0027s during classpath initialization. There is usually an\nNPE in BasicNotifierImpl.eNotify, followed by many NPE\u0027s in EcoreUtil.getAdapter\nwhenever code tries to access the JDT type system. It looks like the JDT is\ntrying to initialize, and part of that is initializing the JST webapp container,\nwhich calls through to EMF, where the NPE happens. The subsequent NPE\u0027s are both\nfrom our code doing things like calling getCorrespondingResource() on an IType,\nand from the JavaSearchEngine (not sure who is calling that).\n\nAt this point you get a dialog saying \"Error initializing java tooling\", with\nthe last NPE I pasted below in the log, and the workspace is in a very bad state.\n\nAs I said in bug #115821 we are still on 1.0 M8, in the process of adopting a\nlater build, but I wanted to bring these up because they are causing so many\nproblems.\n\nHere are the NPE\u0027s, the first one, and then a few samples of the subsequent ones:\n\nFailure processing\njava.lang.NullPointerException\n\tat\norg.eclipse.emf.common.notify.impl.BasicNotifierImpl.eNotify(BasicNotifierImpl.java:229)\n\tat\norg.eclipse.emf.common.notify.impl.NotifyingListImpl.dispatchNotification(NotifyingListImpl.java:251)\n\tat\norg.eclipse.emf.common.notify.impl.NotifyingListImpl.clear(NotifyingListImpl.java:846)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.load(ResourceImpl.java:951)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.load(ResourceImpl.java:832)\n\tat\norg.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.load(TranslatorResourceImpl.java:382)\n\tat\norg.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.getAndLoadLocalResource(ModuleStructuralModel.java:133)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getResource(EditModel.java:681)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getPrimaryResource(EditModel.java:1511)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getPrimaryRootObject(EditModel.java:1492)\n\tat\norg.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.getPrimaryRootObject(ModuleStructuralModel.java:86)\n\tat\norg.eclipse.wst.common.componentcore.internal.StructureEdit.getComponentModelRoot(StructureEdit.java:495)\n\tat\norg.eclipse.wst.common.componentcore.internal.StructureEdit.findComponentByName(StructureEdit.java:801)\n\tat\norg.eclipse.wst.common.componentcore.internal.resources.VirtualResource.getProjectRelativePaths(VirtualResource.java:119)\n\tat\norg.eclipse.wst.common.componentcore.internal.resources.VirtualResource.getProjectRelativePath(VirtualResource.java:145)\n\tat\norg.eclipse.wst.common.componentcore.internal.resources.VirtualFile.getUnderlyingFile(VirtualFile.java:94)\n\tat\norg.eclipse.wst.common.componentcore.internal.resources.VirtualFile.getUnderlyingResource(VirtualFile.java:86)\n\tat\norg.eclipse.jst.common.jdt.internal.classpath.FlexibleProjectContainer.\u003cinit\u003e(FlexibleProjectContainer.java:146)\n\tat\norg.eclipse.jst.j2ee.internal.web.classpath.WebAppContainer.\u003cinit\u003e(WebAppContainer.java:48)\n\tat\norg.eclipse.jst.j2ee.internal.web.classpath.WebAppContainerInitializer.initialize(WebAppContainerInitializer.java:34)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.initializeContainer(JavaModelManager.java:1721)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer(JavaModelManager.java:1166)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainer(JavaCore.java:1340)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:2046)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:1954)\n\tat org.eclipse.jdt.internal.core.JavaProject.buildStructure(JavaProject.java:332)\n\tat org.eclipse.jdt.internal.core.Openable.generateInfos(Openable.java:233)\n\tat org.eclipse.jdt.internal.core.JavaElement.openWhenClosed(JavaElement.java:488)\n\tat org.eclipse.jdt.internal.core.JavaElement.getElementInfo(JavaElement.java:232)\n\tat org.eclipse.jdt.internal.core.JavaElement.getElementInfo(JavaElement.java:218)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getJavaProjectElementInfo(JavaProject.java:1520)\n\tat org.eclipse.jdt.internal.core.JavaProject.newNameLookup(JavaProject.java:2426)\njava.lang.NullPointerException\n\tat org.eclipse.emf.ecore.util.EcoreUtil.getAdapter(EcoreUtil.java:144)\n\tat\norg.eclipse.wst.common.internal.emf.resource.EMF2DOMRenderer.preUnload(EMF2DOMRenderer.java:243)\n\tat\norg.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.doUnload(TranslatorResourceImpl.java:185)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.unload(ResourceImpl.java:1101)\n\tat\norg.eclipse.wst.common.internal.emf.resource.ReferencedXMIResourceImpl.unloadIfNecessary(ReferencedXMIResourceImpl.java:135)\n\tat\norg.eclipse.wst.common.internal.emf.resource.ReferencedXMIResourceImpl.releaseFromRead(ReferencedXMIResourceImpl.java:188)\n\tat\norg.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.releaseFromRead(TranslatorResourceImpl.java:343)\n\tat\norg.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.release(ModuleStructuralModel.java:66)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.release(EditModel.java:983)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseResources(EditModel.java:1005)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.dispose(EditModel.java:162)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseAccess(EditModel.java:970)\n\tat\norg.eclipse.wst.common.componentcore.internal.StructureEdit.dispose(StructureEdit.java:467)\n\tat\norg.eclipse.wst.common.componentcore.internal.resources.VirtualResource.getProjectRelativePaths(VirtualResource.java:138)\n\tat\norg.eclipse.wst.common.componentcore.internal.resources.VirtualResource.getProjectRelativePath(VirtualResource.java:145)\n\tat\norg.eclipse.wst.common.componentcore.internal.resources.VirtualFile.getUnderlyingFile(VirtualFile.java:94)\n\tat\norg.eclipse.wst.common.componentcore.internal.resources.VirtualFile.getUnderlyingResource(VirtualFile.java:86)\n\tat\norg.eclipse.jst.common.jdt.internal.classpath.FlexibleProjectContainer.\u003cinit\u003e(FlexibleProjectContainer.java:146)\n\tat\norg.eclipse.jst.j2ee.internal.web.classpath.WebAppContainer.\u003cinit\u003e(WebAppContainer.java:48)\n\tat\norg.eclipse.jst.j2ee.internal.web.classpath.WebAppContainerInitializer.initialize(WebAppContainerInitializer.java:34)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.initializeContainer(JavaModelManager.java:1721)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer(JavaModelManager.java:1166)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainer(JavaCore.java:1340)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:2046)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:1954)\n\tat org.eclipse.jdt.core.JavaCore.setClasspathContainer(JavaCore.java:3973)\n\tat\norg.eclipse.jst.server.core.internal.RuntimeClasspathContainerInitializer.initialize(RuntimeClasspathContainerInitializer.java:44)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.initializeContainer(JavaModelManager.java:1721)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer(JavaModelManager.java:1166)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainer(JavaCore.java:1340)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:2046)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:1954)\njava.lang.NullPointerException\n\tat org.eclipse.emf.ecore.util.EcoreUtil.getAdapter(EcoreUtil.java:144)\n\tat\norg.eclipse.wst.common.internal.emf.resource.EMF2DOMRenderer.preUnload(EMF2DOMRenderer.java:243)\n\tat\norg.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.doUnload(TranslatorResourceImpl.java:185)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.unload(ResourceImpl.java:1101)\n\tat\norg.eclipse.wst.common.internal.emf.resource.ReferencedXMIResourceImpl.unloadIfNecessary(ReferencedXMIResourceImpl.java:135)\n\tat\norg.eclipse.wst.common.internal.emf.resource.ReferencedXMIResourceImpl.releaseFromRead(ReferencedXMIResourceImpl.java:188)\n\tat\norg.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.releaseFromRead(TranslatorResourceImpl.java:343)\n\tat\norg.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.release(ModuleStructuralModel.java:66)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.release(EditModel.java:983)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseResources(EditModel.java:1005)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.dispose(EditModel.java:162)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseAccess(EditModel.java:970)\n\tat\norg.eclipse.wst.common.componentcore.internal.StructureEdit.dispose(StructureEdit.java:467)\n\tat\norg.eclipse.wst.common.componentcore.internal.resources.VirtualContainer.members(VirtualContainer.java:194)\n\tat\norg.eclipse.wst.common.componentcore.internal.resources.VirtualContainer.members(VirtualContainer.java:136)\n\tat\norg.eclipse.jst.common.jdt.internal.classpath.FlexibleProjectContainer.\u003cinit\u003e(FlexibleProjectContainer.java:136)\n\tat\norg.eclipse.jst.j2ee.internal.web.classpath.WebAppContainer.\u003cinit\u003e(WebAppContainer.java:48)\n\tat\norg.eclipse.jst.j2ee.internal.web.classpath.WebAppContainerInitializer.initialize(WebAppContainerInitializer.java:34)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.initializeContainer(JavaModelManager.java:1721)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer(JavaModelManager.java:1166)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainer(JavaCore.java:1340)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:2046)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:1954)\n\tat org.eclipse.jdt.internal.core.JavaProject.buildStructure(JavaProject.java:332)\n\tat org.eclipse.jdt.internal.core.Openable.generateInfos(Openable.java:233)\n\tat org.eclipse.jdt.internal.core.JavaElement.openWhenClosed(JavaElement.java:488)\n\tat org.eclipse.jdt.internal.core.JavaElement.getElementInfo(JavaElement.java:232)\n\tat org.eclipse.jdt.internal.core.JavaElement.getElementInfo(JavaElement.java:218)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getJavaProjectElementInfo(JavaProject.java:1520)\n\tat org.eclipse.jdt.internal.core.JavaProject.newNameLookup(JavaProject.java:2426)\n\tat\norg.eclipse.jdt.internal.core.SearchableEnvironment.\u003cinit\u003e(SearchableEnvironment.java:60)\n\tat\norg.eclipse.jdt.internal.core.SearchableEnvironment.\u003cinit\u003e(SearchableEnvironment.java:74)\n\njava.lang.NullPointerException\n\tat org.eclipse.emf.ecore.util.EcoreUtil.getAdapter(EcoreUtil.java:144)\n\tat\norg.eclipse.wst.common.internal.emf.resource.EMF2DOMRenderer.preUnload(EMF2DOMRenderer.java:243)\n\tat\norg.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.doUnload(TranslatorResourceImpl.java:185)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.unload(ResourceImpl.java:1101)\n\tat\norg.eclipse.wst.common.internal.emf.resource.ReferencedXMIResourceImpl.unloadIfNecessary(ReferencedXMIResourceImpl.java:135)\n\tat\norg.eclipse.wst.common.internal.emf.resource.ReferencedXMIResourceImpl.releaseFromRead(ReferencedXMIResourceImpl.java:188)\n\tat\norg.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.releaseFromRead(TranslatorResourceImpl.java:343)\n\tat\norg.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.release(ModuleStructuralModel.java:66)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.release(EditModel.java:983)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseResources(EditModel.java:1005)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.dispose(EditModel.java:162)\n\tat\norg.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseAccess(EditModel.java:970)\n\tat\norg.eclipse.wst.common.componentcore.internal.StructureEdit.dispose(StructureEdit.java:467)\n\tat\norg.eclipse.wst.common.componentcore.internal.resources.VirtualResource.getProjectRelativePaths(VirtualResource.java:138)\n\tat\norg.eclipse.wst.common.componentcore.internal.resources.VirtualFolder.getUnderlyingFolders(VirtualFolder.java:92)\n\tat\norg.eclipse.jst.common.jdt.internal.classpath.FlexibleProjectContainer.\u003cinit\u003e(FlexibleProjectContainer.java:157)\n\tat\norg.eclipse.jst.j2ee.internal.web.classpath.WebAppContainer.\u003cinit\u003e(WebAppContainer.java:48)\n\tat\norg.eclipse.jst.j2ee.internal.web.classpath.WebAppContainerInitializer.initialize(WebAppContainerInitializer.java:34)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.initializeContainer(JavaModelManager.java:1721)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer(JavaModelManager.java:1166)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainer(JavaCore.java:1340)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:2046)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:1954)\n\tat\norg.eclipse.jdt.internal.core.search.JavaSearchScope.add(JavaSearchScope.java:108)\n\tat\norg.eclipse.jdt.internal.core.search.JavaWorkspaceScope.initialize(JavaWorkspaceScope.java:84)\n\tat\norg.eclipse.jdt.internal.core.search.JavaSearchScope.\u003cinit\u003e(JavaSearchScope.java:62)\n\tat\norg.eclipse.jdt.internal.core.search.JavaSearchScope.\u003cinit\u003e(JavaSearchScope.java:58)\n\tat\norg.eclipse.jdt.internal.core.search.JavaWorkspaceScope.\u003cinit\u003e(JavaWorkspaceScope.java:29)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.getWorkspaceScope(JavaModelManager.java:1551)\n\tat\norg.eclipse.jdt.internal.core.search.BasicSearchEngine.createWorkspaceScope(BasicSearchEngine.java:157)\n\tat\norg.eclipse.jdt.core.search.SearchEngine.createWorkspaceScope(SearchEngine.java:392)\n\tat org.eclipse.jdt.core.JavaCore$1.run(JavaCore.java:2660)",
+    "I should add that this, like most of the other EMF related NPE\u0027s we\u0027re seeing,\nis intermittent. It definitely happens more often if our views are active when\nthe workspace starts up (probably because more things are asking for information\nfrom the webapp and from the JDT all at the same time). But I haven\u0027t found a\nset of steps to repro them 100% of the time; and I have seen them happen when\nour views are not active at startup.",
+    "to ensure the java container will be initialized after the build, but won\u0027t\ndeadlock, I created a job with the same scheduling rule as the java build.\n\nPlease reopen if these exceptions are seen in M9",
+    "This bug went away for a while (post-M9), but a similar one started happening after we adopted 1.0RC5. I have seen a few NPE\u0027s, and an ArrayIndexOutOfBounds, in EMF, during the JDT\u0027s classpath initialization. I\u0027m not 100% sure it\u0027s the same issue but I think it probably is. I will try to gather some more info, but for now here\u0027s the exception I have seen several times:\n\njava.lang.ArrayIndexOutOfBoundsException: 4\n\tat org.eclipse.emf.common.util.BasicEList.assign(BasicEList.java:187)\n\tat org.eclipse.emf.common.util.BasicEList.addUnique(BasicEList.java:618)\n\tat org.eclipse.emf.common.util.BasicEList.add(BasicEList.java:599)\n\tat org.eclipse.emf.common.notify.impl.BasicNotifierImpl$EAdapterList.add(BasicNotifierImpl.java:119)\n\tat org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.addResource(EditModel.java:708)\n\tat org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.processResource(EditModel.java:702)\n\tat org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getResource(EditModel.java:687)\n\tat org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getPrimaryResource(EditModel.java:1513)\n\tat org.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.prepareProjectModulesIfNecessary(ModuleStructuralModel.java:106)\n\tat org.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.getPrimaryRootObject(ModuleStructuralModel.java:91)\n\tat org.eclipse.wst.common.componentcore.internal.StructureEdit.getComponentModelRoot(StructureEdit.java:411)\n\tat org.eclipse.wst.common.componentcore.internal.StructureEdit.getWorkbenchModules(StructureEdit.java:439)\n\tat org.eclipse.wst.common.componentcore.internal.StructureEdit.getComponent(StructureEdit.java:877)\n\tat org.eclipse.wst.common.componentcore.internal.resources.VirtualResource.getProjectRelativePaths(VirtualResource.java:115)\n\tat org.eclipse.wst.common.componentcore.internal.resources.VirtualFolder.getUnderlyingFolders(VirtualFolder.java:88)\n\tat org.eclipse.jst.common.jdt.internal.classpath.FlexibleProjectContainer.\u003cinit\u003e(FlexibleProjectContainer.java:143)\n\tat org.eclipse.jst.j2ee.internal.web.classpath.WebAppContainer.\u003cinit\u003e(WebAppContainer.java:48)\n\tat org.eclipse.jst.j2ee.internal.web.classpath.WebAppContainerInitializer.initialize(WebAppContainerInitializer.java:37)\n\tat org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer(JavaModelManager.java:1756)\n\tat org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer(JavaModelManager.java:1201)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainer(JavaCore.java:1372)\n\tat org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:2046)\n\tat org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:1954)\n\tat org.eclipse.jdt.internal.core.PackageFragmentRoot.validateOnClasspath(PackageFragmentRoot.java:791)\n\tat org.eclipse.jdt.internal.core.PackageFragmentRoot.exists(PackageFragmentRoot.java:352)\n\tat org.eclipse.jdt.internal.core.PackageFragmentRoot.getUnderlyingResource(PackageFragmentRoot.java:752)\n\tat org.eclipse.jdt.internal.core.PackageFragment.getUnderlyingResource(PackageFragment.java:320)\n\tat org.eclipse.jdt.internal.core.Openable.getUnderlyingResource(Openable.java:306)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.getUnderlyingResource(CompilationUnit.java:823)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.getCorrespondingResource(CompilationUnit.java:598)\n\tat com.bea.wlw.netui.core.pageflow.model.PageFlowManager.hasControllerAnnotation(PageFlowManager.java:396)\n\tat com.bea.wlw.netui.core.pageflow.model.PageFlowManager.getFlowType(PageFlowManager.java:128)\n\tat com.bea.wlw.netui.core.pageflow.model.PageFlowManager.getPageFlowModel(PageFlowManager.java:76)\n\tat com.bea.wlw.netui.ui.views.AbstractPageFlowView.updateCurrentModel(AbstractPageFlowView.java:327)\n\tat com.bea.wlw.netui.ui.views.pageflow.PageFlowExplorer.createPartControl(PageFlowExplorer.java:251)\n\tat org.eclipse.ui.internal.ViewReference.createPartHelper(ViewReference.java:305)\n\tat org.eclipse.ui.internal.ViewReference.createPart(ViewReference.java:180)\n\tat org.eclipse.ui.internal.WorkbenchPartReference.getPart(WorkbenchPartReference.java:552)\n\tat org.eclipse.ui.internal.PartPane.setVisible(PartPane.java:283)\n\tat org.eclipse.ui.internal.ViewPane.setVisible(ViewPane.java:512)\n\tat org.eclipse.ui.internal.presentations.PresentablePart.setVisible(PresentablePart.java:126)\n\tat org.eclipse.ui.internal.presentations.util.PresentablePartFolder.select(PresentablePartFolder.java:268)\n\tat org.eclipse.ui.internal.presentations.util.LeftToRightTabOrder.select(LeftToRightTabOrder.java:65)\n\tat org.eclipse.ui.internal.presentations.util.TabbedStackPresentation.selectPart(TabbedStackPresentation.java:391)\n\tat org.eclipse.ui.internal.PartStack.refreshPresentationSelection(PartStack.java:1102)\n\tat org.eclipse.ui.internal.PartStack.createControl(PartStack.java:591)\n\tat org.eclipse.ui.internal.PartStack.createControl(PartStack.java:528)\n\tat org.eclipse.ui.internal.PartSashContainer.createControl(PartSashContainer.java:485)\n\tat org.eclipse.ui.internal.PerspectiveHelper.activate(PerspectiveHelper.java:230)\n\tat org.eclipse.ui.internal.Perspective.onActivate(Perspective.java:813)\n\tat org.eclipse.ui.internal.WorkbenchPage.onActivate(WorkbenchPage.java:2201)\n\tat org.eclipse.ui.internal.WorkbenchWindow$5.run(WorkbenchWindow.java:2356)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\n\tat org.eclipse.ui.internal.WorkbenchWindow.setActivePage(WorkbenchWindow.java:2338)\n\tat org.eclipse.ui.internal.WorkbenchWindow.restoreState(WorkbenchWindow.java:1861)\n\tat org.eclipse.ui.internal.Workbench.doRestoreState(Workbench.java:2566)\n\tat org.eclipse.ui.internal.Workbench.restoreState(Workbench.java:1503)\n\tat org.eclipse.ui.internal.Workbench.access$12(Workbench.java:1491)\n\tat org.eclipse.ui.internal.Workbench$17.run(Workbench.java:1374)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1044)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:783)\n\tat org.eclipse.ui.internal.Workbench.restoreState(Workbench.java:1318)\n\tat org.eclipse.ui.internal.WorkbenchConfigurer.restoreState(WorkbenchConfigurer.java:183)\n\tat org.eclipse.ui.application.WorkbenchAdvisor.openWindows(WorkbenchAdvisor.java:700)\n\tat org.eclipse.ui.internal.Workbench.init(Workbench.java:1034)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1636)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:367)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:103)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:226)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:163)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:334)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:278)\n\tat org.eclipse.core.launcher.Main.run(Main.java:973)\n\tat org.eclipse.core.launcher.Main.main(Main.java:948)",
+    "hAdded to 1.0.1 Hot List at Tim Wagner\u0027s request. Set priority to P2.",
+    "\n\n*** This bug has been marked as a duplicate of 108837 ***",
+    "Issue tracked and closed through 108837.",
+    "Closing as verified."
+  ],
+  "commentCreationDates": [
+    "2005-11-10T15:39:38+01:00",
+    "2005-11-10T15:55:57+01:00",
+    "2005-11-15T03:28:38+01:00",
+    "2006-01-06T23:10:01+01:00",
+    "2006-01-09T13:56:17+01:00",
+    "2006-01-10T15:32:02+01:00",
+    "2006-09-26T19:08:36+02:00",
+    "2006-09-26T20:50:37+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.common.notify.impl.BasicNotifierImpl.eNotify",
+          "source": "BasicNotifierImpl.java:229"
+        },
+        {
+          "method": "org.eclipse.emf.common.notify.impl.NotifyingListImpl.dispatchNotification",
+          "source": "NotifyingListImpl.java:251"
+        },
+        {
+          "method": "org.eclipse.emf.common.notify.impl.NotifyingListImpl.clear",
+          "source": "NotifyingListImpl.java:846"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.load",
+          "source": "ResourceImpl.java:951"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.load",
+          "source": "ResourceImpl.java:832"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.load",
+          "source": "TranslatorResourceImpl.java:382"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.getAndLoadLocalResource",
+          "source": "ModuleStructuralModel.java:133"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getResource",
+          "source": "EditModel.java:681"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getPrimaryResource",
+          "source": "EditModel.java:1511"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getPrimaryRootObject",
+          "source": "EditModel.java:1492"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.getPrimaryRootObject",
+          "source": "ModuleStructuralModel.java:86"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.getComponentModelRoot",
+          "source": "StructureEdit.java:495"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.findComponentByName",
+          "source": "StructureEdit.java:801"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualResource.getProjectRelativePaths",
+          "source": "VirtualResource.java:119"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualResource.getProjectRelativePath",
+          "source": "VirtualResource.java:145"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualFile.getUnderlyingFile",
+          "source": "VirtualFile.java:94"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualFile.getUnderlyingResource",
+          "source": "VirtualFile.java:86"
+        },
+        {
+          "method": "org.eclipse.jst.common.jdt.internal.classpath.FlexibleProjectContainer.\u003cinit\u003e",
+          "source": "FlexibleProjectContainer.java:146"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.web.classpath.WebAppContainer.\u003cinit\u003e",
+          "source": "WebAppContainer.java:48"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.web.classpath.WebAppContainerInitializer.initialize",
+          "source": "WebAppContainerInitializer.java:34"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:1721"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:1166"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1340"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:2046"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1954"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.buildStructure",
+          "source": "JavaProject.java:332"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.Openable.generateInfos",
+          "source": "Openable.java:233"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaElement.openWhenClosed",
+          "source": "JavaElement.java:488"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaElement.getElementInfo",
+          "source": "JavaElement.java:232"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaElement.getElementInfo",
+          "source": "JavaElement.java:218"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getJavaProjectElementInfo",
+          "source": "JavaProject.java:1520"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.newNameLookup",
+          "source": "JavaProject.java:2426"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "115830",
+      "duplicateId": "108837",
+      "date": "2005-11-10T15:39:38+01:00",
+      "product": "Web Tools",
+      "component": "wst.common",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.ecore.util.EcoreUtil.getAdapter",
+          "source": "EcoreUtil.java:144"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.EMF2DOMRenderer.preUnload",
+          "source": "EMF2DOMRenderer.java:243"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.doUnload",
+          "source": "TranslatorResourceImpl.java:185"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.unload",
+          "source": "ResourceImpl.java:1101"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.ReferencedXMIResourceImpl.unloadIfNecessary",
+          "source": "ReferencedXMIResourceImpl.java:135"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.ReferencedXMIResourceImpl.releaseFromRead",
+          "source": "ReferencedXMIResourceImpl.java:188"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.releaseFromRead",
+          "source": "TranslatorResourceImpl.java:343"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.release",
+          "source": "ModuleStructuralModel.java:66"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.release",
+          "source": "EditModel.java:983"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseResources",
+          "source": "EditModel.java:1005"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.dispose",
+          "source": "EditModel.java:162"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseAccess",
+          "source": "EditModel.java:970"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.dispose",
+          "source": "StructureEdit.java:467"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualResource.getProjectRelativePaths",
+          "source": "VirtualResource.java:138"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualResource.getProjectRelativePath",
+          "source": "VirtualResource.java:145"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualFile.getUnderlyingFile",
+          "source": "VirtualFile.java:94"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualFile.getUnderlyingResource",
+          "source": "VirtualFile.java:86"
+        },
+        {
+          "method": "org.eclipse.jst.common.jdt.internal.classpath.FlexibleProjectContainer.\u003cinit\u003e",
+          "source": "FlexibleProjectContainer.java:146"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.web.classpath.WebAppContainer.\u003cinit\u003e",
+          "source": "WebAppContainer.java:48"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.web.classpath.WebAppContainerInitializer.initialize",
+          "source": "WebAppContainerInitializer.java:34"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:1721"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:1166"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1340"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:2046"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1954"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.setClasspathContainer",
+          "source": "JavaCore.java:3973"
+        },
+        {
+          "method": "org.eclipse.jst.server.core.internal.RuntimeClasspathContainerInitializer.initialize",
+          "source": "RuntimeClasspathContainerInitializer.java:44"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:1721"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:1166"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1340"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:2046"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1954"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "115830",
+      "duplicateId": "108837",
+      "date": "2005-11-10T15:39:38+01:00",
+      "product": "Web Tools",
+      "component": "wst.common",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.ecore.util.EcoreUtil.getAdapter",
+          "source": "EcoreUtil.java:144"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.EMF2DOMRenderer.preUnload",
+          "source": "EMF2DOMRenderer.java:243"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.doUnload",
+          "source": "TranslatorResourceImpl.java:185"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.unload",
+          "source": "ResourceImpl.java:1101"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.ReferencedXMIResourceImpl.unloadIfNecessary",
+          "source": "ReferencedXMIResourceImpl.java:135"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.ReferencedXMIResourceImpl.releaseFromRead",
+          "source": "ReferencedXMIResourceImpl.java:188"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.releaseFromRead",
+          "source": "TranslatorResourceImpl.java:343"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.release",
+          "source": "ModuleStructuralModel.java:66"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.release",
+          "source": "EditModel.java:983"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseResources",
+          "source": "EditModel.java:1005"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.dispose",
+          "source": "EditModel.java:162"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseAccess",
+          "source": "EditModel.java:970"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.dispose",
+          "source": "StructureEdit.java:467"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualContainer.members",
+          "source": "VirtualContainer.java:194"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualContainer.members",
+          "source": "VirtualContainer.java:136"
+        },
+        {
+          "method": "org.eclipse.jst.common.jdt.internal.classpath.FlexibleProjectContainer.\u003cinit\u003e",
+          "source": "FlexibleProjectContainer.java:136"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.web.classpath.WebAppContainer.\u003cinit\u003e",
+          "source": "WebAppContainer.java:48"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.web.classpath.WebAppContainerInitializer.initialize",
+          "source": "WebAppContainerInitializer.java:34"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:1721"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:1166"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1340"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:2046"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1954"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.buildStructure",
+          "source": "JavaProject.java:332"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.Openable.generateInfos",
+          "source": "Openable.java:233"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaElement.openWhenClosed",
+          "source": "JavaElement.java:488"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaElement.getElementInfo",
+          "source": "JavaElement.java:232"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaElement.getElementInfo",
+          "source": "JavaElement.java:218"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getJavaProjectElementInfo",
+          "source": "JavaProject.java:1520"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.newNameLookup",
+          "source": "JavaProject.java:2426"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SearchableEnvironment.\u003cinit\u003e",
+          "source": "SearchableEnvironment.java:60"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SearchableEnvironment.\u003cinit\u003e",
+          "source": "SearchableEnvironment.java:74"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 0,
+      "bugId": "115830",
+      "duplicateId": "108837",
+      "date": "2005-11-10T15:39:38+01:00",
+      "product": "Web Tools",
+      "component": "wst.common",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.ecore.util.EcoreUtil.getAdapter",
+          "source": "EcoreUtil.java:144"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.EMF2DOMRenderer.preUnload",
+          "source": "EMF2DOMRenderer.java:243"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.doUnload",
+          "source": "TranslatorResourceImpl.java:185"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.unload",
+          "source": "ResourceImpl.java:1101"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.ReferencedXMIResourceImpl.unloadIfNecessary",
+          "source": "ReferencedXMIResourceImpl.java:135"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.ReferencedXMIResourceImpl.releaseFromRead",
+          "source": "ReferencedXMIResourceImpl.java:188"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emf.resource.TranslatorResourceImpl.releaseFromRead",
+          "source": "TranslatorResourceImpl.java:343"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.release",
+          "source": "ModuleStructuralModel.java:66"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.release",
+          "source": "EditModel.java:983"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseResources",
+          "source": "EditModel.java:1005"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.dispose",
+          "source": "EditModel.java:162"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.releaseAccess",
+          "source": "EditModel.java:970"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.dispose",
+          "source": "StructureEdit.java:467"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualResource.getProjectRelativePaths",
+          "source": "VirtualResource.java:138"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualFolder.getUnderlyingFolders",
+          "source": "VirtualFolder.java:92"
+        },
+        {
+          "method": "org.eclipse.jst.common.jdt.internal.classpath.FlexibleProjectContainer.\u003cinit\u003e",
+          "source": "FlexibleProjectContainer.java:157"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.web.classpath.WebAppContainer.\u003cinit\u003e",
+          "source": "WebAppContainer.java:48"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.web.classpath.WebAppContainerInitializer.initialize",
+          "source": "WebAppContainerInitializer.java:34"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:1721"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:1166"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1340"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:2046"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1954"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchScope.add",
+          "source": "JavaSearchScope.java:108"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaWorkspaceScope.initialize",
+          "source": "JavaWorkspaceScope.java:84"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchScope.\u003cinit\u003e",
+          "source": "JavaSearchScope.java:62"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchScope.\u003cinit\u003e",
+          "source": "JavaSearchScope.java:58"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaWorkspaceScope.\u003cinit\u003e",
+          "source": "JavaWorkspaceScope.java:29"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getWorkspaceScope",
+          "source": "JavaModelManager.java:1551"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.BasicSearchEngine.createWorkspaceScope",
+          "source": "BasicSearchEngine.java:157"
+        },
+        {
+          "method": "org.eclipse.jdt.core.search.SearchEngine.createWorkspaceScope",
+          "source": "SearchEngine.java:392"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore$1.run",
+          "source": "JavaCore.java:2660"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 0,
+      "bugId": "115830",
+      "duplicateId": "108837",
+      "date": "2005-11-10T15:39:38+01:00",
+      "product": "Web Tools",
+      "component": "wst.common",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "message": "4",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList.assign",
+          "source": "BasicEList.java:187"
+        },
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList.addUnique",
+          "source": "BasicEList.java:618"
+        },
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList.add",
+          "source": "BasicEList.java:599"
+        },
+        {
+          "method": "org.eclipse.emf.common.notify.impl.BasicNotifierImpl$EAdapterList.add",
+          "source": "BasicNotifierImpl.java:119"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.addResource",
+          "source": "EditModel.java:708"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.processResource",
+          "source": "EditModel.java:702"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getResource",
+          "source": "EditModel.java:687"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getPrimaryResource",
+          "source": "EditModel.java:1513"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.prepareProjectModulesIfNecessary",
+          "source": "ModuleStructuralModel.java:106"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.ModuleStructuralModel.getPrimaryRootObject",
+          "source": "ModuleStructuralModel.java:91"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.getComponentModelRoot",
+          "source": "StructureEdit.java:411"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.getWorkbenchModules",
+          "source": "StructureEdit.java:439"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.getComponent",
+          "source": "StructureEdit.java:877"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualResource.getProjectRelativePaths",
+          "source": "VirtualResource.java:115"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualFolder.getUnderlyingFolders",
+          "source": "VirtualFolder.java:88"
+        },
+        {
+          "method": "org.eclipse.jst.common.jdt.internal.classpath.FlexibleProjectContainer.\u003cinit\u003e",
+          "source": "FlexibleProjectContainer.java:143"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.web.classpath.WebAppContainer.\u003cinit\u003e",
+          "source": "WebAppContainer.java:48"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.web.classpath.WebAppContainerInitializer.initialize",
+          "source": "WebAppContainerInitializer.java:37"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:1756"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:1201"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1372"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:2046"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1954"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.PackageFragmentRoot.validateOnClasspath",
+          "source": "PackageFragmentRoot.java:791"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.PackageFragmentRoot.exists",
+          "source": "PackageFragmentRoot.java:352"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.PackageFragmentRoot.getUnderlyingResource",
+          "source": "PackageFragmentRoot.java:752"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.PackageFragment.getUnderlyingResource",
+          "source": "PackageFragment.java:320"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.Openable.getUnderlyingResource",
+          "source": "Openable.java:306"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.getUnderlyingResource",
+          "source": "CompilationUnit.java:823"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.getCorrespondingResource",
+          "source": "CompilationUnit.java:598"
+        },
+        {
+          "method": "com.bea.wlw.netui.core.pageflow.model.PageFlowManager.hasControllerAnnotation",
+          "source": "PageFlowManager.java:396"
+        },
+        {
+          "method": "com.bea.wlw.netui.core.pageflow.model.PageFlowManager.getFlowType",
+          "source": "PageFlowManager.java:128"
+        },
+        {
+          "method": "com.bea.wlw.netui.core.pageflow.model.PageFlowManager.getPageFlowModel",
+          "source": "PageFlowManager.java:76"
+        },
+        {
+          "method": "com.bea.wlw.netui.ui.views.AbstractPageFlowView.updateCurrentModel",
+          "source": "AbstractPageFlowView.java:327"
+        },
+        {
+          "method": "com.bea.wlw.netui.ui.views.pageflow.PageFlowExplorer.createPartControl",
+          "source": "PageFlowExplorer.java:251"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPartHelper",
+          "source": "ViewReference.java:305"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPart",
+          "source": "ViewReference.java:180"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.getPart",
+          "source": "WorkbenchPartReference.java:552"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.setVisible",
+          "source": "PartPane.java:283"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewPane.setVisible",
+          "source": "ViewPane.java:512"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.PresentablePart.setVisible",
+          "source": "PresentablePart.java:126"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.PresentablePartFolder.select",
+          "source": "PresentablePartFolder.java:268"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.LeftToRightTabOrder.select",
+          "source": "LeftToRightTabOrder.java:65"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.TabbedStackPresentation.selectPart",
+          "source": "TabbedStackPresentation.java:391"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.refreshPresentationSelection",
+          "source": "PartStack.java:1102"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.createControl",
+          "source": "PartStack.java:591"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.createControl",
+          "source": "PartStack.java:528"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartSashContainer.createControl",
+          "source": "PartSashContainer.java:485"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PerspectiveHelper.activate",
+          "source": "PerspectiveHelper.java:230"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Perspective.onActivate",
+          "source": "Perspective.java:813"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.onActivate",
+          "source": "WorkbenchPage.java:2201"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow$5.run",
+          "source": "WorkbenchWindow.java:2356"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.setActivePage",
+          "source": "WorkbenchWindow.java:2338"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.restoreState",
+          "source": "WorkbenchWindow.java:1861"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.doRestoreState",
+          "source": "Workbench.java:2566"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.restoreState",
+          "source": "Workbench.java:1503"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$12",
+          "source": "Workbench.java:1491"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$17.run",
+          "source": "Workbench.java:1374"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:1044"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:783"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.restoreState",
+          "source": "Workbench.java:1318"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchConfigurer.restoreState",
+          "source": "WorkbenchConfigurer.java:183"
+        },
+        {
+          "method": "org.eclipse.ui.application.WorkbenchAdvisor.openWindows",
+          "source": "WorkbenchAdvisor.java:700"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.init",
+          "source": "Workbench.java:1034"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1636"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:367"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:103"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:226"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:163"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:334"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:278"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:973"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:948"
+        }
+      ],
+      "number": 4,
+      "commentIndex": 3,
+      "bugId": "115830",
+      "duplicateId": "108837",
+      "date": "2006-01-06T23:10:01+01:00",
+      "product": "Web Tools",
+      "component": "wst.common",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "108837",
+  "bugId": "115830",
+  "duplicateId": "108837",
+  "date": "2005-11-10T15:39:38+01:00",
+  "product": "Web Tools",
+  "component": "wst.common",
+  "severity": "critical"
+}

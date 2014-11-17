@@ -1,0 +1,147 @@
+{
+  "comments": [
+    "Hi, \nI am playing with making a cross platform RCP app, and it works beautifully,\nexcept for the fact that or.eclipse.ui.carbon.CarbonUIEnhancer is implemented\n(because it needs it) to be invoked at startup, without checking first if it is\nrunning in fact on a mac.\n\nIf I have that org.eclipse.ui.carbon plugin installed on a linux install, the\napp will start ok, but there will be a bunch of error in the logs related to\nCarbonUIEnhancer trying (and failing) to start.\n\nHere is a suggested resolution:\n- solution 1: change the extension point for org.eclipse.ui.startup so it has\nos/arch/ws attributes optionally and starts the startup class only on the valid\nplatform combination declared to be supported by the fragment or plugin manifest.\n- solution 2: temporarily as a hack make a test on the System.property (or get\nthe related plaform services to get it) to check that the platform/os/ws\ncombination is right. \nFor instance Platform.java offers plublic static methods just for that.\nA code fragment could look like that, to be inserted just at the begining of the\n Hi, \nI am playing with making a cross platform RCP app, and it works beautifully,\nexcept for the fact that or.eclipse.ui.carbon.CarbonUIEnhancer is implemented\n(because it needs it) to be invoked at startup, without checking first if it is\nrunning in fact on a mac.\n\nIf I have that org.eclipse.ui.carbon plugin installed on a linux install, the\napp will start ok, but there will be a bunch of error in the logs related to\nCarbonUIEnhancer trying (and failing) to start.\n\nHere is a suggested resolution:\n- solution 1: change the extension point for org.eclipse.ui.startup so it has\nos/arch/ws attributes optionally and starts the startup class only on the valid\nplatform combination declared to be supported by the fragment or plugin manifest.\n- solution 2: temporarily as a hack make a test in the System.property (or get\nthe relatedd plaform services to get it. Fo instance Platform.java offers\nplublic static methods just for that.\nA code fragment could look like that, to be inserted just at the begining of the\n Hi, \nI am playing with making a cross platform RCP app, and it works beautifully,\nexcept for the fact that or.eclipse.ui.carbon.CarbonUIEnhancer is implemented\n(because it needs it) to be invoked at startup, without checking first if it is\nrunning in fact on a mac.\n\nIf I have that org.eclipse.ui.carbon plugin installed on a linux install, the\napp will start ok, but there will be a bunch of error in the logs related to\nCarbonUIEnhancer trying (and failing) to start.\n\nHere is a suggested resolution:\n- solution 1: change the extension point for org.eclipse.ui.startup so it has\nos/arch/ws attributes optionally and starts the startup class only on the valid\nplatform combination declared to be supported by the fragment or plugin manifest.\n- solution 2: temporarily as a hack make a test in the System.property (or get\nthe relatedd plaform services to get it. Fo instance Platform.java offers\nplublic static methods just for that.\nA code fragment could look like that, to be inserted just at the begining of the\n  CarbonUIEnhancer.earlyStartup() method:\n\nif(!org.eclipse.core.runtime.Platform.getOSArch().equals(\"ppc\") \u0026\u0026 \n   !org.eclipse.core.runtime.Platform.getOS().equals(\"macosx\") \u0026\u0026 \n   !org.eclipse.core.runtime.Platform.getWS().equals(\"carbon\")) {\n      return;\n}\n\nIt could probably be more elegant or invoke other ways, and restrict itself to\nws test on carbon, and not worry about arch and os.... and it is just hack. \n\nIn theory solution 1 is better, as the plugin or fragment would not be\ninstantiated at all if it is not on the right platform, but it works at least on\nWindows and Linux (I do not have a mac to verify on macosx ;-(\n\nIt also looks like the fact that the fragment is declared in the feature.xml of\norg.eclipse.platform as macosx/carbon specific has no effect and that the\nfragment is invoked anyway regardless of the platform... which would make sense\nsince features are more of a pcakaging/update mechanism and not much a runtime\nstuff.\n\nCordially\nPhilippe",
+    "I believe this is a packaging issue that should be able to be solved with\nfeatures...nick?",
+    "Could it be a bug in the way features load plugin fragments?\nIn my packaging I want to have one app binary distro that runs both on\nmac/windows/linux...\nSo I need to have all the pltform specific plugins in one zip.",
+    "BTW, just an easy way to reproduce the problem.\nGet the RCP delta pack, and unzip the plugins (let\u0027s leave aside the launchers\nfor now...) in your distribution.\nRun it on a non-mac machine.\nCheck your error log.",
+    "Checking in the running code is too late, and augmenting specific extension\npoints is not a general enough mechanism.\n\nYou should be using features to ensure that the runtime only knows about the\nplatform-specific plug-ins and fragments that are relevant for the current\nplatform.  The delta-pack does not include such a feature itself, but this has\nbeen discussed.  \n\nTake a look at the feature.xml for features/org.eclipse.platform in the SDK\nbuild to see how it does this.\nYou will also need to include the org.eclipse.update.configurator plug-in and\ninclude it in the config.ini file.\ne.g.:\nosgi.bundles\u003dorg.eclipse.core.runtime@2:start,\norg.eclipse.update.configurator@3:start\n\n\nSee also\nhttp://help.eclipse.org/help30/topic/org.eclipse.platform.doc.isv/guide/product.htm\n(unfortunately this doesn\u0027t really discuss platform-specific plug-ins and\nfragments).\n",
+    "Note that the osgi.bundles\u003d line above should all be on one line.\n",
+    "Thanks for the reply Nick.\nHowever, Let\u0027s say that I do something funky:\nI take a base clean full and fersh Eclipse SDK for Windows, just unzipped.\nOver, it I unzip the RCP Delta pack (all 31M4 for sake of simplicity).\nNow my feature.xml in org.eclipse.platform still contains:\n\u003cplugin id\u003d\"org.eclipse.ui.carbon\" download-size\u003d\"0\" install-size\u003d\"0\"\nversion\u003d\"3.1.0\" fragment\u003d\"true\" os\u003d\"macosx\" ws\u003d\"carbon\"/\u003e\n\nHowever, even then, outside of an RCP context, the problem exist.\nWhen I start Eclipse on a Windows machine, the Carbon plugin WILL try to start\nAND FAIL to start, despite it is not supposed to based on the feature.xml from\nwhat you are saying.\n\nSo is there a bug then?",
+    "And in the test just described above, the problem exeists regardless of the\nconfig.ini \neg: i may contain that line or not, which is BTW commented out by default in the\nplatform sdk distro.\nosgi.bundles\u003dorg.eclipse.core.runtime@2:start,org.eclipse.update.configurator@3:start\n\nThe stack trace you get in the error log is:\nProblems occurred when invoking code from plug-in: \"org.eclipse.core.runtime\".\norg.eclipse.swt.SWTException: Failed to execute runnable\n(java.lang.UnsatisfiedLinkError: no swt-pi-win32-3116 in java.library.path)\nat org.eclipse.swt.SWT.error(SWT.java:2827)\nat org.eclipse.swt.SWT.error(SWT.java:2752)\nat org.eclipse.swt.widgets.Synchronizer.syncExec(Synchronizer.java:173)\nat org.eclipse.ui.internal.UISynchronizer.syncExec(UISynchronizer.java:28)\nat org.eclipse.swt.widgets.Display.syncExec(Display.java:3128)\nat org.eclipse.ui.carbon.CarbonUIEnhancer.earlyStartup(CarbonUIEnhancer.java:73)\nat\norg.eclipse.ui.internal.EarlyStartupRunnable.runEarlyStartup(EarlyStartupRunnable.java:86)\nat org.eclipse.ui.internal.EarlyStartupRunnable.run(EarlyStartupRunnable.java:66)\nat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1044)\nat org.eclipse.core.runtime.Platform.run(Platform.java:747)\nat org.eclipse.ui.internal.Workbench$17.run(Workbench.java:1474)\nat java.lang.Thread.run(Unknown Source)\n\n\nTo your point I was focusing on CarbonUIEnhancer , but it is already too late\nand not generic enough. But from all the the platfrom plugin, it is the ONLY\nplugin that is platform specific and asks for an early start.\n\nSo if you go down in the stack trace there are maybe other places, but I am not\nthe eclipse internals exxpert... I do not know if it should be UI (it may not\ncover the situation of an headless platform specific plugin) or elsewhere.\n\nBut org.eclipse.core.internal.runtime.InternalPlatform looks like a good\ncandidate, as it looks like it has some knowledge of the os/arch/ws it is on or\nis it in the BundleContext?\n\nJust my addition 2 cents: if you look at the swt plugin and its companion\nswt.carbon fragment, I am under the impression that the resolution of the\nplatform specfic stuff is beyond the control of the feature stuff and all in the\nswt plugin.\n\nTo make my point, if I take again a vanilla 3.1m4 platform sdk with rcp delta\npak unzipped over it, and delete all the features, so my features directory is\nempty, Eclipse starts nicely, AND the only stuff that shows again in the\nerror.log is my CarbonUIEnhancer.\nSo the features seems to be completely irrelevant here.",
+    "The features are necessary as they indicate which plugins and fragments apply to\nwhich platforms.\n\nIf the problem still occurs when you do not delete the features (and run with\n-clean to ensure the plugin registry is refreshed), then there is a bug.",
+    "I re-did the test for the sake of sanity.\nClean 3.1M4 install on windows, full SDK. RCP Delta pack install on the same\ninstall 3.1M4.New workspace, and started Eclipse with -clean (despite being a\nfersh install, there was no plugin registry).\nAND YES THERE IS A BUG!\nCheck the PDE error log.\nThe mac plugin tries to start, and disregard completely the feature stuff.\nGenerally speaking my testing shows that the platforms flags in features are\nIGNORED all the times as far as bundle activation/start is concerned.\nIt looks like this is not a prolem elsewhere since the native stuffs seem to be\nloaded not using the osgi/platform functions, but instead using plugin specific\nmechanims, and swt plugins seems a good example there.",
+    "Yes, features have nothing to do with the runtime.  They are an artifact of the \nupdate mechanism.  It would seem to be an error if there is a feature.xml that \nlists a plugin as working only on the Mac but yet that plugin is being \ninstalled anyway.  Moving this bug to update for investigation.  The platform \nfeature lists org.eclipse.ui.carbon and designates it as a ws\u003dcarbon plugin.  \nSeems something is up.\n\nJust for future reference, we are also looking at tagging the plugins and \nfragments themselves with the relevant platform info and then filtering these \nout at resolve time.  So, even if someone installed one of these things it \nwould never get past the resolver.  That is work in progress.",
+    "You said:\n\"We are also looking at tagging the plugins and \nfragments themselves with the relevant platform info and then filtering these \nout at resolve time.  So, even if someone installed one of these things it \nwould never get past the resolver.  That is work in progress.\"\n\nTo your point, I think that the platform dependencies should exist at the plugin\nlevel, so the runtime can activate or not the plugin, instead of having plugin\nspecific activation/resolution of fragments like swt does. It would also\nsimplify the code for all platform specific plugins, and you could for instance\nhave one plugin fragment which contains the OS/arch/ws natives for one\ncombination properly declared in its manifest, instead of having the core plugin\ninvoke its native fragment based on a directory naming convention and some hack\nusing variables in the fragment name.\n\nFeatures do restrict the installation properly, but not the activation. No need\nto get anything done there. The mechanism works fine. This is a runtime issue.\n\nThe mechanism that I find flawed in my case is the activation of platform\nspecific plugins.\nAgain the goal for me is to have one binary of my rcp app that can run on all\nsupported platforms provided in the binary, without error and without\nmodifications, therefore containing all platform specific plugins fo all\nplatform combinations.\n\nSo this work in progress is really the interesting stuff. Any ETA or place I\ncould look at in CVS?",
+    "Please refrain from moving bugs between components.  We want the Update guys to \nlook at this.\n\nIt is NOT a runtime issue in this form.  The runtime will simply run whatever \nplugins it is told to.  Assuming you are using update.configurator, the only \nentity telling us what to run is Update.\n\nYour scenario is reasonable and I know of products that ship that way.  It is \nin fact update\u0027s job to figure out what plugins to tell the runtime about based \non the current execution environment.\n\nThe new filtering function we are looking at addresses other issues.  If things \nwere working correctly and you defined your features properly, the new code \nwould have no effect.",
+    "In past, we used to filter plug-ins in features at runtime based on os/ws/arch \ntupple. That means that update configurator should not pass carbon enhancer on \nnon-Mac platforms. Dorian, is this function still operational?",
+    "Filtering of plugins is only done when the site policy is MANAGED-ONLY (3.1 \nfunction). \nIn the default scenario, the update configurator does a simpler job, and the \ndefault site policy USER-EXCLUDE will simply pick up all the plugins \navailable. By design, the working assumption is that the initial installation \nis consistent, i.e. the features and plugins are installed for a particular \nenvironment, all plugins are managed by features, etc.",
+    "Is there a way of telling update to use MANAGED-ONLY as the default for the \nsite the update.configurator creates?",
+    "You will have to programmatically create the configuration using the API\u0027s in \nthe org.eclipse.update.configurator, or by manually crafting the platform.xml \nfile.",
+    "It feels like restricting plugins to only those referenced by fragments\n(MANAGED-ONLY) and filtering at configuration time base on platform/locale are\nseparate issues, and should be configurable separately in the feature/site.\n\n",
+    "I see that the target for this bug is 3.1.M6.\nIn the meatime I have applied the patch I suggested to this plugin, and other\nplugins which which have pltform dependencies and request early startup, or\nwhose activation is irrelevant on certain platforms. (other UI enhancements on\nMac, Win32 specific stuffs like keepresident,...)\n\nIt is ugly but gets a passing grade for me for now.\nAddded at the top of xxx.earlyStartup() method:\n\nif(!org.eclipse.core.runtime.Platform.getOSArch().equals(\"XXXXX\") \u0026\u0026 \n   !org.eclipse.core.runtime.Platform.getOS().equals(\"XXXXXX\") \u0026\u0026 \n   !org.eclipse.core.runtime.Platform.getWS().equals(\"XXXXXXX\")) {\n      return;\n}\n\nCan I assume that 3.1M6 will have an enhanced manifest with the ability to\nspecify platform dependencies at the plugin level, like wee can already do it\nfor the features?\n \nOr was is the latest thinking?",
+    "Jeff, did you target the bug for M6? Is it a runtime bug?",
+    "Bug history shows Nick marking it as M6.\n\nThis could be a runtime bug if the price is right ;-)\n\nSeriously though, we could solve this immediate problem by using the filtering \nstuff (actually it is in, we just need to get the relevant fragments to write \ntheir filters).  It still seems like  abit of a bummer that update is \ninstalling them in the first place.  I understand why, just seems like a bummer.\n\nMoving (for future considerations)",
+    "thanks Jeff!\nThe update return policy does not allow returns/refunds, so a bug gone to \nanother component stays there :-)\nAs per comment #15 and #17, I think it would be nice to be able to configure \nupdate to use a particular update policy.",
+    "Jeff, you are talking about the filtering \"stuff\" and said it is in. I am\nsalivating... That sounds cool.\nWhere could I have a look at it?\n\nIs that the recent commits (3 weesk ago) on\norg.eclipse.osgi/osgi/src/org/osgi/framework/...( ie OSGI_layering)\n\nIs that to support manifest syntax like I found below?\nBundle-NativeCode: os/win32/x86/swt-win32-3014.dll; processor\u003dx86;\nosname\u003dWindows2000; osname\u003dwinxp; language\u003den\nand/or \nBundle-Classpath: runonunix.jar; selection-filter \u003d \"(osname\u003dunix)\",\nrunoneverythingelse.jar; selection-filter \u003d \"(!(osname\u003dunix))\" \n\nWill that be part of 31M5?\n\nIf yes, any directions on writing the filter in the manifest?\n",
+    "Eclipse-PlatformFilter: \u003cldap filter on osgi.os/ws/arch/nl\u003e\n\nis the header to use.\n\nthis is not advertised for M5 but try it out and lets us know if you have \nsuccess/failure.",
+    "Jeff, your indications were a bit spartan ;-), but I managed -Yehaah!- to make\nit work.\nI create a manifest for the ui.carbon plugin (on fresh of the oven 31M5, and got\nusual error logs on windows as the fragment tries to start. Here is the manifest\nI used:\n\nManifest-Version: 1.0\nBundle-Name: %CarbonFragment.fragmentName\nBundle-SymbolicName: org.eclipse.ui.carbon; singleton\u003dtrue\nBundle-Version: 3.1.0\nBundle-ClassPath: carbon.jar\nBundle-Vendor: %Plugin.providerName\nFragment-Host: org.eclipse.ui;bundle-version\u003d\"[3.0.0,4.0.0)\"\nBundle-Localization: plugin\nExport-Package: org.eclipse.ui.carbon\nEclipse-PlatformFilter: (osgi.ws\u003dwin32)\n\nI then updated the manifest:\nEclipse-PlatformFilter: (osgi.ws\u003dcarbon)\nAnd got no errors on win32, and no carbon plugin in the registry!\n\nWorks beautifully.\n\nSo let\u0027s get the all native plugins update their manifests.\nFor instance I would suggest that the \norg.eclipse.swt.motif should be in fact not one fragment but several fragments,\none per os/arch/ws combination, selectively activated based on your excellent\nfilter. That would also make the code much simpler and cleaner, .. and refactor\nthe plugins so they do not need anymore the ugly $ws$ hacks, to resolve\nclasspath and natives...\n\nAs far as I am concerned this bug is solved.\n\nIf you want me to contribute proper manifests for each of the native-dependent\nplugins, I will do so joyfully!\n\nAnd if you are around EclipseCon, I will pay you a beer.",
+    "Made some research on ldap filter syntax.\nHere is a more complete manifest filtering on arch and os and ws:\nManifest-Version: 1.0\nBundle-Name: %CarbonFragment.fragmentName\nBundle-SymbolicName: org.eclipse.ui.carbon; singleton\u003dtrue\nBundle-Version: 3.1.0\nBundle-ClassPath: carbon.jar\nBundle-Vendor: %Plugin.providerName\nFragment-Host: org.eclipse.ui;bundle-version\u003d\"[3.0.0,4.0.0)\"\nBundle-Localization: plugin\nExport-Package: org.eclipse.ui.carbon\nEclipse-AutoStart: true\nEclipse-PlatformFilter: (\u0026(osgi.arch\u003dppc)(osgi.os\u003dmacosx)(osgi.ws\u003dcarbon))\n\n\nNow in the case of that very specific plugin, the following shoudl be sufficient:\nEclipse-PlatformFilter: (\u0026(osgi.os\u003dmacosx)(osgi.ws\u003dcarbon))\n\nAnd should take care of the day when mac run on x86 :-) (or it could be a darwin\nport!\n\nThe RFc is a bit terse, but they are few samples out there.\n",
+    "Philippe, glad this is working for you.  We do indeed plan to put these filters \nin most/all platform-specific manifests.  This will likely happen in M6.  As \nfor the fragments etc, we will likely resist the urge to make more fragments.  \nThe direction for M6 is to make plugins (and fragments) ship as self-contained \nJars.  We hope to merge some of the jars that are currently separate in, for \nexample, the SWT fragments.  This should make things simpler all around.",
+    "oh yeah, I\u0027ll leave this open as a reminder to do all the filters.",
+    "I opened a bug against SWT.\nHas the Carbon UI fragment been fixed?",
+    "Pascal,\nfrom my perspective the issue is resolved with having a manifest with an\nEclipse-PlatformFilter: (\u0026(osgi.ws\u003dcarbon))\nTested in 3.1M5a and works fine.\nThe manifest has not yet been checked in CVS.\nI assume that there is work under way in the manifest realm, from the mailing\nlits posting.",
+    "The Carbon UI fragment hasn\u0027t been updated yet.\nPascal, can you confirm that its manifest.mf should have:\n\nManifest-Version: 1.0\nBundle-Name: %CarbonFragment.fragmentName\nBundle-SymbolicName: org.eclipse.ui.carbon; singleton\u003dtrue\nBundle-Version: 3.1.0\nBundle-ClassPath: carbon.jar\nBundle-Vendor: %Plugin.providerName\nFragment-Host: org.eclipse.ui;bundle-version\u003d\"[3.0.0,4.0.0)\"\nBundle-Localization: plugin\nExport-Package: org.eclipse.ui.carbon\nEclipse-AutoStart: true\nEclipse-PlatformFilter: (osgi.ws\u003dcarbon)\n\n",
+    "This is correct.",
+    "May I am just stupid, but could the line:\n\nFragment-Host: org.eclipse.ui;bundle-version\u003d\"[3.0.0,4.0.0)\"\n\n...be possibly wrong ie with combination of ( and [ looks weird to me.\n\nI know it is created by the PDE in that way, but it could be a bug too.",
+    "This is correct:\n[ means included\n) means excluded\n\nIf we had written\n[ ] the fragment would match 4.0.0 whereas here it express that the fragment can\nbe attached to all the version up to 4.0.0 excluded.",
+    "\n\n*** This bug has been marked as a duplicate of 87944 ***"
+  ],
+  "commentCreationDates": [
+    "2005-02-03T20:11:44+01:00",
+    "2005-02-03T20:15:47+01:00",
+    "2005-02-03T20:18:35+01:00",
+    "2005-02-03T20:21:28+01:00",
+    "2005-02-04T21:54:32+01:00",
+    "2005-02-04T21:57:55+01:00",
+    "2005-02-05T07:48:32+01:00",
+    "2005-02-05T19:20:50+01:00",
+    "2005-02-07T15:56:41+01:00",
+    "2005-02-07T17:38:05+01:00",
+    "2005-02-08T04:23:38+01:00",
+    "2005-02-08T06:34:15+01:00",
+    "2005-02-08T14:02:14+01:00",
+    "2005-02-08T14:27:59+01:00",
+    "2005-02-08T15:19:22+01:00",
+    "2005-02-08T18:31:29+01:00",
+    "2005-02-08T18:36:40+01:00",
+    "2005-02-10T16:24:25+01:00",
+    "2005-02-16T20:18:31+01:00",
+    "2005-02-16T20:31:44+01:00",
+    "2005-02-17T01:22:51+01:00",
+    "2005-02-17T02:52:33+01:00",
+    "2005-02-17T03:30:30+01:00",
+    "2005-02-18T01:47:34+01:00",
+    "2005-02-19T21:47:09+01:00",
+    "2005-02-20T01:27:34+01:00",
+    "2005-02-22T04:19:13+01:00",
+    "2005-02-22T04:19:38+01:00",
+    "2005-03-11T22:13:27+01:00",
+    "2005-03-11T23:41:51+01:00",
+    "2005-03-14T15:17:08+01:00",
+    "2005-03-14T15:18:30+01:00",
+    "2005-03-16T19:17:18+01:00",
+    "2005-03-16T19:42:48+01:00",
+    "2005-03-21T22:24:47+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.UnsatisfiedLinkError",
+      "message": "no swt-pi-win32-3116 in java.library.path)",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2827"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2752"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.syncExec",
+          "source": "Synchronizer.java:173"
+        },
+        {
+          "method": "org.eclipse.ui.internal.UISynchronizer.syncExec",
+          "source": "UISynchronizer.java:28"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.syncExec",
+          "source": "Display.java:3128"
+        },
+        {
+          "method": "org.eclipse.ui.carbon.CarbonUIEnhancer.earlyStartup",
+          "source": "CarbonUIEnhancer.java:73"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EarlyStartupRunnable.runEarlyStartup",
+          "source": "EarlyStartupRunnable.java:86"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EarlyStartupRunnable.run",
+          "source": "EarlyStartupRunnable.java:66"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:1044"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:747"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$17.run",
+          "source": "Workbench.java:1474"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 7,
+      "bugId": "84370",
+      "duplicateId": "87944",
+      "date": "2005-02-05T19:20:50+01:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "87944",
+  "bugId": "84370",
+  "duplicateId": "87944",
+  "date": "2005-02-03T20:11:44+01:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "normal"
+}

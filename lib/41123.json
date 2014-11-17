@@ -1,0 +1,138 @@
+{
+  "comments": [
+    "Sample run that fails using injars:\nC:\\devel\\test\\libraryWeave\u003eajc ajee\\testing\\ExecutionMonitor.aj\n\nC:\\devel\\test\\libraryWeave\u003ejar cf ajee.jar ajee\\testing\\*.class\n\nC:\\devel\\test\\libraryWeave\u003eajc -injars ajee.jar model\\BusObj.java \nmodel\\MonitorB\nusObj.java\nC:\\devel\\test\\libraryWeave\\model\\BusObj.java:3 Class must implement the \ninherite\nd abstract method ExecutionMonitor.MonitoredItem.ajc$interMethodDispatch2\n$ajee_t\nesting_ExecutionMonitor$record(String, String)\npublic class BusObj {\n             ^^^^^^\n\n1 error\n\nIt works in a single pass compilation:\nC:\\devel\\test\\libraryWeave\u003eajc ajee\\testing\\ExecutionMonitor.aj \nmodel\\BusObj.jav\na model\\MonitorBusObj.java\n\nC:\\devel\\test\\libraryWeave\u003e\n\nSample source code:\npackage ajee.testing;\n\npublic aspect ExecutionMonitor {\n    public interface MonitoredItem {}\n    private void MonitoredItem.record(String eventType, String eventName) {}\n}         \n---\npackage model;\n\npublic class BusObj {\n\n}\n---\npackage model;\n\nimport ajee.testing.ExecutionMonitor;\n\npublic aspect MonitorBusObj {\n    declare parents: BusObj implements ExecutionMonitor.MonitoredItem;\n}",
+    "I uncovered this bug in trying to track down the following compiler crash, \nwhich may or may not be related:\nKind\tStatus\tPriority\tDescription\tResource\tIn Folder\n\tLocation\nError\t\t\tInternal compiler error\njava.lang.NullPointerException\n\tat org.aspectj.weaver.patterns.CflowPointcut.concretize1\n(CflowPointcut.java:126)\n\tat org.aspectj.weaver.patterns.ReferencePointcut.concretize1\n(ReferencePointcut.java:270)\n\tat org.aspectj.weaver.patterns.AndPointcut.concretize1\n(AndPointcut.java:88)\n\tat org.aspectj.weaver.patterns.AndPointcut.concretize1\n(AndPointcut.java:88)\n\tat org.aspectj.weaver.patterns.AndPointcut.concretize1\n(AndPointcut.java:88)\n\tat org.aspectj.weaver.patterns.ReferencePointcut.concretize1\n(ReferencePointcut.java:270)\n\tat org.aspectj.weaver.patterns.AndPointcut.concretize1\n(AndPointcut.java:88)\n\tat org.aspectj.weaver.patterns.Pointcut.concretize(Pointcut.java:127)\n\tat org.aspectj.weaver.patterns.Pointcut.concretize(Pointcut.java:120)\n\tat org.aspectj.weaver.Advice.concretize(Advice.java:216)\n\tat org.aspectj.weaver.CrosscuttingMembers.addShadowMunger\n(CrosscuttingMembers.java:78)\n\tat org.aspectj.weaver.CrosscuttingMembers.addShadowMungers\n(CrosscuttingMembers.java:72)\n\tat org.aspectj.weaver.ResolvedTypeX.collectCrosscuttingMembers\n(ResolvedTypeX.java:328)\n\tat org.aspectj.weaver.CrosscuttingMembersSet.addOrReplaceAspect\n(CrosscuttingMembersSet.java:50)\n\tat \norg.aspectj.ajdt.internal.compiler.ast.AspectDeclaration.buildInterTypeAndPerCl\nause(AspectDeclaration.java:747)\n\tat \norg.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.buildInterTypeAnd\nPerClause(AjLookupEnvironment.java:120)\n\tat \norg.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.buildInterTypeAnd\nPerClause(AjLookupEnvironment.java:136)\n\tat \norg.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.completeTypeBindi\nngs(AjLookupEnvironment.java:87)\n\tat org.eclipse.jdt.internal.compiler.Compiler.beginToCompile\n(Compiler.java:310)\n\tat org.eclipse.jdt.internal.compiler.Compiler.compile\n(Compiler.java:324)\n\tat \norg.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation\n(AjBuildManager.java:372)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild\n(AjBuildManager.java:133)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild\n(AjBuildManager.java:78)\n\tat org.aspectj.ajde.internal.CompilerAdapter.compile\n(CompilerAdapter.java:117)\n\tat org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run\n(AspectJBuildManager.java:164)\n\tClaimForm.java\n\tClaimsSample/src/com/newaspects/claimsSample/ui/controller\t\n",
+    "I *think* the NPE that Ron mentions is a dup of another bug Jim fixed recently \nto do with concretizing advice too early when it was coming from a library.  I \ncan recreate Rons initial bug with the currently available version of 1.1 - I\u0027m \ngoing to retry it on a development build of 1.1.1.",
+    "Also fails in the same way if I change it to:\n\najc -aspectpath ajee.jar model\\BusObj.java model\\MonitorBusObj.java\n\nOr\n\nset CLASSPATH\u003dajee.jar\najc model\\*.java\n\nDoes that mean the method:\n\nExecutionMonitor.MonitoredItem.ajc$interMethodDispatch2\n$ajee_testing_ExecutionMonitor$record(String, String)\n\nis not being made synthetic when it is written out?",
+    "Andy was right on both counts.  Ron\u0027s original stack-trace issue has been\nresolved.  This bug is caused by the weaver not putting the Synthetic attribute\non methods with mangled names, which can cause problems for code that extends\nthose classes/interfaces.\n\nIn addition to adding the Synthetic attribute, I also added several checks in\nthe eclipse compiler phase to produce errors when a class implements an\ninterface that has either non-abstract methods or non-static fields -- and the\naspect that produced those is not on the source or aspectpath.  Without this\nerror, it is easy for ajc to generate code that will have unimplemented method\nexceptions thrown at runtime from the VM.",
+    "updated target milestone field to 1.1.1"
+  ],
+  "commentCreationDates": [
+    "2003-08-05T06:39:51+02:00",
+    "2003-08-05T06:49:12+02:00",
+    "2003-08-07T10:41:57+02:00",
+    "2003-08-07T16:41:47+02:00",
+    "2003-08-08T03:32:11+02:00",
+    "2003-08-28T14:07:08+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.patterns.CflowPointcut.concretize1",
+          "source": "CflowPointcut.java:126"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.ReferencePointcut.concretize1",
+          "source": "ReferencePointcut.java:270"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.AndPointcut.concretize1",
+          "source": "AndPointcut.java:88"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.AndPointcut.concretize1",
+          "source": "AndPointcut.java:88"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.AndPointcut.concretize1",
+          "source": "AndPointcut.java:88"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.ReferencePointcut.concretize1",
+          "source": "ReferencePointcut.java:270"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.AndPointcut.concretize1",
+          "source": "AndPointcut.java:88"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.concretize",
+          "source": "Pointcut.java:127"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.concretize",
+          "source": "Pointcut.java:120"
+        },
+        {
+          "method": "org.aspectj.weaver.Advice.concretize",
+          "source": "Advice.java:216"
+        },
+        {
+          "method": "org.aspectj.weaver.CrosscuttingMembers.addShadowMunger",
+          "source": "CrosscuttingMembers.java:78"
+        },
+        {
+          "method": "org.aspectj.weaver.CrosscuttingMembers.addShadowMungers",
+          "source": "CrosscuttingMembers.java:72"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedTypeX.collectCrosscuttingMembers",
+          "source": "ResolvedTypeX.java:328"
+        },
+        {
+          "method": "org.aspectj.weaver.CrosscuttingMembersSet.addOrReplaceAspect",
+          "source": "CrosscuttingMembersSet.java:50"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.ast.AspectDeclaration.buildInterTypeAndPerClause",
+          "source": "AspectDeclaration.java:747"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.buildInterTypeAndPerClause",
+          "source": "AjLookupEnvironment.java:120"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.buildInterTypeAndPerClause",
+          "source": "AjLookupEnvironment.java:136"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.completeTypeBindings",
+          "source": "AjLookupEnvironment.java:87"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.beginToCompile",
+          "source": "Compiler.java:310"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:324"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:372"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:133"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:78"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:117"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:164"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "41123",
+      "date": "2003-08-05T06:49:12+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "41123",
+  "bugId": "41123",
+  "date": "2003-08-05T06:39:51+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "critical"
+}

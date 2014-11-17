@@ -1,0 +1,103 @@
+{
+  "comments": [
+    "+++ This bug was initially created as a clone of Bug #142722 +++\n\nWith TM I20070816-0800, I\u0027m seeing a bug again that we though was resolved in TM 1.0.1:\n\nOn the very first start of a downloaded RSE on a fresh blank workspace, the following exception is logged to the PDE Error Log. I also observe that opening the RSE Perspective is slow.\n\n!ENTRY org.eclipse.osgi 2 0 2007-08-30 06:19:11.749\n!MESSAGE While loading class \"org.eclipse.rse.subsystems.shells.core.subsystems.servicesubsystem.IServiceCommandShell\", thread \"Thread[main,6,main]\" timed out waiting (5000ms) for thread \"Thread[Worker-6,5,main]\" to finish starting bundle \"update@plugins/org.eclipse.rse.subsystems.shells.core_2.0.1.v20070808.jar [211]\". To avoid deadlock, thread \"Thread[main,6,main]\" is proceeding but \"org.eclipse.rse.subsystems.shells.core.subsystems.servicesubsystem.IServiceCommandShell\" may not be fully initialized.\n!STACK 0\norg.osgi.framework.BundleException: State change in progress for bundle \"update@plugins/org.eclipse.rse.subsystems.shells.core_2.0.1.v20070808.jar\" by thread \"Worker-6\".\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.beginStateChange(AbstractBundle.java:1141)\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.start(AbstractBundle.java:258)\n\tat org.eclipse.osgi.framework.util.SecureAction.start(SecureAction.java:400)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseLazyStarter.postFindLocalClass(EclipseLazyStarter.java:111)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClass(ClasspathManager.java:417)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.findLocalClass(DefaultClassLoader.java:189)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass(BundleLoader.java:340)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClassInternal(BundleLoader.java:408)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:369)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:357)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass(DefaultClassLoader.java:83)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:251)\n\tat java.lang.ClassLoader.loadClassInternal(ClassLoader.java:319)\n\tat java.lang.Class.getDeclaredConstructors0(Native Method)\n\tat java.lang.Class.privateGetDeclaredConstructors(Class.java:2357)\n\tat java.lang.Class.getConstructor0(Class.java:2671)\n\n\n-----------Enter bugs above this line-----------\nTM I20070816-0800\ninstallation : eclipse-SDK-3.3 (I20070625-1500), cdt-4.0.0, emf-2.3.0\nRSE install  : I20070816-0800\njava.runtime : Sun 1.5.0_11\nos.name:     : Windows XP 5.1, Service Pack 1\n------------------------------------------------",
+    "Created an attachment (id\u003d78209)\nPatch decoupling plugin activation for UI adapters\n\nThe problem seems to be, that when RSE initially loads and needs the SystemRegistry the first time (through InitRSEJob), a very long sequence of plugin activations is started:\n\nSystemRegistry instantiates subsystem configurations as needed\n   subsystem configurations activate e.g. files.core\n      files.core load the UI adapters unconditionally\n          files.ui requires shells.core\n             shells.core load shells.ui unconditionally\n                 ...\n\nAt some point, there may be a recursive sequence of activations: Because the Main Thread can instanciate the SystemRegistry, which loads the subsystems, but the InitRSEJob (running in a different thread) loads the profiles! This may essentially deadlock, depending on the exact timing of when and by whom the SystemRegistry is first needed, versus when the InitRSEJob runs.\n\nTo fix the issue in the longer term future, we should consider getting rid of asynchronously filling the SystemRegistry in a Job; and, we should make plugin activation of subsystems deferred. Different bugs are used to track both these approaches.\n\nIn the meantime, it should help to decouple UI plugin activation from the Core plugin activation by running them in a separate thread; then, the Core plugin is activated earlier and doesn\u0027t have to wait for UI to fully activate, so the deadlock should not occur.\n\nAttached patch does exactly that (decouple UI plugin activation to separate thread).",
+    "Dave can you review this for 2.0.1? - Thanks!",
+    "DaveM -- since DaveD seems not to be in today, could you review the patch?",
+    "The patch looks fine to me.",
+    "Patch applied, thanks"
+  ],
+  "commentCreationDates": [
+    "2007-09-12T19:04:36+02:00",
+    "2007-09-12T19:17:06+02:00",
+    "2007-09-12T19:17:42+02:00",
+    "2007-09-12T21:59:01+02:00",
+    "2007-09-12T22:22:52+02:00",
+    "2007-09-12T22:38:50+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.osgi.framework.BundleException",
+      "message": "State change in progress for bundle \"update@plugins/org.eclipse.rse.subsystems.shells.core_2.0.1.v20070808.jar\" by thread \"Worker-6\".",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.beginStateChange",
+          "source": "AbstractBundle.java:1141"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.start",
+          "source": "AbstractBundle.java:258"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.util.SecureAction.start",
+          "source": "SecureAction.java:400"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseLazyStarter.postFindLocalClass",
+          "source": "EclipseLazyStarter.java:111"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClass",
+          "source": "ClasspathManager.java:417"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.findLocalClass",
+          "source": "DefaultClassLoader.java:189"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+          "source": "BundleLoader.java:340"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClassInternal",
+          "source": "BundleLoader.java:408"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:369"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:357"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass",
+          "source": "DefaultClassLoader.java:83"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:251"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClassInternal",
+          "source": "ClassLoader.java:319"
+        },
+        {
+          "method": "java.lang.Class.getDeclaredConstructors0",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.Class.privateGetDeclaredConstructors",
+          "source": "Class.java:2357"
+        },
+        {
+          "method": "java.lang.Class.getConstructor0",
+          "source": "Class.java:2671"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "203105",
+      "date": "2007-09-12T19:04:36+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "203105",
+  "bugId": "203105",
+  "date": "2007-09-12T19:04:36+02:00",
+  "product": "Target Management",
+  "component": "RSE",
+  "severity": "normal"
+}

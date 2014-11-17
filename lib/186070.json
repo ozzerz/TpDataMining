@@ -1,0 +1,117 @@
+{
+  "comments": [
+    "Some repositories such as JIRA do not allow special characters in attachment names (bug 169757). Suggestion: use mylar-context.zip as a filename when uploading contexts.",
+    "+1 for the suggestion, assuming that most connectors can handle the same file getting uploaded multiple times.  If they can\u0027t that\u0027s a separate problem, since we currently upload the same thing.\n\nSteffen: let us know if you can take this on, otherwise we can try to add it to Rob\u0027s plate.",
+    "I think we are already using the same filename for context attachments. Not sure how to fix this issue though since the API currently passes a File object and derives the filename from the file. We would either have to copy the context to a temporary directory and name the file accordingly or add an additional argument for the filename to IAttachmentHandler.uploadAttachment() which has 7 arguments already. We might want to change the signature of the function then this would be easy to do:\n\npublic void uploadAttachment(TaskRepository repository, AbstractRepositoryTask task, RepositoryAttachment attachment,\n\t\t\tFile file) throws CoreException;\n\t\t\t",
+    "Could uploadAttachment() do the mapping between the filenames, creating a temp file with the new name if necessary?  Locally it makes sense to have the files have the full (URL encoded) handle.  When attached to a repository task this info is not needed since the task has the same handle.",
+    "Shouldn\u0027t we pass an InputStream instead of a File?",
+    " (In reply to comment #4)\n\u003e Shouldn\u0027t we pass an InputStream instead of a File?\n\nSounds like a good idea although this would require some changes on the implementation side.\n",
+    "Eugene: do you have a solution to this that you could propose or contribute?  I recall it being a problem with another connector.",
+    "(In reply to comment #6)\n\u003e Eugene: do you have a solution to this that you could propose or contribute?  I\n\u003e recall it being a problem with another connector.\n\nI thought it is quite obvious. Interface IAttachmentHandler should be changed to something like this:\n\n  public void uploadAttachment(TaskRepository repository, AbstractRepositoryTask task, String comment, String description, InputStream source, String contentType, boolean isPatch) throws CoreException;\n\n  public void downloadAttachment(TaskRepository taskRepository, RepositoryAttachment attachment, OutputStream target) throws CoreException;\n",
+    "That does not solve the problem since most connectors do require a filename for attachment uploads (including JIRA which BTW currently drops the description). \n\nUsing streams for the API is generally a good idea though:\n\n  public void uploadAttachment(TaskRepository repository, IRepositoryTaskAttachment attachment, InputStream source, IProgressMonitor monitor) throws CoreException;\n\n  public void downloadAttachment(TaskRepository taskRepository,\nIRepositoryTaskAttachment attachment, OutputStream target, IProgressMonitor monitor) throws CoreException;\n\n  IRepositoryTaskAttachment {\n   String getContentType()\n   String getFilename()\n   String getDescription()\n   boolean isPatch()\n  }\n\nThere should be a RepositoryTaskAttachment class which implements IRepositoryTaskAttachment and acts as a proxy to underlying task data. Rob, this should be part of the offline refactoring.",
+    "Right. You got the idea. \n\nJust note that we may need to be able to create IStorage for org.eclipse.mylar.internal.team.ui.actions.ApplyPatchAction.run(IAction action) and IStorageEditorInput as in RepositoryAttachmentEditorInput. \n\nSo, we could eliminate ByteArrayInputStream and things like that out of the equation.",
+    "\u003e Just note that we may need to be able to create IStorage for\n\u003e org.eclipse.mylar.internal.team.ui.actions.ApplyPatchAction.run(IAction action)\n\u003e and IStorageEditorInput as in RepositoryAttachmentEditorInput. \n\nThat\u0027s a different story since it returns the stream for reading attachment data. My concern with that is the underlying (HttpClient) connection is properly closed.\n\nBut we could at least get rid of IAttachmentHandler.getAttachmentData() and write to a ByteArrayOutputStream (all data is buffered in memory anyways).\n",
+    "Should I put the API changes mentioned in comment 8 on my 2.0 plate?",
+    "Sounds good to me.  The only additional thing I would consider is whether the attachments should be treated as a kind of IResource or at least an IStorage.  That would allow us more flexibility and consistency in rendering them (e.g. could be shown with a common navigator view, could inherit other object contributions).",
+    "Using IResource would be a bad idea because it will be bound to the local FS. With IStorage or EFS-based implementation it don\u0027t have to be copied to local FS.",
+    "We should consider an IStorage based implementation for 3.0. Currently attachments contain only meta data and don\u0027t provide means to access the data. Using IStorage will require connectors to provide an InputStream for attachments moving the I/O processing out of the connector (whereas now all I/O is done in the connector) which seems out-of-scope given the little remaining time. \n\nI\u0027ll try to make the changes mentioned in comment 8 for 2.0 if no one objects.",
+    "That would work as long there is no File or IResource used",
+    "Eugene, could you provide more detail how IStorage would be used and how this implementation would be different from RepositoryAttachmentStorage?",
+    "The main idea not to have code like this in the RepositoryAttachmentStorage\n\nbyte[] data \u003d handler.getAttachmentData(repository, attachment);\nif (data !\u003d null) {\n\treturn new ByteArrayInputStream(handler.getAttachmentData(repository, attachment));\n} else {\n\treturn new ByteArrayInputStream(new byte[0]);\n}\n\nso, handler.getAttachmentData() should return an InputStream.\n\nThink about \"Save as...\" example. You don\u0027t really want to copy attached file to bytearray just to pass it to the file system, especially if file is big enough.",
+    "As said in comment 10 and comment 14 I am concerned that we won\u0027t get the implementation right in the next few days but it might be less complicated than I originally assumed, e.g. for BugzillaClient.getAttachmentData() the code would look like this:\n\t\t\n\tString url \u003d repositoryUrl + IBugzillaConstants.URL_GET_ATTACHMENT_DOWNLOAD + attachmentId;\n\tGetMethod method \u003d getConnect(url);\n\treturn method.getResponseBodyAsStream();\n\t\t\nThe stream returned by getResponseBodyAsStream() should properly release the connection when closed. We should have this as additional API to the methods in comment 8 then:\n\n  public InputStream getAttachmentAsStream(TaskRepository taskRepository,\nIRepositoryTaskAttachment attachment, IProgressMonitor monitor) throws CoreException;\n\nNot sure if we still need downloadAttachment()?\n\nMik, concerning comment 12, we can use proxy objects like RepositoryAttachmentStorage to implement IStorage for now and consider extending that to the actual Attachment class for 3.0.\n",
+    "Steffen, I am pushing for this because it will be more difficult to add new API after 2.0 release.",
+    "BTW, see IStorage.getContents() javadoc, which declare a contract for that method.\n\n/**\n * Returns an open input stream on the contents of this storage.\n * The caller is responsible for closing the stream when finished.\n *\n * @return an input stream containing the contents of this storage\n * @exception CoreException if the contents of this storage could \n * not be accessed.   See any refinements for more information.\n */\npublic InputStream getContents() throws CoreException;\n",
+    " (In reply to comment #18)\n\u003e Mik, concerning comment 12, we can use proxy objects like\n\u003e RepositoryAttachmentStorage to implement IStorage for now and consider extending\n\u003e that to the actual Attachment class for 3.0.\n\nSounds good to me given our time constraints.  Although I\u0027m a bit confused because RepositoryAttachmentStorage is already a subtype of IStorate so I think that your other suggestions will already give us most of what we need, notwithstanding the fact that it should probably promoted out of RepositoryAttachmentEditorInput at some point and become part of the API to potentially replace or be merged with our custom RepositoryAttachment class.  But that\u0027s likely all 3.0 stuff and low priority.",
+    "For uploading to work with HttpClient passing an InputStream to uploadAttachment will not work since PartSource which is used for Jira and Bugzilla is more sophisticated.\n \n public abstract class PartSource {\n  public abstract long getLength();\n  public abstract java.lang.String getFileName();\n  public abstract java.io.InputStream createInputStream() throws java.io.IOException;\n }\n\nI\u0027ll extend ITaskAttachment with these methods and change the signature of uploadAttachment() as following:\n\n public void uploadAttachment(TaskRepository repository, AbstractRepositoryTask task, ITaskAttachment attachment,\n\t\t\tString comment, IProgressMonitor monitor) throws CoreException;\n",
+    "Created an attachment (id\u003d69878)\nuntested patch\n\nHere is the first iteration of the patch. \n\nI had to duplicate AttachmentPartSource since there is no plug-in that depends on org.eclipse.mylar and org.eclipse.mylar.tasks.core that is visible to the connector core plug-ins.\n\nLocalAttachment could be split into FileAttachment and ClipboardAttachment but that would require some refactoring of the wizard. For now LocalAttachment could be moved to an internal package.\n\n",
+    "Created an attachment (id\u003d69879)\nmylar/context/zip\n\n",
+    "Created an attachment (id\u003d69896)\ntest\n\n",
+    "Created an attachment (id\u003d69900)\nupdated patch\n\nCopy to clipboard is now done in a job. Manualy tested patch. Rob, please take a look and let me know when I can commit. This patch is likely to cause conflicts with the query hits patch so I that should be merged first.",
+    "Created an attachment (id\u003d69901)\nmylar/context/zip\n\n",
+    "Patch applied and manual validation done for Bugzilla.  The API naming you added looks good, nice work.  I added a bunch of @author tags where you had missed them.  We will have to do additional coverage of this manually.  I will bootstrap soon and make a dev build if all is looking good.  But please investigate the following test failure:\n\njunit.framework.AssertionFailedError: expected:\u003cSample clipboard text\u003e but was:\u003c161734\u003e\n\tat junit.framework.Assert.fail(Assert.java:47)\n\tat junit.framework.Assert.failNotEquals(Assert.java:280)\n\tat junit.framework.Assert.assertEquals(Assert.java:64)\n\tat junit.framework.Assert.assertEquals(Assert.java:71)\n\tat org.eclipse.mylar.tasks.tests.TaskAttachmentActionsTest.testCopyToClipboardAction(TaskAttachmentActionsTest.java:44)",
+    "Steffen, it would be a good idea to use job.join(); instead of this code\n\n\t\t// wait for job to finish\n\t\twhile (PlatformUI.getWorkbench().getDisplay().readAndDispatch()) {\n\t\t}\n",
+    "Thanks Mik. I had minor changes (such as the missing author tags) in my local working copy that were not included in the patch. I was waiting for Rob to commit the query hit stuff before posting another patch.\n\nI have committed a fix for the test but this test case should be rewritten to test the whole job and not just the part that is least likely to break.",
+    " (In reply to comment #29)\n\u003e Steffen, it would be a good idea to use job.join(); instead of this code\n\u003e // wait for job to finish\n\u003e while (PlatformUI.getWorkbench().getDisplay().readAndDispatch()) {\n\u003e }\n\nThe comment is misleading the code is only waiting for the SWT thread to execute pending runnables. The CopyAttachmentToClipboardJob is never really executed.",
+    "Updated the porting guide. Marking as resolved.\n\nPlease note that all context attachments are now saved as mylar-context.zip.",
+    "(In reply to comment #32)\n\u003e Please note that all context attachments are now saved as mylar-context.zip.\n\nI actually wonder if we should use task-context.zip instead.",
+    "Sounds good to me. I wanted to have the project name in the filename for JIRA since it currently drops the description when submitting attachments (bug 190944). Otherwise people have no good way of relating the file to Mylar. How about mylar-task-context.zip?"
+  ],
+  "commentCreationDates": [
+    "2007-05-09T06:00:48+02:00",
+    "2007-05-09T08:17:45+02:00",
+    "2007-05-09T16:49:47+02:00",
+    "2007-05-09T19:11:14+02:00",
+    "2007-05-10T09:02:39+02:00",
+    "2007-05-10T17:10:37+02:00",
+    "2007-05-11T16:59:41+02:00",
+    "2007-05-24T04:28:57+02:00",
+    "2007-05-24T06:28:01+02:00",
+    "2007-05-24T06:50:14+02:00",
+    "2007-05-24T07:04:50+02:00",
+    "2007-05-25T23:40:53+02:00",
+    "2007-05-27T11:16:09+02:00",
+    "2007-05-27T12:51:14+02:00",
+    "2007-05-29T00:12:42+02:00",
+    "2007-05-29T00:46:37+02:00",
+    "2007-05-29T01:53:00+02:00",
+    "2007-05-29T03:46:14+02:00",
+    "2007-05-29T05:49:39+02:00",
+    "2007-05-29T06:00:43+02:00",
+    "2007-05-29T06:03:46+02:00",
+    "2007-05-29T14:16:22+02:00",
+    "2007-06-03T05:34:59+02:00",
+    "2007-06-03T06:18:15+02:00",
+    "2007-06-03T06:18:17+02:00",
+    "2007-06-03T22:22:25+02:00",
+    "2007-06-04T01:09:45+02:00",
+    "2007-06-04T01:09:47+02:00",
+    "2007-06-05T03:18:58+02:00",
+    "2007-06-05T05:54:21+02:00",
+    "2007-06-05T05:59:45+02:00",
+    "2007-06-05T06:01:25+02:00",
+    "2007-06-05T06:15:10+02:00",
+    "2007-06-05T06:23:40+02:00",
+    "2007-06-05T06:33:54+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "junit.framework.AssertionFailedError",
+      "message": "expected:\u003cSample clipboard text\u003e but was:\u003c161734\u003e",
+      "elements": [
+        {
+          "method": "junit.framework.Assert.fail",
+          "source": "Assert.java:47"
+        },
+        {
+          "method": "junit.framework.Assert.failNotEquals",
+          "source": "Assert.java:280"
+        },
+        {
+          "method": "junit.framework.Assert.assertEquals",
+          "source": "Assert.java:64"
+        },
+        {
+          "method": "junit.framework.Assert.assertEquals",
+          "source": "Assert.java:71"
+        },
+        {
+          "method": "org.eclipse.mylar.tasks.tests.TaskAttachmentActionsTest.testCopyToClipboardAction",
+          "source": "TaskAttachmentActionsTest.java:44"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 28,
+      "bugId": "186070",
+      "date": "2007-06-05T03:18:58+02:00",
+      "product": "Mylyn",
+      "component": "Tasks",
+      "severity": "enhancement"
+    }
+  ],
+  "groupId": "186070",
+  "bugId": "186070",
+  "date": "2007-05-09T06:00:48+02:00",
+  "product": "Mylyn",
+  "component": "Tasks",
+  "severity": "enhancement"
+}

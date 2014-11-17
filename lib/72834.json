@@ -1,0 +1,69 @@
+{
+  "comments": [
+    "When two methods are introduced and one is in a sublcass and should override \nthe other but has a different access modifier (i.e. public vs. package), \ndispatch breaks.\n\nThe following program illustrates:\n\npublic class Trouble {\n\n     static abstract class A {}\n     static class B extends A {}\n\n     public static void main(String[] args) {\n         System.out.println(new B());\n     }\n\n     static aspect Bang {\n         abstract String A.getName();\n         public String B.getName() { return \"B\"; }\n         public String A.toString() { return getName(); }\n     }\n}\n\nUnexpectedly, it throws the following exception:\n\njava.lang.AbstractMethodError: \ntrouble.Trouble$A.ajc$interMethodDispatch2$trouble$getName()Ljava/lang/String;\n                 at \ntrouble.Trouble$Bang.ajc$interMethodDispatch1\n$trouble_Trouble$Bang$trouble_Trouble$A$getName(Trouble.java)\n                 at \ntrouble.Trouble$Bang.ajc$interMethod$trouble_Trouble$Bang$trouble_Trouble$A$toS\ntring(Trouble.java:40)\n                 at trouble.Trouble$A.toString(Trouble.java)\n                 at java.lang.String.valueOf(String.java:2131)\n                 at java.io.PrintStream.print(PrintStream.java:462)\n                 at java.io.PrintStream.println(PrintStream.java:599)\n                 at trouble.Trouble.main(Trouble.java:34)\nException in thread \"main\"",
+    "scheduling for investigation in aj5 m3...",
+    "There are multiple bugs that discuss the ITD visibility topic, perhaps the most\nrelevant to this bug is bug 70794 which was to do with forcing users to declare\nITDs on interfaces as being public.\n\nHere we have a similar situation to that.  Because the ITD on the supertype is\nnon-public, the member added to the type has a mangled name.  Because the ITD on\nthe subtype is public, it gets its \u0027real\u0027 name - effectively there is no\noverriding relationship between them.\n\nBasically, this call to getName():\n\n  public String A.toString() { return getName(); }\n\nhas become a call to the mangled member in A.  B doesn\u0027t override the mangled\nmember so we go bang.\n\nThere are two options ...\n\n1. Police that abstract ITDs have to be declared public.  We currently say only\nthose targetting interfaces have to be public, perhaps we could extend the rule\nto all abstract ITDs\n\n2. We have to generate a dispatcher in all subtypes that were hit by the ITD. \nThis dispatcher looks something like:\n\n   public String ajc$interMethodDispatch2$trouble$getName() { getName(); }\n\nIt is possible that we don\u0027t have access to all subtypes making the second\nsolution unpleasant.  And if some user at a later time wants to subtype the\nabstract class, they\u0027d be expected to implement this horrible mangled name.\n\nhmmm\n",
+    "I\u0027m including Wes\u0027 useful mailing list post here:\n\n\u003e I\u0027m proposing to make it an error, depending on any feedback I get\n\u003e here, so that you can\u0027t \u0027specify\u0027 default visibility for abstract\n\u003e ITDs.\n\nSee also \"info\" bug 50195\n https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d50195\n\n Only publically introduced members can be overriden\n by standard Java code.\n\nThis is a corollary of the rule that package-private ITD\u0027s\nare visible only in the same AspectJ compilation.  I\u0027m not\nhappy with that rule, but it is a clear one that explains a\nnumber of things without resorting to mangling discussions.\n\nIn 1.2.1, overriding works if the package-private ITD\u0027s and\ntheir package-private implementations are declared in the same\ncompile process and the implementations are ITD\u0027s.  It does not\nwork if the implementation is in a class, or in another compile\nprocess.  If the implementing ITD increases the visibility to\npublic, it can access the supertype implementation using super,\nand clients can invoke it from pure-Java code, even in a later\njavac compile.  (72834 is about accessing subtype implementations\nvia the supertype reference.)\n\nYou\u0027re saying that we shouldn\u0027t do the dispatch method because\nit wouldn\u0027t be effective for other subtypes and later subtypes,\nbut we\u0027ve already punted on things outside the current compilation.\n\nBy making abstract package-private ITD\u0027s illegal, you remove\nthe cases where people use package-private implementations in\nthe same compile process.\n\nI personally prefer to minimize visibility to reduce complexity,\nso I\u0027d like to retain that ability.  I can imagine some pattern\nimplementations using aspects where you have an abstract method\n(like traverse()) and aspects corresponding to different subtypes\nhandling traversal.  If you don\u0027t want other classes to see and\nuse the traverse() method, then you\u0027d be out of luck with the\nnew error message.  One of the benefits of package-private pattern\nimplementations would be using the same method names (like\n\"traverse()\") without fear of method name collision with other\npattern implementations targetting the same types.\n\nNor do I think it helps to single out abstract methods.  The issue\nis with any package-private ITD, no?  (It\u0027s perhaps more likely that\nthe implementor is outside the compilation process with abstract ITD\u0027s.)\n\nWould it be enough to have a lint message for any ITD with\npackage visibility, since its scope is effectively limited to that\ncompile process (and to aspects for the purpose of overriding)?\nThen users could decide whether they are info/warning/error messages,\ndepending on whether they understand the issue.\n\nbtw, I would distinguish the case of interfaces; since Java forces\ninterface declarations to be public, we haven\u0027t taken anything\naway from users.\n\nIs the implementation of package-private ITD overriding inhibiting\nsome other necessary compiler change?  Would you want to avoid the\ndispatcher by doing it on the call side?  (Would that break incremental?)\n\nWes\n\nP.S. - I should fold the known limitations (i.e., the \"info\" bugs)\ninto the documentation.\n\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\nthat was in response to me seeing if people actually use this feature.  over the\nweekend I was thinking about just providing more warnings/messages in the\nsituation where your ITDs aren\u0027t going to behave as you expect...",
+    "putting on my TODO list, testcase already added to CVS.",
+    "I\u0027m not going to tackle this for 1.5.0 ... punting it *again* ;)",
+    "*cough* punt"
+  ],
+  "commentCreationDates": [
+    "2004-08-28T01:29:11+02:00",
+    "2005-03-23T12:59:59+01:00",
+    "2005-09-30T11:02:56+02:00",
+    "2005-10-03T09:48:40+02:00",
+    "2005-10-03T10:03:45+02:00",
+    "2005-11-25T13:37:27+01:00",
+    "2006-04-04T20:04:44+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.AbstractMethodError",
+      "message": "trouble.Trouble$A.ajc$interMethodDispatch2$trouble$getName()Ljava/lang/String;",
+      "elements": [
+        {
+          "method": "trouble.Trouble$Bang.ajc$interMethodDispatch1$trouble_Trouble$Bang$trouble_Trouble$A$getName",
+          "source": "Trouble.java"
+        },
+        {
+          "method": "trouble.Trouble$Bang.ajc$interMethod$trouble_Trouble$Bang$trouble_Trouble$A$toString",
+          "source": "Trouble.java:40"
+        },
+        {
+          "method": "trouble.Trouble$A.toString",
+          "source": "Trouble.java"
+        },
+        {
+          "method": "java.lang.String.valueOf",
+          "source": "String.java:2131"
+        },
+        {
+          "method": "java.io.PrintStream.print",
+          "source": "PrintStream.java:462"
+        },
+        {
+          "method": "java.io.PrintStream.println",
+          "source": "PrintStream.java:599"
+        },
+        {
+          "method": "trouble.Trouble.main",
+          "source": "Trouble.java:34"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "72834",
+      "date": "2004-08-28T01:29:11+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "72834",
+  "bugId": "72834",
+  "date": "2004-08-28T01:29:11+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

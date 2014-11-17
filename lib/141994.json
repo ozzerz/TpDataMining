@@ -1,0 +1,140 @@
+{
+  "comments": [
+    "* Symptoms\n----------\n\nWhen a test case class fails to load (in my case, there was an exception in the static initializer) the \"Run all tests...\" launch configuration does nothing at all.\n\n* Steps to reproduce\n--------------------\n\n1) Create a new empty Java project\n\n2) Create a new JUnit test case TestDate, adding JUnit to the class path\n\n3) Replace the source by the following\n\nimport java.text.SimpleDateFormat;\nimport junit.framework.TestCase;\n\npublic class TestDate extends TestCase {\n\n  private static final SimpleDateFormat FORMAT \u003d new SimpleDateFormat(\"YYYY-MM-dd HH:mm:ss\");\n\n  public void testThing() {\n    assertNull(null);\n  }\n}\n\n4) Define a Run configuration with \"Run all test in the following project\"\n\n5) Try running this configuration\n\n* Result\n--------\n\nThe run exits almost immediately with 0 test cases found and executed.\n\n* Expected outcome\n------------------\n\nAt least an error message telling me some class could not be loaded",
+    "Move to JDT/UI",
+    "Tested on 3.2RC4.\n\nOn 3.1, the stack trace of the loading error appears in the console.",
+    "Nasty. This has been caused by the fix for bug 133925.\n\nA simple fix would be to catch LinkageError in RemoteTestRunner#main(..) (LinkageError is also caught by SafeRunnable). This would write the stacktrace to the console again (3.1.2 behavior).\n\nA better fix that would require a few more changes would be to protect the call to \"new TestSuite(testClass)\" in JUnit3TestLoader#getTest(..) and show a proper failure in the JUnitView.\n\nI would do the simple fix for 3.2 and the better one for 3.3.\n\n\nStacktrace with first fix:\njava.lang.ExceptionInInitializerError\n\tat sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)\n\tat sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:39)\n\tat sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:27)\n\tat java.lang.reflect.Constructor.newInstance(Constructor.java:274)\n\tat junit.framework.TestSuite.createTest(TestSuite.java:131)\n\tat junit.framework.TestSuite.addTestMethod(TestSuite.java:114)\n\tat junit.framework.TestSuite.\u003cinit\u003e(TestSuite.java:75)\n\tat org.eclipse.jdt.internal.junit.runner.junit3.JUnit3TestLoader.getTest(JUnit3TestLoader.java:102)\n\tat org.eclipse.jdt.internal.junit.runner.junit3.JUnit3TestLoader.loadTests(JUnit3TestLoader.java:59)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:444)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:672)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run(RemoteTestRunner.java:388)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main(RemoteTestRunner.java:196)\nCaused by: java.lang.IllegalArgumentException: Illegal pattern character \u0027Y\u0027\n\tat java.text.SimpleDateFormat.compile(SimpleDateFormat.java:675)\n\tat java.text.SimpleDateFormat.initialize(SimpleDateFormat.java:494)\n\tat java.text.SimpleDateFormat.\u003cinit\u003e(SimpleDateFormat.java:443)\n\tat java.text.SimpleDateFormat.\u003cinit\u003e(SimpleDateFormat.java:424)\n\tat aaa.TestDate.\u003cclinit\u003e(TestDate.java:7)\n\t... 13 more",
+    "Similar problem with LinkageErrors due to imcompatible class files: see bug 140837. As there is no console output it is impossible to know what went wrong and who is to blame.\n\nShould fix for RC6. I will attach a patch.",
+    "Created an attachment (id\u003d42003)\nproposed patch\n\nThe patch contains 3 changes:\n\n1.) main: The patch makes sure that for the normal JUnit runner (non-PDE) all exceptions are printed to the console (otherwise System.exit() swallows them).\nThis is not only important for the LinkageError but for all exceptions so that we have better feedback on problems.\n\n2.) loadClass: It makes sure that \u0027class not found\u0027 exception contains the stacktrace, so in the case of PDE JUnit, the user sees that the bundle class loader has a problem (so the user has a look at the .log).\n\n3.) The 3rd fix is to avoid a NPE somewhere later in the code when a class could not be found in loadClass(). The NPE gives the impression that the JUnit plugin has a bug, when classloading was the problem.\n\nAs Markus mentions, for 3.3 we should implement a solution where we also show the problem in the JUnit view (not just the console)\n\nMarkus, can you review?",
+    "*** Bug 140837 has been marked as a duplicate of this bug. ***",
+    "Proposed patch is good and fixes the problems of this bug and of bug 140837.\nFiled bug 142959 for reporting class loading problems in the JUnit view.",
+    "+1 for 3.2 RC6\n\nPhilippe, Darin and Dani. Do you approve for 3.2 RC6?",
+    "Bug likely got introduced in 3.2 RC2 with the JUNit 4 update. IMO it is a must fix for RC6 as the user gets no feedback whatsoever in case of classloading problem.\nA common scenario is bug 140837, 1.4 JRE with 5.0 compliance. \n\nFix is very conservative, as its adds more output to console.",
+    "Being paranoid: are there chances that it logs more than it used to do in 3.1 ?",
+    "No, 3.1 already logged all exceptions on VM shutdown and classload. The patch would do the same again.\n",
+    "+1 for 3.2RC6",
+    "+1 for 3.2 RC6. Minor correction: I would call System.exit(-1) if the program terminates abnormally.\n\n",
+    "+1",
+    "patch released for RC6",
+    "verified in I20060526-0010"
+  ],
+  "commentCreationDates": [
+    "2006-05-16T15:52:40+02:00",
+    "2006-05-16T16:03:00+02:00",
+    "2006-05-16T16:04:07+02:00",
+    "2006-05-16T16:50:18+02:00",
+    "2006-05-19T14:29:51+02:00",
+    "2006-05-19T14:40:14+02:00",
+    "2006-05-19T14:49:42+02:00",
+    "2006-05-22T12:35:09+02:00",
+    "2006-05-22T12:43:58+02:00",
+    "2006-05-22T16:29:30+02:00",
+    "2006-05-22T16:48:30+02:00",
+    "2006-05-22T17:17:32+02:00",
+    "2006-05-22T17:22:10+02:00",
+    "2006-05-22T21:26:36+02:00",
+    "2006-05-23T18:47:26+02:00",
+    "2006-05-23T19:03:06+02:00",
+    "2006-05-26T11:11:10+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ExceptionInInitializerError",
+      "elements": [
+        {
+          "method": "sun.reflect.NativeConstructorAccessorImpl.newInstance0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeConstructorAccessorImpl.newInstance",
+          "source": "NativeConstructorAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingConstructorAccessorImpl.newInstance",
+          "source": "DelegatingConstructorAccessorImpl.java:27"
+        },
+        {
+          "method": "java.lang.reflect.Constructor.newInstance",
+          "source": "Constructor.java:274"
+        },
+        {
+          "method": "junit.framework.TestSuite.createTest",
+          "source": "TestSuite.java:131"
+        },
+        {
+          "method": "junit.framework.TestSuite.addTestMethod",
+          "source": "TestSuite.java:114"
+        },
+        {
+          "method": "junit.framework.TestSuite.\u003cinit\u003e",
+          "source": "TestSuite.java:75"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.junit3.JUnit3TestLoader.getTest",
+          "source": "JUnit3TestLoader.java:102"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.junit3.JUnit3TestLoader.loadTests",
+          "source": "JUnit3TestLoader.java:59"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests",
+          "source": "RemoteTestRunner.java:444"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests",
+          "source": "RemoteTestRunner.java:672"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run",
+          "source": "RemoteTestRunner.java:388"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main",
+          "source": "RemoteTestRunner.java:196"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.IllegalArgumentException",
+        "message": "Illegal pattern character \u0027Y\u0027",
+        "elements": [
+          {
+            "method": "java.text.SimpleDateFormat.compile",
+            "source": "SimpleDateFormat.java:675"
+          },
+          {
+            "method": "java.text.SimpleDateFormat.initialize",
+            "source": "SimpleDateFormat.java:494"
+          },
+          {
+            "method": "java.text.SimpleDateFormat.\u003cinit\u003e",
+            "source": "SimpleDateFormat.java:443"
+          },
+          {
+            "method": "java.text.SimpleDateFormat.\u003cinit\u003e",
+            "source": "SimpleDateFormat.java:424"
+          },
+          {
+            "method": "aaa.TestDate.\u003cclinit\u003e",
+            "source": "TestDate.java:7"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 3,
+      "bugId": "141994",
+      "date": "2006-05-16T16:50:18+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "141994",
+  "bugId": "141994",
+  "date": "2006-05-16T15:52:40+02:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "normal"
+}

@@ -1,0 +1,144 @@
+{
+  "comments": [
+    "Hi, I work with eclipse since many years and I decided to convert my project into AspectJ formalism.\n\nIt is not possible to build my project due to following encountered error.\n\nThe only aspect I introduced in my project if the following one:\n\n******************************************************\npackage juzzle.model.machine;\n\nimport juzzle.Tool;\n\npublic aspect AnnModelExecutable {\n    //-Each time a machine i going to be executed\n    pointcut modelExecution():call(protected void juzzle.model.machine.JzlEngineMachine.executeOnly());\n    //-Trace\n    before(): modelExecution() {\n        Tool.trace(\"ASPECT avant execution!\");\n    }\n}\n******************************************************\n\n\n\nThe error...\n\n******************************************************\njava.lang.NullPointerException\nat org.aspectj.apache.bcel.generic.MethodGen.\u003cinit\u003e(MethodGen.java:278)\nat org.aspectj.weaver.bcel.LazyMethodGen.initialize(LazyMethodGen.java:294)\nat org.aspectj.weaver.bcel.LazyMethodGen.markAsChanged(LazyMethodGen.java:501)\nat org.aspectj.weaver.bcel.LazyMethodGen.getBody(LazyMethodGen.java:899)\nat org.aspectj.weaver.bcel.BcelShadow.makeShadowForMethod(BcelShadow.java:730)\nat org.aspectj.weaver.bcel.BcelShadow.makeMethodExecution(BcelShadow.java:722)\nat org.aspectj.weaver.bcel.BcelShadow.makeMethodExecution(BcelShadow.java:693)\nat org.aspectj.weaver.bcel.BcelClassWeaver.match(BcelClassWeaver.java:2304)\nat org.aspectj.weaver.bcel.BcelClassWeaver.weave(BcelClassWeaver.java:490)\nat org.aspectj.weaver.bcel.BcelClassWeaver.weave(BcelClassWeaver.java:115)\nat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:1574)\nat org.aspectj.weaver.bcel.BcelWeaver.weaveWithoutDump(BcelWeaver.java:1525)\nat org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify(BcelWeaver.java:1305)\nat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:1127)\nat org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave(AjCompilerAdapter.java:321)\nat org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling(AjCompilerAdapter.java:192)\nat org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspectj_ajdt_internal_compiler_CompilerAdapter$2$f9cc9ca0(CompilerAdapter.aj:70)\nat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:367)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation(AjBuildManager.java:887)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:244)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild(AjBuildManager.java:163)\nat org.aspectj.ajde.internal.CompilerAdapter.compile(CompilerAdapter.java:122)\nat org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run(AspectJBuildManager.java:191)\n\ntrouble in: \njuzzle.space.JzlServiceNewFile\nwhen weaving type juzzle.space.JzlServiceNewFile\nwhen weaving classes \nwhen weaving \nwhen batch building BuildConfig[E:\\juzzle\\eclipse\\workspace\\.metadata\\.plugins\\org.eclipse.ajdt.core\\juzzle.generated.lst] #Files\u003d908",
+    "From the exception message it seems to be having this problem whilst weaving juzzle.space.JzlServiceNewFile. Are you able to attach this file to the bug report?",
+    "Created an attachment (id\u003d49148)\nThe file that is indicated as the source of the problem by the weaver\n\n",
+    "Thanks to Gilles I have been sent a smaller project which I am able to use to reproduce the NPE.",
+    "The npe is being returned from InstructionList.findHandle(..). This is returning null because it\u0027s being called to search for target position 71 when there is no position 71 in the array of positions corresponding to the instruction handles. There is a position 70 corresponding to \n\n70:   invokeinterface\tjava.util.Iterator.hasNext ()Z (102)\t1\t0\n\nwhich I believe comes from line 33 in the previously attached JzlServiceNewFile: \n\nfor(final IfFile f:aDirectory.listFile()) if(f.name().equals(fileName)) {\n\nI haven\u0027t found out why there\u0027s a mismatch in the numbers, plus I haven\u0027t managed to reproduce this with a simplified testcase (the test project has over 300 files).\n\n\n  ",
+    "Finally I\u0027ve managed to recreate this with a simple testcase!\n\n----------------------------------------------------------\n\npublic class Test {\n\n\tpublic boolean method(final MyInterface iface) {\n\t\tfor(final String s:iface.listFile()) if(s.equals(\"blah\")) {\t\t\tSystem.out.println(\"Test.method()\");\n\t\t\tcontinue;\n\t\t}\n\t\treturn false;\t\n\t}\n\n\tpublic void notCalledMethod() {\n\t}\n\n}\n\ninterface MyInterface {\n\n\tpublic abstract List\u003cString\u003e listFile();\n}\n\naspect MyAspect {\n\n\tpointcut p() : call(public * Test.notCalledMethod());\n\n\tbefore() : p() {\n\t\tSystem.out.println(\"calling method\");\n\t}\n\n}\n\n-----------------------------------------------------------\n\nIt seems that the requirements to reproduce this bug are a foreach loop which contains:\n\n1. generics\n2. a \"continue\" statement\n3. some code before the \"continue\" statement.\n\nAlso, although the NPE is occuring whilst we\u0027re weaving, it\u0027s not the weaving process which is causing the problem. The problem is that after compilation the LineNumberTable and code don\u0027t match. The LineNumberTable is being read in correctly during the weaving process and then, since it doesn\u0027t match the code, we\u0027re getting an NPE.\n\nThe decompiled output for the method \"method(final MyInterface iface)\" is as follows:\n\npublic boolean method(MyInterface);\n  org.aspectj.weaver.MethodDeclarationLineNumber: length \u003d 0x8\n   00 00 00 05 00 00 00 41\n  Code:\n   Stack\u003d2, Locals\u003d4, Args_size\u003d2\n   0:   aload_1\n   1:   invokeinterface #22,  1; //InterfaceMethod MyInterface.listFile:()Ljava/\nutil/List;\n   6:   invokeinterface #28,  1; //InterfaceMethod java/util/List.iterator:()Lja\nva/util/Iterator;\n   11:  astore_3\n   12:  goto    42\n   15:  aload_3\n   16:  invokeinterface #34,  1; //InterfaceMethod java/util/Iterator.next:()Lja\nva/lang/Object;\n   21:  checkcast       #36; //class java/lang/String\n   24:  astore_2\n   25:  aload_2\n   26:  ldc     #38; //String blah\n   28:  invokevirtual   #42; //Method java/lang/String.equals:(Ljava/lang/Object\n;)Z\n   31:  ifeq    42\n   34:  getstatic       #48; //Field java/lang/System.out:Ljava/io/PrintStream;\n   37:  ldc     #38; //String blah\n   39:  invokevirtual   #54; //Method java/io/PrintStream.println:(Ljava/lang/St\nring;)V\n   42:  aload_3\n   43:  invokeinterface #58,  1; //InterfaceMethod java/util/Iterator.hasNext:()\nZ\n   48:  ifne    15\n   51:  iconst_0\n   52:  ireturn\n  LineNumberTable:\n   line 7: 0\n   line 8: 34\n   line 7: 45           \u003c--------- This is the entry which later causes the NPE\n   line 11: 51\n  LocalVariableTable:\n   Start  Length  Slot  Name   Signature\n   0      53      0    this       LTest;\n   0      53      1    iface       LMyInterface;\n   25      26      2    s       Ljava/lang/String;",
+    "Looking through the existing open bugs it may be that this bug is the same as bug 150044 (or possibly related to) as the test program in that bug is similar to the one here.",
+    "I believe this is a compiler bug that will be fixed when the compiler is upgraded to JDT level 3.2. \n\nComment #9 of jdt bug 119175 displays exactly the same problem of a bogus line number. The sample code provided in that bug also mirrors the code in comment #5 of this bug. bug 119175 points out that removing the \"continue\" statements causes everything to work as expected. Doing the same in both the code here in comment #5 and in the test project supplied by Gilles (there are 4 places where this needs to be done) causes everything to compile and weave as expected. This fix was put in to 3.2 M5.\n\nI\u0027ve also verified that the testcode provided with this bug produces bogus line numbers with Eclipse 3.1.2 and correct line numbers with Eclipse 3.2.",
+    "Great detective work! Thanks :)",
+    "Marking bug as dependent on 3.2 compiler.\n\nWill look into seeing what the fix involved which means the decision can be made as to whether or not to migrate this fix to our version of the jdt before the compiler upgrade.",
+    "Created an attachment (id\u003d49730)\ntest and fix\n\nThe attached zip contains a failing testcase along with the fix:\n\n- pr155763-tests.txt: apply to the tests project (test shows the NPE reported in this bug)\n\n- ForeachStatement.java: this is to replace org.aspectj.org.eclipse.jdt.internal.compiler.ast.ForeachStatement.java.\nThere are 3 changes to this file - all within generateCode(..) and marked with \"AspectJ Extension\". These changes are the same ones provided as a patch in bug 119175 and are those which are in the 3.2 version of the jdt compiler.\n\nThe question is whether or not to apply these fixes now or wait until we pick them up as part of the compiler update......\n\n\n",
+    "Because the fix for this is so localized (3 small places in one class) - I have decided to port it across (from the patch attached by Helen) - and 3 or 4 other bugs are also likely to be resulting from this same problem. nice detective work Helen.\n\ncommitted.",
+    "fix available in AJ dev build\n\nBUILD COMPLETE -  build.816\nDate of build: 09/11/2006 18:35:27\nTime to build: 73 minutes 51 seconds\nLast changed: 09/11/2006 18:05:27\nLast log entry: test and fix for 155763 - incorrect codegen from compiler leads to NPE"
+  ],
+  "commentCreationDates": [
+    "2006-08-31T08:26:55+02:00",
+    "2006-08-31T09:32:25+02:00",
+    "2006-08-31T10:57:29+02:00",
+    "2006-09-05T15:51:55+02:00",
+    "2006-09-05T18:25:39+02:00",
+    "2006-09-08T13:26:12+02:00",
+    "2006-09-08T13:30:48+02:00",
+    "2006-09-08T15:26:16+02:00",
+    "2006-09-08T15:28:44+02:00",
+    "2006-09-08T15:33:24+02:00",
+    "2006-09-08T17:26:34+02:00",
+    "2006-09-11T19:14:55+02:00",
+    "2006-09-12T09:06:17+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.apache.bcel.generic.MethodGen.\u003cinit\u003e",
+          "source": "MethodGen.java:278"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.LazyMethodGen.initialize",
+          "source": "LazyMethodGen.java:294"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.LazyMethodGen.markAsChanged",
+          "source": "LazyMethodGen.java:501"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.LazyMethodGen.getBody",
+          "source": "LazyMethodGen.java:899"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelShadow.makeShadowForMethod",
+          "source": "BcelShadow.java:730"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelShadow.makeMethodExecution",
+          "source": "BcelShadow.java:722"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelShadow.makeMethodExecution",
+          "source": "BcelShadow.java:693"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.match",
+          "source": "BcelClassWeaver.java:2304"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:490"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:115"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:1574"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveWithoutDump",
+          "source": "BcelWeaver.java:1525"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify",
+          "source": "BcelWeaver.java:1305"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:1127"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave",
+          "source": "AjCompilerAdapter.java:321"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling",
+          "source": "AjCompilerAdapter.java:192"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspectj_ajdt_internal_compiler_CompilerAdapter$2$f9cc9ca0",
+          "source": "CompilerAdapter.aj:70"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:367"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:887"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:244"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:163"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:122"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:191"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "155763",
+      "date": "2006-08-31T08:26:55+02:00",
+      "product": "AspectJ",
+      "component": "Build",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "155763",
+  "bugId": "155763",
+  "date": "2006-08-31T08:26:55+02:00",
+  "product": "AspectJ",
+  "component": "Build",
+  "severity": "normal"
+}

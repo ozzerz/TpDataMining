@@ -1,0 +1,198 @@
+{
+  "comments": [
+    "While editing Java code, I encountered a StackOverflowError in Eclipse 3.3M7 at line 446 of Bindings.java in the method Bindings.findOverriddenMethodInHierarchy(),\nwhich is called downstream from Scope.getJavaLangObject() as shown in the stacktrace below.\n\nI\u0027m running Eclipse 3.3M7 under Windows XP.\n\nLooking at the source code, Binding.findOverriddenMethodInHierachy() searches for an overridden method on an IBindingType recursively traversing upwards through the type\u0027s inheritence hierarchy. ie. If it doesn\u0027t find an \noverridden method on an ITypeBinding, it calls ITypeBinding.getSuperclass(), and if that is not null, recursively calls findOverriddenMethodInHierachy() passing that super class, until either a method is found or no super class is found.\n\n\nThis method is only safe if the ITypeBinding hierarchy is guaranteed to never become circular.\nIf the hierarchy somehow becomes circular, a StackOverflowError occurs.\n\nSomehow or another, the type hierarchy modelled by ITypeBinding must have become circular, and thus traversing upwards through getSuperclass() becomes circular resulting in the StackOverflowError.\n\nI have no idea how I caused this to happen. I was editing a Java class at the time, and changing one of its method\u0027s signatures.\n\nI was typing by hand - ie. just editing code - not using a refactoring tool. The class wasn\u0027t new, nor was I changing its inheritance hierarchy.\n\nHowever, from the log its impossible to know whether the StackOverflowError came about due to the compiler compiling the class I was editing, or whether\nit was doing some other background task. Note the error message its says \"Override indicator installation job\" - perhaps this is a clue.\n\nThe class I happened to be editing at the time was a subclass DefaultTableCellRenderer - and the method I was changing on my class was its \nimplementation of getTableCellRendererComponent - which just so happens to be an overridden method.... but I have no idea whether this is relevant.\n\nThat\u0027s about all I know - I don\u0027t know the specific steps of how to reproduce the bug, or whether it was related to what I was doing at the time.\n\n!ENTRY org.eclipse.core.jobs 4 2 2007-05-10 07:38:17.558\n!MESSAGE An internal error occurred during: \"Override indicator installation \njob\".\n!STACK 0\njava.lang.StackOverflowError\n at org.eclipse.jdt.internal.compiler.util.HashtableOfPackage.get(HashtableOfPackage.java:51)\n at org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getPackage0(LookupEnvironment.java:939)\n at org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getType(LookupEnvironment.java:994)\n at org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getResolvedType(LookupEnvironment.java:946)\n at org.eclipse.jdt.internal.compiler.lookup.Scope.getJavaLangObject(Scope.java:2008)\n at org.eclipse.jdt.core.dom.DefaultBindingResolver.resolveWellKnownType(DefaultBindingResolver.java:1635)\n at org.eclipse.jdt.core.dom.RecoveredTypeBinding.getSuperclass(RecoveredTypeBinding.java:244)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:444)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n at org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:446)\n   \u003crepeated about 1000 times until stack overflows\u003e",
+    "The problem seems to occur before the RecoveredTypeBinding is reached. For this binding, we set the superclass to java.lang.Object so this should be fine.\nThe only problem I can see is if we set Object to be the superclass of Object as a  recovered binding. But this would not produce the stack trace we are seeing here.\nMartin, any clue?",
+    "If you get it again, please try to remember what you did.",
+    "I don\u0027t know what it could be... ",
+    "We definitely need a reproducable test case for this one.",
+    "I just realized the analysis I made in the original bug report I filed was flawed.\n\nStack traces of course, are logged from the from the top of the stack down.... In  otherwords the top line as it appears in log of a stack trace is the deepest method called, while the next line is the caller of that function etc.\n\nSince the first line reported in the log for the stack trace is HashtableOfPackage.java:51 - presumably that is the line of code being executed when the stack overflow occured.\n\nThe problem with this revised reasoning, is that it implies that somehow the JVM spun in an recursive loop for around 1000 iterations at Bindings.java:446, until it miraculously broke free of this loop, only to then run out of stack space a mere 8 stack frames deeper.... \n\nNOTE: While for the sake of brievity I didn\u0027t attach the full log - there is absolutely nothing else logged other than approx 1000 lines to calls to Bindings.java:446 - there\u0027s no hint as to the root caller of Bindings.findOverriddenMethodInHierarchy\n\nSince none of this makes sense, I assume that a side effect is of a StackOverflowError is that the stack trace that is logged is misleading in some respect.... \n\nAnyway, while I doubt this revised reasoning is helpful, I thought I should mention it, incase my initial flawed report was steering analysis of the problem down a wrong path.\n\nIf it happens to me again, I\u0027ll update this issue with more information.\n\n",
+    "Thanks for the additional info. But it doesn\u0027t change much since we need to understand the 1000\u0027s call to getSuperclass().\nFor now there is no much I can do for RC1. But if we get a reproducable test case, we might be able to fix it post RC1.",
+    "Closing as WORKSFORME.\nI could never get a reproducable test case.\nPlease reopen if you get it again.",
+    "Verified for 3.4M1 using build I20070806-1800.",
+    "Steps to reproduce in I20071106-0816:\n\n- paste to Package Explorer:\n\npackage p;\npublic class A {\n\tvoid m() { }\n}\n//--\npackage p;\npublic class C extends A {\n\tvoid m() {}\n}\n\n- remove the \u0027JRE System Library\u0027 from the build path\n- go to Java Browsing perspective\n- open p.A (by using the browsing views)\n- open p.C (by using the browsing views)\n- open p.A (by using the browsing views)\n\u003d\u003e boom\n\nThe type binding for p.A from the ASTProvider has an invalid superclass:\nSUPERCLASS: Object\n\tNAME: \u0027Object\u0027\n\tKEY: \u0027Recovered#referenceBindingLjava/lang/Object;0\u003c\u003e\u0027\n\tIS RECOVERED: true\n\tQUALIFIED NAME: \u0027Object\u0027\n\tKIND: isClass\n\tGENERICS: (non-generic, non-parameterized)\n\tCREATE ARRAY TYPE (+1): Object[]\n\tORIGIN: isTopLevel\n\tIS FROM SOURCE: false\n\tPACKAGE: p\n\tDECLARING CLASS: null\n\tDECLARING METHOD: null\n\tMODIFIERS: (empty string)\n\tBINARY NAME: null\n\tTYPE DECLARATION: Object\n\tERASURE: Object\n\tSUPERCLASS: Object // this is the same invalid \u0027Object\u0027 binding again\n\tINTERFACES (0)\n\tDECLARED TYPES (0)\n\tDECLARED FIELDS (0)\n\tDECLARED METHODS (0)\n\tIS SYNTHETIC: false\n\tIS DEPRECATED: false\n\tANNOTATIONS (0)\n\t\u003e CompilationUnit: p.Object (does not exist)",
+    "*** Bug 208997 has been marked as a duplicate of this bug. ***",
+    "I can now reproduce the problem with 3.4M3 and scenario described at comment 9.\n",
+    "*** Bug 209031 has been marked as a duplicate of this bug. ***",
+    "Created an attachment (id\u003d82336)\nProposed patch\n\nOlivier, can you review this patch?\nThanks",
+    "J?r?me, this should be backported for 3.3.2.",
+    "The recovered \u0027Object\u0027 type binding is still a bit strange, since it has name \"Object\" and a package binding with name \"p\" but a qualifiedName \"Object\".\n\nExpected: either qualifiedName \"p.Object\", or better yet \"java.lang.Object\" and a package binding for \"java.lang\" (since ITypeBinding.getSuperclass() suggests to test for \"java.lang.Object\").",
+    "In this specific case, we could indeed do better.\nWe retrieve a missing binary type binding that contains the right package binding and the right fully qualified name.\nSo we should improve:\n-getPackage() to return the package binding corresponding to the package binding inside the missing binary type binding. This will involve updating the doc for ITypeBinding#getPackage().\n- getQualifiedName() to return a consistent name wrt the package name\n- getName() same for the single name\n\nOf course getSuperclass() should also be fixed, but for this, we have a fix already.",
+    "I opened bug 209510 for problem noticed by Markus at comment 15...",
+    "Created an attachment (id\u003d82427)\nBetter proposed patch\n\nThis patch uses new implemented RecoveredTypeBinding.equals(Object) method instead of identity test. Added new test using code illustrating this peculiar need.\nAlso move the test cases for this bug in a new test suite as this kind of tests do not require the Converter* projects to be copied...\n\nOlivier, please review it again, thanks\n",
+    "equals(Object) is too complicated to fix this issue. Combined with bug 209150, we can have a simpler solution to test equality: getQualifiedName().equals(\"java.lang.Object\")\n\nI\u0027ll be back soon with a new patch...",
+    "Created an attachment (id\u003d82455)\nNew proposed patch\n\n",
+    "+1.\nShould be backported to 3.3.2.",
+    "The patch has issues with array types. I need to rewrite it a little bit...\n",
+    "Created an attachment (id\u003d82466)\nLast (?) proposed patch\n\nITypeBinding.getPackage() API specifies that it returns null for array type. This patch do the right thing now. It also fixes problem with missing [] in array types qualified name (I\u0027ve added a new test for this).\n\nAlso (Markus) updated the javadoc comment for getPackage() method...\n",
+    "Created an attachment (id\u003d82472)\nLast proposed patch fixed by Olivier\n\nOlivier modified my previous patch after his review. getReferenceBinding() method of RecoveredTypeBinding now returns the reference of the most inner type if any.\nThis allow to simplify the getQualifiedName() method and make it safer.\nThanks Olivier\n",
+    "Released for 3.4M4 in HEAD stream.\n",
+    "+1 for backporting to 3.3.2",
+    "Created an attachment (id\u003d82754)\nProposed patch for 3.3.2\n\n",
+    "*** Bug 208997 has been marked as a duplicate of this bug. ***",
+    "Released for 3.3.2 in R3_3_maintenance stream.\n",
+    "Since there is no workaround and a StackOverFlowError is always bad, this fix needs to be included in 3.3.2. Philippe please approve.",
+    "+1 for 3.3.2",
+    "*** Bug 210052 has been marked as a duplicate of this bug. ***",
+    "Verified for 3.4 M4 using build I20071211-0010"
+  ],
+  "commentCreationDates": [
+    "2007-05-10T18:27:49+02:00",
+    "2007-05-10T19:44:27+02:00",
+    "2007-05-11T00:54:33+02:00",
+    "2007-05-11T09:32:53+02:00",
+    "2007-05-11T16:54:43+02:00",
+    "2007-05-11T21:16:30+02:00",
+    "2007-05-11T23:15:14+02:00",
+    "2007-08-01T20:33:27+02:00",
+    "2007-08-07T11:58:49+02:00",
+    "2007-11-07T11:49:32+01:00",
+    "2007-11-07T11:49:53+01:00",
+    "2007-11-07T12:22:00+01:00",
+    "2007-11-07T14:53:46+01:00",
+    "2007-11-07T15:11:02+01:00",
+    "2007-11-07T16:57:09+01:00",
+    "2007-11-07T17:35:54+01:00",
+    "2007-11-07T17:58:41+01:00",
+    "2007-11-08T10:05:12+01:00",
+    "2007-11-08T12:06:31+01:00",
+    "2007-11-08T15:26:36+01:00",
+    "2007-11-08T16:02:37+01:00",
+    "2007-11-08T16:19:01+01:00",
+    "2007-11-08T17:51:44+01:00",
+    "2007-11-08T17:54:14+01:00",
+    "2007-11-08T18:46:10+01:00",
+    "2007-11-08T18:46:39+01:00",
+    "2007-11-13T10:35:03+01:00",
+    "2007-11-13T12:28:40+01:00",
+    "2007-11-13T12:33:27+01:00",
+    "2007-11-13T15:08:39+01:00",
+    "2007-11-21T10:24:43+01:00",
+    "2007-11-21T17:31:26+01:00",
+    "2007-11-21T18:55:25+01:00",
+    "2007-12-12T08:32:51+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StackOverflowError",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.util.HashtableOfPackage.get",
+          "source": "HashtableOfPackage.java:51"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getPackage0",
+          "source": "LookupEnvironment.java:939"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getType",
+          "source": "LookupEnvironment.java:994"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getResolvedType",
+          "source": "LookupEnvironment.java:946"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.getJavaLangObject",
+          "source": "Scope.java:2008"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.DefaultBindingResolver.resolveWellKnownType",
+          "source": "DefaultBindingResolver.java:1635"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.RecoveredTypeBinding.getSuperclass",
+          "source": "RecoveredTypeBinding.java:244"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:444"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:446"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "186410",
+      "date": "2007-05-10T18:27:49+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "major"
+    }
+  ],
+  "groupId": "186410",
+  "bugId": "186410",
+  "date": "2007-05-10T18:27:49+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "major"
+}

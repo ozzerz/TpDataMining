@@ -1,0 +1,95 @@
+{
+  "comments": [
+    "Install I20040218\n\nClean workspace, no plugins in workspace.\n\nRun eclipse from eclipse.\n\nGet the following in the console:\n\nUnknown argument: -dev bin -console -os macosx -ws carbon -arch ppc -nl en_US\nBuildfile: /Users/ssq/Desktop/eclipse/build.xml\n\nBUILD FAILED\nBuildfile: /Users/ssq/Desktop/eclipse/build.xml does not exist\n\nTotal time: 0 seconds\n\nGo to Window -\u003e Preferences -\u003e Plugin Development -\u003e Target Platform.\nOnly 55 plugins are listed - missing are org.eclipse.ui.ide and a bunch of othe rorg,eclipse.ui ones.  \n\nGet the following in the .log:\n\n!SESSION Feb 18, 2004 15:07:24.622 ---------------------------------------------\njava.version\u003d1.4.1_01\njava.vendor\u003dApple Computer, Inc.\nBootLoader constants: OS\u003dmacosx, ARCH\u003dppc, WS\u003dcarbon, NL\u003den_US\nCommand-line arguments: -data /Users/ssq/Desktop/eclipse/runtime-workspace -dev bin\n!ENTRY org.eclipse.osgi Feb 18, 2004 15:07:24.623\n!MESSAGE Bundle reference:file:/Users/ssq/Desktop/eclipse/workspace/org.eclipse.core.xray [15] \nwas not resolved\n!SUBENTRY 1 org.eclipse.osgi Feb 18, 2004 15:07:24.627\n!MESSAGE Missing required bundle org.eclipse.ui\n!SUBENTRY 1 org.eclipse.osgi Feb 18, 2004 15:07:24.628\n!MESSAGE Missing optionally required bundle org.eclipse.ui.ide\n!SUBENTRY 1 org.eclipse.osgi Feb 18, 2004 15:07:24.628\n!MESSAGE Missing optionally required bundle org.eclipse.ui.views\n!SUBENTRY 1 org.eclipse.osgi Feb 18, 2004 15:07:24.629\n!MESSAGE Missing optionally required bundle org.eclipse.ui.editors\n!SUBENTRY 1 org.eclipse.osgi Feb 18, 2004 15:07:24.630\n!MESSAGE Missing optionally required bundle org.eclipse.ui.workbench.texteditor\n!ENTRY org.eclipse.osgi Feb 18, 2004 15:07:24.652\n!MESSAGE Bundle reference:file:/Users/ssq/Desktop/eclipse/plugins/org.eclipse.ui.carbon_3.0.0 \n[53] was not resolved\n!SUBENTRY 1 org.eclipse.osgi Feb 18, 2004 15:07:24.654\n!MESSAGE Missing host org.eclipse.ui_3.0.0\n!SUBENTRY 1 org.eclipse.osgi Feb 18, 2004 15:07:24.655\n!MESSAGE Missing required bundle org.eclipse.ui\n!ENTRY org.eclipse.core.runtime 4 13 Feb 18, 2004 15:07:24.660\n!MESSAGE Unable to locate application extension: org.eclipse.ui.ide.workbench\n!STACK 0\njava.lang.RuntimeException: Unable to locate application extension: org.eclipse.ui.ide.workbench\n        at org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:236)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:106)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n        at java.lang.reflect.Method.invoke(Method.java:324)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:279)\n        at org.eclipse.core.launcher.Main.run(Main.java:742)\n        at org.eclipse.core.launcher.Main.main(Main.java:581)",
+    "It\u0027s definitely a problem with Core at startup.  I couldn\u0027t even start with \nthat build with the same problem.  Could not find the \norg.eclipse.ui.ide.workbench application.\n\nMoving to Core.",
+    "org.eclipse.ui seems to be the culprit that started the whole chain reaction \nof plug-in disablement.\ncc Nick for comment.\n",
+    "What is really strange and why I told Silenio to enter a bug against you, is \nthat it is the same eclipse install that is targeted for self-hosting than the \none we are running against.\nSo if UI had problems, would not have been able to start.\n",
+    "That is strange.  However, PDE calls Core to resolve the plug-ins at the \nspecified location.  So the Core resolver must have had a reason to disable or \ndrop org.eclipse.ui.",
+    "I notice that the first part of the console text talks about a failing build.  \nThis is because of the extra command line args.  We are working on a way of \nstriping them so that AntRunner does not even see them but are not there yet.  \n\nQuestion, why is an ant build running when you start up an eclipse on an empty \nworkspace?\n",
+    "It is because the application beingrun is actually AntRunner (it is the first one in the list of available \napplications).\n\nBTW, the log shows that the resolution fails because there is a cycle between \ncore.runtime.compatibility and org.eclipse.ui (???). This resolution failure triggers many other \nfailures, causing many plugins to be missing:\n\n!ENTRY org.eclipse.pde.core 2 1 Feb 19, 2004 09:50:39.353\n!MESSAGE Problems while scanning external plug-ins\n!SUBENTRY 1 org.eclipse.core.runtime 2 1 Feb 19, 2004 09:50:39.359\n!MESSAGE Detected prerequisite loop from \"org.eclipse.ui\" to \n\"org.eclipse.core.runtime.compatibility\".\n\nThe question is: how did org.eclipse.ui end up as a pre-requisite for \norg.eclipse.core.runtime.compatibility? And why only on Mac?",
+    "If an older target platform (such as M7) is selected in the PDE preference page,\nit works just fine. Must be something in the layout of recent builds that\ntriggers this behavior in the (old) resolver.",
+    "Could it be the removal of the Bundle Manifest files for runtime and \nruntime.compatibility that caused the problem?",
+    "It still happens with today\u0027s i-build (which has the manifests). The error\nhappens in the old resolver, which does not know about bundle manifests, and so\nfar I believe it is not related. \n\nI am able to reproduce it on Windows selecting the Mac OSX install as target\nplatform.",
+    "Found the problem: the platform specific fragment for org.eclipse.ui adds a\nrequirement to org.eclipse.ui, thus making org.eclipse.ui to require itself (!).\n\nChanging the fragment manifest to not add any pre-requisites (shouldn\u0027t have to\nrequire anything).\n\nI agree, the message does not help much (the loop is not between compatibility\nand ui, but with UI itself). Will keep this open to handle the message issue.\n\nOpened a new issue against Platform/UI: bug 52495.",
+    "This is an issue with othe old resolver. Moving to the right component.",
+    "Old summary: \"Can\u0027t start Eclipse\"",
+    "Wassim, is it true that PDE does not use PluginRegistryModel#resolve anymore?",
+    "RC, what you heard is true.\nWe use the State for both 2.1 and 3.0 targets.",
+    "Ok, that deems this bug invalid (the old plugin registry resolver is not used in\nour infrastructure anymore)."
+  ],
+  "commentCreationDates": [
+    "2004-02-18T20:57:12+01:00",
+    "2004-02-18T21:30:25+01:00",
+    "2004-02-18T22:25:18+01:00",
+    "2004-02-18T23:01:29+01:00",
+    "2004-02-18T23:04:05+01:00",
+    "2004-02-19T15:10:05+01:00",
+    "2004-02-19T15:22:16+01:00",
+    "2004-02-19T15:34:55+01:00",
+    "2004-02-19T15:49:57+01:00",
+    "2004-02-19T15:56:37+01:00",
+    "2004-02-19T16:25:33+01:00",
+    "2004-02-19T16:30:04+01:00",
+    "2004-02-19T23:29:00+01:00",
+    "2004-05-07T06:45:36+02:00",
+    "2004-05-07T18:20:25+02:00",
+    "2004-05-07T18:37:13+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "message": "Unable to locate application extension: org.eclipse.ui.ide.workbench",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:236"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:106"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:279"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:742"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:581"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "52423",
+      "date": "2004-02-18T20:57:12+01:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "52423",
+  "bugId": "52423",
+  "date": "2004-02-18T20:57:12+01:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "normal"
+}

@@ -1,0 +1,922 @@
+{
+  "comments": [
+    "(This was formerly bug #53790.) It isn\u0027t possible to run Swing/AWT code from \nwithin an SWT-based application. The simple attached plug-in, which just \nprovides a menu item that opens a Swing dialog, demonstrates the problem: it \nhangs trying to load libawt.jnilib \nfrom /System/Libraries/Frameworks/javaVM.framework/Version/1.4.2/Libraries. \n(The plug-in works under Windows, by the way.)\n\nWee need to execute Swing \u0026 AWT components from within the Eclipse IDE in our \nSwing Designer GUI builder product (which works fine under Windows and Linux).",
+    "Created an attachment (id\u003d12194)\nPlug-in defining an action that opens a Swing dialog\n\nThis plug-in just adds a Sample Menu\u003eSample Action menu item (and corresponding\ntool bar button). To install, just unzip into the root Eclipse directory. The\nmenu item should open a Swing dialog, but instead hangs. The file\nhung-stack.txt shows the stack trace.",
+    "Created an attachment (id\u003d12195)\nSource project for attached plug-in\n\nThis is a plug-in project named \"Mac\" from which the attached plug-in was\ncreated. It defines an action that opens a Swing dialog. To install, unzip the\nfile into your workspace and import it. To reproduce the hanging, start up a\nrun-time workbench that includes this plug-in, and in that workbench click on\nSample Menu/Sample Action. A Swing dialog should open, but instead the thread\nhangs.",
+    "[Moving to platform/SWT]",
+    "This will not be implemented for 3.0.",
+    "Um, why was this changed to \"enhancement\"? This is hardly an enhancement. This \nis basic Eclipse functionality that does not work on the Mac (basic \nfunctionality, BTW, that was touted as a major feature of 3.0). The fact that \nthis basic functionality does not work on the Mac (it works fine on Windows and \nLinux) completely prevents our plugin (and several others) from running on the \nMac. At minimum, the severity should be \"major\" or \"critical\".",
+    "I agree - this is a critical issue.  This is the kind of problem that Sun was so\n\"worried\" about with SWT...  platform dependance.\n\n",
+    "Jay, feel free to chip in and help out.  It\u0027s open source.",
+    "I\u0027ve come across another issue with the SWT/AWT bug 67384 on Mac OS X:  I am stuck trying to \nuse two 3rd-party packages (Instantiations\u0027 Swing Designer, and now Univ. of Maryland\u0027s Piccolo\npackage) because of the problem with Eclipse and running SWT/AWT within it on Mac OS X.\n\nThe last comment here says to \"chip in and help out\".  How can I go about doing that?  I really love\nEclipse, and I switched to the Mac thinking that I could continue my cross-platform development\non the platform of my choice.  BUT, with this error, I feel my hands are becoming tied.\n\nWhat is it that I need to be looking for?  The Piccolo examples work from the command line, so\nthe problem is not that SWT/AWT does not work on Mac, but that it does not work within\nEclipse on Mac.  When I stop the Thread to look at the problem,\nit is in stuck at the same spot as the original bug description:  trying to load the library\n/System/Libraries/Frameworks/javaVM.framework/Version/1.4.2/Libraries/libawt.dylib.\n\nI\u0027d be willing to help on this issue if someone could give me a hint on how to go about it!",
+    "More interesting facts:\n\nI was able to execute the Piccolo test examples ONLY after I deleted the swt.jar from the Classpath\nin Eclipse (3.0).  The test example was NOT referencing any SWT classes, but by simply having\nthat jar on the path, it hung loading the awt library.\n\nI even tested this by substituting the swt.jar that came with my platform version of Eclipse instead\nof the swt.jar file shipped with Piccolo, and the same hanging occurred.\n\nI also verified it with just creating the following test class:  with swt.jar on the classpath, this\nhangs trying to load the awt library.\n\npublic class TestFrame extends javax.swing.JFrame {\n\n\tpublic static void main(String[] args) {\n\t\tjavax.swing.JFrame blank \u003d new TestFrame();\n\t\tblank.setSize(400,400);\n\t\tblank.show();\n\t}\n}\n\nOutside of Eclipse, having swt.jar on the classpath does NOT hang it - it runs fine.",
+    "When you are running inside Eclipse, you are not using the \"java\" executable. \nYou are using the \"java_swt\" executable, which is a modified version of the \nexec that changes the carbon UI thread. This is probably why you are \nexperiencing the hang. See bug#40003 for a more complete explanation.",
+    "Bug 67384 \u003d giving swing advocates a nice argument against SWT [btw: my personal\ninterest to swing has increased due to this bug].\n\nI\u0027ve already detected 2 people, that are willing to assist. \n\nMay i suggest that the component lead create a concrete status report and a\nprocessing-plan (e.g. a simple text document, e.g. in CVS), thus the interested\nparties can start to assist?\n",
+    "*** Bug 74288 has been marked as a duplicate of this bug. ***",
+    "Re comment #11:\n\nFrom the top of my head:\n\n- preliminary: MacOS X UI architecture relies on a single UI event loop in the main thread (thread 0)\n\n- we started SWT for Mac when AWT (1.3.1) was implemented in Carbon (like SWT)\n  - SWT event loop could be run in any thread because behind the\n     scenes the Carbon event calls talked to the \"real\" event loop still running in thread #0.\n  - But it was impossible to run any Cocoa widgets.\n  - SWT/AWT interoperability probably would have been easier at that time\n     (same widget type, same event loop), but we never tried.\n\t\n- later AWT was reimplemented in Cocoa\n  - Carbon (and SWT) event loop could no longer run in arbitrary thread\n     but must be run in thread 0.\n  - JVM would always start in thread #1, which would prevent any Java code from\n     running in thread #0.\n  - We wrote java_swt to start JVM in thread #0 and made it possible to run\n     SWT event loop in UI thread.\n  - Apple made Carbon and Cocoa interoperable and SWT could use Cocoa\n     widgets (Fontdialog, Colordialog, Webkit).\n  - later a JVM option was introduced to start JVM in thread #0 (made java_swt obsolete).\n     - using this option prevents AWT from running from main because it now\n       asserts that its is not running on thread #0.\n     - running AWT in another thread hangs the JVM (probably because the AWT\n       event thread deadlocks).\n\nIt seems, that running AWT within an SWT applications will be tricky as long as both have to get their \nevents from the same event thread.\nIt would be much easier if multiple event threads were supported (as on the other platforms).\n\nAnother idea would be to \"virtualize\" (multiplex) the Carbon calls we are using in the SWT event loop so \nthat multiple loops in multiple threads would become possible.\nIn a first step this would allow us to run the SWT event loop in any thread, and the \"real\" event loop \n(outside of the JVM) would always run in thread #0 (similar to what was possible in JVM 1.3.1).\nIn a second step it might even become possible to support multiple SWT Displays with associated event \nloops (as already supported on the other platforms).\n\nHowever, we never tried this and we are unsure whether this is feasible at all.",
+    "I\u0027ve read comment 13, and i\u0027ve overflown the following article:\n\n\"Thanks to its highly optimized but fully standard Java implementation, Mac OS X\nhas garnered a reputation amongst developers as an excellent platform for\ndeveloping and deploying Java applications. The most recent release of Eclipse,\nthe well-respected open-source IDE, for Mac OS X only strengthens the case, as\nthis flexible and highly extensible tool is a favorite of many Java developers.\"\nhttp://developer.apple.com/tools/eclipse.html\n\n-\n\nSome thoughts:\n- Apple (and it\u0027s community) should have a high interest on a running eclipse\n  \u003d\u003e support from apple should be expected\n  \u003d\u003e support from apple community should be expected\n\n- Examples for search phrases on news archives\n  - \"Enable support multiple event threads on Mac OS X UI\"\n  - \"How to emulate multiple event threads on Mac OS X UI\"\n\n- The phrases could be used to initialize discussion in relevant Mac forums.\n  - Architectural limitation of Mac OS\n\nthis (querying archives, groups, supports etc.) can basicly be done by any party\ninterested to assist.\n\n-\n\nBut! please realize: the cross-platform promise of eclipse is broken !!!\n\nThis is very serious, thus this bug should get the P1 priority, the attention of\nthe PMC and possibly the attention of the EMO.\n\n[please note: i\u0027ve reviewed this case abstracly, without an extensive domain\nknowledge about SWT/MAC.]",
+    "Mike?",
+    "I\u0027m not sure why I\u0027m being ping\u0027ed about this... Personally, I\u0027ve never used an AWT/Swing \nbased plug-in on any platform, so the \"cross-platform promise\" is certainly not broken for \nme. My primary Eclipse development machine is a PowerBook, and I have been very \nhappy with Eclipse R3.0.\n\nI agree with the comment that ilias makes, however. For those who do care about this, \nthey need to let the Apple Java development teams know that interoperability is \nextremely important to them. I am sure that the SWT team would love to fix the problem, \nbut given its rather fundamental nature, I doubt much can be done without a significant \ncommitment from Apple.\n",
+    "I added you because you are a Mac guy.",
+    "I would like to add a comment. We are developing a plugin that uses Java2D to do\nsome image manipulation and rendering. Due to this bug (at least we belive so)\nthe plugin cannot be used under MacOS X even in a headless mode. Eclipse hangs\nup somewhere in the java.awt.Color class (bug #41234, bug #54791). So while the\nuse of Swing in a plugin may be questionable, considering the limitations of\nSWT\u0027s graphic context, the use of Java2D part of AWT is a legitimate use case.",
+    "This bug also affects all of the Eclipse Swing GUI builders that I am aware of \nincluding our Swing Designer and WindowBuilder products, the Jigloo SWT/Swing \nGUI Builder and (presumably) the Eclipse Visual Editor. In our case, we don\u0027t \nwant to use AWT components in our plugin, but we do want to be able to \nprogramatically manipulate them and render them for design purposes.",
+    "Re comment #18:\nLast time I tried, headles AWT could coexist with SWT.\n\nDid you set the AWT headless system property?",
+    "Just to be clear, I believe that Peter and Erich are both making good arguments about the \nneed for this. I was just claiming that *I* do not need AWT integration for my work. \n\nYou need to understand though that the SWT team can make this any priority they want, \nbut unless Apple commits real development effort to help solve the problem, it\u0027s probably \nnot going to get fixed. There are too many other issues that the SWT team *can* make \nprogress on for them to be spending man-years (literally) of effort trying to work around \nfundamental limitations in the platform. \n\nThis is essentially the same issue that came up on Linux: Until JDK 1.5 provided features \nthat made the interop possible, the SWT team could not offer the capability on Linux \neither. (Note:  Even so, the problem was simpler on Linux. I\u0027m not certain about this, but \nit\u0027s not obvious that the Mac version of 1.5 will help.)\n",
+    "Re comment #20:\nEclipse is started using the following command line:\neclipse -vmargs -Djava.awt.headless\u003dtrue\n\nYou can try testing this issue by installing the plugin in question and see\nwhere it hangs. (www dot jasperassistant dot com). There are no problems under\nlinux and windows.",
+    "Apple are unlikely to address this in Java 1.5 as the problem is down deep in \nthe operating system.  In the case of Sun JDK 1.5, they threw away Motif and \nimplemented AWT using X only (XAWT) to improve performance and fix bugs.  \nAlong the way they implemented the XEmbed protocol that is the standard way \nthat one X application is embedded in another.  SWT implemented the other side \nof the protocol and voila ... interop.",
+    "*** Bug 75041 has been marked as a duplicate of this bug. ***",
+    "Created an attachment (id\u003d14793)\nEmbeds a Java3D Canvas in a SWT frame using SWT_AWT\n\nBecause of this bug Java3D combined with SWT is impossible on Mac OS X, which\nis a great loss.\n\nThe Java3D replacements Xith3D/Jogl or Xith3D/LWJGL suffer similar problems at\nthis moment, although SWT intergration is in development (so i\u0027m told). In\naddition, for existing projects porting from Java3D to Xith3D may not be\nfeasable.\n\nI\u0027ve actually wrote this code to assist with bug 75041, but I\u0027m posting it here\nin the hope that it is of any use.\n\nRunning this application from eclipse results in the following exception being\nprinted on the console:\n\n2004-09-27 16:01:27.087 java_swt[9494] Apple AWT Java VM was loaded on first\nthread -- can\u0027t start AWT.\nException in thread \"main\" java.lang.InternalError: Can\u0027t start the AWT because\nJava was started on the first thread.  Make sure StartOnFirstThread is not\nspecified in your application\u0027s Info.plist or on the command line\n\tat java.lang.ClassLoader$NativeLibrary.load(Native Method)\n\tat java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1586)\n\tat java.lang.ClassLoader.loadLibrary(ClassLoader.java:1503)\n\tat java.lang.Runtime.loadLibrary0(Runtime.java:788)\n\tat java.lang.System.loadLibrary(System.java:834)\n\tat sun.security.action.LoadLibraryAction.run(LoadLibraryAction.java:50)\n\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat java.awt.Toolkit.loadLibraries(Toolkit.java:1437)\n\tat java.awt.Toolkit.\u003cclinit\u003e(Toolkit.java:1458)\n\tat javax.media.j3d.MasterControl.loadLibraries(MasterControl.java:883)\n\tat javax.media.j3d.VirtualUniverse.\u003cclinit\u003e(VirtualUniverse.java:233)\n\tat SWTJava3D.\u003cinit\u003e(SWTJava3D.java:35)\n\tat SWTJava3D.main(SWTJava3D.java:55)",
+    "It seems that Bug 75040 _depends_ on bug 67384.\nThis is not a \"duplicate\" relation.\nPlease verify, and reopen bug 75040 again (whilst setting the \"dependency\"\nrelation).\nDependency tracking is important to make the impact of a bug transparent.",
+    "sorry, meant Bug 75041 !",
+    "Just curious: Has someone filed a bug with Apple about this? Perhaps they\u0027re\nwilling to share a thought or two about this could be accomplished...",
+    "We were moving an old legacy Swing application to Eclipse and noticed this \nissue, but it really didn\u0027t have anything to do with showing swing dialogs or \nanything. Some object happened to have stored a serialized version of \njava.awt.Color and Eclipse hung on OSX because when it was deserialized Color \ntried to load the native libraries. \n \nIts easily argueable that you shouldn\u0027t persist and pass objects like \njava.awt.Color, but I\u0027m sure there are applications that do, so I think this is \neven bigger than the title gives it credit for: It can stop people from moving \nlegacy applications from Swing/AWT to SWT (or at least make it harder to \nsupport OSX potentially loosing support for that platform). \n ",
+    "Nope, the SWT/AWT interoperability problem occurs as soon as the native library is loaded, not just \nwhen a Swing dialog is opened. It has nothing to do with serials IDs.\nThe problem is that the AWT thread deadlocks with the SWT thread.\nThe only workaround is to run AWT in headless mode, which disables any kind of AWT event handling.\nAs long as you are only using Colors or Image manipulation headless mode should be fine.\n",
+    "Created an attachment (id\u003d17355)\nOSX crash log when headless\u003dtrue\n\nOk, we tried the headless\u003dtrue trick, but this didn\u0027t solve anything, at least\nin our case.\n\nNow when awt classes were deserialized, java_swt crashes (see attachment). The\nonly two awt classes in there are java.awt.Color and java.awt.Point.. This\nhappens consistently. If headless\u003dfalse, Eclipse hangs as reported by others. ",
+    "\u003e It seems, that running AWT within an SWT applications will be tricky as long as both have to get their \n\u003e events from the same event thread.\n\u003e It would be much easier if multiple event threads were supported (as on the other platforms).\n\nUnfortunately, that seems unlikely (and out of our control).\n\nIf I understand correctly, the main problem is that both SWT and Apple\u0027s AWT implementation require \ntheir respective event loops to run on the UI thread (i.e. thread 0).  If multiple event threads is \neliminated as a practicle expectation, that leaves either SWT or Apple\u0027s AWT changing the way events \nare handled.  \n\nI can see a possibility for SWT to \"virtualize\" an event loop (i.e. creating a loop that can run in any \nthread that then communicates with the real event loop in the UI thread).  If this is possible (maybe \nusing Carbon calls like GetMainEventQueue instead of GetCurrentEventQueue in \norg.eclipse.swt.widgets.Display.createDisplay(), etc), would it solve the problem?  SWT wouldn\u0027t be \nusing the UI thread event loop, directly, but would Apple\u0027s AWT (loaded from a plugin) be able to use \nthe UI thread?  Or would we still have the same problem when AWT was loaded?\n\nI know I don\u0027t currently have a clear grasp of the dynamics involved in the problem.  I\u0027m willing to learn \nabout it and would like to help with a solution, though.\n",
+    "Yes, \"virtualizing\" the event loop seems to be one viable solution at first sight.\n\nThe problem is that one motivation behind SWT was to *eliminate* AWT\u0027s event thread model in order \nto give full event control back to the application. So if SWT is in an event callback, it effectively stops \nthe event loop and prevents that more events are read from the OS (the window server). This means \nthat it is safe to assume that no new events arrive while processing an event.\n\nWith a \"virtualized\" event loop all events would be read in the main thread and events would probably \nbe sent into two queues, one for AWT one for SWT. The SWT event thread would read from one queue, \nAWT from the other. If the SWT thread blocks while processing an event, the main thread must be \nblocked too to preserve the SWT event processing semantics. In addition it must be blocked to ensure \nthat the UI (Carbon) isn\u0027t accessed from two threads concurrently. \n\nSteve? Is this correct?\n\nWill this work?\nI don\u0027t know. \nMaybe somone should try...\n",
+    "We are also encoutering the same problem using Eclipse as a workbench for our \nBioInformatics framework (amaze.ulb.ac.be). We need to use external libraries \nthat make an intensive use of AWT/Swing in their core so it\u0027s simply impossible \nto use it due to this bug. Of course, we tried the headless flag for AWT but it \ndoesn\u0027t work as explained by some other people here.\n\nIt may be important to indicate that, in such a growing sector as \nBioInformatics, many people are working with Mac OS and a lot of new \ndeveloppements are made using Java technologies instead of Perl. Eclipse seems \nto be an excellent candidate to join together all these new tools by using its \nplugin management, but if the system hangs each time an external library uses \nsome AWT/Swing, users and developpers may quickly switch to other solutions.",
+    "This bug also blocks rendering with Batik http://xml.apache.org/batik/ in an\nEclipse plug-In. This includes the usage of ImageTranscoder. There is also no\nway to render into a BufferedImage. (Building an SVGDocument from an XML file\nworks btw)\n\nGerd",
+    "Sorry Andre, I\u0027ve been away the last few weeks.\n\nIt\u0027s OK for events to be dispatched from the user-interface to other threads \nwhile one user interface thread is blocked so virtualizing the event loop is a \npossibility.  Since only one thread is allowed to be in the widget code, \nlocking would be necessary.  When Windows moved from 3.1 to 95, the single \nsystem event queue was virtualized in this manner.  However, this type of code \nis low level and best supported by the operating system vendor.",
+    "I wonder wether the following hints from Apple\u0027s java-dev mailing list could help solving the problem? \nIt looks like this person faced the same issues and found solutions for them:\n\nhttp://lists.apple.com/archives/java-dev/2004/Mar/msg00910.html",
+    "Thanks for the pointer, but it doesn\u0027t help.\nApple\u0027s implementation of AWT is based on Cocoa which is already interoperable with Carbon.",
+    "(In reply to comment #38)\n\u003e Thanks for the pointer, but it doesn\u0027t help.\n\u003e Apple\u0027s implementation of AWT is based on Cocoa which is already interoperable with Carbon.\n\nAre you sure it doesn\u0027t apply?  The mailing list poster mentions that Apple\u0027s AWT is Cocoa-based, and \nsays calling NSApplicationLoad() is important *because* AWT is Cocoa-based:\n\n\"2. We needed to call NSApplicationLoad() as loaded from the AppKit framework. This initializes Cocoa \nfor the Carbon application and any related event handlers, etc. This is important since Java 1.4 AWT is \nCocoa based.\"",
+    "AWT must run in another thread because the main thread is reserved for the Cocoa event thread \n(AppKit). AWT knows how to get events from the Cocoa main thread.\n\nSWT does not know how to get events from the Cocoa main thread. It uses the Carbon event \nmechanism directly. Therefore SWT must run on the main thread. This makes it impossible to have a \nCocoa event loop running there too.\n\nOne part of the problem is that MacOS X requires that there is only a single UI thread in any process \nand that this thread must be the main thread (thread #0).\n\nAWT can only coexist with SWT if it is running in headless mode. In this case no AWT event thread \nexists and no problems occur. However, the current implementation of AWT on MacOS X verifies that is \nin not running in the main thread even in headless mode. This check makes no sense. I\u0027ve filed a radar \nbug against this.",
+    "Re: comment #40: I\u0027ve verified that SWT and *headless* AWT are interoperable in MacOS X 10.4 (Tiger). \nThat means that radar bug #3867646 has been fixed. I\u0027ve requested that this fix needs to be applied to \n10.3 (Panther) as well.",
+    "This bug is very unfortunate for many reasons indeed. My problem is that I am\ntrying to run a SWT application from Java Web Start... a bad idea apparently on\na Mac, since Jave Web Start is using AWT ...\n\nI could run java web start with all the parameters on the command line ( that\nway web start should not need the user AWT interface appart for displaying a\nprogress bar for the download ).. but I get \"Can\u0027t start the AWT because Java\nwas started on the first thread\" ( even with in headless mode ... which, I hope,\nis going to be fixed soon ).\n\nI don\u0027t know were this Java Web Start / SWT / OSX issue should be solved, but I\ndon\u0027t really have much time for this since OSX is not our primary target\nplatform. It would be really nice, though, if I could get our application to run\nseemlessly on my favorite OS ;-) ( It runs fine from eclipse ).",
+    "Our project needs to work with JOGL on the Mac. Because JOGL uses an AWT Canvas\nwe are forced to use AWT even for the user interface. We just decided to drop\nSWT and use AWT instead. It\u0027s a pity.",
+    "I just noticed that Java 1.5 (aka \"5.0\") is now released for Mac OS X 10.4 \n(Tiger)...has anybody tried this and noticed any difference with these AWT/SWT \nissues?",
+    "Todd, does AWT headless mode work in JDK 1.5 on the Mac?",
+    "I am able now to generate JasperReports reports with OSX 10.4 (Mac Tiger), which\nwas not possible with the previous version.  This is true with the updated 1.4.2\nversion of java that ships with 10.4, as well as java 1.5.\n\nPreviously, I\u0027d get the \"first thread\" error.\n\nHowever, the version of SWT I am using simply throws an error that SWT_AWT is\nnot supported when I try to actually use the SWT_AWT bridge; I have no idea if\nin theory it could work on 1.5 if the explicit check were removed, but I\u0027m\ninterested of course.",
+    "I\u0027ve verified that AWT *headless* mode works on MacOS X 10.4.1 both under Java 1.4.2 as well as 1.5.0.\n",
+    "When I export an RCP application for MacOSX, and I specify in the .product VM\narguments -Djava.awt.headless\u003dtrue, I still have issues.  My app does not crash\n(as it does if I leave the VM argument out), but I cannot seem to use the AWT\nclasses.  I have to add -Djava.awt.headless\u003dtrue to the Info.plist file as well.\n What\u0027s the difference between the VM args in the Info.plist file and the\nconfig.ini file generated by Eclipse?  \n\n(Also, Should this be in a different bug report?)\n\n",
+    "Yes, please create a new bug report for this (so that we don\u0027t spam too many people...)\nI\u0027ll try to explain the difference between config.ini and Info.plist there.",
+    "Is there a plan to fix this? Apple change? Swing/AWT change? SWT change? What\nwould it take?\n\nThe problem with SWT_AWT on the Mac keeps being used as a reason not to use SWT,\nfor example, http://www.javalobby.org/java/forums/m91921485.html .",
+    "We are still waiting on Apple.",
+    "What\u0027s Apples metric for an important bug? Some years ago some apple engineer\nsaid it\u0027s the number of bug reports filed to their bug radar from independant\ndevelopers for the same bug. Is this still the case? Do we all have to file a\nbug report to https://bugreport.apple.com/ ?",
+    "I have a problem! I can\u0027t work /w MyEclipse-UML on MacOSX like under WinXP and\nLinux...  Please fix this bug.",
+    "Anyone know if the latest Java update from Apple affects this bug (1.3.1/1.4.2 Release 2)?\nhttp://developer.apple.com/releasenotes/Java/Java142RNTigerR2/index.html\n\nI noticed that it addresses one problem associated with headless applications accessing AWT (Radar \n#4097730), but it doesn\u0027t appear that this Java update addresses the fundamental issue.",
+    "No, the latest Java update does not affect this bug.",
+    "In addition to voting for this bug, I would like to register some thoughts and\nwould appreciate an update on what is going on. It\u0027s fairly devastating not to\nbe able to support the Mac platform because of this and causes extreme\nresentment and disappointment with whatever circumstances have prevented a fix\nfor so long. We have customers in the financial services community demanding\nthat we provide Mac support since many people are now getting them as laptops\nand especially as second computers at home. As an independent development shop\nwith highly limited resources, we appreciated that we could support different\nplatforms without additional resources, feeling that the investment in Java was\nstarting to pay off as more platforms were starting to come into play. We are\nholding off the purchase of at least 20K worth of Apple hardware because of this\nand recommending to our customers in so far as our application is affected and a\ncritical piece of their infrastructure not to purchase any Apple systems until\nthis issue is resolved. If there is a specific person that can be contacted at\nApple, I would greatly appreciate someone here providing at least their name and\n contact information if possible so that we can express the level of importance\nof this issue.\n\nThanks!\n\nDavid Thomson\ndavid@suprasphere.com",
+    "Dave, The person at Apple you\u0027re looking for is on the cc list for this bug, so\nyou\u0027ve met your goal. Todd Brackett (tbrackett@apple.com). Todd owns the partner\nrelationship from Apple to Eclipse.\n\nI can assure you that Todd understands the importance of this issue.",
+    "(In reply to comment #57)\n\u003e Dave, The person at Apple you\u0027re looking for is on the cc list for this bug, so\n\u003e you\u0027ve met your goal. Todd Brackett (tbrackett@apple.com). Todd owns the partner\n\u003e relationship from Apple to Eclipse.\n\u003e \n\u003e I can assure you that Todd understands the importance of this issue.\n\nI lead a software project at NYU School Of Medicine, and I find myself in a\nsimilar position to Dave\u0027s...presented with the opportunity to upgrade our\nhardware, I am sad to say that I am unable to specify Apple as our development\nenvironment. Fatal problems with the plugins we require preclude use of OS X.\n\nI sincerely hope that this problem is addressed soon. Eclipse appears to be the\nmost popular Java IDE (as well as being my personal favorite) and I think that\nit is a problem of CRITICAL importance that Apple can\u0027t run this software\nproperly while Windows and Linux can. Also please note that this discussion\nstarted in the middle of 2004, and we\u0027re still discussing it. ",
+    "I\u0027d like to voice my agreement with some things that have come up in a few\nrecent posts.\n\nOur firm is also having to make concrete business decisions as to whether we can\noffer a Mac version, and this bug is the only real obstacle.  To plan ahead, it\nwould be nice to know if there is a plan in place to resolve this issue, if\nanyone is actively working on it (at Apple, Eclipse, or otherwise), and some\nidea of the progress.  Because based on the limited information available in\ncomments to this bug report, no business can rationally commit serious money\ntowards an SWT_AWT-dependent Mac version.\n\nInterestingly, in the specific industry I\u0027m in, there is no Mac-based product. \nFrom what I understand, even Apple itself is forced to buy and use Windows to\nhave such a system.\n\nSo until this issue is resolved, it is a lose-lose-lose situation.  Apple is\nlosing hardware sales, businesses are losing software sales, and Eclipse/SWT can\nonly really use the term \"cross-platform\" with a big asterisk.",
+    "Is there any way we could get a status report on this bug and what is being done\nand what the community can do to get this bug resolved?  I have a client who is\nwanting to do a lot of things that this bug is inhibiting (embedding some swing\nforms, using java web start on OSX with SWT apps, etc) and I\u0027m having a really\nhard time explaining why these things don\u0027t work, especially when they go to the\neclipse site and see that OSX is a supported platform.  I\u0027m sure this is true\nfor quite a few others.  I know you guys may be swamped at the moment, but any\nupdate on the situation would help.\n\nThanks.\n",
+    "Java web start on OSX should work with SWT apps ! Maybe there is a workaround,\nlike running java web start in headless mode ... but I never managed to get that\nrunning. \n\nThis is just another posting with the hope somebody will look into this problem :-(",
+    "The issue for me is the inability to use the UML perspective provided by the MyEclipse plug in as a \nresult of this bug. As Macintosh is my primary platform I am forced to go without full functionality in \nmy IDE.\n\nI would have to have to acquire a Windows based workstation just to get around this bug.",
+    "J2SE 5.0 release 3 DP4 mentions:\n(4295773) new SWT / AWT headless mode fix\n\nHas anyone tested to see if this solves their problems?  Is there a simple test case one could use?",
+    "I installed release 3 DP4 and I\u0027m now able to use the SVG exporting feature of\nEclipseUML which (from what I know) was broken because of the missing headless\nmode (it uses Batik for exporting). So from my point of view this seems to be fixed.",
+    "Time to speak up, folks - is there anyone left for whom the latest JDK 5 developer preview *doesn\u0027t* solve \nthis problem?",
+    "Does anyone have more info about the \"(4295773) new SWT / AWT headless mode\nfix\"?  I have been running AWT headless for a long time on OS X -- so I\u0027m\nconfused about what was fixed.  I was under the impression that the resoltuion\nfor this bug would involve being able to run SWT_AWT *without* headless\u003dtrue.  \n\nI will download J2SE 5.0, but can some one clasrify what I am to test? ",
+    "Dan, I think you are right.  This bug is the one which inhibits the use of\nSWT_AWT objects on Mac OSX.  So, in order to test if the issue is fixed, you\nshould be able to run this snippet without having additional properies set:\n\nhttp://dev.eclipse.org/viewcvs/index.cgi/org.eclipse.swt.snippets/src/org/eclipse/swt/snippets/Snippet135.java?rev\u003dHEAD\u0026content-type\u003dtext/vnd.viewcvs-markup\n\nYou should also be able to launch SWT applications with Apple\u0027s web start\nclient.  I\u0027ve actually set up an SWT application to launch with a different web\nstart client.  It is a little tricky, but it will allow you to deploy and update\nan SWT application on OSX using the JNLP protocol.  I\u0027m going to write up an\narticle about it in the next week or so as I have time, but if you would like\ninformation on it before then, just e-mail me.",
+    "It is my feeling that it will not be finished until it runs *without*\nheadless\u003dtrue being set.\n\nIn addition, I am thinking about filing a new bug to move the SWT_AWT class back\ninto the win32.*, gtk.* hierarchies until this is fixed and to make it front and\ncenter in the API documentation in the meantime. There is little documentation\nthat this will break OSX support, as it\u0027s not mentioned in the API or in many\n(if any) of the examples.\n\nI think that should be a standard process, where if something completely breaks\nOSX (or other platform) support, it should remain in a platform specific part of\nthe API until it works on at least the major three (OSX, Linux, Windows). Thoughts?",
+    "I think that, other than helping us vent our anger at not having SWT_AWT on the Mac, moving it into N \nplatform specific packages would be counter-productive on almost every possible level.\n\nHowever, I *do* believe that the javadoc for the class should clearly identify what its limitations are.",
+    "(In reply to comment #65)\n\u003e Time to speak up, folks - is there anyone left for whom the latest JDK 5 developer preview \n\u003e *doesn\u0027t* solve this problem?\n\nI just tried it with the hope I could run a Swing application with SWT library in the libraries list of the \ncurrent project, but it didn\u0027t work (of course, it works without SWT library) : no frame at screen, even \nworse, no message on the console as there used to be before this new release. \nI know it\u0027s a quite strange situation, but I want to make tests of SWT and Swing libraries in the same \nproject, and there\u0027s no reason I should be obliged to create two different projects for this.\nOn the other hand, VE seems to work better now... :-)",
+    "I spoke a little too fast about Visual Editor under Mac OS X. I tried it again ant it doesn\u0027t work correctly :\n- No window appears in the preview screen\n- In the JavaBeans view, no contentPane appears in a JFrame tree, and thus you can\u0027t add any component \nto the frame",
+    "(In reply to comment #65)  The problem is not fixed for me; I have an application that uses jfreechart as \na swing component.  \n\nI get a plain \"not implemented\" exception.  This happens in both Eclipse 3.2M3 and 3.1.1 on JDK \n1.5.0_05, ppc Mac OS X.  \n \n\n!ENTRY org.eclipse.ui 4 0 2005-11-14 09:38:29.888\n!MESSAGE Not implemented\n!STACK 0\norg.eclipse.swt.SWTError: Not implemented\n\tat org.eclipse.swt.SWT.error(SWT.java:2968)\n\tat org.eclipse.swt.SWT.error(SWT.java:2865)\n\tat org.eclipse.swt.SWT.error(SWT.java:2836)\n\tat org.eclipse.swt.awt.SWT_AWT.new_Frame(SWT_AWT.java:63)\n\tat com.trifork.p4.history.views.Graph.createPartControl(Graph.java:36)\n\tat org.eclipse.ui.internal.ViewReference.createPartHelper(ViewReference.java:305)\n\tat org.eclipse.ui.internal.ViewReference.createPart(ViewReference.java:180)\n\tat org.eclipse.ui.internal.WorkbenchPartReference.getPart(WorkbenchPartReference.java:552)\n\tat org.eclipse.ui.internal.PartPane.setVisible(PartPane.java:283)\n\tat org.eclipse.ui.internal.ViewPane.setVisible(ViewPane.java:512)\n\tat org.eclipse.ui.internal.presentations.PresentablePart.setVisible(PresentablePart.java:126)\n\tat org.eclipse.ui.internal.presentations.util.PresentablePartFolder.select(PresentablePartFolder.java:\n268)\n\tat org.eclipse.ui.internal.presentations.util.LeftToRightTabOrder.select(LeftToRightTabOrder.java:\n65)\n\tat org.eclipse.ui.internal.presentations.util.TabbedStackPresentation.selectPart\n(TabbedStackPresentation.java:391)\n\tat org.eclipse.ui.internal.PartStack.refreshPresentationSelection(PartStack.java:1102)\n\tat org.eclipse.ui.internal.PartStack.setSelection(PartStack.java:1051)\n\tat org.eclipse.ui.internal.PartStack.showPart(PartStack.java:1256)\n\tat org.eclipse.ui.internal.PartStack.createControl(PartStack.java:576)\n\tat org.eclipse.ui.internal.PartStack.createControl(PartStack.java:528)\n\tat org.eclipse.ui.internal.PartSashContainer.createControl(PartSashContainer.java:485)\n\tat org.eclipse.ui.internal.PerspectiveHelper.activate(PerspectiveHelper.java:230)\n\tat org.eclipse.ui.internal.Perspective.onActivate(Perspective.java:813)\n\tat org.eclipse.ui.internal.WorkbenchPage.setPerspective(WorkbenchPage.java:2979)\n\tat org.eclipse.ui.internal.WorkbenchPage.busySetPerspective(WorkbenchPage.java:909)\n\tat org.eclipse.ui.internal.WorkbenchPage.access$11(WorkbenchPage.java:894)\n\tat org.eclipse.ui.internal.WorkbenchPage$12.run(WorkbenchPage.java:3102)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\n\tat org.eclipse.ui.internal.WorkbenchPage.setPerspective(WorkbenchPage.java:3100)\n\tat org.eclipse.ui.internal.ChangeToPerspectiveMenu.run(ChangeToPerspectiveMenu.java:91)\n\tat org.eclipse.ui.actions.PerspectiveMenu.run(PerspectiveMenu.java:331)\n\tat org.eclipse.ui.actions.PerspectiveMenu.runOther(PerspectiveMenu.java:346)\n\tat org.eclipse.ui.actions.PerspectiveMenu$3.runWithEvent(PerspectiveMenu.java:108)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection\n(ActionContributionItem.java:538)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:488)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:\n400)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1380)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1404)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1389)\n\tat org.eclipse.swt.widgets.Widget.notifyListeners(Widget.java:1237)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3060)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2712)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1699)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1663)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:367)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:103)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:226)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:163)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:334)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:278)\n\tat org.eclipse.core.launcher.Main.run(Main.java:973)\n\tat org.eclipse.core.launcher.Main.main(Main.java:948)",
+    "I get the same error when trying to use my metrics plugin \n(http://metrics.sourceforge.net), which attempts to\nembed a touchgraph panel to visualize dependencies.\n\n(In reply to comment #72)\n\u003e (In reply to comment #65)  The problem is not fixed for me; I have an \napplication that uses jfreechart as \n\u003e a swing component.  \n\u003e I get a plain \"not implemented\" exception.  This happens in both Eclipse \n3.2M3 and 3.1.1 on JDK \n\u003e 1.5.0_05, ppc Mac OS X.  \n",
+    "In the release notes of the recent Java 5.0 Release 3, I found an interesting item about SWT:\nhttp://developer.apple.com/releasenotes/Java/Java50Release3RN/\n\nI\u0027ve verified that java.awt.headless is indeed no longer necessary when using non-event based classes \nfrom AWT like BufferedImage. In addition it seems that interoperability between SWT and *HEADLESS* AWT \nhas been improved too. I no longer see threading related console messages when terminating applications \nthat use both SWT and *HEADLESS* AWT.\n\nThis is good news, however it does *not* solve the original problem described in this bug.",
+    "I\u0027ve read that in the new release 1.5.0 R3 it is possible to implement non SWT components. Is it now possible to implement Swing-Frames in a SWT composite or not?\n\nThe class SWT_AWT has no implementation for embedding a awt/swing frame in SWT, isn\u0027t it? Is there an update of the eclipse-swt api for doing it or is it still an open bug?",
+    "*** Bug 122988 has been marked as a duplicate of this bug. ***",
+    "Is Apple really aware about this bug ?\nThere\u0027s no mention about SWT in any recent release of Developer Previews of JDK 1.5 ! :(",
+    "(In reply to comment #77)\n\u003e Is Apple really aware about this bug ?\n\u003e There\u0027s no mention about SWT in any recent release of Developer Previews of JDK\n\u003e 1.5 ! :(\n\u003e \n\nThey are aware of the issue, but have been frustratingly quiet about the whole topic.  I had sent an enquiring e-mail about this bug to Todd Brackett @ Apple whose email was listed below (comment #57) to see if i could get any info.  I got a reply back from someone at Apple saying Todd had recently left Apple (this was back in early Dec/05) and someone named Michael McMillion from the IT partners team was filling in and getting up to speed.  I was told he was cc\u0027d on my enquiry... and also the Java team would be asked about the issue and be getting back to me... but i haven\u0027t heard boo.... \n\nI\u0027d rather not post their e-mail addresses directly to bug reply, but if anyone is interested in picking up the torch and start hounding them for some concrete answers (any answers positive or negative would be helpful !), i\u0027d forward you the contacts i have.  I\u0027ve given up and am content with sacrificing some of the features i was planning which were using some advanced Swing based graph layout engines. \n",
+    "I had a similar experience interacting with Apple. I know that the Eclipse Foundation is trying to do the right thing, but if this is important enough of an issue, I think Eclipse should either hold back all new releases on OS X until this is at least *acknowledged* or remove SWT_AWT from the core Eclipse API. That may not be the \"open source way\", but Apple is not really an open source company and they are using their market share and clout to impose frustration on developers and users.\n\nThis smells like a lot of politics are driving this (although it does seem like it is a very complex technical issue as well). Apple probably has its own agenda with X Code and not really wanting people to be using Eclipse in the first place. It could have something to do with Sun and their relationship with Apple. From what I understand, Sun is already upset that Apple is using Quicktime in their licensed JRE instead of the Java Media API\u0027s, or something like that. The transition to Intel and the \"universal binary\" might also be complicating things on their end.\n\nSo unfortunately I think Apple will only respond to something more drastic than a bunch of developers complaining on an Eclipse bug list, which I don\u0027t think they even follow any more since Todd Brackett removed his name from the list a while back. Apple is showing that they want to play hard ball or at least have many more things going on that they perceive to be a much higher priority, so I think they need to realize first-hand just how important Java in general has been to their renaissance as a development platform.\n\nTo the extent that Eclipse and SWT are important as well (rather than Swing specifically), I don\u0027t know, but it seems as if Apple does and is saying \"buzz off\" to SWT and Eclipse in general. Perhaps the final decision hinges around ascertaining the extent that SWT_AWT even matters to the success of either Eclipse as a development platform or SWT as an independent GUI/application API. From what I understand, the SWT part has always been seen as a \"bonus\", and what it shows is that there could never be a SWT_AWT piece embedded inside the Eclipse development platform itself.\n\nIf there is no chance that it will be cross platform in the near to mid term, I think it should be removed as an API. It will just create way too many headaches long term for people who perhaps wouldn\u0027t have the awareness of the consequences of using it on the cross-platform compatibility of their application.",
+    "For the record, I could not disagree more with David Thompson\u0027s suggestion to remove OS X from the core.\n\nThis paticular bug - swt_awt - is aggravating for sure. But there are many, many applications that work just fine, thank you, without the need for this bug to be fixed.  I know ours does, and we depend nearly exclusively on the cross-platform nature that Java/SWT gives us for a strategic advantage over other products.\n\nThere are other substantial applications being built on Eclipse that don\u0027t need this bug fixed and that will be targeted at Mac owners, e.g. \"Flex,\" Macromedia\u0027s new Eclipse-based Flash IDE.\n\nAnd there are too many people who really *want* Eclipse / OSX to work as well as it can within whatever constraints it has, and removing it from the supported list disrespects their past, and ongoing efforts.\n\nSuch a move would also be difficult strategically for Eclipse, which has used cross-platformness as a key plank in the platform for Eclipse goodness.\n\nI agree that this may be influenced by politics.  But I suspect it\u0027s less about that than simply that Eclipse isn\u0027t yet \"important\" enough on Apple\u0027s radar screen of things they want/need to do.\n\nMaybe what we can do is not rely *only* on going through Apple engineers, but go to the Apple Developer Program, and see if we can find one of those evangelist-type people who can get this on Apple\u0027s radar screen.\n\nI\u0027m short time right now, but I\u0027ll put this on my list of things to do, and see if I can help get some movement using this route.",
+    "(In reply to comment #80)\n\u003e this bug fixed and that will be targeted at Mac owners, e.g. \"Flex,\"\n\u003e Macromedia\u0027s new Eclipse-based Flash IDE.\n\nnot true, we do want this fixed for Flex Builder. We did manage to get this working properly under Tiger only with headless mode but we\u0027re not sure if Tiger can be the minimum system we support. I have already pushed for it with Apple several times...don\u0027t worry, when the time comes we can now throw Adobe\u0027s wieght behind this. Note I haven\u0027t been following this for a while now and am not sure of the status if anything has changed since a few months ago.",
+    "George --\n\nThanks for contributing.  I stand corrected re: needing it fixed for Flex (though I still stand on my assertion that OS X needs to remain fully committed/supported).  And I think getting Adobe\u0027s full weight behind getting this fixed is *exactly* the kind of thing that would help!  I\u0027d be happy to coordinate my contact with Apple Developer Programs to coincide at the same time as yours; if everybody did the same thing, maybe we\u0027d get the right attention.\n\nI\u0027ll bet if you post something to this bug report when you get ready to contact Apple, *and* if Adobe can help us find the right person to push on, we\u0027ll all jump on board.\n\nLet us know.",
+    "\"...not sure if Tiger can be the minimum system we support\"\nWow, it\u0027s spooky when other developers have EXACTLY the same thoughts as you!\n\nI have spent 10 months developing a quite complicated SWT application (see http://markmclaren.com/desktop.html), and am seriously considering re-writing it in Swing because of this bug.  I have been a Java GUI programmer for 4 years and in my opinion this is by far the biggest impediment to SWT adoption.  With this bug fixed, most of the arguments against SWT (and the Eclipse platform) disappear.\n\n",
+    "I don\u0027t know how extensivly the vote feature within bugzilla is used but I guess the current vote status shows dramatically, how important this feature is. This bug has the most votes of ALL bugs filed for Eclipse with 137 voters, the only other bug with more than 100 votes is the request for a tiled text editor (which I think is a great idea ;-).\n\nI know that the issues has to be fixed on Apples side but perhaps some or at least one person at Apple is monitoring this issue. I really hope that this is not a political issue and can be resolved within the next months.\n",
+    "As an effort to get this issue solved, we (the community) can work on raising the profile of this bug, by talking about it in public domain by blogging about it.\n\nIn addition to this I think we should also identify someone in the Eclipse foundation as the \u0027point guy\u0027 for working our side of the issue (think of us as a special interest group :), I\u0027m not too sure who that person is.. maybe Bjorn Freeman-Benson who is the Director of Open Source Process?\n\nOur objectives should be to lobby Apple for a detailed response on the state of this issue along with a commitment to a timeline for solving it.\n\nRight now we have nothing, no timeline, no commitment of resources, little to no communication relating to the progress of this issue (from either side). \nAt this rate it may never be fixed, personally I?d like to know either way, so I can make an educated decision, is the Eclipse platform is the right choice for my company?",
+    "In comments 13, 33 and a few others, the idea of event loop virtualization is mentioned.  It seems to me that even *if* Apple decides to work on the problem in the near future, a solution could still be a long way off.  So, since there is little that any of us can do about what Apple will make a priority, I would like to see a more technical discussion of the issues surrounding \"virtualization\".  Personally, I don\u0027t know where to begin, but if a few knowledgable people who might not otherwise have the time can point the rest of us in the right direction, we might be able to investigate it further.  ",
+    "At Indiana University, we are working on a large-scale scientific collaboration tool which lets scientists share unmodified research-grade code with zero-programming effort by converting them to RCP plugins using appropriately simplified templates. This is funded by the National Science Foundation and everyone has high expectations from it. \n\nWe created a framework on top of RCP that lets people do this irrespective of the source programming language, persistence strategy or data model and even share visualization code written using Swing. Obviously we have run into this roadblock with SWT/AWT bridge on Mac OS X. \n\nI love RCP and wouldn\u0027t want to use something else but this bug is really much more important than people seem to realize and if something isn\u0027t done quickly, we\u0027ll be forced to recommend to the team that they find a different solution (and I really don\u0027t want to do that because it will erase the confidence people have in Eclipse technology almost instantly). Recently we went to a large conference involving leading scientists and cyberinfrastructure architects and I got really tired and frustrated from repeatedly explaining to people that this thing is written in Java but doesn\u0027t work on the Mac (and academia has a LOT of Mac users). Many scientists know that Java is cross-platform and telling them that RCP with SWT/AWT won\u0027t work on the Mac gives them the impression that \"this Eclipse thing\" is some hacked-up solution not yet ready for prime-time. Is this something the Eclipse team is willing to put up with?\n\nFinding a solution is important, but showing people that there is real commitment towards solving the problem is far more important. I don\u0027t know what we can do to help out, but if there\u0027s anything we can do, for example building support for resolving this issue or writing a letter to Apple, please broadcast your ideas (make it loud and noisy) so everyone can hear it. Thanks!\n\nShashikant Penumarthy\nTech Lead, InfoVis Lab, Indiana University",
+    "One of the best ways to \"lobby\" Apple to resolve a particular defect is to submit the defect to their bug reporting system.  If those interesteed in seeing this defect resolved have an ADC account, file a defect in RADAR.  If you don\u0027t have an ADC account, you can sign up for one for free.\n\nSince RADAR defects are only visible to Apple employees and the non-Apple person who filed the defect in RADAR, we could post our submitted RADAR #s here as well, so that whoever served as a \"front person\" for this artifact could have a list of the submitted defects.",
+    "Submitted RADAR bug #4426227 to bugreport.apple.com",
+    "Submitted RADAR bug #4426256 to bugreport.apple.com\n",
+    "I was a little skeptical about submitting a duplicate bug on the Apple site, but then I remembered this comment:\n\"Comment #52 From Gerd Castan\nWhat\u0027s Apples metric for an important bug? Some years ago some apple engineer\nsaid it\u0027s the number of bug reports filed to their bug radar from independant\ndevelopers for the same bug. Is this still the case? Do we all have to file a\nbug report to https://bugreport.apple.com/ ?\"\n\nI also did some googling and it does seem the general consensus is that apple uses duplicates as a measure of importance.\n\nSo with that said:\n\nSubmitted RADAR bug #4426262 to bugreport.apple.com",
+    "Submitted RADAR bug #4426273 to bugreport.apple.com",
+    "Submitted RADAR bug #4426276 to bugreport.apple.com",
+    "Submitted RADAR bug #4426275 to bugreport.apple.com",
+    "Um, er...\n\nMaybe it would help to get a higher hit-rate if we coordinate our Radar postings to say as close to the same thing as possbile.  (Maybe not, but I thought I\u0027d bring up the possibility.)\n\nI\u0027ve filed my Radar bug (#4426286) using the following information:\n\n- Component:  Mac OS X (vs. Java, since this is really an underlying windowing system problem, not a Java problem???)\n- Severity:  Serious bug\n- Reproduceable: always\n- Version/build:  10.4.4 (8G32)\n- Problem title:  It isn\u0027t possible to run Swing/AWT code from an SWT-based application.\n\n- Description:\nSummary:\nSwing/AWT cannot be used within a SWT-based application because both SWT and AWT applications must get their events from the same thread.  Support for multiple UI event threads should be provided.\n\nSteps to reproduce:  See Eclipse bug:  https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d67384\n\nExpected results: See above summary\n\nActual Results: See above summary\n\nRegression: N/A\n\nNotes:  See https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d67384 for long discussion of the issue, an indication of the (very large) number of developers who are limited by this issue, and concise descriptions of possible solutions",
+    "Does anyone know of any other non-swt based applications that are not working on OSX because of this issue?  Won\u0027t Apple be more likely to call this an SWT problem if it is the only example of an issue related to the single event loop?  As suggested in comment #95, this problem is not necessarily limited to Java (right?), so shouldn\u0027t there be a few other apps out there that have run into the same issue?  If not, I\u0027m afraid a decision by Apple to not get involved in this issue might be viewed as reasonable by anyone outside of the Eclipse community.",
+    "Submitted RADAR bug #4426345 to bugreport.apple.com",
+    "Submitted RADAR bug #4426458 to bugreport.apple.com",
+    "Submitted RADAR bug #4426581 to bugreport.apple.com",
+    "Submitted RADAR bug #4426792 to bugreport.apple.com",
+    "Submitted RADAR bug #4427273 to bugreport.apple.com",
+    "Submitted RADAR bug #4427685 to bugreport.apple.com",
+    "Submitted RADAR bug #4427696 to bugreport.apple.com",
+    "Submitted RADAR bug #4427709 to bugreport.apple.com",
+    "Submitted RADAR bug #4427710 to bugreport.apple.com",
+    "Submitted RADAR bug #4428158 to bugreport.apple.com \nI have also been lobbying some of my buddies working at Aplle :-)",
+    "I just received an email from the Apple Bug Reporting team saying:\n\n\"This is a follow up to Bug ID# 4426227.  After further investigation it has been determined that this is a known issue, which is currently being investigated by engineering.  This issue has been filed in our bug database under the original Bug ID# 3905894.\"\n\nSo RADAR Bug ID # 3905894 is the original one, for future reference.",
+    "Can the SWT team please tell us if they are actively working on the \"event loop virtualization\" solution mentioned earlier?  \n\nIf not, is it because they determined it cannot work or because they have higher priority issues?\n\nFrom Apple\u0027s point of view, this is an enhancement, not a bug, and aren\u0027t showing much interest in \"fixing\" it.  Even if they do, I expect that it will not work on older OSX versions. \n\n",
+    "We are not working on this bug right now.  To fix this would require about 6 man months and detailed knowledge of the internals of all of the software in question.  Since the SWT team is small, we just don\u0027t have the resources to look at this right now.\n\nTo give you some idea of the work that needs to happen, consider a similar feature that was added to Windows 95.  Windows 3.11 had a single system event queue.  When Windows 95 came out, Microsoft implemented an event queue per thread.  Can you imagine someone other than Microsoft trying to implement this?",
+    "First, I want to make it clear: the lack of progress on this bug has nothing to do with politics, or our \u0027agenda\u0027 with Xcode.  Eclipse and Xcode don\u0027t compete.  Eclipse is a great Java IDE for writing platform portable Java applications. Xcode is designed to enable developers to get the most out of Mac OS X.  Many of us on the Java team use Eclipse on a regular basis.\n\nThe SWT team made a decision to use the Carbon framework. This was a good decision as the event model in Carbon is similar to the event model in SWT. In a separate decision, the Apple team chose to use the Cocoa framework for the AWT implementation in order to make Apple\u0027s newest user interface features available to Java developers.\n\nHere\u0027s the problem in a nutshell. Both toolkits need an event dispatcher running on the main thread. In the SWT, the standard SWT paradigm of fetching and processing events does that work -- it uses Carbon to grab events and hand them off to each window for processing, and then waits for that event to be processed.  In Apple\u0027s AWT, an instance of NSApplication runs on the main thread, and delivers user events to AWT windows, which are turned into AWT events and posted to the AWT event thread.\n\nIn both frameworks, all code that interacts directly with the underlying framework must execute on the main thread.  When your application creates or manipulates an AWT window Apple\u0027s implementation does that by calling performOnMainThread and waiting for the result.  If the SWT is running and dispatching events, this can\u0027t work because the SWT is blocking the main thread waiting for the event to be processed.  Deadlock ensues.\n\nWe have looked at this any number of ways, and there is no simple fix.  Steve\u0027s time estimate above is probably correct, but right now, we don\u0027t even see a complex fix, so one estimate is as good as another.  What we can do right now is explain the problem, and let you know that we\u0027re considering all possible solutions.  Please send us your ideas.",
+    "So as I understand it, the SWT team has not found a simple way to fix this in SWT alone,  and the Apple team has not found a simple way to fix this in Apples code alone.\n\nIn my perception, there is the extreme solution left: talk to each other (teams and code. Especially teams). Is there a simple way for SWT to detect early that it is not responsible for an event and feed it back to Apple\u0027s code? It\u0027s not a clean architecture, but hey, if it works?",
+    "I\u0027d like to suggest a simple fix to this bug. I tried it with Eclipse 3.1.0 and Java 1.4.2 and it seems to work fine. The fix goes like this:\n\n1. Don\u0027t use -XstartOnFirstThread option. Let AWT load and start dispatch on thread #0.\n2. Run SWT dispatch loop and the rest of Eclipse code inside a Carbon event handler: SWT dispatch will act as nested (second) dispatch loop on same thread #0. One way to do it is to change org.eclipse.ui.internal.ide.IDEApplication.run() method to look like this:\n        public Object run(final Object args) throws Exception {\n            final Object result[] \u003d new Object[2];\n            final int RUNAPP_CLASS \u003d 334;\n            final int RUNAPP_KIND \u003d 153;\n            final int[] outRef \u003d new int[1];\n            final Callback[] callback \u003d new Callback[1];\n            Object handler \u003d new CallbackInterface() {\n                public int runProc(int nextHandler, int theEvent, int userData) {\n                    try {\n                        OS.RemoveEventHandler(outRef[0]);\n                        callback[0].dispose();\n                        Display display \u003d createDisplay();\n                        ...\n                           original code of run()\n                        ...\n                        result[0] \u003d returnCode;\n                    }\n                    catch (Exception x) {\n                        result[1] \u003d x;\n                    }\n                    synchronized (this) {\n                    \t   notify();\n                    }\n                    return 0;\n                }\n            };\n            callback[0] \u003d new Callback(handler, \"runProc\", 3);\n            int callback_proc \u003d callback[0].getAddress();\n            if (callback_proc \u003d\u003d 0) throw new Exception(\"No more callbacks\");\n            int[] mask \u003d new int[] { RUNAPP_CLASS, RUNAPP_KIND };\n            int target \u003d OS.GetEventDispatcherTarget();\n            OS.InstallEventHandler(target, callback_proc, mask.length / 2, mask, 0, outRef);\n            // Load AWT and let it to start Carbon dispatch loop\n            Class.forName(\"com.awt.Toolkit\");\n            synchronized (handler) {\n                int [] event \u003d new int [1];\n                int queue \u003d OS.GetMainEventQueue();\n                OS.CreateEvent(0, RUNAPP_CLASS, RUNAPP_KIND, 0.0, OS.kEventAttributeUserEvent, event);\n                OS.PostEventToQueue(queue, event[0], (short)OS.kEventPriorityStandard);\n                OS.ReleaseEvent(event[0]);\n                handler.wait();\n            }\n            if (result[1] !\u003d null) throw (Exception)result[1];\n            return result[0];\n        }\n        public interface CallbackInterface {\n    \t    public int runProc(int nextHandler, int theEvent, int userData);\n        }\n\n",
+    "Another, even simpler, fix for this bug. But this one needs to be done by Apple. Just remove \"Apple AWT Java VM was loaded on first thread -- can\u0027t start AWT\" check from the code. Let it continue without starting dispatch loop. SWT will run dispatch loop and it will dispatch ALL events, including those targeted to AWT. Everything should work just fine.\n\nBTW, type in prev comment:\n    Class.forName(\"com.awt.Toolkit\");\nshould be\n    Class.forName(\"java.awt.Toolkit\");",
+    "The suggestion in comment #113 was implemented in Java 5.0 Update 4. If the VM is started on the first thread, the AWT goes into \u0027compatibility mode\u0027, in that we don\u0027t start up an NSApplication, nor do we enter AWT headless mode. This may or may not solve the problems. The AWT performs many internal checks to ensure it\u0027s not on the main thread when executing many operations, and you may see some asserts firing, but they won\u0027t kill the application. The comment in #112 looks interesting, but I don\u0027t know if you want that code at the IDE level. I think it\u0027s worth investigating, though.",
+    "It can\u0027t be this simple ... if it is ... I don\u0027t know what I\u0027ll do ... but I\u0027ll take suggestions .... from everyone on the list.\n\nSSQ and SN to investigate the proposed solution right away.",
+    "After looking at it a bit more, I think the snippet in #112 has a _lot_ of promise. Karl Hsu and I were talking about doing exactly what this change does just this last week.\n\nWe were concerned that we might get a deadlock here, because the AWT will push any Cocoa call onto thread 0 and wait for the result, but NSThread\u0027s performSelectorOnMainThread will immediately dispatch the call if we\u0027re on the main thread. Some asserts will be fired, but the AWT will not abort the app.\n",
+    "We\u0027re on it ... stand by ...",
+    "Here is a snippet that explores Eugene\u0027s idea (comment #112) without the Eclipse complexity. It is just a main that opens an AWT Frame and a SWT Shell. Unfortunately, it does not seem to work. The AWT Frame comes up, but it does not respond to any event when running JDK build 1.4.2_09-232. And If I run it with JDK build 1.5.0_05-83, the RUNAPP event does not get dispatched, so nothing comes up.\n\nScott, is this the deadlock you mentioned it could happen?\n\npublic static void main(String[] args) throws Exception {\n\tSystem.out.println(\"Starting..\");\n\tfinal int RUNAPP_CLASS \u003d 334;\n\tfinal int RUNAPP_KIND \u003d 153;\n\tfinal int[] outRef \u003d new int[1];\n\tfinal Callback[] callback \u003d new Callback[1];\n\tObject handler \u003d new Object() {\n\t\tpublic int runProc(int nextHandler, int theEvent, int userData) {\n\t\t\ttry {\n\t\t\t\tSystem.out.println(\"handler running\");\n\t\t\t\tint eventClass \u003d OS.GetEventClass (theEvent);\n\t\t\t\tint eventKind \u003d OS.GetEventKind (theEvent);\n\t\t\t\tif (eventClass !\u003d RUNAPP_CLASS || eventKind !\u003d RUNAPP_KIND) return OS.eventNotHandledErr;\n\t\t\t\t\n\t\t\t\tOS.RemoveEventHandler(outRef[0]);\n\t\t\t\tcallback[0].dispose();\n\t\t\t\t\t\t\t\t\n\t\t\t\t/* SWT */\n\t\t\t\tSystem.out.println(\"SWT running\");\n\t\t\t\tDisplay display \u003d new Display();\n\t\t\t\tShell shell \u003d new Shell(display);\n\t\t\t\tshell.setText(\"SWT Shell\");\n\t\t\t\tshell.setLayout(new RowLayout());\n\t\t\t\torg.eclipse.swt.widgets.Button b1 \u003d new org.eclipse.swt.widgets.Button(shell, SWT.PUSH);\n\t\t\t\tb1.setText(\"Button1\");\n\t\t\t\torg.eclipse.swt.widgets.Button b2 \u003d new org.eclipse.swt.widgets.Button(shell, SWT.PUSH);\n\t\t\t\tb2.setText(\"Button2\");\n\t\t\t\tshell.pack();\n\n\t\t\t\t/* AWT */\n\t\t\t\tThread thread \u003d new Thread () {\n\t\t\t\t\tpublic void run() {\n\t\t\t\t\t\tSystem.out.println(\"AWT running \u003d \" \t+ Thread.currentThread());\n\t\t\t\t\t\tFrame frame \u003d new Frame(\"AWT Frame\");\n\t\t\t\t\t\tjava.awt.Button button1 \u003d new java.awt.Button(\"Button1\");\n\t\t\t\t\t\tjava.awt.Button button2 \u003d new java.awt.Button(\"Button2\");\n\t\t\t\t\t\tframe.add(\"East\", button1);\n\t\t\t\t\t\tframe.add(\"West\", button2);\n\t\t\t\t\t\tframe.pack();\n\t\t\t\t\t\tframe.setVisible(true);\n\t\t\t\t\t}\n\t\t\t\t};\n\t\t\t\tboolean sameThread \u003d false;\n\t\t\t\tif (sameThread) {\n\t\t\t\t\tthread.run();\n\t\t\t\t} else {\n\t\t\t\t\tthread.start();\n\t\t\t\t}\t\t\t\t\n\n\t\t\t\tshell.open();\n\t\t\t\twhile (!shell.isDisposed()) {\n\t\t\t\t\tif (!display.readAndDispatch())\n\t\t\t\t\t\tdisplay.sleep();\n\t\t\t\t}\n\t\t\t\tdisplay.dispose();\n\n\t\t\t} catch (Exception x) {\n\t\t\t\tx.printStackTrace();\n\t\t\t}\n\t\t\tsynchronized (this) {\n\t\t\t\tnotify();\n\t\t\t}\n\t\t\treturn 0;\n\t\t}\n\t};\n\tcallback[0] \u003d new Callback(handler, \"runProc\", 3);\n\tint callback_proc \u003d callback[0].getAddress();\n\tif (callback_proc \u003d\u003d 0)\n\t\tthrow new Exception(\"No more callbacks\");\n\tint[] mask \u003d new int[] { RUNAPP_CLASS, RUNAPP_KIND };\n\tint target \u003d OS.GetEventDispatcherTarget();\n\tOS.InstallEventHandler(target, callback_proc, mask.length / 2, mask, 0, outRef);\n\t// Load AWT and let it to start Carbon dispatch loop\n\tClass.forName(\"java.awt.Toolkit\");\n\tsynchronized (handler) {\n\t\tint[] event \u003d new int[1];\n\t\tint queue \u003d OS.GetMainEventQueue();\n\t\tOS.CreateEvent(0, RUNAPP_CLASS, RUNAPP_KIND, 0.0, OS.kEventAttributeUserEvent, event);\n\t\tSystem.out.println(\"post event\u003d\" + OS.PostEventToQueue(queue, event[0], (short) OS.kEventPriorityStandard));\n\t\tOS.ReleaseEvent(event[0]);\n\t\thandler.wait();\n\t}\n}",
+    "We also tried the idea from comment#114 with the snippet below. It did not work either.  Depending on the flag \"sameThread\", we get two different problems. If \"false\", \n\nssq% /System/Library/Frameworks/JavaVM.framework/Versions/1.5.0/Commands/java -XstartOnFirstThread -cp org.eclipse.swt/bin:Steve/bin -Dja.library.path\u003dorg.eclipse.swt.carbon.macosx.ppc/ interop.AWTandSWT\nAWT running \u003d Thread[Thread-0,5,main]\nException in thread \"Thread-0\" java.lang.StackOverflowError\n        at org.eclipse.swt.internal.carbon.OS.ReceiveNextEvent(Native Method)\n        at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2861)\n        at interop.AWTandSWT.main(AWTandSWT.java:67)\n\n\nAnd if \"true\",\n\nssq% /System/Library/Frameworks/JavaVM.framework/Versions/1.5.0/Commands/java -XstartOnFirstThread -cp org.eclipse.swt/bin:Steve/bin -Dja.library.path\u003dorg.eclipse.swt.carbon.macosx.ppc/ interop.AWTandSWT\nAWT running \u003d Thread[main,5,main]\nCWindow\u0027s _nativeShowFocusable:modal: encountered error : 2006-02-06 12:50:15.567 java[1110] Error (1002) creating CGSWindow\n\nIn both cases, the AWT Frame does not come up.\n\npublic static void main (String [] args) {\n\t/* AWT */\n\tThread thread \u003d new Thread () {\n\t\tpublic void run() {\n\t\t\tSystem.out.println(\"AWT running \u003d \" \t+ Thread.currentThread());\n\t\t\tFrame frame \u003d new Frame(\"AWT Frame\");\n\t\t\tjava.awt.Button button1 \u003d new java.awt.Button(\"Button1\");\n\t\t\tjava.awt.Button button2 \u003d new java.awt.Button(\"Button2\");\n\t\t\tframe.add(\"East\", button1);\n\t\t\tframe.add(\"West\", button2);\n\t\t\tframe.pack();\n\t\t\tframe.setVisible(true);\n\t\t}\n\t};\n\tboolean sameThread \u003d false;\n\tif (sameThread) {\n\t\tthread.run();\n\t} else {\n\t\tthread.start();\n\t}\n\t\n\t/* SWT */\n\tDisplay display \u003d new Display ();\n\tShell shell \u003d new Shell (display);\n\tshell.setText (\"SWT Shell\");\n\tshell.setLayout (new RowLayout ());\n\torg.eclipse.swt.widgets.Button b1 \u003d new org.eclipse.swt.widgets.Button (shell, SWT.PUSH);\n\tb1.setText (\"Button1\");\n\torg.eclipse.swt.widgets.Button b2 \u003d new org.eclipse.swt.widgets.Button (shell, SWT.PUSH);\n\tb2.setText (\"Button2\");\n\tshell.pack ();\n\tshell.open ();\n\twhile (!shell.isDisposed ()) {\n\t\tif (!display.readAndDispatch ()) display.sleep ();\n\t}\n\tdisplay.dispose ();\n\tSystem.exit (0);\n}",
+    "IIRC, I\u0027ve tried those approaches some time ago and they weren\u0027t successful.",
+    "Try moving the load of AWT (with Toolkit.getDefaultToolkit()) to the start of the code. No UI activity can happen on the non-main thread, or else Carbon (or Cocoa, for that matter) will not get UI events. \n\n(I have a meeting, but I will look at this too later this afternoon.)",
+    "Silenio, It\u0027s not a deadlock, but rather none of the AWT windows are getting events sent to them. The Display and Shell listen for events on the windows they create, but events not going to an SWT object aren\u0027t being handled by anything.\n\nI think we\u0027ll need to find a way for SWT to send events it doesn\u0027t handle to AppKit. Maybe by creating a catch-all event handler which forwards the event to NSApplication, so that it can then dispatch the event to the AWT windows.",
+    "\u003eI think we\u0027ll need to find a way for SWT to send events it doesn\u0027t handle to\n\u003eAppKit. Maybe by creating a catch-all event handler which forwards the event \n\u003eNSApplication, so that it can then dispatch the event to the AWT windows.\n\n\nScott, isn\u0027t this supposed to happen for free if I understand correctly the article below?\n\nhttp://developer.apple.com/documentation/Cocoa/Conceptual/CarbonCocoaDoc/Articles/CarbonCocoaComm.html",
+    "In this particular case, the SWT event loop is executing in the handler for another event, so no further events are being dispatched until that handler returns.\n\nSilenio, that link is interesting, and is, honestly, news to me. It does give me an idea about a change I can try out in the AWT. I will do that this afternoon and report back. It\u0027s interesting in the academic sense that if you take out the SWT event loop in #118, both the SWT and AWT window appear, and I can interact with either one. That confirms what that article was talking about -- the NSApplication created by the AWT is pumping events to the AWT and SWT windows. I should be able to modify the AWT to not do anything special when started up in an SWT application, and see if the SWT dispatch loop can correctly dispatch events to those windows. Currently we put the AWT into \u0027pseudo-headless\u0027 mode, but maybe that\u0027s not needed.",
+    "A little more info. The snippet below worked fine when running JDK build 1.4.2_09-232 (both windows receive events properly). It stills fails when running JDK build 1.5.0_05-83 with a StackOverflowError exception. Note that this is a little different from the snippet in comment#119. There is a call to NsApplicationLoad() and AWT is started later on by pressing in SWT button. The SWT event loop is dispatching events to both windows.\n\npublic static void main(String [] args) {\n\t/* AWT */\n\tfinal Thread thread \u003d new Thread () {\n\t\tpublic void run() {\n\t\t\tSystem.out.println(\"AWT running \u003d \" \t+ Thread.currentThread());\n\t\t\tToolkit.getDefaultToolkit();\n\t\t\t\n\t\t\tfinal Frame frame \u003d new Frame(\"AWT Frame\");\n\t\t\tjava.awt.Button button1 \u003d new java.awt.Button(\"Button1\");\n\t\t\tjava.awt.Button button2 \u003d new java.awt.Button(\"Button2\");\n\t\t\tframe.add(\"East\", button1);\n\t\t\tframe.add(\"West\", button2);\n\t\t\tframe.pack();\n\t\t\tframe.setVisible(true);\n\t\t\tframe.addWindowListener(new WindowAdapter() {\n\t\t\t\tpublic void windowClosing(WindowEvent arg0) {\n\t\t\t\t\tframe.dispose();\n\t\t\t\t}\n\t\t\t});\n\t\t}\n\t};\n\t\n\t/* SWT */\n\tSystem.out.println(\"nsload\u003d\" + OS.NSApplicationLoad());\n\tDisplay display \u003d new Display ();\n\tShell shell \u003d new Shell (display);\n\tshell.setText (\"SWT Shell\");\n\tshell.setLayout (new RowLayout ());\n\torg.eclipse.swt.widgets.Button b1 \u003d new org.eclipse.swt.widgets.Button (shell, SWT.PUSH);\n\tb1.setText (\"Button1\");\n\torg.eclipse.swt.widgets.Button b2 \u003d new org.eclipse.swt.widgets.Button (shell, SWT.PUSH);\n\tb2.setText (\"Start AWT\");\n\tb2.addListener(SWT.Selection, new Listener() {\n\t\tpublic void handleEvent(org.eclipse.swt.widgets.Event event) {\n\t\t\tthread.start();\n\t\t}\n\t});\n\tshell.pack ();\n\tshell.open ();\n\twhile (!shell.isDisposed ()) {\n\t\tif (!display.readAndDispatch ()) display.sleep ();\n\t}\n\tdisplay.dispose ();\n\tSystem.exit (0);\n}",
+    "I didn\u0027t expect my comment #77 would wake up so much people ! ;-)\nI would love to help resolving this bug, but I\u0027m more like a \"pure Java solutions\" guy with very little knowledge of Carbon or Cocoa  and this may not be very helpful for this tricky bug. Anyway, I think that any wrong idea may give good ideas to other with a better knowledge, so here\u0027s mine. \nRemembering how java.awt.EventQueue is working, I wonder if the following solution could be possible?: replace the default EventQueue instance by the instance of a subclass of EventQueue that would forward all AWT events to the waiting SWT dispatch thread. The SWT thread wouldn\u0027t have to read any event from the native OS but would \"simply\" translate all coming AWT events to SWT events. The problem would be to ensure that SWT windows can receive events if they are not children of AWT windows ?\n",
+    "Thanks to Silenio\u0027s suggestion, Java 5 Release 4 DP 6 now lets you bring up AWT windows in an SWT application with no modification to your SWT application. I mainly used the examples in comments #119 and #125 to test it. We also modified those examples to open up the SwingSet2 demo application and an AWT widget test in response to an SWT button click or from an arbitrary thread.\n\nThe change on our part was to use NSApplicationLoad() to create an NSApplication and register Carbon handlers for the application, and then set compatibility mode (see below) to prevent deadlocks when doing AWT operations from the SWT thread.\n\nBefore anybody\u0027s hopes are raised too high, let me stress this is not an implementation of the SWT_AWT package, but it gets us closer to that goal. There are also a few things to remember:\n\n-- You still need to use -XstartOnFirstThread.\n-- You can start the AWT from any thread, but if you\u0027re not going to load it from the SWT thread you should set the property \u0027apple.awt.usingSWT\u0027 to true.\n-- Don\u0027t use SwingUtilities.invokeAndWait from the SWT thread. You will hang the application. If you want to trigger some AWT action from SWT, use invokeLater.\n-- Avoid manipulating AWT objects from the SWT thread. When the SWT is in use, the AWT is loaded in \u0027Cocoa compatibility mode\u0027, which means that if we detect a deadlock while trying to do some Cocoa operation, we\u0027ll time out after .1 s and then do it anyway.\n-- JNLP applications still do not work, even with this compatibility mode. We\u0027re working on it, though.\n",
+    "Does this mean that we can also embed an SWT widget in a AWT window on MacOS? I guess no, since you\u0027re not talking about an SWT_AWT implementation.",
+    "No, not yet. But the Cocoa and Carbon integration step has to happen first before we get to any embedding solution.",
+    "I\u0027m still working on this. Now that EclipseCon is done and Java 5 update 4 is pretty much done, I can devote full attention to finishing up an embedding solution for the SWT guys to use.",
+    "(In reply to comment #130)\n\u003e I\u0027m still working on this. Now that EclipseCon is done and Java 5 update 4 is\n\u003e pretty much done, I can devote full attention to finishing up an embedding\n\u003e solution for the SWT guys to use.\n\u003e \n\nAll I have to say is SWEEEEEEEEEEEET! It\u0027s gonna be a happy day when this black eye goes away.\n\nThis has broken everything from MyEclipse\u0027s UML and HTML tools thru jPedal\u0027s PDF viewer and the xPath Explorer plugin. I realize there are many tools that don\u0027t rely on the SWT_AWT bridge, but the ones that do are often not replaceable with other plugins (hence it\u0027s logical to assume that the bridge is key to the task being handled by the plugin to begin with).\n\nGo Apple! I\u0027ll be able to look Windows-using colleagues in the face once more.\n\nLaterz,\nJ",
+    "I agree it\u0027s a black eye, but it\u0027s an unsurprising one considering the SWT mixed Java/native approach to things.  I\u0027m surprised that the Eclipse team hasn\u0027t put more pressure on the SWT team to fix this since it means *no* standard Swing app can get componentized as an Eclipse plugin which will run on Mac.\n\n\u003e This has broken everything from MyEclipse\u0027s UML [...]\n\nOff topic, but as far as MyEclipse UML goes, that\u0027s just ArgoUML renamed and wrapped as a plugin, so a workaround is to download native ArgoUML (100% Java) and run it alongside Eclipse.  As an added advantage, you\u0027ll get support for a newer version of UML and a bunch of other goodies.",
+    "\u003eI agree it\u0027s a black eye, but it\u0027s an unsurprising one considering\n\u003ethe SWT mixed Java/native approach to things. \n\nNot really.  The mixed Java/native approach makes interacting with native code pretty simple.  The issue here is that AWT is more than native code.  It comes with a it\u0027s own threading model (among other things).  Did you actually read this bug report?",
+    "(In reply to comment #133)\n\u003e \u003eI agree it\u0027s a black eye, but it\u0027s an unsurprising one considering\n\u003e \u003ethe SWT mixed Java/native approach to things. \n\u003e \n\u003e Not really.  The mixed Java/native approach makes interacting with native code\n\u003e pretty simple.  The issue here is that AWT is more than native code.  It comes\n\u003e with a it\u0027s own threading model (among other things).  Did you actually read\n\u003e this bug report?\n\u003e \n\nIt really is a black eye, and it really is because of SWT\u0027s part native approach. If SWT had merely extended the AWT event model or had been implemented as a Swing LAF - with optional native peers - then we wouldn\u0027t be here. This may be a matter of my opinion, but there\u0027s a lot of people sharing it. JGoodies.com has a reasonable mockup of a SWT LAF in pure Java code.\n\nAs one of the earlier posts (#6) points out, this is the exact type of problem that Sun and many others were concerned about.\n\nHave YOU actually read this bug report? If you doubt that it\u0027s a black eye after reading this report, maybe you should go read the MyEclipse forums. They\u0027re pretty piping mad over there as well. And generally a lot less reserved about it.\n\nI HAVE read this bug report - many times for nearly two years - crippled and waiting for its solution. I know I\u0027m far from alone in this. The only solution short of waiting for the SWT team and/or Apple to fix it was to rewrite large portions of SWT myself. Yes it\u0027s open source and I can do that, but it requires a lot more time than I have to devote to fixing a broken architectural choice (again, my opinion, but obviously shared by many).\n\nSWT has effectively broken the social contract of platform independence that Java promises. Even if it is fixed (along with Apple - unnecessarily IMO - having to modify their customized JVM), it\u0027s still creating unnecessary platform specific issues. \n\nThere is a lot of frustration surrounding this issue, and there will be a lot of happy people when it\u0027s solved. It\u0027s obviously nearly there - thanks especially to Scott, Silenio, and Eugene for getting us this close. \n\n\n",
+    "I agree with Calvin that is really is a \"black eye.\"  SWT is promoted as a cross-platform toolkit for Java, and it needs to take into account things like the way AWT is implemented, or that not every OS implements threading in the same way.  Blaming AWT\u0027s architecture, or Apple, and saying there\u0027s nothing really wrong with SWT\u0027s approach is just putting on blinders, IMO.\n\n(I also agree that this is exactly the kind of heavyweight/native technical problem that Sun was worried about.) \n\nEven though this isn\u0027t really a problem with Mac OS X, itself, Apple is making an effort to try and get things working. I appreciate that attitude. It\u0027s disheartening to see casual dismissal of the problem from the SWT side of the equation (where there should be *more* concern, IMO), especially when so many people are affected by, concerned with, and following this bug.",
+    "(In reply to comment #133)\n\u003e \u003eI agree it\u0027s a black eye, but it\u0027s an unsurprising one considering\n\u003e \u003ethe SWT mixed Java/native approach to things. \n\u003e \n\u003e Not really.  The mixed Java/native approach makes interacting with native code\n\u003e pretty simple.  The issue here is that AWT is more than native code.  It comes\n\u003e with a it\u0027s own threading model (among other things).  Did you actually read\n\u003e this bug report?\n\u003e \n\nSteve - \n\nI now understand why we have seen almost no progress on this bug until Scott came on a couple of months ago. \n\nI re-read this thread yet again before I got accused of having missed critical points - paying attention especially to which posts you made. Few of them were more than a few sentences - almost all of them deflected the issue completely or were similarly callous as you were to Tom (post #133):\n\nIt was your post (#7) that suggested it was open source so we should just jump in and help fix the architectural problems. I had remembered the post earlier but didn\u0027t realize that you had written it.\n\nYour later post (#109) points out the extreme complexity of the problem and also the fact that the SWT team (being small) won\u0027t be working on this problem. \n\nAnother post (#36) says that it\u0027s really the job of the Operating System vendor to deal with it. \n\nI\u0027ve also noticed that you\u0027re from IBM. I now also understand that you wrote the book and were one of the original architects. \n\nNow I\u0027m not a big conspiracy theorist, but add this all that up together and add in the name \"Eclipse\" (of the Sun) and I really have to start wondering what really is going on here. SWT ISN\u0027T PORTABLE - at least not in the sense that Java programs are - it doesn\u0027t run on other Java enabled platforms, including OS/2, VMS, BeOS or Solaris x86. IBM has a popular product here (Eclipse) and it\u0027s almost like it\u0027s being used to bludgeon their competition. Underlying your arguments is an expectation that others should be fixing your architectural limitations if they want to play in your sandbox. APPLE NEVER SHOULD HAVE HAD TO MODIFY THEIR JVM TO WORK WITH SWT - SWT SHOULD HAVE BEEN RE-ARCHITECTED TO WORK WITH APPLE\u0027S JVM. Isn\u0027t SWT supposed to implement missing base functionality to give a common substrate? To create a framework for developing portable applications?\n\nFrom the back cover of your book:\n\"SWT allows developers to build efficient, portable applications that directly access the user-interface facilities of the operating systems it is implemented on.\"\n\nWe\u0027ve clearly lost portability here.\n\nEven if my absurd suspicion about conspiracies is wrong, I still have to wonder if it really was necessary to have implemented SWT completely natively. If the problem is so complex to support for such a small team, then maybe it needs to be architected in a way that is truly cross-platform but doesn\u0027t require that level of support. A pure Java Swing implementation with optional native peer approach would have guaranteed base compatibility while still offering native components and integration for supported platforms.\n\nBefore I re-read and saw what you had posted, I was just mildly angry at your earlier post. After realizing who you were, the responsibility you have on the project, and the other callous posts, I really am beyond angry. If you really have no idea how frustrated and angry people are about this issue you really should stop posting here. You\u0027re just adding fuel to the fire.\n\nThat having been said, I\u0027m glad Scott did the work on his end that he did. It seems like a kludge in some ways, but it also seems like it will get us there a lot quicker.\n\n",
+    "Re Comment  #136:\nCalvin,\neveryone understands your frustration, and feel it to various degrees. But trust me, I know Steve and he genuinely want this solved, as much as you.\nA bug is not forum for that kind of personal and unwarranted attack imho.\nTrust me also on that one, I did in the past on other occasions and it buys you squat.\n\n\n",
+    "Not to start a flame war or anything, but I don\u0027t see how the lack of the\nability to embed AWT/Swing within SWT on one platform is a serious flaw in the\narchitecture of SWT.  This feature wasn\u0027t a requirement when SWT was originally\ndesigned - it\u0027s a useful hack that was added in the third version of Eclipse. \nThe design goals quoted in comment #136 - \"SWT allows developers to\nbuild efficient, portable applications that directly access the user-interface\nfacilities of the operating systems it is implemented on.\" holds true without\nthis feature - if you use only SWT in your SWT app (Eclipse itself and hundreds\nof plug-ins and RCP apps, work fine on OS X without needing this feature).  I\nagree that this is frustrating and a serious limitation on OS X, but I don\u0027t\nthink it calls into question the architecture decisions made when SWT was\ndeveloped.\n\nArguing about the problem is quite pointless - the number of interested parties\nvoices the importance of the issue.  What should be focused on is coming up\nwith a solution.",
+    "(In reply to comment #138)\n\u003e Not to start a flame war or anything, but I don\u0027t see how the lack of the\n\u003e ability to embed AWT/Swing within SWT on one platform is a serious flaw in the\n\u003e architecture of SWT.  This feature wasn\u0027t a requirement when SWT was originally\n\u003e designed - it\u0027s a useful hack that was added in the third version of Eclipse. \n\u003e The design goals quoted in comment #136 - \"SWT allows developers to\n\u003e build efficient, portable applications that directly access the user-interface\n\u003e facilities of the operating systems it is implemented on.\" holds true without\n\u003e this feature - if you use only SWT in your SWT app (Eclipse itself and hundreds\n\u003e of plug-ins and RCP apps, work fine on OS X without needing this feature).  I\n\u003e agree that this is frustrating and a serious limitation on OS X, but I don\u0027t\n\u003e think it calls into question the architecture decisions made when SWT was\n\u003e developed.\n\nPure SWT apps do run fine. But the SWT_AWT feature was touted as a major feature in 3.0, so I do disagree with that it isn\u0027t an architectural flaw. And looking at all the plug-ins that were written with the assumption of it, I\u0027m not alone in thinking it\u0027s a major component. I understand the original architectural factors. I still think some were flawed from the beginning. I think the pure-native approach did create a divisiveness that we\u0027re seeing in this bug. The architecture broke down supporting this new 3.0 feature. At least one problem I have with it is that it wasn\u0027t extensible as originally promised.\n\nRegardless, it doesn\u0027t support this kind of feature addition now.\n\n\u003e \n\u003e Arguing about the problem is quite pointless - the number of interested parties\n\u003e voices the importance of the issue.  What should be focused on is coming up\n\u003e with a solution.\n\u003e \n\nYou\u0027re absolutely right. This isn\u0027t the place for flame wars, it\u0027s a place for solutions. I didn\u0027t mean to start one. I apologize for ranting. I\u0027ve just started looking at the innards of SWT to see what I can do about it. I really didn\u0027t want to do have to do that, but I don\u0027t see the SWT team getting to it according to the earlier post (#109).\n\nSo I\u0027ll shut up for now and put my time where my mouth is.\n\nI still maintain though that this is a time to revisit the architecture regardless. This larger problem won\u0027t go away even if one of us can match a kludge to Scott Kovatch\u0027s to make it all work.\n\n",
+    "(In reply to comment #137)\n\u003e Re Comment  #136:\n\u003e Calvin,\n\u003e everyone understands your frustration, and feel it to various degrees. But\n\u003e trust me, I know Steve and he genuinely want this solved, as much as you.\n\u003e A bug is not forum for that kind of personal and unwarranted attack imho.\n\u003e Trust me also on that one, I did in the past on other occasions and it buys you\n\u003e squat.\n\u003e \n\nI hope you\u0027re right here about him wanting to solve it, but I just don\u0027t see it in his replies. And the replies to Jay and Tom especially really just seem like rude deflections. \n\n\n",
+    "Calvin,\n\nI assure you that we are all just engineers here, attempting to fix a technical problem.  Any information you have which is relevant to that problem is appreciated.  Please don\u0027t attempt to read conspiricy theories, opinions and blame into the comments in this bug report.  That *is* rude and does a disservice to everyone who is working on the problem, including me.\n\nIf you are interested in any of the technical details about my original comment, ask away.  Basically, SWT is appartment threaded which means that interfacing C code to it is a matter of just calling your native from the GUI thread, which is exactly what the SWT implemenation does to interface with operating system controls.\n\nSteve",
+    "I sense that there is an earnest desire to fix this bug. However, one of two\nthings are the case. First, it\u0027s impossible to fix. Second, it\u0027s only a matter\nof interest and motivation, where there doesn\u0027t seem to have been an adequate\nlevel of either over the past two years relative to the high profile of the\nissue and the number of people who have taken an interest in it.\n\nWhat I think should be learned from this is that there is indeed a \"social\ncontract\" of cross-platform behavior inherent in the whole premise of Java\n(TM). If there is anything added to SWT that will completely break it on one of\nits target platforms, then it should *absolutely*, *unequivocally*, be placed\nin a separate package hierarchy (something like .win32*, .gtk*, etc.) and never\nbe moved until it is supported *equally* on all target platforms. This will\nallow for experimentation and having certain platforms lag others, but not\nseriously upset people who use Java primarily because it is cross-platform.\nThat is only fair, especially to all of us who have struggled watching the\napparent lack of interest and motivation to get this fixed (admittedly from the\nsidelines), not to mention the perception of what it is doing to the Java (TM)\nplatform in general.\n\nI\u0027m starting to want to see this fixed more than I wanted to see the Red Sox\nfinally win the World Series. :)",
+    "I don\u0027t want to continue the argument of \u0027blame\u0027 here because this is a bug report and not a Java Lobby discussion thread. That said, a lot of decisions on both the SWT and Apple\u0027s part have gotten us where we are right now. The post-1.3 AWT has been pretty hostile to Carbon applications in general. The SWT_AWT bridge is a specific case of a larger problem we\u0027ve had with our AWT working in Carbon applications. And, as Steve N. said, it\u0027s never been a political/ideological issue, certainly from Apple\u0027s point of view. We thought it was impossible to fix, and I\u0027m happy to say that I no longer believe that\u0027s the case.",
+    "And now for something completely different -- actual progress to report. I have a prototype of an AWT Frame embedded in a Carbon window in a C application. It\u0027s not a huge leap to convert that into something the SWT can use, so I\u0027m going to work with Silenio on writing a SWT_AWT API for it over the next couple of days, and we hope to have good things to report by the end of the week.",
+    "\u003e its target platforms, then it should *absolutely*, *unequivocally*, be placed\n\u003e in a separate package hierarchy (something like .win32*, .gtk*, etc.) and never\n\nI think you are looking at the current list of SWT platforms, and the current state of the Java on the Mac. You should be looking at those things when the bridge was created to understand why it is in the package it is in.",
+    "(In reply to comment #145)\n\u003e \u003e its target platforms, then it should *absolutely*, *unequivocally*, be placed\n\u003e \u003e in a separate package hierarchy (something like .win32*, .gtk*, etc.) and never\n\u003e \n\u003e I think you are looking at the current list of SWT platforms, and the current\n\u003e state of the Java on the Mac. You should be looking at those things when the\n\u003e bridge was created to understand why it is in the package it is in.\n\u003e \nI don\u0027t understand your point. Would you please clarify? My point was that there should be in the future a strong precedent/procedure/requirement in place for any technology added to the \"core SWT\" that it is inherently cross platform on any target platforms at the time of a major release of SWT itself. Otherwise, it should be put in an \"experimental\" area (package) so that people don\u0027t unwittingly use an API that will break cross-platform compatibility. Furthermore, it should be 100% clear to every developer using any given API (with something stronger than a JavaDoc comment) exactly what platforms their application will be broken on as a result of using said API. How can that not make sense?",
+    "(In reply to comment #144)\n\u003e And now for something completely different -- actual progress to report. I have\n\u003e a prototype of an AWT Frame embedded in a Carbon window in a C application.\n\u003e It\u0027s not a huge leap to convert that into something the SWT can use, so I\u0027m\n\u003e going to work with Silenio on writing a SWT_AWT API for it over the next couple\n\u003e of days, and we hope to have good things to report by the end of the week.\n\u003e \n\nIT WORKS HOLY SHITENING IN ME SHORTS!!!!!!!!!\n\nXPATH EXPLORER NOW RUNS AFTER THE JAVA UPDATE!!!!\n\n\nSILENIO AND SCOTT ARE HEROES!!!!!!!!\n\nIT WORKS IT WORKS IT WORKS!!!!!!!!\n\n(and still being up at 3AM has it\u0027s bennies too) ;)",
+    "\u003e IT WORKS HOLY SHITENING IN ME SHORTS!!!!!!!!!\n\nGlad you\u0027re not working in my hallway!",
+    "(In reply to comment #148)\n\u003e \u003e IT WORKS HOLY SHITENING IN ME SHORTS!!!!!!!!!\n\u003e \n\u003e Glad you\u0027re not working in my hallway!\n\u003e \n\nAhem... it was late, I couldn\u0027t sleep, and I swung by the laptop to check mail on the way back to bed and behold, a Java update. When it worked, I (apparently) got a little (over) excited, which I can blame on raw geek energy and sleep deprivation. ;)\n\nAnyway... it\u0027s looking good at this point, but my only test case is XPath Explorer, which is a fine test case, no doubt... but a little light.\n\nThanks Silenio and Scott... good job.",
+    "Keep that energy.  I almost died laughing when I read your comment.",
+    "(In reply to comment #136)\nA comment on the \"conspiracy theory\" post: I used to think about the SWT versus Swing debate as a scenario of conflict. Supporting evidence here is the name choice (\"eclipsing the Sun\") and that some parts of the Eclipse API duplicate standard Java functionality (example: the file/resource API) instead of trying to fit in and extend it. But the more I reflect on this issue, the more I think there is tremendous potential for cooperation:\n\n- AWT is very limited: SWT could become a logical extension of AWT, its \"migration path\".\n\n- SWT has custom controls: which feels weird, because I always thought that SWT disliked custom controls and wanted native widgets. Here it might make more sense to migrate SWT\u0027s custom controls to Swing.\n\n- Layouts: Why can\u0027t layout managers be shared between SWT and AWT?\n\n- Data binding: this is such a fundamental GUI programming mechanism and yet there are competing standards being developed in both camps.\n\n- Less confusion: the partitioning outlined above would make it very clear which toolkit to use in which situation. Much like the Linux desktop APIs KDE and Gnome currently realize that it makes sense for them to work together.\n\nObstacles:\n\n- Social hurdles: My guess is that the competition from SWT actually helped improve Swing; who knows if SwingLabs would have happened without it. Some of the current debate *sounds* like it is about cooperation, but I\u0027m not sure that it actually is: If JFace binding invites Sun to join, it must feel to Sun like: \"Give up your stuff, come to us and do it our way\". I\u0027m not sure how one can get out of this dilemma, but it is worth trying. A successful, brilliant example is the Annotation Processing API being adopted by Eclipse.\n\n- Technological hurdles: I do not know if SWT and AWT/Swing can (technically) be made work together in a more integrated fashion, but it sure would be nice if this were possible.\n\nAny comments?",
+    "(In reply to comment #151)\n\u003e A comment on the \"conspiracy theory\" post:\n....\n\u003e Any comments?\n\nThis seems kinda off topic for a bug report.\n\nThis seems like more of a blog, forum or newsgroup kind of conversation. I, for one, would like to keep this bug focused on the technical issue at hand.",
+    "In the release notes for the most recent Java update (J2SE 5.0 release 4) there is a claim that this has been resolved.  Has this been tested?\n\nRadar #3905894\nAWT integration within SWT applications\n\nDescription:\nSWT applications were unable to host AWT or Swing windows.\n\nResolution:\nJ2SE 5.0 allows SWT applications to host AWT and Swing windows. Java Web Start applications and Applets are unsupported.\n\nThis fix is provided by using the Compatibility Mode feature of CocoaComponent and is subject to many of its limitations. Also, you cannot embed AWT and Swing components within SWT windows. Finally, there are known issues with modal dialogs. To reliably show dialogs, use SwingUtilities.invokeLater.",
+    "Some work was done by Apple to enable AWT/Swing widgets to run in another top level window.  I think that\u0027s what all the \"shitening in shorts\" was about.",
+    "Steve,\n\nNow that Scott Kovatch has done all Apple can do to enable this bug to be addressed and has made it publicly availble in Java 5 Update 4, is there a timeline to complete the resolution on the Eclipse side?  I notice this bug still has no target milestone so any work that is planned or ongoing isn\u0027t externally visible to all those interested here.  Thanks in advance for any clarity you can provide.",
+    "Todd, that\u0027s not entirely correct. Java 5 update 4 simply allows SWT Shells and AWT Frames to run in the same application. That\u0027s not the same thing as what this bug involves.\n\nThe current plan (I think) is that I will send diffs to Silenio and Steve that will include a new Carbon-specific version of the SWT_AWT class, which need to be rolled into the SWT. Then, Apple will release the code that implements AWT embedded frames in Carbon applications as an add-on. More details as we get there.",
+    "We are proceeding cautiously but steadily.  Please stand by.",
+    "Created an attachment (id\u003d40363)\nCarbon version of SWT side of SWT_AWT bridge\n\nThis is the SWT portion needed to find the embedded frame class and create it.",
+    "I have attached the SWT side of the SWT_AWT bridge for Carbon. Watch this bug for details on the additional changes needed from Apple to get this up and running.",
+    "We definitely want to get this out. +1.\n",
+    "+1",
+    "SWT side patch released for 3.2 RC3.",
+    "Ditto getting this out.  +1",
+    "I would like to serve a big round of virtual beers to Scott, Steve, Silenio, Andre and the SWT and Apple team!\nThis was laborious and tough but exemplary collaboration\nThanks guys...YOU ROCK.\nNo pants involved here ;-)\n\nWe just miss the \"Apple SWT compatibility pack\" I guess now :-) as from the test I made a minute ago with SWT from CVS HEAD, that seems to be the only part missing...\nTne test I made was on ppc 10.4.6 with java 1.5.0_06-112\nScott:\nWhen would that be available? ie CHIViewEmbeddedFrame et al?",
+    "We (Apple) are working out the details on how we\u0027re going to release this. It\u0027s not in Java 5 release 4. We don\u0027t want to wait for a formal 1.5 update, but we also need to make sure that we do it right to save us future headaches if we do ship an update to 1.5 on Tiger. I hope to have something more concrete to say early next week.",
+    "I\u0027ll convert that round of virtual beers to real ones for Scott, Steve, Silenio,\nAndre and the SWT and Apple team if any of you will be at JavaOne week after next.",
+    "Great, I\u0027ll be there!",
+    "(In reply to comment #166)\n\u003e I\u0027ll convert that round of virtual beers to real ones for Scott, Steve,\n\u003e Silenio,\n\u003e Andre and the SWT and Apple team if any of you will be at JavaOne week after\n\u003e next.\n\n....or all involved can enjoy some free beers compliments of the Eclipse Foundation at the Thirsty Bear on the Wednesday night of JavaOne. See http://ianskerrett.blogspot.com/2006/05/eclipse-party-at-thirsty-bear.html. Just send an email to thirstybear@eclipse.org if you can make it.",
+    "It is sinful to have this bug unsatisfied since 2004. I am delighted to see it resurected and hope to see it resolved so I can use my Mac with Eclipse as needed.",
+    "Fixed \u003e 200605 17\n\nThanks Scott (and Silenio).  I\u0027m shitening in nme\u0027 shorts!!!",
+    "Fixed \u003e 200605 17\n\nThanks Scott (and Silenio).  I\u0027m shitening in nme\u0027 shorts!!!",
+    "To get the SWT Compatibility LIbraries, go to http://connect.apple.com and then select the Downloads selection. If you don\u0027t have an account, you can create one for free.\n\nThis is a ~180k download. Please read the release notes for any limitations. File bugs here in the Eclipse bug system, and I will track them here and in Apple\u0027s internal system.",
+    "Is it really working? I am still getting error \"java.lang.ClassNotFoundException: apple.awt.CHIViewEmbeddedFrame\"",
+    "This fix does not work on the Mac. Please reopen this bug until it is fully tested and verified by live users. Using Eclipse as a cross platform tool is not possible on the Mac.",
+    "Please re-read the comment in #172. The SWT team has done all that they can do, and the remainder of the fix is available as a download from Apple at connect.apple.com.\n\nSteve, you may want to add a link to connect.apple.com on the SWT page.",
+    "I have downloaded and installed SWT compatibility library and all required updates (Java and Mac) and I can find that there is jar added to the \"ext\" directory. However I am still getting error about not found class... I just want to know, can someone confirm that it is really working?",
+    "I\u0027ve the same problem as Egidijus.\nUsing SWT_AWT in a Eclipse plugin causes a ClassNotFoundException: apple.awt.CHIViewEmbeddedFrame\nThe same plugin works on Windows.\n\nSWT compatibility library is installed!\nMac OS X 10.4.6 PPC,\nJava 1.5.0_06,\nEclipse 3.2RC4\n\nSeems that the problem occurs only in Eclipse plugins that use SWT_AWT.\nI\u0027ve tried the SWT stand-alone application Snippet154.java from http://www.eclipse.org/swt/snippets/ and it works.\n\nHere is the error from the Eclipse Error Log view:\n\neclipse.buildId\u003dI20060512-1600\njava.version\u003d1.5.0_06\njava.vendor\u003dApple Computer, Inc.\nBootLoader constants: OS\u003dmacosx, ARCH\u003dppc, WS\u003dcarbon, NL\u003den_US\nFramework arguments:  -keyring /Users/charly/.eclipse_keyring -showlocation\nCommand-line arguments:  -os macosx -ws carbon -keyring /Users/charly/.eclipse_keyring -consoleLog -showlocation\n\nError\nTue May 23 16:49:24 CEST 2006\nNot implemented [need SWT compatibility pack from Apple] (java.lang.ClassNotFoundException: apple.awt.CHIViewEmbeddedFrame)\n\norg.eclipse.swt.SWTError: Not implemented [need SWT compatibility pack from Apple] (java.lang.ClassNotFoundException: apple.awt.CHIViewEmbeddedFrame)\nat org.eclipse.swt.SWT.error(SWT.java:3400)\nat org.eclipse.swt.awt.SWT_AWT.new_Frame(SWT_AWT.java:104)\nat com.jformdesigner.vq.a(SourceFile:43)\nat com.jformdesigner.lj.createContents(SourceFile:43)\nat com.jformdesigner.CC.createContents(SourceFile:27)\nat org.eclipse.jface.preference.PreferencePage.createControl(PreferencePage.java:233)\nat org.eclipse.jface.preference.PreferenceDialog.createPageControl(PreferenceDialog.java:1403)\nat org.eclipse.jface.preference.PreferenceDialog$12.run(PreferenceDialog.java:1162)\nat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n...\n\nCaused by: java.lang.ClassNotFoundException: apple.awt.CHIViewEmbeddedFrame\nat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:407)\nat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:352)\nat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass(DefaultClassLoader.java:83)\nat java.lang.ClassLoader.loadClass(ClassLoader.java:251)\nat java.lang.ClassLoader.loadClassInternal(ClassLoader.java:319)\nat java.lang.Class.forName0(Native Method)\nat java.lang.Class.forName(Class.java:164)\nat org.eclipse.swt.awt.SWT_AWT.new_Frame(SWT_AWT.java:102)\n... 56 more\n",
+    "I am getting the same error with Eclipse 3.2rc5 / java version \"1.5.0_06\" with the Apple SWT Compatibility Libraries.\nHas anyone gotten this to work?\n\n(In reply to comment #177)\n\u003e I\u0027ve the same problem as Egidijus.\n\u003e Using SWT_AWT in a Eclipse plugin causes a ClassNotFoundException:\n\u003e apple.awt.CHIViewEmbeddedFrame",
+    "It looks like we\u0027ll need to modify eclipse.ini on the Mac. Add the line\n\n-Xbootclasspath/a:/System/Library/Frameworks/JavaVM.framework/Versions/1.5.0/Home/lib/ext/frameembedding.jar\n\nto Eclipse.app/Contents/MacOS/eclipse.ini. Once I did this, I was able to get MyEclipse 5.0m1 to load. I know I tried Eclipse plugins that use the bridge, but apprently not recently enough.",
+    "I am running RC5, Java build 1.5.0_06-112 and compatibility patch. I have tried the example application at the beginning of this bug and the plugin example still hangs eclipse. I also tried the following code and can\u0027t seem to get any awt/swing embeded in swt. Any ideas?\n\nI do see the following in the console :\n2006-05-23 22:13:30.968 java[1579] [Java CocoaComponent compatibility mode]: Enabled\n2006-05-23 22:13:30.968 java[1579] [Java CocoaComponent compatibility mode]: Setting timeout for SWT to 0.100000\n\n\nimport java.awt.event.*;\n\nimport org.eclipse.swt.*;\nimport org.eclipse.swt.widgets.*;\nimport org.eclipse.swt.layout.*;\nimport org.eclipse.swt.awt.SWT_AWT;\n\npublic class SwingAWTClass {\n\n    public static void main(String[] args) {\n        final Display display \u003d new Display( );\n        final Shell shell \u003d new Shell(display);\n        shell.setText(\"Using Swing and AWT 1\");\n        shell.setSize(350, 280);\n        \n        Composite composite \u003d new Composite(shell, SWT.EMBEDDED);\n        composite.setBounds(20, 20, 300, 200);\n        composite.setLayout(new RowLayout( ));\n\n        java.awt.Frame frame \u003d SWT_AWT.new_Frame(composite);\n        java.awt.Panel panel \u003d new java.awt.Panel( );\n        frame.add(panel);\n\n        final javax.swing.JButton button \u003d new javax.swing.JButton(\"Click Me\");\n        final javax.swing.JTextField text \u003d new javax.swing.JTextField(20);\n        text.setText(\"THIS IS A TEST\");\n        panel.add(button);\n        panel.add(text);\n\n        button.addActionListener(new ActionListener( ) {\n            public void actionPerformed(ActionEvent event) {\n                text.setText(\"Yep, it works.\");\n            }\n        });\n        \n        shell.open( );\n        while(!shell.isDisposed( )) {\n            if (!display.readAndDispatch( )) display.sleep( );\n        }\n        display.dispose( );\n    }\n}",
+    "The plugin example above will always hang Eclipse on the Mac because the JOptionPane it displays is blocking the SWT event dispatch thread. As for your sample code, I see you also filed a Radar, which is good, but I don\u0027t have an answer right now.",
+    "Scott, I have added frameembedding.jar to bootclasspath but still get ClassNotFoundException. \nHave anybody successed in using SWT_AWT on Mac?\n",
+    "I\u0027ve succesfully run the dependency analysis view of metrics plugin (http://metrics.sf.net).\nI\u0027m running Eclipse 3.2RC5 and I\u0027ve applied the compatibility patch.\n \njava version \"1.5.0_06\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.5.0_06-112)\nJava HotSpot(TM) Client VM (build 1.5.0_06-64, mixed mode, sharing)\n\nand this is my eclipse.ini :\n-vmargs\n-Xdock:icon\u003d../Resources/Eclipse.icns\n-XstartOnFirstThread\n-Xbootclasspath/p:../../../plugins/org.eclipse.jdt.debug_3.2.0.v20060518/jdi.jar\n-Xms40m\n-Xmx256m\n-Dorg.eclipse.swt.internal.carbon.smallFonts\n-Dorg.eclipse.swt.internal.carbon.noFocusRing",
+    "The class is not found in Eclipse because it was provided in a extension jar and the plugin class loader does not have the extension directory in the classpath. See this bug#143482 for info. The class is found when running a standalone SWT app.",
+    "That\u0027s great! I wrote that plugin but have not had a chance yet to try all this out. Thanks for trying it with my metrics plugin, and it is fantastic news that that now works. Even better news that it works out of the box without changes...This renewed my motivation to continue working on that :-)\n\nMany thanks to everyone involved for fixing this,\n\nFrank Sauer\n\n(In reply to comment #183)\n\u003e I\u0027ve succesfully run the dependency analysis view of metrics plugin\n\u003e (http://metrics.sf.net).\n\u003e I\u0027m running Eclipse 3.2RC5 and I\u0027ve applied the compatibility patch.",
+    "Hi all. This is my first posting here.\nI am working on a \u0027x-platform\u0027 \"Swing Browser\".\nI embed a Browser into a Canvass which is placed onto a JPanel.\n\nSince SWT Browser 3.1.2 I have been testing on Windows.\nI have no runtime issues with Win.\n\nI am now using 3.2 build 32 (3232) because I need Mac OS X support on Intel.\n\nMy shiny new Mac (Core Duo Intel, OS X 10.4.6, Java HotSpot(TM) Client VM (build 1.5.0_06-64, mixed mode, sharing) is giving me grief with a \u0027not implemented\u0027 error. The code runs fine on Windows with the same version SWT binaries for Winblows.\n\nHere\u0027s the stack:\nException in thread \"Thread-22\" org.eclipse.swt.SWTError: Not implemented\n        at org.eclipse.swt.SWT.error(SWT.java:3400)\n        at org.eclipse.swt.SWT.error(SWT.java:3297)\n        at org.eclipse.swt.SWT.error(SWT.java:3268)\n        at org.eclipse.swt.awt.SWT_AWT.new_Shell(SWT_AWT.java:158)\n\nAnd here\u0027s the code:\n//a method called on the event dispath thread in a class that implements Runnable and extends JPanel\n\tprivate void initializeOnEventDispathThread()\n\t{\n\t\t_swtUIThread \u003d new Thread(this);\n\t\t_swtUIThread.start();\n\t}\n\n//the thread work\t\n\tpublic void run()\n\t{\n\t\tsynchronized(_lock)\n\t\t{\n\t\t\tif (_display \u003d\u003d null)\n\t\t\t{\n\t\t\t\t_display \u003d new Display();\n\t\t\t}\n\t\t\t_lock.notifyAll();\n\t\t}\n\t\t// start the SWT runner\n\t\tRunnable swtRunnable \u003d new Runnable()\n\t\t{\n\t\t\tpublic void run()\n\t\t\t{\n\t\t\t\ttry\n\t\t\t\t{\n\t\t\t\t\t//_canvas is a java.awt.Canvass already constructed on EDT\n\n\t\t\t\t\t//this call breaks the Mac\n\t\t\t\t\t_shell \u003d SWT_AWT.new_Shell(_display, _canvas);\n\t\t\t\t\t//...some other code here to bring up the browser\n\t\t\t\t}\n\t\t\t\tcatch (Exception e)\n\t\t\t\t{\n\t\t\t\t\tlog.debug(\"new_Shell error:\"+e.getMessage());\n\t\t\t\t}\n\t\t\t}\n\t\t};\n\t\tdisplay.syncExec(swtRunnable);\n\t}\n\nAll of the 3232 libs are on the PATH as expected.\nThere is no java_swt on the PATH.",
+    "Did you see comment 172?",
+    "Thanks for that Steve.\nI installed the package after downloading from connect.apple.com.\n\nI still get the same error, but there is now a subtle difference.\n\nThe error org.eclipse.swt.SWTError outcome is the same and the browser fails to function.\nBUT, my Java Application\u0027s \u0027Application Menu\u0027 (the one just to the right of the Apple Menu) now says \"SWT\". Maybe this was the case previously, but I didn\u0027t notice it until now.\n\nMaybe the Menu swap is just a side-effect of something breaking on the AWT EDT because of the SWT_ERROR (???) . Or, could it possibly suggest a bug in the either the Apple update I just installed or the SWT libs for Mac ?\n\nIn all other regards, my Java Application continues to work as it should.\n\nAt System.exit(), I eventually get an error spat out to the console:\nInvalid memory access of location ffd9d9f1 eip\u003d92efa503\n239 Segmentation fault\nalong with a Mac System dialog telling me that \"The application SWT quit unexpectedly\", allowing me send a report, which I have already done.\n\nFYI, I also placed the jnilib and the jar (which ship with the update) firectly onto my PATH and CLASSPATH, respectively, just be sure the app had access to the new functionality.",
+    "Ok, I have been working some more on this.\nI think that the issue is Swing related.\n\nHaving already installed the Mac 10.4 JVM5 patch earlier from connect.apple.com, I then installed this version of Eclipse:\n\nVersion: 3.2.0\nBuild id: I20060602-1317\n\nfrom the 3.2RC7 download area.\n\nHere\u0027s a snippet from my Eclipse Configuration:\norg.eclipse.swt (3.2.0.v3232l) \"Standard Widget Toolkit\" [Resolved]\norg.eclipse.swt.carbon.macosx (3.2.0.v3232l) \"Standard Widget Toolkit for Mac OS X (Carbon)\" [Resolved]\n\n  file:/Applications/eclipse 3.2RC7/plugins/org.eclipse.swt.carbon.macosx_3.2.0.v3232l.jar\n  file:/Applications/eclipse 3.2RC7/plugins/org.eclipse.swt_3.2.0.v3232l.jar\n\nWithin Eclipse (no Swing) the internal browser executes just fine.\n\nSo...to a Swing client...\nWith a PATH pointing to the SWT jnilibs and the Apple patch libembedding.jnilib\nand a CLASSPATH also containing the RC7 jars and the Apple resource, frameembedding.jar\n\nwhen I run a Swing Swt-Browser test case (code from my previous posting), I get:\nException in thread \"Thread-2\" org.eclipse.swt.SWTError: Not implemented\n\tat org.eclipse.swt.SWT.error(SWT.java:3400)\n\tat org.eclipse.swt.SWT.error(SWT.java:3297)\n\tat org.eclipse.swt.SWT.error(SWT.java:3268)\n\tat org.eclipse.swt.awt.SWT_AWT.new_Shell(SWT_AWT.java:162)\n\tat au.com.practica.common.SwtBrowserPanel$4.run(SwtBrowserPanel.java:267)\n\tat org.eclipse.swt.widgets.Synchronizer.syncExec(Synchronizer.java:152)\n\tat org.eclipse.swt.widgets.Display.syncExec(Display.java:3825)\n\tat au.com.practica.common.SwtBrowserPanel$3.run(SwtBrowserPanel.java:195)\n\tat au.com.practica.common.SwtBrowserPanel.doDisplaySyncExec(SwtBrowserPanel.java:212)\n\tat au.com.practica.common.SwtBrowserPanel.displaySyncExec(SwtBrowserPanel.java:177)\n\tat au.com.practica.common.SwtBrowserPanel.run(SwtBrowserPanel.java:283)\n\tat java.lang.Thread.run(Thread.java:613)\n\n[Incidentally, I execute this test application from within Eclipse].\n\nSo....any thoughts anyone ?",
+    "Hi Julian, let\u0027s move the discution of your problem to a new bug report. Please open a bug report adding a simple testcase that shows the problem. Thanks!",
+    "Hi Silenio and others....\n\nhttps://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d145890\nhas been created with a source attachment.\n",
+    "I don\u0027t suppose anyone would know how to request an eclipse bugzilla admin to transfer the 148 votes on this bug to #145890 ? Or do votes not really matter much anyway?",
+    "\u003e I don\u0027t suppose anyone would know how to request an eclipse bugzilla admin to\n\u003e transfer the 148 votes on this bug to #145890 ? Or do votes not really matter\n\u003e much anyway?\n\nYou have an interesting concept of how electoral systems work ;)  Nobody but the voter can or should be able to change what that person votes for. Votes certainly matter, especially when there are a hundred or more on a single bug. Since this bug is marked FIXED, anyone with a vote attached to this bug should certainly consider moving that vote elsewhere.  Votes on a fixed bug no longer have any value.",
+    "(In reply to comment #193)\n\u003e \u003e I don\u0027t suppose anyone would know how to request an eclipse bugzilla admin to\n\u003e \u003e transfer the 148 votes on this bug to #145890 ? Or do votes not really matter\n\u003e \u003e much anyway?\n\u003e \n\u003e You have an interesting concept of how electoral systems work ;)  Nobody but\n\u003e the voter can or should be able to change what that person votes for. Votes\n\u003e certainly matter, especially when there are a hundred or more on a single bug.\n\u003e Since this bug is marked FIXED, anyone with a vote attached to this bug should\n\u003e certainly consider moving that vote elsewhere.  Votes on a fixed bug no longer\n\u003e have any value.\n\u003e \n\nI think what he really means is that this bug was filed with the intention that SWT_AWT stuff would work on Mac OS X when it was fixed.  Since for some reason this bug was closed while the problem wasn\u0027t fixed and a new bug was opened to get the fix completed more than likely everyone who voted for this bug would vote for the other bug.\n\nYou have to admit the other bug appears to be a subset of this one:\n\nBugzilla Bug 67384\nSWT_AWT not implemented for Mac\n\nBugzilla Bug 145890\nAWT side of SWT_AWT bridge unimplemented on OS X"
+  ],
+  "commentCreationDates": [
+    "2004-06-15T23:28:39+02:00",
+    "2004-06-15T23:37:36+02:00",
+    "2004-06-15T23:43:08+02:00",
+    "2004-06-16T00:06:36+02:00",
+    "2004-06-16T16:57:08+02:00",
+    "2004-06-16T21:34:40+02:00",
+    "2004-07-26T21:23:49+02:00",
+    "2004-07-26T22:21:38+02:00",
+    "2004-08-10T16:13:36+02:00",
+    "2004-08-10T18:22:08+02:00",
+    "2004-08-11T17:34:25+02:00",
+    "2004-09-19T16:31:47+02:00",
+    "2004-09-20T17:39:22+02:00",
+    "2004-09-20T19:16:58+02:00",
+    "2004-09-22T13:15:35+02:00",
+    "2004-09-22T17:18:12+02:00",
+    "2004-09-22T17:42:59+02:00",
+    "2004-09-22T17:53:33+02:00",
+    "2004-09-22T18:01:53+02:00",
+    "2004-09-22T18:10:35+02:00",
+    "2004-09-22T18:28:31+02:00",
+    "2004-09-22T18:53:24+02:00",
+    "2004-09-22T19:02:07+02:00",
+    "2004-09-22T20:15:03+02:00",
+    "2004-09-27T15:50:46+02:00",
+    "2004-09-27T16:39:13+02:00",
+    "2004-09-27T16:43:25+02:00",
+    "2004-09-27T16:45:14+02:00",
+    "2004-12-17T18:58:29+01:00",
+    "2005-01-17T23:10:58+01:00",
+    "2005-01-17T23:42:00+01:00",
+    "2005-01-21T01:51:45+01:00",
+    "2005-03-08T22:36:05+01:00",
+    "2005-03-08T23:17:30+01:00",
+    "2005-03-17T11:06:16+01:00",
+    "2005-03-20T18:17:51+01:00",
+    "2005-03-29T00:09:33+02:00",
+    "2005-03-29T22:05:31+02:00",
+    "2005-03-30T09:07:12+02:00",
+    "2005-03-30T09:21:13+02:00",
+    "2005-03-30T09:56:27+02:00",
+    "2005-04-06T11:23:35+02:00",
+    "2005-04-11T22:35:27+02:00",
+    "2005-05-07T14:51:55+02:00",
+    "2005-05-27T06:45:05+02:00",
+    "2005-05-28T00:47:55+02:00",
+    "2005-05-28T11:13:59+02:00",
+    "2005-05-30T12:27:45+02:00",
+    "2005-06-01T06:20:25+02:00",
+    "2005-06-01T12:49:57+02:00",
+    "2005-09-09T20:16:44+02:00",
+    "2005-09-09T23:09:00+02:00",
+    "2005-09-11T12:44:02+02:00",
+    "2005-09-14T23:33:42+02:00",
+    "2005-09-22T08:09:37+02:00",
+    "2005-09-22T08:51:52+02:00",
+    "2005-09-25T04:42:06+02:00",
+    "2005-09-25T19:31:18+02:00",
+    "2005-09-25T20:03:14+02:00",
+    "2005-09-26T14:43:53+02:00",
+    "2005-10-10T18:20:51+02:00",
+    "2005-10-10T19:39:37+02:00",
+    "2005-10-10T21:52:33+02:00",
+    "2005-11-01T10:32:22+01:00",
+    "2005-11-07T07:08:54+01:00",
+    "2005-11-07T11:14:02+01:00",
+    "2005-11-07T14:30:21+01:00",
+    "2005-11-07T14:43:19+01:00",
+    "2005-11-07T14:55:22+01:00",
+    "2005-11-07T16:12:58+01:00",
+    "2005-11-12T10:44:08+01:00",
+    "2005-11-12T15:15:44+01:00",
+    "2005-11-14T09:06:45+01:00",
+    "2005-11-14T14:41:23+01:00",
+    "2005-11-16T10:31:57+01:00",
+    "2005-11-21T16:47:44+01:00",
+    "2006-01-09T19:07:43+01:00",
+    "2006-01-26T11:35:13+01:00",
+    "2006-01-26T17:09:52+01:00",
+    "2006-01-26T18:53:45+01:00",
+    "2006-01-26T19:13:12+01:00",
+    "2006-01-26T19:21:25+01:00",
+    "2006-01-26T19:27:02+01:00",
+    "2006-01-27T08:14:56+01:00",
+    "2006-01-27T08:44:41+01:00",
+    "2006-01-27T14:09:47+01:00",
+    "2006-01-27T14:42:26+01:00",
+    "2006-01-28T21:49:25+01:00",
+    "2006-01-30T14:40:45+01:00",
+    "2006-01-30T14:58:39+01:00",
+    "2006-01-30T15:01:53+01:00",
+    "2006-01-30T15:28:25+01:00",
+    "2006-01-30T15:32:22+01:00",
+    "2006-01-30T15:55:14+01:00",
+    "2006-01-30T15:58:48+01:00",
+    "2006-01-30T16:27:39+01:00",
+    "2006-01-30T16:37:35+01:00",
+    "2006-01-30T17:21:09+01:00",
+    "2006-01-30T18:22:11+01:00",
+    "2006-01-30T19:05:09+01:00",
+    "2006-01-30T20:52:53+01:00",
+    "2006-01-31T00:48:36+01:00",
+    "2006-01-31T10:59:13+01:00",
+    "2006-01-31T11:52:32+01:00",
+    "2006-01-31T12:39:35+01:00",
+    "2006-01-31T12:55:00+01:00",
+    "2006-01-31T19:51:01+01:00",
+    "2006-01-31T23:29:09+01:00",
+    "2006-02-01T11:24:19+01:00",
+    "2006-02-01T19:30:55+01:00",
+    "2006-02-01T22:23:18+01:00",
+    "2006-02-02T06:24:30+01:00",
+    "2006-02-04T19:37:57+01:00",
+    "2006-02-04T20:52:54+01:00",
+    "2006-02-06T15:19:12+01:00",
+    "2006-02-06T15:54:44+01:00",
+    "2006-02-06T16:33:20+01:00",
+    "2006-02-06T16:55:37+01:00",
+    "2006-02-06T17:35:42+01:00",
+    "2006-02-06T17:52:53+01:00",
+    "2006-02-06T18:22:45+01:00",
+    "2006-02-06T19:00:52+01:00",
+    "2006-02-07T04:32:11+01:00",
+    "2006-02-08T01:31:12+01:00",
+    "2006-02-08T14:56:38+01:00",
+    "2006-02-08T19:22:48+01:00",
+    "2006-02-09T17:07:51+01:00",
+    "2006-02-24T01:59:26+01:00",
+    "2006-02-24T12:13:53+01:00",
+    "2006-02-24T18:25:18+01:00",
+    "2006-03-26T20:35:20+02:00",
+    "2006-04-13T02:03:10+02:00",
+    "2006-04-14T20:35:17+02:00",
+    "2006-04-17T17:30:03+02:00",
+    "2006-04-18T00:53:18+02:00",
+    "2006-04-18T01:07:14+02:00",
+    "2006-04-18T02:31:41+02:00",
+    "2006-04-18T02:49:32+02:00",
+    "2006-04-18T02:53:22+02:00",
+    "2006-04-18T03:14:01+02:00",
+    "2006-04-18T03:18:16+02:00",
+    "2006-04-18T17:03:27+02:00",
+    "2006-04-18T17:40:36+02:00",
+    "2006-04-18T18:00:01+02:00",
+    "2006-04-18T18:03:55+02:00",
+    "2006-04-18T20:06:34+02:00",
+    "2006-04-19T19:46:34+02:00",
+    "2006-04-20T10:46:27+02:00",
+    "2006-04-20T16:46:08+02:00",
+    "2006-04-20T17:08:57+02:00",
+    "2006-04-20T17:27:05+02:00",
+    "2006-04-22T17:53:44+02:00",
+    "2006-04-24T22:20:58+02:00",
+    "2006-04-26T23:14:43+02:00",
+    "2006-04-26T23:21:33+02:00",
+    "2006-05-01T15:48:44+02:00",
+    "2006-05-01T17:08:30+02:00",
+    "2006-05-03T01:55:10+02:00",
+    "2006-05-04T17:43:08+02:00",
+    "2006-05-04T17:45:50+02:00",
+    "2006-05-04T17:58:52+02:00",
+    "2006-05-04T18:14:15+02:00",
+    "2006-05-04T18:20:19+02:00",
+    "2006-05-04T19:28:34+02:00",
+    "2006-05-04T20:55:57+02:00",
+    "2006-05-04T21:04:46+02:00",
+    "2006-05-04T21:09:44+02:00",
+    "2006-05-04T21:22:51+02:00",
+    "2006-05-04T21:51:53+02:00",
+    "2006-05-05T19:55:21+02:00",
+    "2006-05-18T07:48:40+02:00",
+    "2006-05-18T07:50:24+02:00",
+    "2006-05-18T08:36:14+02:00",
+    "2006-05-22T15:04:52+02:00",
+    "2006-05-22T15:16:56+02:00",
+    "2006-05-22T18:27:25+02:00",
+    "2006-05-23T15:32:38+02:00",
+    "2006-05-23T17:10:25+02:00",
+    "2006-05-23T18:09:21+02:00",
+    "2006-05-23T20:02:38+02:00",
+    "2006-05-24T04:11:06+02:00",
+    "2006-05-24T05:22:43+02:00",
+    "2006-05-24T12:30:39+02:00",
+    "2006-05-24T12:41:21+02:00",
+    "2006-05-24T17:41:31+02:00",
+    "2006-05-24T19:32:26+02:00",
+    "2006-06-02T12:04:57+02:00",
+    "2006-06-02T17:05:08+02:00",
+    "2006-06-02T23:59:11+02:00",
+    "2006-06-07T07:45:31+02:00",
+    "2006-06-07T16:29:12+02:00",
+    "2006-06-08T01:25:32+02:00",
+    "2006-10-26T23:48:36+02:00",
+    "2006-10-27T16:16:20+02:00",
+    "2006-10-27T18:08:21+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.InternalError",
+      "message": "Can\u0027t start the AWT because Java was started on the first thread.  Make sure StartOnFirstThread is not specified in your application\u0027s Info.plist or on the command line",
+      "elements": [
+        {
+          "method": "java.lang.ClassLoader$NativeLibrary.load",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadLibrary0",
+          "source": "ClassLoader.java:1586"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadLibrary",
+          "source": "ClassLoader.java:1503"
+        },
+        {
+          "method": "java.lang.Runtime.loadLibrary0",
+          "source": "Runtime.java:788"
+        },
+        {
+          "method": "java.lang.System.loadLibrary",
+          "source": "System.java:834"
+        },
+        {
+          "method": "sun.security.action.LoadLibraryAction.run",
+          "source": "LoadLibraryAction.java:50"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.awt.Toolkit.loadLibraries",
+          "source": "Toolkit.java:1437"
+        },
+        {
+          "method": "java.awt.Toolkit.\u003cclinit\u003e",
+          "source": "Toolkit.java:1458"
+        },
+        {
+          "method": "javax.media.j3d.MasterControl.loadLibraries",
+          "source": "MasterControl.java:883"
+        },
+        {
+          "method": "javax.media.j3d.VirtualUniverse.\u003cclinit\u003e",
+          "source": "VirtualUniverse.java:233"
+        },
+        {
+          "method": "SWTJava3D.\u003cinit\u003e",
+          "source": "SWTJava3D.java:35"
+        },
+        {
+          "method": "SWTJava3D.main",
+          "source": "SWTJava3D.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 25,
+      "bugId": "67384",
+      "date": "2004-09-27T16:39:13+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "Not implemented",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2968"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2865"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2836"
+        },
+        {
+          "method": "org.eclipse.swt.awt.SWT_AWT.new_Frame",
+          "source": "SWT_AWT.java:63"
+        },
+        {
+          "method": "com.trifork.p4.history.views.Graph.createPartControl",
+          "source": "Graph.java:36"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPartHelper",
+          "source": "ViewReference.java:305"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPart",
+          "source": "ViewReference.java:180"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.getPart",
+          "source": "WorkbenchPartReference.java:552"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.setVisible",
+          "source": "PartPane.java:283"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewPane.setVisible",
+          "source": "ViewPane.java:512"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.PresentablePart.setVisible",
+          "source": "PresentablePart.java:126"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.PresentablePartFolder.select",
+          "source": "PresentablePartFolder.java: 268"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.LeftToRightTabOrder.select",
+          "source": "LeftToRightTabOrder.java: 65"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.TabbedStackPresentation.selectPart",
+          "source": "TabbedStackPresentation.java:391"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.refreshPresentationSelection",
+          "source": "PartStack.java:1102"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.setSelection",
+          "source": "PartStack.java:1051"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.showPart",
+          "source": "PartStack.java:1256"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.createControl",
+          "source": "PartStack.java:576"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.createControl",
+          "source": "PartStack.java:528"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartSashContainer.createControl",
+          "source": "PartSashContainer.java:485"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PerspectiveHelper.activate",
+          "source": "PerspectiveHelper.java:230"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Perspective.onActivate",
+          "source": "Perspective.java:813"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.setPerspective",
+          "source": "WorkbenchPage.java:2979"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.busySetPerspective",
+          "source": "WorkbenchPage.java:909"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.access$11",
+          "source": "WorkbenchPage.java:894"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage$12.run",
+          "source": "WorkbenchPage.java:3102"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.setPerspective",
+          "source": "WorkbenchPage.java:3100"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ChangeToPerspectiveMenu.run",
+          "source": "ChangeToPerspectiveMenu.java:91"
+        },
+        {
+          "method": "org.eclipse.ui.actions.PerspectiveMenu.run",
+          "source": "PerspectiveMenu.java:331"
+        },
+        {
+          "method": "org.eclipse.ui.actions.PerspectiveMenu.runOther",
+          "source": "PerspectiveMenu.java:346"
+        },
+        {
+          "method": "org.eclipse.ui.actions.PerspectiveMenu$3.runWithEvent",
+          "source": "PerspectiveMenu.java:108"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:538"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:488"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java: 400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1380"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1404"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1389"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.notifyListeners",
+          "source": "Widget.java:1237"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3060"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2712"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1699"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1663"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:367"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:103"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:226"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:163"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:334"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:278"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:973"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:948"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 72,
+      "bugId": "67384",
+      "date": "2005-11-14T09:06:45+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.StackOverflowError",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.internal.carbon.OS.ReceiveNextEvent",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2861"
+        },
+        {
+          "method": "interop.AWTandSWT.main",
+          "source": "AWTandSWT.java:67"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 119,
+      "bugId": "67384",
+      "date": "2006-02-06T17:52:53+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.ClassNotFoundException",
+      "message": "apple.awt.CHIViewEmbeddedFrame)",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3400"
+        },
+        {
+          "method": "org.eclipse.swt.awt.SWT_AWT.new_Frame",
+          "source": "SWT_AWT.java:104"
+        },
+        {
+          "method": "com.jformdesigner.vq.a",
+          "source": "SourceFile:43"
+        },
+        {
+          "method": "com.jformdesigner.lj.createContents",
+          "source": "SourceFile:43"
+        },
+        {
+          "method": "com.jformdesigner.CC.createContents",
+          "source": "SourceFile:27"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferencePage.createControl",
+          "source": "PreferencePage.java:233"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog.createPageControl",
+          "source": "PreferenceDialog.java:1403"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog$12.run",
+          "source": "PreferenceDialog.java:1162"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 177,
+      "bugId": "67384",
+      "date": "2006-05-23T17:10:25+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.ClassNotFoundException",
+      "message": "apple.awt.CHIViewEmbeddedFrame",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:407"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:352"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass",
+          "source": "DefaultClassLoader.java:83"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:251"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClassInternal",
+          "source": "ClassLoader.java:319"
+        },
+        {
+          "method": "java.lang.Class.forName0",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.Class.forName",
+          "source": "Class.java:164"
+        },
+        {
+          "method": "org.eclipse.swt.awt.SWT_AWT.new_Frame",
+          "source": "SWT_AWT.java:102"
+        }
+      ],
+      "number": 4,
+      "commentIndex": 177,
+      "bugId": "67384",
+      "date": "2006-05-23T17:10:25+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "Not implemented",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3400"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3297"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3268"
+        },
+        {
+          "method": "org.eclipse.swt.awt.SWT_AWT.new_Shell",
+          "source": "SWT_AWT.java:158"
+        }
+      ],
+      "number": 5,
+      "commentIndex": 186,
+      "bugId": "67384",
+      "date": "2006-06-02T12:04:57+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "Not implemented",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3400"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3297"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3268"
+        },
+        {
+          "method": "org.eclipse.swt.awt.SWT_AWT.new_Shell",
+          "source": "SWT_AWT.java:162"
+        },
+        {
+          "method": "au.com.practica.common.SwtBrowserPanel$4.run",
+          "source": "SwtBrowserPanel.java:267"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.syncExec",
+          "source": "Synchronizer.java:152"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.syncExec",
+          "source": "Display.java:3825"
+        },
+        {
+          "method": "au.com.practica.common.SwtBrowserPanel$3.run",
+          "source": "SwtBrowserPanel.java:195"
+        },
+        {
+          "method": "au.com.practica.common.SwtBrowserPanel.doDisplaySyncExec",
+          "source": "SwtBrowserPanel.java:212"
+        },
+        {
+          "method": "au.com.practica.common.SwtBrowserPanel.displaySyncExec",
+          "source": "SwtBrowserPanel.java:177"
+        },
+        {
+          "method": "au.com.practica.common.SwtBrowserPanel.run",
+          "source": "SwtBrowserPanel.java:283"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:613"
+        }
+      ],
+      "number": 6,
+      "commentIndex": 189,
+      "bugId": "67384",
+      "date": "2006-06-07T07:45:31+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    }
+  ],
+  "groupId": "67384",
+  "bugId": "67384",
+  "date": "2004-06-15T23:28:39+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "major"
+}

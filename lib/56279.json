@@ -1,0 +1,56 @@
+{
+  "comments": [
+    "Build 20040325\nI have a class in bundle A that is trying to load a resource from a fragment of\nbundle B.  The URL to the resource is passed to bundle A, so it\u0027s doing a simple\nURL.openStream().  I get the following exception:\n\njava.lang.NullPointerException\n\tat\norg.eclipse.osgi.framework.internal.protocol.bundleresource.Handler.findBundleEntry(Handler.java:45)\n\tat\norg.eclipse.osgi.framework.adaptor.core.BundleResourceHandler.openConnection(BundleResourceHandler.java:162)\n\tat java.net.URL.openConnection(URL.java:896)\n\tat java.net.URL.openStream(URL.java:913)\n\tat com.bundleA.someClass\n\nThis used to work.  The NullPointer is the result of BundleFragment returning\nnull in its getBundleLoader() method.  Should this return the BundleHost\u0027s\nBundleLoader?",
+    "Passing to Tom for review and possible inclusion in M8.  Take a look and see \nwhat you think.",
+    "This failure should only occur if you are getting the URL using \nBundle.getResource() and then externalizing that URL and creating a new URL \nfrom the external form, or using the original URL as a context for a new URL.  \nAre you doing either of the following:\n\n// Case 1: this will succeed\nURL fragURL \u003d bundlea.getResource(\"fragResources/resource1.txt\");\nfragURL.openStream();\n\n// Case 2: get the external form and then reconstruct the URL; this will fail\nString strURL \u003d fragResource.toExternalForm();\nURL newFragURL1 \u003d new URL(strURL);\nnewFragURL1.openStream();\n\n// Case 3: use the URL as a context to a new URL; this will fail\nURL newFragURL2 \u003d new URL(fragURL, \"resource2.txt\");\nnewFragURL2.openStream();\n\nThe first case works becuase Bundle.getResource() ends up resolving the URL and \nlocating the actual resource before a connection is attempted so when the \nconnection is made we just use the resource that was located during the call to \ngetResource().  In cases 2 and 3 the newly constructed URLs are not resolved \nand the bundle entries will not be located until a connection is made.  The \nfailures are occuring because the bundle ID of the fragment URL is being set \nthe the ID of the fragment not the host.  So when a connection is made the \nfragment is searched for the resource.  This fails hard because the fragment \ndoes not have a BundleLoader associated with it to do the lookup.  Fragments \nmust not have a BundleLoader associated because it is possible for a fragment \nto be attached to multiple hosts.\n\nThe fix is to construct bundleresource URLs that only use host bundle IDs.  \nThis way when a connection is made to the URL then the host BundleLoader will \nbe used to locate the resource.",
+    "A fix has been checked into HEAD.  Still need to decide if the fix is too risky \nfor M8 or not.",
+    "Decided against putting the fix into the last M8 build.  Changing to fixed \nsince it is fixed in HEAD.",
+    "I see I\u0027m way too slow as you\u0027ve already resolved this.  Here\u0027s my answer to\nyour first question anyway:\n\nCase 3 (though I\u0027m using URIs).  I\u0027m getting the base URI by loading another\nfile located in the same fragment (actually, this file has the URI to the other\none).  However, I\u0027m loading the first file from a different bundle than the\nsecond.  It would seem that if you can load the \"bundleresource://5/fileA\" url,\nyou should be able to load the \"bundleresource://5/fileB\" url, even if it is\nbeing loaded from different bundles.  Is this correct?",
+    "Yes, you are correct.  The only problem was we were constructing bundleresource \nURLs that had the bundle id of the fragment.  When you actually requested the \noriginal resource URL from the host bundle A, we should have been using the ID \nof the host bundle A not the ID of the fragment in the URL returned from \nBundle.getResource().  Note that if you call Bundle.getResource() on a fragment \nbundle you will always get null returned.  This is because fragments do not \nhave a classloader associated with them like host bundles do.  Infact they may \nbe attached to multiple hosts so we cannot just ask the host because we have no \nway of knowing which host to ask."
+  ],
+  "commentCreationDates": [
+    "2004-03-26T00:37:56+01:00",
+    "2004-03-26T05:36:25+01:00",
+    "2004-03-26T14:51:43+01:00",
+    "2004-03-26T15:10:07+01:00",
+    "2004-03-26T15:17:03+01:00",
+    "2004-03-26T15:30:44+01:00",
+    "2004-03-26T15:49:06+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.protocol.bundleresource.Handler.findBundleEntry",
+          "source": "Handler.java:45"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.BundleResourceHandler.openConnection",
+          "source": "BundleResourceHandler.java:162"
+        },
+        {
+          "method": "java.net.URL.openConnection",
+          "source": "URL.java:896"
+        },
+        {
+          "method": "java.net.URL.openStream",
+          "source": "URL.java:913"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "56279",
+      "date": "2004-03-26T00:37:56+01:00",
+      "product": "Equinox",
+      "component": "Incubator",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "56279",
+  "bugId": "56279",
+  "date": "2004-03-26T00:37:56+01:00",
+  "product": "Equinox",
+  "component": "Incubator",
+  "severity": "normal"
+}

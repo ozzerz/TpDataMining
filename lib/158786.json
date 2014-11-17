@@ -1,0 +1,103 @@
+{
+  "comments": [
+    "When I start a remote debugging session the session has four processes:\n- gdbserver debugger\n- Remote Shell\n- gdb\n- executable\n\nAfter the debugged application terminates the gdbserver, gdb and executable are flagged as terminated as it should be. \n\nThe Remote Shell remains alive. It still has a console attached and I can enter commands on it\u0027s command line. When I type \"exit\" the shell exits, but the status is not reflected in the debug view. I have to manually kill the Remote Shell in the debug view. (Works but is ugly)\n\nLeaving a shell connection open is in my opinion pretty bad behavior so for now I\u0027ll say that this is a \"major\" bug.\n\n-----------Enter bugs above this line-----------\nRSE 1.0 Testing round 1\ninstallation : eclipse-platform-3.2.0 (M20060629-1905), cdt-3.1.0\nRSE install  : update-site RSE-complete\njava.runtime : Java(TM) 2 Runtime Environment, Standard Edition java.runtime.version\u003d1.5.0_06-b05\nos.name:     : Windows XP 5.1, Service Pack 2\n------------------------------------------------\nsystemtype   : ssh only\ntargetos     : LSB_VERSION\u003d\"core-2.0-noarch:core-3.0-noarch:core-2.0-ia32:core-3.0-ia32\" SUSE LINUX 10.0 (i586) VERSION \u003d 10.0\ntargetuname  : Linux nb14520d 2.6.13-15-smp #1 SMP Tue Sep 13 14:56:15 UTC 2005 i686 i686 i386\nGNU/Linux\ntargetvm     : java version \"1.4.2_06\" Java(TM) 2 Runtime Environment, Standard Edition (build 1.4.2_06-b03) Java HotSpot(TM) Client VM (build 1.4.2_06-b03, mixed mode)\n------------------------------------------------",
+    "Hi,\n\nI\u0027ve documented this as a limitation in the plugin (org.eclipse.rse.remotecdt/instructions.txt).  The problem is that I have no way to detect that the user command in the remote shell has completed. From what I can tell, I can only open a remote shell, and pass commands to it.  I cannot just run one command to completion on the remote target.\n\nI can hack it for the debug case to terminate when I detect that the gdb connection has terminated but I have no way to know for the run case that the user program has stopped running.\n\nFor now I think this should be marked as a limitation. I will file a bug against the RSE APIs and fix this later when that bug is resolved. \n\nThanks.",
+    "DaveM... I\u0027m wondering whether Ewa could to this:\n * Start the debuggee with \"exec\" --\u003e replace the Shell process by the Debuggee\n * Listen to the Output and Error Streams\n * If the Streams are closed, the debuggee has terminated\n\nI believe that\u0027s how the RSE command view detects that the remote shell has terminated - when user types \"exit\" the command view is marked as \"terminated\".\n\nAnother option would be to call the debuggee like this:\n  $command ; exit\nSuch that the shell runs the debuggee command, and as soon as the debuggee command is finished, it performs an \"exit\", leading the output and error streams to close.\n\nIdeas or Comments?",
+    "Is \"exit\" a command that is recognized by every kind of shell subsystem?  I can give this method a try very easily.",
+    "The \"$command ; exit\" approach might work.  See what happens with that.\n",
+    "All the shells I know of have an \"exit\" command:\nBourne sh, ksh, csh, tcsh, zsh, bash, and cmd.\n\nThe only difference is that Unixy flavors of shells use \";\" as separator while Windows cmd uses \"\u0026\" as separator. But there\u0027s a method on the \n    IRemoteCmdSubSystem.getCommandSeparator()\nwhich returns exactly the separator to use.\n\nSince the \"Universal\" subsystems that we are dealing with are kind of Unix Flavor anyways, I think we should be OK with the limitation. Moreover, in case a remote shell should not support the \"exit\" command, the worst thing that can happen is that the shell remains open... which doesnt seem too bad.",
+    "I try to write a custom launcher for us using RSE and I have the same problem. The shell stays open and if I close it manually I get the following error:\n\nError logged from Debug Core: \njava.io.IOException: Pipe broken\n        at java.io.PipedInputStream.read(PipedInputStream.java:255)\n        at java.io.PipedInputStream.read(PipedInputStream.java:305)\n        at java.io.BufferedInputStream.read1(BufferedInputStream.java:254)\n        at java.io.BufferedInputStream.read(BufferedInputStream.java:313)\n        at java.io.FilterInputStream.read(FilterInputStream.java:90)\n        at \norg.eclipse.debug.internal.core.OutputStreamMonitor.read(OutputStreamMonitor.java:138)\n        at org.eclipse.debug.internal.core.OutputStreamMonitor.access$1\n(OutputStreamMonitor.java:128)\n        at \norg.eclipse.debug.internal.core.OutputStreamMonitor$1.run(OutputStreamMonitor.java:194)\n        at java.lang.Thread.run(Thread.java:595)\n\n\nThis is a code snippet of what I tried. I tried both methods (launchShell+writeToShell and \nrunCommand). The workaround with coomad + \";exit\" fails completely with runCommand and with launchShell+writeToShell I still get the error with the exception above.\n\nThis workaround would not work for me (in our final product), as I do not want to expose that kind of error to the user.\n\n\n        IShellService shellService \u003d (IShellService) \ngetConnectedRemoteService(\n            configuration, SHELL_SERVICE);\n        \n        String [] environment \u003d new String[2];\n        environment[0] \u003d \"AAA\u003dBBB\";\n        environment[1] \u003d \"ZZZ\u003dYYY\";\n        String initialWorkingDirectory \u003d \"\";\n        String command \u003d \"ls\";\n        \n//        IHostShell hostShell \u003d shellService.launchShell(monitor, \ninitialWorkingDirectory, environment);\n//        hostShell.writeToShell(command);\n        IHostShell hostShell \u003d shellService.runCommand(monitor, \ninitialWorkingDirectory, command, environment);\n        \n        try\n        {\n          remoteProcess \u003d new HostShellAdapter(hostShell);\n        }\n        catch (Exception e)\n        {\n          if (remoteProcess !\u003d null)\n          {\n            remoteProcess.destroy();\n          }\n          throw new CoreException(\n              new Status(\n                  IStatus.ERROR,\n                  DebugPlugin.PLUGIN_ID,\n                  IStatus.OK,\n                  Messages\n                      .getString(\"EngineLaunchConfigurationDelegate.createprocessfailed\"), //$NON-NLS-1$\n                  null));\n        }\n        \n        IProcess process \u003d \norg.eclipse.debug.core.DebugPlugin.newProcess(launch, remoteProcess, \"just a \ntest\");\n",
+    "I changed the HostShellAdapter so that I get prints in the destroy() and exitValue() calls like this:\n\n\tpublic synchronized void destroy() {\n    System.out.println(\"destroy()\");\n\t\thostShell.exit();\n    System.out.println(\"after exit()\");\n\t\tnotifyAll();\n\t\ttry {\n\t\t\tinputStream.close();\n\t\t\terrorStream.close();\n\t\t\toutputStream.close();\n\t\t} catch (IOException e) {\n\t\t\t// Ignore\n\t\t}\t\n\t}\n\n\tpublic int exitValue() {\n    boolean isActive \u003d hostShell.isActive();\n    System.out.println(\"isActive\u003d\" + isActive);\n\t\tif(isActive)\n\t\t\tthrow new IllegalThreadStateException();\n\t\t// No way to tell what the exit value was.\n\t\treturn 0;\n\t}\n\nThis is what I get when I call the shell with \"ls;exit\":\nThe java.io.IOException is due to the fact that the shell already has called exit.\nWhat\u0027s strange however is that the shell claims still that it\u0027s active. And then I get a \"Terminate failed\" messagebox.\n\ndestroy()\njava.io.IOException: Broken pipe\nafter exit()\nisActive\u003dtrue\nisActive\u003dtrue\nisActive\u003dtrue\nisActive\u003dtrue\nisActive\u003dtrue\nisActive\u003dtrue\nisActive\u003dtrue\nisActive\u003dtrue\nisActive\u003dtrue\nisActive\u003dtrue\nisActive\u003dtrue",
+    "I forgot to say that I tried to use the Local connection on a Linux machine. I did not try any real remote connection, as it doesn\u0027t even work with Local.",
+    "I tried now with a ssh connection to my local machine and this is what I get:\nThe shell executes exit (logout), but the process is still shown as running.\nIf I terminate I get the following log:\nisActive\u003dtrue\ndestroy()\nafter exit()\nisActive\u003dfalse\nisActive\u003dfalse\n\nSo the remote shell reports isActive correctly (only Local does it wrong)\nBut even with the \"command;exit\" workaround the eclipse process does not terminate automatically.\n\nWhat can I do to get the process terminated one the command exits?\n",
+    "shellService.runCommand does not work with ssh; it works with Local though. I tried it also with WindowsXP (dstore) and it works there, too. Just the output is a bit funny\n\nDataElement \n{\n\tType:\tcommand\n\tName:\tdir\n\tValue:\tdir\n\tID:\t826407830\n\tSource:\t\n\tDepth:\t2\n\tDataStore:\t172.16.92.128\n}\n\nDataElement \n{\n\tType:\tstdout\n\tName:\t\n\tValue:\t\n\tID:\t-1734739135\n\tSource:\t\n\tDepth:\t2\n\tDataStore:\t172.16.92.128\n}\n\nDataElement \n{\n\tType:\tstdout\n\tName:\t Volume in drive C has no label.\n\tValue:\t Volume in drive C has no label.\n\tID:\t1348701698\n\tSource:\t\n\tDepth:\t2\n\tDataStore:\t172.16.92.128\n}\n...\n\nShould I open a separate bug for that?",
+    "Hi,\n\nI\u0027m attaching a patch for this bug.\n\nI had the same problem where the terminal shell was not exiting with the ssh connection even with the exit command.  To fix this I had to modify HostShellAdapter as described in the patch.  The problem was the that the waitForExit was not polling the isActive command because of course in the past it would always be active without the exit command.  With the patch, the remote shell process. exits when the process exits.\n\nRegarding your problems with the runCommand sometimes being implemented,  that\u0027s a bug with the RSE API\u0027s.  It should be filed as a separate bug.\n\nRegarding the exception you\u0027re seeing with the Local connection,  I\u0027ve never seen this but I\u0027ll give it a try.\n\nRegarding the weird output from the dstore connection, yes please file a bug.  I have the same problem with the Remote C/C++ Launcher. At least maybe the implementor can justify why it has to look like that.\n\nThank You,\nEwa",
+    "Reopening untim Martin merges the patch.",
+    "Thanks Ewa, I\u0027ll try it as soon as it get\u0027s available.\n\nBy the way, would it be possible to move the HostShellAdapter into another rse package? I did copy it into my project, as I don\u0027t want a dependency to CDT.\n\nI will open new bugs for the weird output from the dstore connection and the runCommand sometimes being implemented.",
+    "Created an attachment (id\u003d52422)\nPatch to close the Remote Shell process.\n\nMoving Ewa\u0027s patch from bug 158788 where it had accidentally been stored to the right bug",
+    "Whoops...I had a late night last night.  Thanks for catching that Martin.",
+    "(In reply to comment #13)\n\u003e By the way, would it be possible to move the HostShellAdapter into another rse\n\u003e package? I did copy it into my project, as I don\u0027t want a dependency to CDT.\n\nApplied the patch, it should be in RSE 1.0 RC2.\nMarking this bug fixed, since the other observations are tracked separately:\n\nBug 161770 (runCommand fails with ssh)\nBug 161773 (strange output with dstore)\nBug 161777 (move HostShellOutputAdapter)",
+    "I can confirm that the fix works for SSH, Windows dstore in RSE 1.0RC2.\nLocal still fails, due to the isActive problem described in comment 7.\nhttps://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d158786#c7\n\nI\u0027m going to open a seperate bug for that problem.",
+    "Thanks.\n\nIf you verify a bug, feel free to set status \"VERIFIED\". This helps us to know that a user (reporter) actually verified it. We will then set it CLOSED once we\u0027ve verified it as well.",
+    "Closing."
+  ],
+  "commentCreationDates": [
+    "2006-09-26T17:40:50+02:00",
+    "2006-09-26T18:45:12+02:00",
+    "2006-09-26T18:57:10+02:00",
+    "2006-09-26T19:04:39+02:00",
+    "2006-09-26T21:09:50+02:00",
+    "2006-09-27T10:17:38+02:00",
+    "2006-10-18T20:12:36+02:00",
+    "2006-10-18T21:11:30+02:00",
+    "2006-10-18T21:27:39+02:00",
+    "2006-10-18T22:22:12+02:00",
+    "2006-10-18T22:50:05+02:00",
+    "2006-10-20T10:42:27+02:00",
+    "2006-10-20T10:48:49+02:00",
+    "2006-10-20T19:33:55+02:00",
+    "2006-10-20T21:58:18+02:00",
+    "2006-10-20T22:03:16+02:00",
+    "2006-10-20T22:18:09+02:00",
+    "2006-10-21T17:24:41+02:00",
+    "2006-10-23T07:06:08+02:00",
+    "2006-11-23T11:53:01+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.IOException",
+      "message": "Pipe broken",
+      "elements": [
+        {
+          "method": "java.io.PipedInputStream.read",
+          "source": "PipedInputStream.java:255"
+        },
+        {
+          "method": "java.io.PipedInputStream.read",
+          "source": "PipedInputStream.java:305"
+        },
+        {
+          "method": "java.io.BufferedInputStream.read1",
+          "source": "BufferedInputStream.java:254"
+        },
+        {
+          "method": "java.io.BufferedInputStream.read",
+          "source": "BufferedInputStream.java:313"
+        },
+        {
+          "method": "java.io.FilterInputStream.read",
+          "source": "FilterInputStream.java:90"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.OutputStreamMonitor.read",
+          "source": "OutputStreamMonitor.java:138"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.OutputStreamMonitor.access$1",
+          "source": "OutputStreamMonitor.java:128"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.OutputStreamMonitor$1.run",
+          "source": "OutputStreamMonitor.java:194"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 6,
+      "bugId": "158786",
+      "date": "2006-10-18T20:12:36+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "major"
+    }
+  ],
+  "groupId": "158786",
+  "bugId": "158786",
+  "date": "2006-09-26T17:40:50+02:00",
+  "product": "Target Management",
+  "component": "RSE",
+  "severity": "major"
+}

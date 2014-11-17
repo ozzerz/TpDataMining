@@ -1,0 +1,177 @@
+{
+  "comments": [
+    "when i plugged in another module which uses a third-party package to \nconvert .dll to .jar, i got the following error message and the application \ncannot be launched ?\n\n!ENTRY org.eclipse.osgi Oct 14, 2004 18:39:52.161\n!MESSAGE Application error\n!STACK 1\norg.eclipse.swt.SWTError: Cannot initialize Drop\n\tat org.eclipse.swt.dnd.DND.error(DND.java:220)\n\tat org.eclipse.swt.dnd.DND.error(DND.java:181)\n\tat org.eclipse.swt.dnd.DropTarget.\u003cinit\u003e(DropTarget.java:135)\n\tat org.eclipse.ui.internal.EditorSashContainer.addDropSupport\n(EditorSashContainer.java:388)\n\tat org.eclipse.ui.internal.EditorSashContainer.createControl\n(EditorSashContainer.java:382)\n\tat org.eclipse.ui.internal.EditorAreaHelper.\u003cinit\u003e\n(EditorAreaHelper.java:47)\n\tat org.eclipse.ui.internal.WorkbenchPage.init(WorkbenchPage.java:1933)\n\tat org.eclipse.ui.internal.WorkbenchPage.\u003cinit\u003e(WorkbenchPage.java:430)\n\tat org.eclipse.ui.internal.WorkbenchWindow.restoreState\n(WorkbenchWindow.java:1371)\n\tat org.eclipse.ui.internal.Workbench.restoreState(Workbench.java:1224)\n\tat org.eclipse.ui.internal.Workbench.access$10(Workbench.java:1185)\n\tat org.eclipse.ui.internal.Workbench$13.run(Workbench.java:1096)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run\n(InternalPlatform.java:616)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:747)\n\tat org.eclipse.ui.internal.Workbench.restoreState(Workbench.java:1029)\n\tat org.eclipse.ui.internal.WorkbenchConfigurer.restoreState\n(WorkbenchConfigurer.java:167)\n\tat org.eclipse.ui.application.WorkbenchAdvisor.openWindows\n(WorkbenchAdvisor.java:652)\n\tat org.eclipse.ui.internal.Workbench.init(Workbench.java:819)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1325)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.java:254)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n\tat test.rcp.RcpApplication.run(RcpApplication.java:14)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:335)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:273)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:129)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n\tat org.eclipse.core.launcher.Main.run(Main.java:704)\n\tat org.eclipse.core.launcher.Main.main(Main.java:688)",
+    "Which other module?  Do we have access to it to try to reproduce the problem?  \nWhat is test.rcp.RcpApplication?\n",
+    "The module is built in-house, which use another .jar named JIntegra. This \npackage is to wrap the .dll and acts as a bridge to convert the APIs in .dll \nto java API. That module works fine if it is plugged with other pure java \napplication which my team and I used to have. \n\nBut not with eclipse plug-in. I tried to trace the problem and found that that \nwhen this module is loaded, the jintegra.jar will register some system \nlibraries, and when it comes to initializing eclipse plug-in, and the line \n\nat org.eclipse.swt.dnd.DropTarget.\u003cinit\u003e(DropTarget.java:135)\n\n\tif (COM.RegisterDragDrop( control.handle, iDropTarget.getAddress()) !\u003d \nCOM.S_OK)\n\t\tDND.error(DND.ERROR_CANNOT_INIT_DROP);\n\nIt does not return COM.S_OK, but something like -214xxxxxx\nAnd then the application quits.\n\nI am not sure if you would like to get a trial version from http://j-\nintegra.intrinsyc.com. Include this package into the library path and set the \njava argument to -DJINTEGRA_NATIVE_MODE (which will load the system library)\n\nFYI, I tried to workaround and initialized my packages after eclipse plug-in\u0027s \n(which is not what I want actually - I would like to initialize my packages, \ndo the login, before loading GUI (eclipse plug-in)). Though the application \nsuccessfully loaded, when I shutdown my application, it fails to clean up the \njintegra package (which I am not sure if it\u0027s eclipse\u0027s plug-in again?)\n\ntest.rcp.RcpApplication is the testing application I used for eclipse plug-in. \nException thrown on line\n\n        Display display \u003d PlatformUI.createDisplay();\n\n**********************************************************************\n\npackage test.rcp;\n\nimport org.eclipse.core.runtime.IPlatformRunnable;\nimport org.eclipse.swt.widgets.Display;\nimport org.eclipse.ui.PlatformUI;\nimport org.eclipse.ui.application.WorkbenchAdvisor;\n\nimport com.clsa.core.comp.Shell;\n\npublic class RcpApplication implements IPlatformRunnable {\n\n    public Object run(Object args) {\n        WorkbenchAdvisor workbenchAdvisor \u003d new RcpWorkbenchAdvisor();\n        Display display \u003d PlatformUI.createDisplay();\n        try {\n            int returnCode \u003d PlatformUI.createAndRunWorkbench(display,\n                    workbenchAdvisor);\n\n            if (returnCode \u003d\u003d PlatformUI.RETURN_RESTART) {\n                return IPlatformRunnable.EXIT_RESTART;\n            } else {\n                return IPlatformRunnable.EXIT_OK;\n            }\n            \n        } finally {\n            display.dispose();\n        }\n    }\n    \n}\n\n\n",
+    "Can you give the exact error returned by COM.RegisterDragDrop(you said -\n214xxxxxx - but I need to know is the  exact error code)?\n\nIn your second scenario, can you include the full exception thrown by Display \ndisplay \u003d PlatformUI.createDisplay() ?",
+    "it returns -2147024882, instead of COM.S_OK (constant zero), and so the error \nthrown on line \n     DND.error(DND.ERROR_CANNOT_INIT_DROP)\n\nto correct my previous statement, the exception should have been thrown on \nline (as shown in trace log)\n\n     int returnCode \u003d PlatformUI.createAndRunWorkbench(display,\n                    workbenchAdvisor);\n\nbut not \n   Display display \u003d PlatformUI.createDisplay();\n\nRegarding the workaround I did, the exception was thrown from the JIntegra \npackage, which was supposed to do some cleanup work on system libraries, \nagain, it orginally works fine with pure java application, but when I plug-in \nthe module with eclipse, so I am not sure if eclipse has worked on the same \nsystem libraries as JIntegra which makes the crashes",
+    "The error is \"0x8007000E  -2147024882  Ran out of memory\".  Do you start the \nVM with any memory size arguments?  e.g.:\n\n      eclipse -vmargs -Xmx256M\n\n",
+    "yes. \n\nthe eclipse starts with argument \u0027-vmargs  -Xmx384m -Xms256m\u0027 and the \napplication starts with argument \u0027-Xms256M -Xmx256m\u0027\n\nis it 256m not enough ? but i run the application in pure java with just \u0027-\nXms64M -Xmx64m\u0027 and everything works fine.\n\nagain, the line with error thrown is\n\nat org.eclipse.swt.dnd.DropTarget.\u003cinit\u003e(DropTarget.java:135)\n\n\tif (COM.RegisterDragDrop( control.handle, iDropTarget.getAddress()) !\u003d \nCOM.S_OK)\n\t\tDND.error(DND.ERROR_CANNOT_INIT_DROP);\n\nif i am correct, this line is to load/register the system library ? is it \nthere is issue in loading system library at eclipse plug-in if that has been \nloaded by others in the same jvm process ?\n\nfyi, the JIntegra does load some system libraries, but I don\u0027t know if eclipse \nplug-in crashes with those ? or brings to window\u0027s issue ?\n\n\n",
+    "Got same exception when our application was ran on a terminal server (W2000 \nTerminal SP2). Application was tested on Windows XP and ASP linux (GTK) and \nthis problem was never encountered. Our application is built on a RCP 3.0.",
+    "Hello,\nit\u0027s really long since the bug was last touched, but do you have any thoughts what could the root cause be?\n\nDid it ever worked on terminal server?\nDid it worked with any higher memory size values?\n\n",
+    "I don\u0027t have Terminal Server to reproduce this problem. Are you running into this problem now?",
+    "no it wasn\u0027t on terminal connection. It was a one-time issue and doesn\u0027t occur any more."
+  ],
+  "commentCreationDates": [
+    "2004-10-18T03:41:02+02:00",
+    "2004-10-18T17:21:15+02:00",
+    "2004-10-19T05:00:56+02:00",
+    "2004-10-21T21:35:03+02:00",
+    "2004-10-25T03:49:34+02:00",
+    "2004-10-25T21:31:53+02:00",
+    "2004-10-26T05:50:13+02:00",
+    "2004-11-22T14:49:20+01:00",
+    "2007-06-27T18:28:39+02:00",
+    "2007-06-27T20:07:56+02:00",
+    "2007-07-26T16:53:27+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "Cannot initialize Drop",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.dnd.DND.error",
+          "source": "DND.java:220"
+        },
+        {
+          "method": "org.eclipse.swt.dnd.DND.error",
+          "source": "DND.java:181"
+        },
+        {
+          "method": "org.eclipse.swt.dnd.DropTarget.\u003cinit\u003e",
+          "source": "DropTarget.java:135"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorSashContainer.addDropSupport",
+          "source": "EditorSashContainer.java:388"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorSashContainer.createControl",
+          "source": "EditorSashContainer.java:382"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorAreaHelper.\u003cinit\u003e",
+          "source": "EditorAreaHelper.java:47"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.init",
+          "source": "WorkbenchPage.java:1933"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.\u003cinit\u003e",
+          "source": "WorkbenchPage.java:430"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.restoreState",
+          "source": "WorkbenchWindow.java:1371"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.restoreState",
+          "source": "Workbench.java:1224"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$10",
+          "source": "Workbench.java:1185"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$13.run",
+          "source": "Workbench.java:1096"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:616"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:747"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.restoreState",
+          "source": "Workbench.java:1029"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchConfigurer.restoreState",
+          "source": "WorkbenchConfigurer.java:167"
+        },
+        {
+          "method": "org.eclipse.ui.application.WorkbenchAdvisor.openWindows",
+          "source": "WorkbenchAdvisor.java:652"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.init",
+          "source": "Workbench.java:819"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1325"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:254"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "test.rcp.RcpApplication.run",
+          "source": "RcpApplication.java:14"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:335"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:129"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:704"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:688"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "76449",
+      "date": "2004-10-18T03:41:02+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    }
+  ],
+  "groupId": "76449",
+  "bugId": "76449",
+  "date": "2004-10-18T03:41:02+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "major"
+}

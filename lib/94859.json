@@ -1,0 +1,161 @@
+{
+  "comments": [
+    "Build: I20050509-2010, running with all core+tests from HEAD.\n\nTestBug93473 consistently fails for me on Linux.  Here is the stack trace:\n\njunit.framework.AssertionFailedError: 1.0 expected:\u003c2\u003e but was:\u003c3\u003e\n\tat junit.framework.Assert.fail(Assert.java:47)\n\tat junit.framework.Assert.failNotEquals(Assert.java:282)\n\tat junit.framework.Assert.assertEquals(Assert.java:64)\n\tat junit.framework.Assert.assertEquals(Assert.java:162)\n\tat\norg.eclipse.core.tests.resources.session.TestBug93473.test2ndSession(TestBug93473.java:78)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat junit.framework.TestCase.runTest(TestCase.java:154)\n\tat junit.framework.TestCase.runBare(TestCase.java:127)\n\tat junit.framework.TestResult$1.protect(TestResult.java:106)\n\tat junit.framework.TestResult.runProtected(TestResult.java:124)\n\tat junit.framework.TestResult.run(TestResult.java:109)\n\tat junit.framework.TestCase.run(TestCase.java:118)\n\tat\norg.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:474)\n\tat\norg.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run(RemoteTestRunner.java:342)\n\tat\norg.eclipse.pde.internal.junit.runtime.RemotePluginTestRunner.main(RemotePluginTestRunner.java:57)\n\tat\norg.eclipse.pde.internal.junit.runtime.CoreTestApplication.run(CoreTestApplication.java:24)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:230)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:345)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:158)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:328)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:272)\n\tat org.eclipse.core.launcher.Main.run(Main.java:974)\n\tat org.eclipse.core.launcher.Main.main(Main.java:950)",
+    "Original summary: \"Content type session test failure in HEAD\"\n\nTurns out that the test failed because it was sensitive to the platform state\nstamp (Platform#getStateStamp()). It took me hours to understand why in John\u0027s\nsetup plug-ins were being reinstalled every startup (modifying the state stamp\naccross sessions), and not only once. The reason is that the current user dir\nwas affecting the way we compute plug-in install relative locations.\n\nThe scoop:\n- the test failing here is sensitive to the platform state stamp changing. It\nshould not change, but in the case of John\u0027s setup it was;\n- the stamp was changing because plug-ins were being discarded/reinstalled;\n- the reason: we store plug-in install locations as paths relative to the instal\npath. But when reading the bundle data in a second startup, the install location \nwas not set yet (it was null);\n- new File(null, relativePath) creates a path relative to the user.dir. It so\nhappens that for many people, the user.dir will be the Eclipse install dir, so\nthis would not cause problems;\n- in your case, the user.dir is the parent directory for the Eclipse install, so\nyou must have been having all plug-ins uninstalled/reinstalled during every startup!\n\nThe interesting thing is that this seems to be the happening since mid-March\n(when the first support for relative bundle install paths was added - see bug\n88078).\n\nFix is to make sure we initialize the installPath as soon as possible\n(EclipseAdaptor#initialize()). Will attach a patch that does that.",
+    "Created an attachment (id\u003d21024)\npatch for org.eclipse.osgi\n\nTom, can you take a look? The changes are very minor.",
+    "update the patch to test if the location is null",
+    "Fix has been released to HEAD.  I added a null check suggested in comment 3.",
+    "Shouldn\u0027t we fail instead of ignoring the install location? We would not go much\nfarther anyway.",
+    "maybe.  The goal was to change the behavior as little as possible.  Before the \npatch we would not fail with an NPE.  We can consider changing this, but leave \nfor post M7 ..."
+  ],
+  "commentCreationDates": [
+    "2005-05-11T23:50:45+02:00",
+    "2005-05-12T05:19:32+02:00",
+    "2005-05-12T05:25:02+02:00",
+    "2005-05-12T15:30:52+02:00",
+    "2005-05-12T15:38:44+02:00",
+    "2005-05-12T16:56:19+02:00",
+    "2005-05-12T17:10:56+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "junit.framework.AssertionFailedError",
+      "message": "1.0 expected:\u003c2\u003e but was:\u003c3\u003e",
+      "elements": [
+        {
+          "method": "junit.framework.Assert.fail",
+          "source": "Assert.java:47"
+        },
+        {
+          "method": "junit.framework.Assert.failNotEquals",
+          "source": "Assert.java:282"
+        },
+        {
+          "method": "junit.framework.Assert.assertEquals",
+          "source": "Assert.java:64"
+        },
+        {
+          "method": "junit.framework.Assert.assertEquals",
+          "source": "Assert.java:162"
+        },
+        {
+          "method": "org.eclipse.core.tests.resources.session.TestBug93473.test2ndSession",
+          "source": "TestBug93473.java:78"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "junit.framework.TestCase.runTest",
+          "source": "TestCase.java:154"
+        },
+        {
+          "method": "junit.framework.TestCase.runBare",
+          "source": "TestCase.java:127"
+        },
+        {
+          "method": "junit.framework.TestResult$1.protect",
+          "source": "TestResult.java:106"
+        },
+        {
+          "method": "junit.framework.TestResult.runProtected",
+          "source": "TestResult.java:124"
+        },
+        {
+          "method": "junit.framework.TestResult.run",
+          "source": "TestResult.java:109"
+        },
+        {
+          "method": "junit.framework.TestCase.run",
+          "source": "TestCase.java:118"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests",
+          "source": "RemoteTestRunner.java:474"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run",
+          "source": "RemoteTestRunner.java:342"
+        },
+        {
+          "method": "org.eclipse.pde.internal.junit.runtime.RemotePluginTestRunner.main",
+          "source": "RemotePluginTestRunner.java:57"
+        },
+        {
+          "method": "org.eclipse.pde.internal.junit.runtime.CoreTestApplication.run",
+          "source": "CoreTestApplication.java:24"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:230"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:345"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:158"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:328"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:272"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:974"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:950"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "94859",
+      "date": "2005-05-11T23:50:45+02:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "94859",
+  "bugId": "94859",
+  "date": "2005-05-11T23:50:45+02:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "normal"
+}

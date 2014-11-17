@@ -1,0 +1,232 @@
+{
+  "comments": [
+    "Build id: I20050617-0010\n\nEnter the following code into a fresh X class:\npublic class X\u003cE\u003e {\n  public static class InnerClassA {\n    static class InnerInnerClassA {\n      public InnerInnerClassA() {\n\tSystem.out.println(X.InnerClass.InnerInnerClassA.this); // (a)\n      }\n    }\n  }\n}\nSave and compile, then click into InnerClass on line (a). You get an internal\nerror with an NPE.\n\nThis comes from a dom type binding marked as having error returning null when\ntrying to get the declaration type binding. This only happens if the faulty type\n is a ParametrizedTypeBinding.\nThe following correction eliminates the problem (but I have not made complete\ntests on it):\n\norg.eclipse.jdt.core.dom.TypeBinding\npublic ITypeBinding getTypeDeclaration() {\n  if (this.binding instanceof ParameterizedTypeBinding) {\n    ITypeBinding attemptToResolve \u003d\n    this.resolver.getTypeBinding(((ParameterizedTypeBinding)this.binding).type);\n    if (attemptToResolve !\u003d null) \n      return attemptToResolve;\n  }\n  return this;\n}\n\nThis is only returning this when an error yields a null within the resolution.\nNote that the existing code returns this for non parametrized types, be they\ncorrect or erroneous. There might be a better solution that would trap the null\ngeneration itself deeper into the resolution, but I haven\u0027t investigated further.",
+    "Forgot to precise: this only happens if the \u0027Toggle Mark Occurrences\u0027 option is\nactive.\n\nMessage is:\nAn internal error occurred during: \"Requesting Java AST from selection\".\n\nStack trace is:\njava.lang.NullPointerException\n\tat org.eclipse.jdt.internal.corext.dom.Bindings.equals(Bindings.java:88)\n\tat\norg.eclipse.jdt.internal.ui.search.OccurrencesFinder.match(OccurrencesFinder.java:239)\n\tat\norg.eclipse.jdt.internal.ui.search.OccurrencesFinder.visit(OccurrencesFinder.java:158)\n\tat org.eclipse.jdt.core.dom.QualifiedName.accept0(QualifiedName.java:166)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChild(ASTNode.java:2497)\n\tat org.eclipse.jdt.core.dom.QualifiedName.accept0(QualifiedName.java:169)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChild(ASTNode.java:2497)\n\tat org.eclipse.jdt.core.dom.ThisExpression.accept0(ThisExpression.java:138)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat org.eclipse.jdt.core.dom.MethodInvocation.accept0(MethodInvocation.java:244)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChild(ASTNode.java:2497)\n\tat\norg.eclipse.jdt.core.dom.ExpressionStatement.accept0(ExpressionStatement.java:143)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat org.eclipse.jdt.core.dom.Block.accept0(Block.java:135)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChild(ASTNode.java:2497)\n\tat org.eclipse.jdt.core.dom.MethodDeclaration.accept0(MethodDeclaration.java:501)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat org.eclipse.jdt.core.dom.TypeDeclaration.accept0(TypeDeclaration.java:483)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat org.eclipse.jdt.core.dom.TypeDeclaration.accept0(TypeDeclaration.java:483)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat org.eclipse.jdt.core.dom.TypeDeclaration.accept0(TypeDeclaration.java:483)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat org.eclipse.jdt.core.dom.CompilationUnit.accept0(CompilationUnit.java:299)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat\norg.eclipse.jdt.internal.ui.search.OccurrencesFinder.perform(OccurrencesFinder.java:94)\n\tat\norg.eclipse.jdt.internal.ui.javaeditor.JavaEditor.updateOccurrenceAnnotations(JavaEditor.java:2953)\n\tat\norg.eclipse.jdt.internal.ui.javaeditor.JavaEditor$6.selectionChanged(JavaEditor.java:2982)\n\tat\norg.eclipse.jdt.internal.ui.viewsupport.SelectionListenerWithASTManager$PartListenerGroup.calculateASTandInform(SelectionListenerWithASTManager.java:173)\n\tat\norg.eclipse.jdt.internal.ui.viewsupport.SelectionListenerWithASTManager$3.run(SelectionListenerWithASTManager.java:142)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)",
+    "Philippe has investigated further:\n- the very fact that we build a ParameterizedTypeBinding that references a\n  ProblemReferenceBinding is wrong; we should instead build a \n  ProblemReferenceBinding and return it to the caller (see attached patch);\n- once this is fixed, the previous suggested fix is unneeded, since we never\n  attempt to resolve a \u0027faulty\u0027 ParameterizedTypeBinding.",
+    "Created an attachment (id\u003d23461)\nPhilippe\u0027s fix for the type resolution\n\nBuild a ProblemReferenceBinding instead of a ParameterizedTypeBinding that\nreferences a ProblemReferenceBinding in the context of the test case.",
+    "Scenario is quite annoying, especially given mark occurrences is enabled by default.\n\nFix is quite trivial (check for error case before converting to param/raw), like\nit should always have been.",
+    "Maxime - pls attach some regression test for it.",
+    "Fix looks save to me.\n\n+1 since it can really affect editing experience.",
+    "+1 as well. \n\nJust to late for RC3, plus it needs some testing (and writing a regression test).",
+    "Candidating for RC4. Testing proved successful.",
+    "Created an attachment (id\u003d23544)\nAST based regression test case\n\nThis test case specifically traps the case of a wrong binding construction for\nthe considered source fragment. Note that the correct behavior (construct a\ncorrectly formed ProblemReferenceBinding) surfaces as a null at the test level.",
+    "Dirk - can you cast your vote ?\n",
+    "Dani - can you cast your vote ?",
+    "Kent - pls review the change",
+    "Maxime - pls review the change",
+    "Regression test is: ASTConverter15Test#test0192",
+    "Reviewed - straight forward change. Looks good.",
+    "+1 for RC4.",
+    "+1 for 3.1 RC4",
+    "Fixed",
+    "Verified for Build id: I20050624-0010.",
+    "Verified."
+  ],
+  "commentCreationDates": [
+    "2005-06-17T16:37:06+02:00",
+    "2005-06-17T16:49:24+02:00",
+    "2005-06-17T18:11:11+02:00",
+    "2005-06-17T18:13:18+02:00",
+    "2005-06-17T18:16:33+02:00",
+    "2005-06-17T18:22:39+02:00",
+    "2005-06-17T18:38:53+02:00",
+    "2005-06-17T19:10:52+02:00",
+    "2005-06-20T15:54:24+02:00",
+    "2005-06-20T16:10:48+02:00",
+    "2005-06-21T17:14:59+02:00",
+    "2005-06-21T17:15:21+02:00",
+    "2005-06-21T17:15:55+02:00",
+    "2005-06-21T17:16:14+02:00",
+    "2005-06-21T17:24:02+02:00",
+    "2005-06-21T17:39:58+02:00",
+    "2005-06-21T17:55:26+02:00",
+    "2005-06-21T17:59:38+02:00",
+    "2005-06-21T20:00:56+02:00",
+    "2005-06-24T13:22:41+02:00",
+    "2005-06-24T13:44:23+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.equals",
+          "source": "Bindings.java:88"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.search.OccurrencesFinder.match",
+          "source": "OccurrencesFinder.java:239"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.search.OccurrencesFinder.visit",
+          "source": "OccurrencesFinder.java:158"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.QualifiedName.accept0",
+          "source": "QualifiedName.java:166"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChild",
+          "source": "ASTNode.java:2497"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.QualifiedName.accept0",
+          "source": "QualifiedName.java:169"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChild",
+          "source": "ASTNode.java:2497"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ThisExpression.accept0",
+          "source": "ThisExpression.java:138"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.MethodInvocation.accept0",
+          "source": "MethodInvocation.java:244"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChild",
+          "source": "ASTNode.java:2497"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ExpressionStatement.accept0",
+          "source": "ExpressionStatement.java:143"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.Block.accept0",
+          "source": "Block.java:135"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChild",
+          "source": "ASTNode.java:2497"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.MethodDeclaration.accept0",
+          "source": "MethodDeclaration.java:501"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.TypeDeclaration.accept0",
+          "source": "TypeDeclaration.java:483"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.TypeDeclaration.accept0",
+          "source": "TypeDeclaration.java:483"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.TypeDeclaration.accept0",
+          "source": "TypeDeclaration.java:483"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.CompilationUnit.accept0",
+          "source": "CompilationUnit.java:299"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.search.OccurrencesFinder.perform",
+          "source": "OccurrencesFinder.java:94"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.JavaEditor.updateOccurrenceAnnotations",
+          "source": "JavaEditor.java:2953"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.JavaEditor$6.selectionChanged",
+          "source": "JavaEditor.java:2982"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.SelectionListenerWithASTManager$PartListenerGroup.calculateASTandInform",
+          "source": "SelectionListenerWithASTManager.java:173"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.SelectionListenerWithASTManager$3.run",
+          "source": "SelectionListenerWithASTManager.java:142"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "100584",
+      "date": "2005-06-17T16:49:24+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "100584",
+  "bugId": "100584",
+  "date": "2005-06-17T16:37:06+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

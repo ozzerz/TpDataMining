@@ -1,0 +1,157 @@
+{
+  "comments": [
+    "On my RHEL 3.0 U2 system, when I do the following:\n- unzip the associate plugins into the plugins directory\n- rm the configuratoin directoru\n- run elcipse\nI get the following:\n   _X11TransSocketOpen: socket() failed for local\n   _X11TransSocketOpenCOTSClient: Unable to open socket for local\n   _X11TransOpen: transport open failed for local/kkimball6.notesdev.ibm.com:0\nWith the following traceback\n!ENTRY org.eclipse.osgi Jul 16, 2004 17:19:15.745\n!MESSAGE Application error\n!STACK 1\norg.eclipse.swt.SWTError: No more handles\n        at org.eclipse.swt.SWT.error(SWT.java:2717)\n        at org.eclipse.swt.SWT.error(SWT.java:2616)\n        at org.eclipse.swt.SWT.error(SWT.java:2587)\n        at org.eclipse.swt.widgets.Display.createDisplay(Display.java:709)\n        at org.eclipse.swt.widgets.Display.create(Display.java:694)\n        at org.eclipse.swt.graphics.Device.\u003cinit\u003e(Device.java:113)\n        at org.eclipse.swt.widgets.Display.\u003cinit\u003e(Display.java:402)\n        at org.eclipse.swt.widgets.Display.\u003cinit\u003e(Display.java:398)\n        at org.eclipse.ui.internal.Workbench.createDisplay(Workbench.java:278)\n        at org.eclipse.ui.PlatformUI.createDisplay(PlatformUI.java:153)\n        at\norg.eclipse.ui.internal.ide.IDEApplication.createDisplay(IDEApplication.java:122)\n        at org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:72)\n        at\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:335)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.jar)",
+    "Created an attachment (id\u003d13425)\nUnzip into Eclise Directory\n",
+    "Does it work before you add the attached plug-ins?\n\nMoving to SWT...",
+    "Looks like it can\u0027t initialize the GTK shared libraries.  It\u0027s failing in \ngtk_init_check().",
+    "The component is set back from SWT to Runtime. Is this intentional?",
+    "will know it soon...",
+    "Chrix to investigate.",
+    "Keith:\nI can\u0027t reproduce here. Eclipse comes ok on RH EL3 U2, RH EL3, RH9. The About \ndialog shows up the extra plugins. The error log shows a bunch of \"Unknown \nelement library\" for these plugins.\n\nAs Rafael asked you in comment 2 - do you get the same error with a standard \nEclipse? Can you isolate which plug-in cause the error to occur on your system?",
+    "Marking as WORKSFORME. Please reopen if the problem can be reproduced.",
+    "I just went ahead and retried on RHEL WS 3 update 2. The key to getting the\nerror to happen is to use a fresh eclipse install. That is with NO configuration\nor workspace existing already. If I drop the plugins into an eclipse that\nalready has configuration, eclipse loads fine. The error is apparently related\nto trying to build too much configuration at once. ",
+    "If needed, I can make a VMWare image available of the test environment. ",
+    "Fyi: My test case is running under the IBM JRE 1.4.2 (not J9), in case sun\u0027s\nmagically works.",
+    "Use case in comment 9 still working for me here.\nAdding Pascal in case Core has seen something similar in the past.\n\nJames and Keith: \nAre you both using VMWare? ",
+    "I used a clean install of RHEL 3.0 U2 (wiped the disk) and was not using VMWare,\nThe test case was reproduced on 3 machines here. However, Kevin Haaland  tried\nthe same test case and could not reproduce on a similar machine.",
+    "Can you remove some plug-ins from plugin.jar and maybe find a pattern there? \nLike the number of plug-ins for things to get bad - or maybe identify the plug-\nin or a smaller set of plug-ins that triggers the bug. \n\nThe sytem fails trying to open a socket. Not sure if for some reason you would \nhave a lower number of sockets available or if you are running some utility \nthat we are not. Do you have boxes that work or do they all fail the same way?",
+    "I had tried to find an offending plugins - no luck. You can reproduce the\nproblem with various sets with no common plugins between them. \n\nI had assume the sockets failed to open due to lack of file handles.\n\nSome other observations:\n\n1. My machine is configured with 1024 file handles/process.\n   \n2. Going from Eclipse M8 to Eclispe GA, more file handles are used.\n\n3. However, the nunber of open file handles was measures ~600 when the failure\noccured. This makes no sense..\n\n4. James increased the number of allowable file handles on his machine and still\ngot the failure\n\nWe\u0027ve used this test case and see if fail on 3 separate machines here. ",
+    "Does the Eclipse Linux Motif build fail under the same scenario? ",
+    "I don\u0027t have a machine with Motif on it and can\u0027t answer your question.\n\nKeith\n",
+    "Using openmotif and openmotif21 (compatability) packages on RHEL 3 WS update 2,\nthe same crash happens, but with no stack trace, and no pop up saying\ninformation has been put in a .log file somewhere (dies much more suddenly\napparently)\n\n_X11TransSocketOpen: socket() failed for local\n_X11TransSocketOpenCOTSClient: Unable to open socket for local\n_X11TransOpen: transport open failed for local/localhost.localdomain:0\nError: Couldn\u0027t find per display information\n\nI\u0027d forgotten how ugly motif is :)",
+    "Created an attachment (id\u003d14073)\nfrom run with crash with command line -vmargs -verbose\n",
+    "Created an attachment (id\u003d14074)\nrun with crash with vmargs -Djava.compiler\u003dNONE\n",
+    "Created an attachment (id\u003d14081)\n-vmargs -verbose with sun jre. no crash. here for the sake of comparison\n",
+    "I can reproduce the problem on my machine with your JRE.",
+    "Note. The JRE that triggers the bug shows the trace below. On the other hand, \nthe JRE that does not have the bug does not load the class \njava.net.UnknownHostException.\n\n!ENTRY org.eclipse.osgi Aug 19, 2004 10:52:12.242\n!MESSAGE Plug-in : com.ibm.eworkplaces.pim.ui.namelookup.nl2, Unknown \nelement \"library\", found at the top level, ignored.\n[Loaded java.util.zip.DataFormatException from /home/workplace/eclipse-\nfoo/eclipse/./jre/bin/../jre/lib/core.jar]\n\n!ENTRY org.eclipse.osgi Aug 19, 2004 10:52:12.342\n!MESSAGE Plug-in : com.ibm.eworkplaces.pim.ui.search.nl1, Unknown \nelement \"library\", found at the top level, ignored.\n\n!ENTRY org.eclipse.osgi Aug 19, 2004 10:52:12.349\n!MESSAGE Plug-in : com.ibm.eworkplaces.pim.ui.search.nl2, Unknown \nelement \"library\", found at the top level, ignored.\n[Loaded java.net.UnknownHostException from /home/workplace/eclipse-\nfoo/eclipse/./jre/bin/../jre/lib/core.jar]",
+    "JRE for reproducing the problem:\n\njava version \"1.4.2\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.2)\nClassic VM (build 1.4.2, J2RE 1.4.2 IBM build cxia321420-20040626 (JIT enabled:\njitc))\n",
+    "Created an attachment (id\u003d14102)\nRun with IBM Jre 1.4.2 and Eclipse 3 Milestone 8  with -vmargs -verbose\n\nNote that this run which does work does also load the mysterious\nunknownhostexception",
+    "So I dug up a copy of M8 for GTK and ran it with the same instructions. Crash\ndoes not happen here, even with the IBM JRE 1.42 that crashes final version 3. \n\n",
+    "Core is looking at the changes between M8 and M9 to find out if that explains \nwhy the use case fails starting with the M9 Core.",
+    "Moving to Core - to narrow down which change between M8 and M9 causes the \nproblem to manifest. This hopefully will clarify what is happening.\nThe version of SWT does not seem to matter (we can reproduce the crash in M9 \nwith SWT from M8).",
+    "Need to investigate for 3.0.1.",
+    "After a long investigation, I discovered that the bug was caused by a bug in the\nclass library that is being used. More precisely the bug is in the\njava.util.ResourceBundle class.\n\nI\u0027m about to report this bug.",
+    "Reported to VM vendor. \nBug number: 27648,001,866.",
+    "Is there a chance of a workaround? \n\nWithout it, Linux users with plugins having characterisitics similar to the\nexample can\u0027t debug. This has become a significant user complaint.",
+    "With regard to comment #32, it seems from comment #11 and comment #24 that the \nIBM JRE is being used but not J9.  It my understanding that it does not fail \non J9.  The work around is to use J9.\n",
+    "It fails on all IBM VM that I\u0027ve tried (they are listed in the PR previously \nnamed). I entered the bug as a class library one.\n\nThe bug hits plugins using old formats of NL fragments and 2.1 style plugins.\nIf class library bug is not fixed, then all plugins and fragments will have to \nbe tagged as 3.0 and the shape of NL fragments changed.\n",
+    "We will change our fragments and verify the problem goes awan.\n\nYour analysis is better for us than a patch or \"fixed in next release\" for us.\n\nThank you!!!",
+    "Note that you\u0027ll also need to change the plugins to which the fragments are \nattached."
+  ],
+  "commentCreationDates": [
+    "2004-07-19T21:27:01+02:00",
+    "2004-07-19T21:30:23+02:00",
+    "2004-07-19T22:38:44+02:00",
+    "2004-07-20T16:51:04+02:00",
+    "2004-07-20T21:39:39+02:00",
+    "2004-07-22T16:37:35+02:00",
+    "2004-08-09T21:44:28+02:00",
+    "2004-08-09T22:33:57+02:00",
+    "2004-08-12T21:00:04+02:00",
+    "2004-08-13T17:45:35+02:00",
+    "2004-08-13T17:47:17+02:00",
+    "2004-08-13T22:50:57+02:00",
+    "2004-08-17T16:59:11+02:00",
+    "2004-08-17T23:54:16+02:00",
+    "2004-08-18T17:12:36+02:00",
+    "2004-08-18T17:24:30+02:00",
+    "2004-08-18T22:54:09+02:00",
+    "2004-08-19T15:12:00+02:00",
+    "2004-08-19T15:40:53+02:00",
+    "2004-08-19T17:41:32+02:00",
+    "2004-08-19T17:43:24+02:00",
+    "2004-08-19T21:37:39+02:00",
+    "2004-08-19T21:53:55+02:00",
+    "2004-08-19T22:00:35+02:00",
+    "2004-08-19T22:15:10+02:00",
+    "2004-08-20T22:39:17+02:00",
+    "2004-08-20T22:40:35+02:00",
+    "2004-08-24T00:49:11+02:00",
+    "2004-08-24T20:03:54+02:00",
+    "2004-08-25T16:35:15+02:00",
+    "2004-08-26T22:01:22+02:00",
+    "2004-08-27T17:55:07+02:00",
+    "2004-08-27T18:10:30+02:00",
+    "2004-08-27T19:54:56+02:00",
+    "2004-08-27T21:04:41+02:00",
+    "2004-08-28T01:39:24+02:00",
+    "2004-08-30T15:34:21+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "No more handles",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2717"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2616"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2587"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.createDisplay",
+          "source": "Display.java:709"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.create",
+          "source": "Display.java:694"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Device.\u003cinit\u003e",
+          "source": "Device.java:113"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.\u003cinit\u003e",
+          "source": "Display.java:402"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.\u003cinit\u003e",
+          "source": "Display.java:398"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createDisplay",
+          "source": "Workbench.java:278"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createDisplay",
+          "source": "PlatformUI.java:153"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.createDisplay",
+          "source": "IDEApplication.java:122"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:72"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:335"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.jar"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "70369",
+      "date": "2004-07-19T21:27:01+02:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "70369",
+  "bugId": "70369",
+  "date": "2004-07-19T21:27:01+02:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "normal"
+}

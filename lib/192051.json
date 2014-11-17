@@ -1,0 +1,102 @@
+{
+  "comments": [
+    "The following NPE occurred in StatusNotificationManager during a JUnit plugin test:\n\nCaused by: java.lang.NullPointerException\n\tat org.eclipse.ui.internal.statushandlers.StatusNotificationManager$3.run(StatusNotificationManager.java:134)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\n\nThe code in question is:\nDisplay.getDefault().asyncExec(new Runnable() {\n    public void run() {\n        dialog \u003d new StatusDialog(ProgressManagerUtil\n            .getDefaultParent(), statusInfo, IStatus.OK\n            | IStatus.INFO | IStatus.WARNING\n            | IStatus.ERROR, modal);\n        dialog.open();\n        dialog.getShell().addDisposeListener(disposeListener); // \u003c-- NPE HERE\n    }\n});\n\nProgressManagerUtil.getDefaultParent() specifies that it can return null. If this happens, the call to dialog.getShell() will return null and this NPE will occur.\n\nThis particular case probably occurred when this async runnable ran after the workbench had closed.\n\n(For reference, this bug was reported in Jazz defect #24058.)",
+    "Created an attachment (id\u003d72131)\nPatch **Not tested**\n\nIn normal situation, shell field should be initialized by dialog.open() if shell is null.\nHowever if AUTOMATED_MODE is true (testing) shell is not initialized (by design).\n\nSo we have to skip adding dispose listener (there is nothing to listen to since shell does not exists).\n\nBasically, only getShell !\u003d null should be enough, but I want to make it clear in the code that this is explicity dependent on AUTOMATED_MODE.\n\n\nJared, could you provide test case?",
+    "Created an attachment (id\u003d72132)\nmylar/context/zip\n\n",
+    "Sorry, I don\u0027t have a reproducible test case. We see this intermittently.",
+    "We are trying to introduce a new status dialog which should fix this issue as well. ",
+    "Created an attachment (id\u003d78835)\nFix\n\n",
+    "This patch is ok for 3_3 stream and HEAD as StatusDialog and StatusNotificationManager have not been changed since 3.3 release.",
+    "As this is going very late in the game to 3.3.1 all of the formatting and comment changes should be left out as this could be high risk. Also there is no comment for StatusNotificationManager#dialogClosed().\n\n\nOtherwise I think it is fine but it would be helpful to the reviewers for you to describe your solution here in the bug.\n ",
+    "Created an attachment (id\u003d78843)\nFix 02\n\nUpdated due to Tod\u0027s comments.",
+    "Looking at line 134 there is another issue to look at\n\nThe code current calls Display.getDefault() which can be null when the workbench is shutdown\n\nDisplay display \u003d PlatformUI.getWorkbench().getDisplay();\n\t\t\tif (display !\u003d null) {\n\t\t\t\tDisplay.getDefault().syncExec(new Runnable() {\n\t\t\t\t\tpublic void run() {\n\t\t\t\t\t\topenStatusDialog(modal, statusInfo);\n\t\t\t\t\t}\n\t\t\t\t});\n\t\t\t}\n\nis a safer pattern than \n\nDisplay.getDefault().syncExec(new Runnable() {\n\t\t\t\tpublic void run() {\n\t\t\t\t\topenStatusDialog(modal, statusInfo);\n\t\t\t\t}\n\t\t\t});\n\nI will add a new patch for Szymon to review.",
+    "Created an attachment (id\u003d78849)\nDisplay issue covered here\n\n",
+    "+1 from me with my additions.",
+    "Created an attachment (id\u003d78852)\nPatch with only the display checking change\n\nOn further checking with Kim we think that the Display.getDefault() is real problem  here. As it creates a new display after we have shut ours down you end up syncExecing on one display and trying to run the code on a disposed one.\n\nThis patch aborts opening the dialog on shutdown and uses the workbench display for added safety.",
+    "As we have gone back and forth a bit on analysis I would like Boris and John to weigh in.",
+    "Created an attachment (id\u003d78854)\nPatch with this pattern fixed in 2 places\n\nFound the pattern again. Here is a second patch.",
+    "Note that our last date for 3.3.1 is the 24th (Monday). We should do a new build tomorrow (Friday the 20th) if this is going to get in.\n\nMcQ, John and Boris if you could look today that would be a great help.",
+    "this will make it in to 3.3.1",
+    "Created an attachment (id\u003d78976)\nPatch with more safety checking\n\nAfter consultation with Boris this patch protects against the case where the workbench shuts down between the isClosing call and the execution of the async and sync execs.\n\nThis solution for this in 3.4 should be to shutdown the StatusNotificationManager as part of workbench shutdown so that this code never gets called in an inconsisten t time.",
+    "Can the target for this bug please be updated as we do not believe this has been delivered to 3.3.1",
+    "Yes it did - it was in build 0921 and later. Sorry it didn\u0027t get marked.",
+    "We are still seeing problems on 3.3.1 with the following new line number of 126:\ndialog.getShell().addDisposeListener(disposeListener); // \u003c-- NPE HERE\n\nIt looks like Szymon\u0027s changes got droppped?",
+    "Reopening. Szymon can you investigate please.",
+    "What is the status of this? Are we re-releasing the changes for 3.3.2? Do we know why the changes didn\u0027t make it into 3.3.1?\n",
+    "I will release it for 3.3.2.",
+    "I made a small investigation and the patch actually was released to 3_3 stream and is part of 3.3.1. I think that problem still exists because the patch is not a complete solution for the bug.",
+    "There are a couple of cases where the shell could be null (which is where we get the NPE).\n\nopen() in ErrorDialog will not create the shell if the display mask does not match IStatus.INFO | IStatus.WARNING | IStatus.ERROR. I don\u0027t believe this is the case here.\n\nThe only other place I could see a shell disposing is if it gets disposed between the call to open and the call to adding the dispose listener. The API is specced to   have null as a potential shell we should be checking for it anyways.\n\nSo I think\n\ndialog.open();\ndialog.getShell().addDisposeListener(disposeListener);\n\nshould read\n\ndialog.open();\n\t\t\t\nShell dialogShell \u003d dialog.getShell();\nif(dialogShell !\u003d null)\n  dialogShell.addDisposeListener(disposeListener);",
+    "Boris and I have looked and there is one either case where you can get a null shell - in automated mode. It is actually quite easy to get in this case.\n\nDarin did you get this while running test suites?",
+    "Correct. We have seen it running our test suites as Jared indicated.",
+    "I don\u0027t think this is happening as a result of AUTOMATED_MODE after all - further inspection of the code show that the first line of addError() is \n\nif (ErrorDialog.AUTOMATED_MODE \u003d\u003d true) {\n\t\t\treturn;\n\t\t}\n\nThe NPE is due to a null Shell which is specced to happen in several case so the fix is still what we want but I would feel better if I had a good explanation for the pattern that is causing it.\n\nDarin can you post the snippet that causes the error? I want to see if it is failing the shouldDisplay method in ErrorDialog.\n\nI have also added a test suite for this case to the StatusHandler tests\n\n",
+    "Created an attachment (id\u003d83890)\nPatch against 3.3.2 will null check and test\n\n",
+    "Created an attachment (id\u003d83891)\nSame patch, less formatting changes\n\n",
+    "Patch released for M build \u003e20071127"
+  ],
+  "commentCreationDates": [
+    "2007-06-12T00:00:11+02:00",
+    "2007-06-22T10:21:02+02:00",
+    "2007-06-22T10:21:04+02:00",
+    "2007-06-30T18:46:19+02:00",
+    "2007-08-31T14:44:33+02:00",
+    "2007-09-20T12:45:06+02:00",
+    "2007-09-20T12:47:37+02:00",
+    "2007-09-20T14:31:32+02:00",
+    "2007-09-20T15:03:04+02:00",
+    "2007-09-20T15:48:16+02:00",
+    "2007-09-20T15:49:28+02:00",
+    "2007-09-20T15:50:16+02:00",
+    "2007-09-20T16:32:01+02:00",
+    "2007-09-20T16:33:31+02:00",
+    "2007-09-20T16:45:06+02:00",
+    "2007-09-20T20:22:47+02:00",
+    "2007-09-21T15:27:50+02:00",
+    "2007-09-21T16:07:27+02:00",
+    "2007-10-31T19:13:16+01:00",
+    "2007-10-31T19:59:45+01:00",
+    "2007-10-31T21:20:08+01:00",
+    "2007-11-01T13:23:03+01:00",
+    "2007-11-22T14:55:08+01:00",
+    "2007-11-22T16:29:33+01:00",
+    "2007-11-22T16:42:00+01:00",
+    "2007-11-26T21:18:12+01:00",
+    "2007-11-26T21:26:34+01:00",
+    "2007-11-26T21:36:29+01:00",
+    "2007-11-27T18:16:29+01:00",
+    "2007-11-27T19:14:18+01:00",
+    "2007-11-27T19:16:50+01:00",
+    "2007-11-27T19:18:00+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.statushandlers.StatusNotificationManager$3.run",
+          "source": "StatusNotificationManager.java:134"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "192051",
+      "date": "2007-06-12T00:00:11+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "192051",
+  "bugId": "192051",
+  "date": "2007-06-12T00:00:11+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "major"
+}

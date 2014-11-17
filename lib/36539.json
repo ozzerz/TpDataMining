@@ -1,0 +1,162 @@
+{
+  "comments": [
+    "{version: aspectj1.1rc1}\nI am trying to create a system that records the number of\ntimes \"new Vector()\" is called within our code. I take the\ndebug version of our jar and using the Ant \u003ciajc\u003e task pass\nit in via the \"injars\" attribute. The following simple aspect\nworks:\n\nimport java.util.*;\npublic aspect CountAspect {\n    protected static int numVectors \u003d 0;\n    public static int getNumVectors() {\n        return numVectors;\n    }\n    pointcut myStuff():\n        within(com.foo.bar.whatever..*) \u0026\u0026 !within(junit.framework..*);\n    pointcut countNewVectors(): myStuff() \u0026\u0026 call(Vector.new(..)) ;\n\n    after() : countNewVectors() {\n        numVectors++;\n\t// System.out.println(thisJoinPoint.getSourceLocation());\n    }\n    public static void dumpStats() {\n        System.out.println(\"Number of calls to new Vector() \u003d \" +\n            numVectors);\n    }\n}\nI built a simple JUnit testcase that invokes the desired function\nin our jar and then in the tearDown() method, it calls the static\ndumpStats() method - everything is fine.\n\nHowever, when I try to expand the pointcut, everything blows up!\n\nWhat I want to do is RECORD all the newly-created Vectors in an\nIdentityHashMap and then during dumpStats, print out a histogram\nof their sizes.\n\nI modified the countNewVectors pointcut to be:\n\n    pointcut countNewVectors(Vector v):\n        target(v) \u0026\u0026 myStuff() \u0026\u0026 call(Vector.new(..)) ;\n\nand the advice:\n    after(Vector v) : countNewVectors(v) {\n        someIdentityHashMap.put(v,v);\n    }\n\nWhen I compile this, I get the following exception:\n\nABORT\nException thrown from AspectJ 1.1rc1\n\nThis might be logged as a bug already -- find current bugs at\n  http://bugs.eclipse.org/bugs/buglist.cgi?product\u003dAspectJ\u0026component\u003dCompiler\n\nBugs for exceptions thrown have titles File:line from the top stack,\ne.g., \"SomeFile.java:243\"\n\nIf you don\u0027t find the exception below in a bug, please add a new bug\nat http://bugs.eclipse.org/bugs/enter_bug.cgi?product\u003dAspectJ\nTo make the bug a priority, please include a test program\nthat can reproduce this exception.\nnull\njava.lang.NullPointerException\n        at org.aspectj.weaver.TypeX.isAssignableFrom(TypeX.java:367)\n        at org.aspectj.weaver.patterns.ExactTypePattern.matchesInstanceof\n(ExactTypePattern.java:44)\n        at org.aspectj.weaver.patterns.TypePattern.matches(TypePattern.java:74)\n        at org.aspectj.weaver.patterns.ThisOrTargetPointcut.match\n(ThisOrTargetPointcut.java:66)\n        at org.aspectj.weaver.patterns.AndPointcut.match(AndPointcut.java:42)\n        at org.aspectj.weaver.patterns.AndPointcut.match(AndPointcut.java:42)\n        at org.aspectj.weaver.ShadowMunger.match(ShadowMunger.java:59)\n        at org.aspectj.weaver.Advice.match(Advice.java:89)\n        at org.aspectj.weaver.bcel.BcelClassWeaver.match\n(BcelClassWeaver.java:942)\n        at org.aspectj.weaver.bcel.BcelClassWeaver.matchInvokeInstruction\n(BcelClassWeaver.java:931)\n        at org.aspectj.weaver.bcel.BcelClassWeaver.match\n(BcelClassWeaver.java:870)\n        at org.aspectj.weaver.bcel.BcelClassWeaver.match\n(BcelClassWeaver.java:775)\n        at org.aspectj.weaver.bcel.BcelClassWeaver.weave\n(BcelClassWeaver.java:282)\n        at org.aspectj.weaver.bcel.BcelClassWeaver.weave\n(BcelClassWeaver.java:76)\n        at org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:321)\n        at org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:302)\n        at org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:265)\n        at \norg.aspectj.ajdt.internal.core.builder.AjBuildManager.weaveAndGenerateClassFiles\n(AjBuildManager.java:394)\n        at org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild\n(AjBuildManager.java:149)\n        at org.aspectj.ajdt.ajc.AjdtCommand.runCommand(AjdtCommand.java:55)\n        at org.aspectj.tools.ajc.Main.run(Main.java:216)\n        at org.aspectj.tools.ajc.Main.runMain(Main.java:155)\n        at org.aspectj.tools.ant.taskdefs.AjcTask.execute(AjcTask.java:646)\n        at org.apache.tools.ant.UnknownElement.execute(UnknownElement.java:166)\n        at org.apache.tools.ant.Task.perform(Task.java:319)\n        at org.apache.tools.ant.Target.execute(Target.java:309)\n        at org.apache.tools.ant.Target.performTasks(Target.java:336)\n        at org.apache.tools.ant.Project.executeTarget(Project.java:1306)\n        at org.apache.tools.ant.Project.executeTargets(Project.java:1250)\n        at org.apache.tools.ant.Main.runBuild(Main.java:610)\n        at org.apache.tools.ant.Main.start(Main.java:196)\n        at org.apache.tools.ant.Main.main(Main.java:235)\n\nNow, the jar file that I am trying to get the compile to weave\nis reasonably large (~3.6 Meg) with alot of references to external\nclass - CORBA classes from Visibroker, stuff from Oracle\u0027s OC4J, etc.\nI don\u0027t have all the necessary external dependent jars in my Ant\nenvironment. The simple aspect worked; does the more complex aspect\nrequire ALL the dependent classes? (I hope not since that list is\nperhaps ~1000 classes long).\n\nHope this helps,\nMike Norman",
+    "Follow-up: I did the deed - I found the approx ~630 classes that\nmy jar file depends on (different ORB vendors\u0027 impls of various CORBA\nprotocols, lotsa various other things) and re-did my Ant build script.\nVoila - no errors.\n\nI will move this down in priority and suggest that a more \u0027polite\u0027\nexception be thrown and that the documentation be updated to cover\nissues of weaving into pre-built jars and the affect of that jar\u0027s\ndependent classes have on the weaving process.\n\nMWN",
+    "This is only a bug in error handling, but it is particularly bad and confusing.\nSo, I\u0027m raising this back to P3 as something that I hope will get fixed for \n1.1final, but that doesn\u0027t have to be fixed for that release to go out.\n\nThanks for doing the hard work of tracking down what was really going on here!",
+    "I think the worst of this error message is now resolved; however, I\u0027m leaving \nthis bug as a request to do better handling of missing references when \nweaving .jar files.  I hope that in 1.1.1 or 1.2 it will be possible to weave \na .jar file with missing dependencies so long as those dependencies aren\u0027t \nstrictly required."
+  ],
+  "commentCreationDates": [
+    "2003-04-15T22:05:14+02:00",
+    "2003-04-16T15:22:46+02:00",
+    "2003-04-22T19:34:51+02:00",
+    "2003-04-28T01:03:07+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.TypeX.isAssignableFrom",
+          "source": "TypeX.java:367"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.ExactTypePattern.matchesInstanceof",
+          "source": "ExactTypePattern.java:44"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.TypePattern.matches",
+          "source": "TypePattern.java:74"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.ThisOrTargetPointcut.match",
+          "source": "ThisOrTargetPointcut.java:66"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.AndPointcut.match",
+          "source": "AndPointcut.java:42"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.AndPointcut.match",
+          "source": "AndPointcut.java:42"
+        },
+        {
+          "method": "org.aspectj.weaver.ShadowMunger.match",
+          "source": "ShadowMunger.java:59"
+        },
+        {
+          "method": "org.aspectj.weaver.Advice.match",
+          "source": "Advice.java:89"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.match",
+          "source": "BcelClassWeaver.java:942"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.matchInvokeInstruction",
+          "source": "BcelClassWeaver.java:931"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.match",
+          "source": "BcelClassWeaver.java:870"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.match",
+          "source": "BcelClassWeaver.java:775"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:282"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:76"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:321"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:302"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:265"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.weaveAndGenerateClassFiles",
+          "source": "AjBuildManager.java:394"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:149"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.runCommand",
+          "source": "AjdtCommand.java:55"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.run",
+          "source": "Main.java:216"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.runMain",
+          "source": "Main.java:155"
+        },
+        {
+          "method": "org.aspectj.tools.ant.taskdefs.AjcTask.execute",
+          "source": "AjcTask.java:646"
+        },
+        {
+          "method": "org.apache.tools.ant.UnknownElement.execute",
+          "source": "UnknownElement.java:166"
+        },
+        {
+          "method": "org.apache.tools.ant.Task.perform",
+          "source": "Task.java:319"
+        },
+        {
+          "method": "org.apache.tools.ant.Target.execute",
+          "source": "Target.java:309"
+        },
+        {
+          "method": "org.apache.tools.ant.Target.performTasks",
+          "source": "Target.java:336"
+        },
+        {
+          "method": "org.apache.tools.ant.Project.executeTarget",
+          "source": "Project.java:1306"
+        },
+        {
+          "method": "org.apache.tools.ant.Project.executeTargets",
+          "source": "Project.java:1250"
+        },
+        {
+          "method": "org.apache.tools.ant.Main.runBuild",
+          "source": "Main.java:610"
+        },
+        {
+          "method": "org.apache.tools.ant.Main.start",
+          "source": "Main.java:196"
+        },
+        {
+          "method": "org.apache.tools.ant.Main.main",
+          "source": "Main.java:235"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "36539",
+      "date": "2003-04-15T22:05:14+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "enhancement"
+    }
+  ],
+  "groupId": "36539",
+  "bugId": "36539",
+  "date": "2003-04-15T22:05:14+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "enhancement"
+}

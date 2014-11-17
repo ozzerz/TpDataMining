@@ -1,0 +1,50 @@
+{
+  "comments": [
+    "Consider this toy example:\n\nimport java.util.Map;\n\nclass GenericType \u003cE extends Object \u0026 Comparable\u003cE\u003e \u0026 Map.Entry\u003cString, E\u003e\u003e\n{\n  public void doSomething(E e)\n  {\n    System.out.println(e.compareTo(e.getValue()));\n  }  \n}\n\nclass ConcreteType\n{\n  public void doSomething(Object obj)\n  {\n    System.out.println(((Comparable)obj).compareTo(((Map.Entry)obj).getValue()));\n  }  \n}\n\npublic class Foo\n{\n  public static void main(String[] args)\n  {\n    new GenericType().doSomething(\"a1\");\n    new ConcreteType().doSomething(\"aa\");\n  }\n}\n\nThe purpose of this test was to understand the byte code generated for the first doSomething method, which we imagine must look just like the byte code for the second doSomething method.  But looking at the byte code, that wasn\u0027t the case.  So then we tried to run the example, expecting to get a class cast exception for both.  But instead we get this:\n\nException in thread \"main\" java.lang.IncompatibleClassChangeError\n\tat GenericType.doSomething(Foo.java:7)\n\tat Foo.main(Foo.java:23)\n\nWhen we compile with Sun javac, we get class cast exceptions as expected. \n\nThis leads me to conclude that the CHECKCAST code is not generated properly by the Eclipse compiler.",
+    "Indeed, our code produces:\n[IncompatibleClassChangeError:1][ClassCastException:2]\nwhere javac\u0027s produces:\n[ClassCastException:1][ClassCastException:2]\n\nSuspect a generic cast optimization which is proving wrong here.\n--------\n\nimport java.util.Map;\n\nclass GenericType\u003cE extends Object \u0026 Comparable\u003cE\u003e \u0026 Map.Entry\u003cString, E\u003e\u003e {\n\tpublic void doSomething(E e) {\n\t\tSystem.out.println(e.compareTo(e.getValue()));\n\t}\n}\n\nclass ConcreteType {\n\tpublic void doSomething(Object obj) {\n\t\tSystem.out.println(((Comparable) obj).compareTo(((Map.Entry) obj).getValue()));\n\t}\n}\n\npublic class X {\n\tpublic static void main(String[] args) {\n\t\ttry {\n\t\t\tnew GenericType().doSomething(\"a1\");\n\t\t} catch(Throwable e) {\n\t\t\tSystem.out.print(\"[\" + e.getClass().getSimpleName() + \":1]\");\n\t\t}\n\t\ttry {\n\t\t\tnew ConcreteType().doSomething(\"a2\");\n\t\t} catch(Throwable e) {\n\t\t\tSystem.out.print(\"[\" + e.getClass().getSimpleName() + \":2]\");\n\t\t}\n\t}\n}",
+    "GenericType#doSomething()\n\neclipse\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n  // Method descriptor #17 (Ljava/lang/Object;)V\n  // Signature: (TE;)V\n  // Stack: 3, Locals: 2\n  public void doSomething(Object e);\n     0  getstatic System.out : PrintStream [20]\n     3  aload_1 [e]\n     4  aload_1 [e]\n     5  invokeinterface Map$Entry.getValue() : Object [26] [nargs: 1]\n    10  invokeinterface Comparable.compareTo(Object) : int [32] [nargs: 2]\n    15  invokevirtual PrintStream.println(int) : void [38]\n    18  return\n\njavac\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n  // Method descriptor #15 (Ljava/lang/Object;)V\n  // Signature: (TE;)V\n  // Stack: 3, Locals: 2\n  public void doSomething(Object arg0);\n     0  getstatic System.out : PrintStream [2]\n     3  aload_1\n     4  checkcast Comparable [3]\n     7  aload_1\n     8  checkcast Map$Entry [4]\n    11  invokeinterface Map$Entry.getValue() : Object [5] [nargs: 1]\n    16  invokeinterface Comparable.compareTo(Object) : int [6] [nargs: 2]\n    21  invokevirtual PrintStream.println(int) : void [7]\n    24  return\n",
+    "also see bug 141289",
+    "Our support for inserted generic cast on multi-bound scenario is only dealing with fieldref/methodref receivers.\n\nExtra cast should be on codegen of msgSend, when rcv type doesn\u0027t match expectation (secondary bound issue), whatever the receiver expression may be (not just field/method).\n\nShould construct testcase with ternary or local or cast expression etc...",
+    "Created an attachment (id\u003d52900)\nProposed patch\n\n",
+    "Added GenericTypeTest#test1057\n\nReleased for 3.3M3.\nFixed",
+    "Verified for 3.3 M3 using build I20061030-0010\n"
+  ],
+  "commentCreationDates": [
+    "2006-10-04T17:35:53+02:00",
+    "2006-10-04T18:03:18+02:00",
+    "2006-10-04T18:09:11+02:00",
+    "2006-10-06T00:15:44+02:00",
+    "2006-10-06T01:13:37+02:00",
+    "2006-10-28T00:46:25+02:00",
+    "2006-10-28T01:50:44+02:00",
+    "2006-10-30T16:58:15+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IncompatibleClassChangeError",
+      "elements": [
+        {
+          "method": "GenericType.doSomething",
+          "source": "Foo.java:7"
+        },
+        {
+          "method": "Foo.main",
+          "source": "Foo.java:23"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "159738",
+      "date": "2006-10-04T17:35:53+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "159738",
+  "bugId": "159738",
+  "date": "2006-10-04T17:35:53+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

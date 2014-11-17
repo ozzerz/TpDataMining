@@ -1,0 +1,245 @@
+{
+  "comments": [
+    "Using the 3.0.1 GM Build\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\nI have seen the following ClassCastException quite a few times when closing the \nworkbench:\n\n!ENTRY org.eclipse.core.runtime 4 2 Sep 21, 2004 08:52:52.265\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.core.ru\nntime\".\n!STACK 0\njava.lang.ClassCastException: org/eclipse/ui/internal/EditorActionBars incompati\nble with org/eclipse/ui/internal/ViewActionBars\n        at org.eclipse.ui.internal.ViewFactory.destroyView(Unknown Source)\n        at org.eclipse.ui.internal.ViewFactory.releaseView(Unknown Source)\n        at org.eclipse.ui.internal.Perspective.dispose(Unknown Source)\n        at org.eclipse.ui.internal.WorkbenchPage.dispose(Unknown Source)\n        at org.eclipse.ui.internal.WorkbenchWindow.closeAllPages(Unknown Source)\n\n        at org.eclipse.ui.internal.WorkbenchWindow.hardClose(Unknown Source)\n        at org.eclipse.ui.internal.WorkbenchWindow.busyClose(Unknown Source)\n        at org.eclipse.ui.internal.WorkbenchWindow.access$0(Unknown Source)\n        at org.eclipse.ui.internal.WorkbenchWindow$1.run(Unknown Source)\n        at org.eclipse.swt.custom.BusyIndicator.showWhile(Unknown Source)\n        at org.eclipse.ui.internal.WorkbenchWindow.close(Unknown Source)\n        at org.eclipse.jface.window.WindowManager.close(Unknown Source)\n        at org.eclipse.ui.internal.Workbench$10.run(Unknown Source)\n        at org.eclipse.core.internal.runtime.InternalPlatform.run(Unknown Source\n)\n        at org.eclipse.core.runtime.Platform.run(Unknown Source)\n        at org.eclipse.ui.internal.Workbench.busyClose(Unknown Source)\n        at org.eclipse.ui.internal.Workbench.access$8(Unknown Source)\n        at org.eclipse.ui.internal.Workbench$12.run(Unknown Source)\n        at org.eclipse.swt.custom.BusyIndicator.showWhile(Unknown Source)\n        at org.eclipse.ui.internal.Workbench.close(Unknown Source)\n        at org.eclipse.ui.internal.Workbench.close(Unknown Source)\n        at org.eclipse.ui.internal.QuitAction.run(Unknown Source)\n        at org.eclipse.jface.action.Action.runWithEvent(Unknown Source)\n        at org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection\n(Unknown Source)\n        at org.eclipse.jface.action.ActionContributionItem.access$2(Unknown Sour\nce)\n        at org.eclipse.jface.action.ActionContributionItem$7.handleEvent(Unknown\n Source)\n        at org.eclipse.swt.widgets.EventTable.sendEvent(Unknown Source)\n        at org.eclipse.swt.widgets.Widget.sendEvent(Unknown Source)\n        at org.eclipse.swt.widgets.Display.runDeferredEvents(Unknown Source)\n        at org.eclipse.swt.widgets.Display.readAndDispatch(Unknown Source)\n        at org.eclipse.ui.internal.Workbench.runEventLoop(Unknown Source)\n        at org.eclipse.ui.internal.Workbench.runUI(Unknown Source)\n        at org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Unknown Sourc\ne)\n        at org.eclipse.ui.PlatformUI.createAndRunWorkbench(Unknown Source)\n        at org.eclipse.ui.internal.ide.IDEApplication.run(Unknown Source)\n        at org.eclipse.core.internal.runtime.PlatformActivator$1.run(Unknown Sou\nrce)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.ja\nva:273)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.ja\nva:129)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.\njava:85)\n        at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.\njava:58)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAcces\nsorImpl.java:60)\n        at java.lang.reflect.Method.invoke(Method.java:391)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n        at org.eclipse.core.launcher.Main.run(Main.java:684)\n        at org.eclipse.core.launcher.Main.main(Main.java:668)",
+    "This one seems quite troubling to me.  If we\u0027re mixing up editor parts with\nviews all kinds of badness will be happening.  Upping severity.",
+    "Stefan, any idea how this could happen?\n",
+    "Which VM are you using?\n",
+    "I don\u0027t see how this can happen.\n\nViewFactory.destroyView does:\n\tprivate void destroyView(IViewPart view) {\n\t\t// Free action bars, pane, etc.\n\t\tPartSite site \u003d (PartSite) view.getSite();\n\t\tViewActionBars actionBars \u003d (ViewActionBars) site.getActionBars();\n\t\t...\n\t}\n\nPartSite.getActionBars() just does the following, and is not overridden.\n\tpublic IActionBars getActionBars() {\n\t\treturn actionBars;\n\t}\n\nactionBars is assigned in setActionBars, and nowhere else.\n\tpublic void setActionBars(SubActionBars bars) {\n\t\tactionBars \u003d bars;\n\t}\n\nsetActionBars is called from 3 places:\n1. ViewFactory.busyRestoreView.  Here it\u0027s definitely a ViewActionBars:\n\tViewSite site \u003d new ViewSite(ref, view, page, desc);\n\tPartPane pane \u003d ((ViewReference) ref).getPane();\t\t\t\n\tif (pane \u003d\u003d null) {\n\t\tpane \u003d new ViewPane(ref, page);\n\t\t((ViewReference) ref).setPane(pane);\n\t}\n\tsite.setPane(pane);\n\tsite.setActionBars(new ViewActionBars(page.getActionBars(), (ViewPane) pane));\n        ...\n\tview.init(site, stateMem);\n\n\n2 and 3. EditorManager.createSite:\n\tprivate void createSite(final IEditorReference ref, final IEditorPart part,\nfinal EditorDescriptor desc, final IEditorInput input) throws PartInitException {\n\t\tEditorSite site \u003d new EditorSite(ref, part, page, desc);\n\t\tif (desc !\u003d null)\n\t\t\tsite.setActionBars(createEditorActionBars(desc));\n\t\telse\n\t\t\tsite.setActionBars(createEmptyEditorActionBars());\n\t\t...\n\t\tpart.init(site, input);\n\t\t...\nBoth createEditorActionBars and createEmptyEditorActionBars create an\nEditorActionBars.     \n\nViewFactory.busyRestoreView is only used for views, and EditorManager.createSite\nis only used for editors.\n\n\nThe only thing I can think of is that a view is setting its site to be that of\nsome editor, rather than just using the site passed to the init method.  While\nthat would be a very silly thing to do, we don\u0027t check for the appropriate site\ntype in WorkbenchPart.setSite().\n\nCould also possibly be a JIT bug.\n",
+    "Nikolai, does this always happen on shutdown, or only when using certain\nperspectives or views?  Can you come up with a reproduceable case?  Does the log\nhave any other entries that might help isolate which view is the problem?  \n",
+    "*** Bug 76418 has been marked as a duplicate of this bug. ***",
+    "*** Bug 87582 has been marked as a duplicate of this bug. ***",
+    "We believe this to be an implementation error in one of the RAD views, which\noverrides its site given to it in its init method with one from an editor.\n\nIf anybody knows which view could be the culprit, please comment.\n\nI\u0027m adding extra asserts to the WorkbenchPart.setSite method to check for this.\n\nStefan, could you add logging code in ViewFactory.releaseView or destroyView to\ncapture the id of the view in case of failure?  Likewise for editors?\n\n\n\n",
+    "Reducing priority as this appears to be an error in a downstream product.\n",
+    "Nick: smart minds think alike. :-) The logging has already been included as part\nof the patch to bug 87468.",
+    "bug 87468 is in. Can we close this?",
+    "No, I haven\u0027t released my changes yet.\n",
+    "Released checkSite changes to WorkbenchPart, ViewPart and EditorPart.\nThis is the best we can do on the Workbench side.\n\nI suggest that those encountering this in RAD file bug reports against RAD,\nreferring to this bug for details.\n",
+    "We were unable to find a reproducible scenario.  If we encounter this again, we \nwill attempt to run on a 3.1 base to try and diagnose.",
+    "Note that Window \u003e Show View \u003e Other supports multiple selection, so if you\u0027re\nnot sure which view caused this, you can easily open lots of them at once.\n",
+    "Verified patch is in I20050331-0800.\n"
+  ],
+  "commentCreationDates": [
+    "2004-09-26T15:48:59+02:00",
+    "2004-09-27T15:00:32+02:00",
+    "2004-09-27T17:11:17+02:00",
+    "2004-09-27T17:14:28+02:00",
+    "2004-09-27T17:46:23+02:00",
+    "2004-09-27T17:49:09+02:00",
+    "2004-10-19T14:05:49+02:00",
+    "2005-03-10T09:28:57+01:00",
+    "2005-03-10T15:19:23+01:00",
+    "2005-03-10T18:55:22+01:00",
+    "2005-03-10T19:23:58+01:00",
+    "2005-03-10T19:42:10+01:00",
+    "2005-03-10T19:54:18+01:00",
+    "2005-03-14T16:39:45+01:00",
+    "2005-03-14T19:00:15+01:00",
+    "2005-03-14T21:39:17+01:00",
+    "2005-03-31T20:32:26+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org/eclipse/ui/internal/EditorActionBars incompati ble with org/eclipse/ui/internal/ViewActionBars",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.ViewFactory.destroyView",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewFactory.releaseView",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Perspective.dispose",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.dispose",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.closeAllPages",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.hardClose",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.busyClose",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.access$0",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow$1.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.close",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.window.WindowManager.close",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$10.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "Unknown Source "
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.busyClose",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$8",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$12.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.close",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.close",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.QuitAction.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "Unknown Sour ce"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$7.handleEvent",
+          "source": "Unknown  Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Unknown Sourc e"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "Unknown Sou rce"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.ja va:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.ja va:129"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl. java:85"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl. java:58"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAcces sorImpl.java:60"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:391"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:684"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:668"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "75051",
+      "date": "2004-09-26T15:48:59+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "75051",
+  "bugId": "75051",
+  "date": "2004-09-26T15:48:59+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "major"
+}

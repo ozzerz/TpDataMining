@@ -1,0 +1,155 @@
+{
+  "comments": [
+    "I20040505\n\nI have noticed a dozen or so stack traces like the one below in my log file\nsince this morning. I didn\u0027t notice any problems within the editor itself. I use\nthe \"Source source of selected element only\" method-level Java editor. I also\nhave annotation roll-overs enabled. I am not using code folding.\n\n!STACK 0\njava.lang.IllegalArgumentException: Index out of bounds\n\tat org.eclipse.swt.SWT.error(SWT.java:2675)\n\tat org.eclipse.swt.SWT.error(SWT.java:2614)\n\tat org.eclipse.swt.SWT.error(SWT.java:2585)\n\tat org.eclipse.swt.custom.StyledText.redrawRange(StyledText.java:5983)\n\tat\norg.eclipse.ui.texteditor.SourceViewerDecorationSupport$IBeamStrategy.draw(SourceViewerDecorationSupport.java:135)\n\tat\norg.eclipse.jface.text.source.AnnotationPainter.handleDrawRequest(AnnotationPainter.java:1170)\n\tat\norg.eclipse.jface.text.source.AnnotationPainter.enablePainting(AnnotationPainter.java:361)\n\tat\norg.eclipse.jface.text.source.AnnotationPainter.updatePainting(AnnotationPainter.java:770)\n\tat\norg.eclipse.jface.text.source.AnnotationPainter.access$1(AnnotationPainter.java:762)\n\tat\norg.eclipse.jface.text.source.AnnotationPainter$1.run(AnnotationPainter.java:871)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:106)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2571)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2276)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1353)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1324)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:243)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:140)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:90)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:283)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:242)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:119)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:269)\n\tat org.eclipse.core.launcher.Main.run(Main.java:700)\n\tat org.eclipse.core.launcher.Main.main(Main.java:684)\n!ENTRY org.eclipse.ui 4 4 May 06, 2004 12:29:04.440",
+    "Tom, please investigate",
+    "This is due to annotations that are being redrawn upon an AnnotationModelEvent.\nSince drawing is posted into the UI thread, annotations that are removed may get\nout of sync if document changes occur after the corresponding positions are\nremoved from the document, but before redrawing. (See the TODO in\nAnnotationPainter::modelChanged).\n\nThe full-blown solution would be to remember the deleted annotations and their\npositions and update them until they have been redrawn. This would also call for\nmore complex synchronization upon world changes, some concurrency etc etc. So\nfor now, we\u0027ll just guard against index out of bounds. In some cases, this will\ncause some annotation cheese to stick around for too long.",
+    "Hm, actually, we already *do* check for the correct bounds. Along looking\nthrough the code, I came up with a reproducible case:\n\nI20040506\n\n0. Have Java-\u003eEditor-\u003eTyping-\u003eClose Parens on\n1. Have this code, in segmented mode, | denotes the caret\n\n\u003cpre\u003e\nvoid foo() {\n}\n\n|\n\u003c/pre\u003e\n\n2. Type in a new method:\n\n\n\u003cpre\u003e\nvoid foo() {\n}\n\nvoid goo(|)\n\u003c/pre\u003e\n\n-\u003e When typing the parenthesis, the closing parenthesis is automatically added.\n-\u003e Linked mode is set up to highlight the exit position after the closing paren.\n-\u003e A whole bunch of the exceptions as in comment 0 are produced.",
+    "This makes sense. This is quite often how I add new methods. I select the\nclosest method alphabetically, and start typing the new method after the closing\nbrace of the previous method (in segmented mode).",
+    "don\u0027t laugh... the problem was not as said in comment 2 but simply IBeamStrategy\nadding one to its redraw length. This is not needed anyway.\n\nfixed \u003e 20040511 (may not get into the I-Build as this seems not extra urgent)."
+  ],
+  "commentCreationDates": [
+    "2004-05-07T20:59:22+02:00",
+    "2004-05-08T13:13:57+02:00",
+    "2004-05-11T18:42:01+02:00",
+    "2004-05-11T20:07:36+02:00",
+    "2004-05-11T20:18:48+02:00",
+    "2004-05-11T20:34:19+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Index out of bounds",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2675"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2614"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2585"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.redrawRange",
+          "source": "StyledText.java:5983"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.SourceViewerDecorationSupport$IBeamStrategy.draw",
+          "source": "SourceViewerDecorationSupport.java:135"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.AnnotationPainter.handleDrawRequest",
+          "source": "AnnotationPainter.java:1170"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.AnnotationPainter.enablePainting",
+          "source": "AnnotationPainter.java:361"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.AnnotationPainter.updatePainting",
+          "source": "AnnotationPainter.java:770"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.AnnotationPainter.access$1",
+          "source": "AnnotationPainter.java:762"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.AnnotationPainter$1.run",
+          "source": "AnnotationPainter.java:871"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2571"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2276"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1353"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1324"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:243"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:140"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:90"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:283"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:242"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:119"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:269"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:700"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:684"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "61438",
+      "date": "2004-05-07T20:59:22+02:00",
+      "product": "Platform",
+      "component": "Text",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "61438",
+  "bugId": "61438",
+  "date": "2004-05-07T20:59:22+02:00",
+  "product": "Platform",
+  "component": "Text",
+  "severity": "normal"
+}

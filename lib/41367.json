@@ -1,0 +1,220 @@
+{
+  "comments": [
+    "I20030806\n\nAfter doing the following actions:\n1. Got new synch info via Live Synch view\n2. Pressed \"Conflicts\" button\n\u003d\u003d\u003e multiple (\u003e 3) password request dialogs were presented\n\nIf the CVS client automatcally retries to login instead of waiting for the first\npassword query to be answered by the user the account probably gets disabled\nafter the three automatic tries. This is bad since I can now no longer work\nuntil my account gets reset by the administrator. Even worse. If I startup\nEclipse and it first tries the old invalid password more than once the opened\naccount gets closed again.\n\nNote:\n- I did not receive a request that my password has expired\n- I did not get any useful message why my password was rejected\n- nothing in .log",
+    "I don\u0027t know what initially triggered the client to ask for the password. Can\nyou see this in some server log? I already asked help-infra to check their logs.\n\nI\u0027m pretty sure that the multiple password word dialogs were caused by the\nexperimental Quick Diff provider example (see bug 39812). Since this plug-in is\nonly experimental the problem might go away when this feature is provided by the\nTeam team. Is code in CVS core which prevents parallel logins while already one\npassword request is underway? If this is not the case then this is a real\nproblem especially with background jobs.\n",
+    "We found this last Friday as well. I will submit a fix for tomorrow \nintegration build. This loophole has always existed, because we don\u0027t \nprotected the login sequence for cancellation. With the new job support \ncancellation happens a lot more frequently.\n\nTo see the CVS logs, in the CVS preferences page there is a new option to turn \non protocol logging and output to stdout.\n\n*** This bug has been marked as a duplicate of 41161 ***",
+    "I\u0027m actually re-opening this one because although related to 41161 it highlights\nanother point. Login prompting is not serialized. You won\u0027t really see this with\nthe current Team core because we don\u0027t perform CVS operations concurrently.\n\nThis is one of the problems with the sample quick diff provider - it access team\ncode that is not thread safe!\n\nFor the next integration build I have fixed a major problem with quick\ncancellation requests which also locked you out of an account.",
+    "In my case the account first worked i.e. password was correct and account not\nlocked: I got synch info and a file was compared with the server) and then I got\nabout 5(!) password entry dialogs (which I think resulted in the locked\naccount). So the main question is why was a wrong password sent to the server\nand/or the account locked after working a minute before?\n\nI then got a new password form the webmaster, disabled CVS quick diff prototype,\nCVS decorators, and all CVS background stuff, went to the CVS Repository view\nand expanded HEAD. The password dialog came up (OK), I entered the new password\nand in the server log we saw several invalid attempts being tried and the\naccount got locked again. Only after the webmaster unlocked and I tried again\nwith the password that was now stored in the keyring I was able to connect again.\n\nKim Moir was watching the server log.\n\nI think this is a critical bug since I was not able to work with the server for\na whole day.",
+    "This is a blocker. No idea why it thinks the account has to been locked. This\nmorning I was catching up and again out of nowhere was presented with the\npassword dialog though the password obviously was not wrong: when Kim unlocked\nthe account I could work again even without entering any password.\n\nMy first guess was that there\u0027s a limit on connections per account (since I was\nalso performing CVS operations in parallel on the build machine) but according\nto Kim there are no such restrictions.\n",
+    "Here\u0027s the log created by CVS when the connection failed - not sure whether this\nhelps.\n\n!ENTRY org.eclipse.team.ui 4 0 Aug 12, 2003 12:49:51.218\n!MESSAGE Cannot connect to host\n!STACK 1\norg.eclipse.team.internal.ccvs.core.connection.CVSCommunicationException: Cannot\nconnect to host\n\tat\norg.eclipse.team.internal.ccvs.core.connection.Connection.open(Connection.java:136)\n\tat\norg.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.createConnection(CVSRepositoryLocation.java:161)\n\tat\norg.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.openConnection(CVSRepositoryLocation.java:355)\n\tat org.eclipse.team.internal.ccvs.core.client.Session.open(Session.java:319)\n\tat\norg.eclipse.team.internal.ccvs.core.resources.RemoteFolderTreeBuilder.buildTree(RemoteFolderTreeBuilder.java:196)\n\tat\norg.eclipse.team.internal.ccvs.core.resources.RemoteFolderTreeBuilder.buildRemoteTree(RemoteFolderTreeBuilder.java:159)\n\tat\norg.eclipse.team.internal.ccvs.core.resources.CVSWorkspaceRoot.getRemoteSyncTree(CVSWorkspaceRoot.java:634)\n\tat\norg.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.buildSyncTrees(CVSSyncCompareInput.java:224)\n\tat\norg.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.createSyncElements(CVSSyncCompareInput.java:215)\n\tat\norg.eclipse.team.internal.ui.sync.SyncCompareInput.prepareInput(SyncCompareInput.java:214)\n\tat\norg.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.access$2(CVSSyncCompareInput.java:1)\n\tat\norg.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput$4.run(CVSSyncCompareInput.java:330)\n\tat\norg.eclipse.team.internal.ccvs.ui.CVSUIPlugin.runWithRefresh(CVSUIPlugin.java:157)\n\tat\norg.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput$3.run(CVSSyncCompareInput.java:328)\n\tat org.eclipse.team.internal.ccvs.core.client.Session.internalRun(Session.java:180)\n\tat org.eclipse.team.internal.ccvs.core.client.Session.run(Session.java:158)\n\tat\norg.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.prepareInput(CVSSyncCompareInput.java:325)\n\tat org.eclipse.compare.CompareEditorInput.run(CompareEditorInput.java:311)\n\tat\norg.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:101)\n!ENTRY org.eclipse.team.cvs.core 4 4 Aug 12, 2003 12:49:51.218\n!MESSAGE Cannot connect to host\n!ENTRY org.eclipse.team.ui 4 0 Aug 12, 2003 12:59:33.31\n!MESSAGE Authentication error: Invalid username, password, host or repository\n!STACK 1\norg.eclipse.team.internal.ccvs.core.connection.CVSAuthenticationException:\nAuthentication error: Invalid username, password, host or repository\n\tat\norg.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.openConnection(CVSRepositoryLocation.java:366)\n\tat org.eclipse.team.internal.ccvs.core.client.Session.open(Session.java:319)\n\tat\norg.eclipse.team.internal.ccvs.core.resources.RemoteFolderTreeBuilder.buildTree(RemoteFolderTreeBuilder.java:196)\n\tat\norg.eclipse.team.internal.ccvs.core.resources.RemoteFolderTreeBuilder.buildRemoteTree(RemoteFolderTreeBuilder.java:159)\n\tat\norg.eclipse.team.internal.ccvs.core.resources.CVSWorkspaceRoot.getRemoteSyncTree(CVSWorkspaceRoot.java:634)\n\tat\norg.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.buildSyncTrees(CVSSyncCompareInput.java:224)\n\tat\norg.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.createSyncElements(CVSSyncCompareInput.java:215)\n\tat\norg.eclipse.team.internal.ui.sync.SyncCompareInput.prepareInput(SyncCompareInput.java:214)\n\tat\norg.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.access$2(CVSSyncCompareInput.java:1)\n\tat\norg.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput$4.run(CVSSyncCompareInput.java:330)\n\tat\norg.eclipse.team.internal.ccvs.ui.CVSUIPlugin.runWithRefresh(CVSUIPlugin.java:157)\n\tat\norg.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput$3.run(CVSSyncCompareInput.java:328)\n\tat org.eclipse.team.internal.ccvs.core.client.Session.internalRun(Session.java:180)\n\tat org.eclipse.team.internal.ccvs.core.client.Session.run(Session.java:158)\n\tat\norg.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.prepareInput(CVSSyncCompareInput.java:325)\n\tat org.eclipse.compare.CompareEditorInput.run(CompareEditorInput.java:311)\n\tat\norg.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:101)\n",
+    "We haven\u0027t touch any code in this area for a long while. It is strange that it\u0027s\nsuddenly happening so frequently now even with the background jobs. I will go\ntalk to Kim and see if she has changed some configuration parameters on the server. \n\nThe other possible problem could be with some of the core changes and how they\nmay affect the key ring file. Obviously if the password is never wrong then you\nshould never be locked out in the first place.",
+    "Is it possible that accessing CVS from two different accounts at the same time\n(maybe even same resources) might confuse the client e.g. because some message\nor warning is sent by the server?\n",
+    "I have experienced the pain of this problem yesterday very similar to Dani\u0027s \nexperience. I was in the process of comparing changes and committing and then \nthe account was locked.",
+    "The scenario Darin explains was also the one that locked my account the first time:\nI was synchronizing with remote in the background (new live synch view) and\nduring this process I compared a local file with its CVS content. Background\nfetching and operation preferences were disabled (work in progress page).\n",
+    "I upgraded openssh on dev to 3.5p1-6.9 on August 5. This upgrade addressed a\nsecurity issue where pam modules were ignored in certain cases.\n\nFrom Redhat\u0027s security page...\n\nhttps://rhn.redhat.com/errata/RHSA-2003-222.html\n\nWhen configured to allow password-based or challenge-response\nauthentication, sshd (the OpenSSH server) uses PAM (Pluggable\nAuthentication Modules) to verify the user\u0027s password. Under certain\nconditions, OpenSSH versions prior to 3.6.1p1 reject an invalid\nauthentication attempt without first attempting authentication using PAM.\n\nHowever, I inadvertently had an extra line in my in /etc/pam.d/system-auth.  The\nline \n\nauth required /lib/security/pam_tally.so deny\u003d5 reset no_magic_root\n\nwhere there should have only be a line like this....\n\naccount required /lib/security/pam_tally.so deny\u003d5 reset no_magic_root\n\nThis module locks accounts if they exceed five password failures so it may have\nbeen the source of the problem.  Once I fixed this, the problem went away. \nHowever, there still seems to be issues with the new rpm because an indication\nof authentication failure is written to /var/log/messages when the user\nauthenticates via ssh both successfully and unsuccessfully.  \n\nThis is reflected in bug\n\nhttps://bugzilla.redhat.com/bugzilla/show_bug.cgi?id\u003d102174",
+    "Thanks Kim. \n\nCan both Darin and Daniel confirm that you aren\u0027t experiencing this problem\nanymore? Can we close this?",
+    "Doesn\u0027t this only explain why the account got locked? Why was a wrong password\nsent to the server? I would expect the CVS client to work even if a user account\ngets locked after 1 wrong try (of course its then the users fault if he enters a\nwrong password).",
+    "I understood from Kim that correct passwords were actually being sent however \nthe retry count was being incremented anyway. \n\nAs a result of this and another similar bug, we have fixed two areas of the \nCVS plugin that could result in incorrect passwords being sent:\n\n1. It used to be possible to interrupt an SSH login sequence. This has been \nfixed and login sequences are protected against cancellation.\n\n2. We have serialized login to the same repo. This will handle the cases where \nmultiple threads try and login with incorrect passwords, thus possibly locking \nout the user.",
+    "OK. I enabled CVS decorators and background fetching in the Synch view and did\nnot experience a password related problem so far.",
+    "I am experiencing the same problems as mentioned above.  When I try to\nsynchronize with a remote CVS server (running CVSNT), sometimes the sync\nproceeds correctly.  At other times the \"authentication failed\" popup dialog\nwould appear and prompt me for a password.  I am very sure I have entered the\nCVS password correctly, although the password prompt keeps re-appearing.  After\na few tries my account gets locked on the CVS server, and I can\u0027t proceed to\nwork until an administrator unlocks my account.  Here are the relevant information:\n\nClient machine: Windows XP\nCVS server: Windows 2000\nEclipse version: 3.0.1 \nBuild id: 200409161125\n\nI would appreciate it if anyone can offer any suggestions/work-arounds. I am\nre-opening this bug because, well, obviously, it\u0027s not working on my machine.\nPlease let me know if you need any additional information from me to try to\nsolve this.\n\nThanks!\nIrene Kam",
+    "Could be related to bug 66885. Please add yourself to the CC of bug 66885 \ninstead of reopening this one. Thanks."
+  ],
+  "commentCreationDates": [
+    "2003-08-11T10:04:39+02:00",
+    "2003-08-11T11:09:24+02:00",
+    "2003-08-11T14:45:18+02:00",
+    "2003-08-11T22:06:56+02:00",
+    "2003-08-12T12:54:18+02:00",
+    "2003-08-12T13:25:47+02:00",
+    "2003-08-12T13:58:00+02:00",
+    "2003-08-12T15:28:03+02:00",
+    "2003-08-12T18:02:33+02:00",
+    "2003-08-12T23:04:17+02:00",
+    "2003-08-13T09:44:56+02:00",
+    "2003-08-13T20:04:33+02:00",
+    "2003-08-14T14:28:27+02:00",
+    "2003-08-14T15:09:21+02:00",
+    "2003-08-14T15:45:51+02:00",
+    "2003-08-14T16:13:05+02:00",
+    "2004-12-30T20:19:21+01:00",
+    "2004-12-31T02:59:26+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.team.internal.ccvs.core.connection.CVSCommunicationException",
+      "message": "Cannot connect to host",
+      "elements": [
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.Connection.open",
+          "source": "Connection.java:136"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.createConnection",
+          "source": "CVSRepositoryLocation.java:161"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.openConnection",
+          "source": "CVSRepositoryLocation.java:355"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Session.open",
+          "source": "Session.java:319"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.RemoteFolderTreeBuilder.buildTree",
+          "source": "RemoteFolderTreeBuilder.java:196"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.RemoteFolderTreeBuilder.buildRemoteTree",
+          "source": "RemoteFolderTreeBuilder.java:159"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.CVSWorkspaceRoot.getRemoteSyncTree",
+          "source": "CVSWorkspaceRoot.java:634"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.buildSyncTrees",
+          "source": "CVSSyncCompareInput.java:224"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.createSyncElements",
+          "source": "CVSSyncCompareInput.java:215"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.sync.SyncCompareInput.prepareInput",
+          "source": "SyncCompareInput.java:214"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.access$2",
+          "source": "CVSSyncCompareInput.java:1"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput$4.run",
+          "source": "CVSSyncCompareInput.java:330"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.CVSUIPlugin.runWithRefresh",
+          "source": "CVSUIPlugin.java:157"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput$3.run",
+          "source": "CVSSyncCompareInput.java:328"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Session.internalRun",
+          "source": "Session.java:180"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Session.run",
+          "source": "Session.java:158"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.prepareInput",
+          "source": "CVSSyncCompareInput.java:325"
+        },
+        {
+          "method": "org.eclipse.compare.CompareEditorInput.run",
+          "source": "CompareEditorInput.java:311"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:101"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 6,
+      "bugId": "41367",
+      "date": "2003-08-12T13:58:00+02:00",
+      "product": "Platform",
+      "component": "Team",
+      "severity": "blocker"
+    },
+    {
+      "exceptionType": "org.eclipse.team.internal.ccvs.core.connection.CVSAuthenticationException",
+      "message": "Authentication error: Invalid username, password, host or repository",
+      "elements": [
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.openConnection",
+          "source": "CVSRepositoryLocation.java:366"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Session.open",
+          "source": "Session.java:319"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.RemoteFolderTreeBuilder.buildTree",
+          "source": "RemoteFolderTreeBuilder.java:196"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.RemoteFolderTreeBuilder.buildRemoteTree",
+          "source": "RemoteFolderTreeBuilder.java:159"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.CVSWorkspaceRoot.getRemoteSyncTree",
+          "source": "CVSWorkspaceRoot.java:634"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.buildSyncTrees",
+          "source": "CVSSyncCompareInput.java:224"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.createSyncElements",
+          "source": "CVSSyncCompareInput.java:215"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.sync.SyncCompareInput.prepareInput",
+          "source": "SyncCompareInput.java:214"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.access$2",
+          "source": "CVSSyncCompareInput.java:1"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput$4.run",
+          "source": "CVSSyncCompareInput.java:330"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.CVSUIPlugin.runWithRefresh",
+          "source": "CVSUIPlugin.java:157"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput$3.run",
+          "source": "CVSSyncCompareInput.java:328"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Session.internalRun",
+          "source": "Session.java:180"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Session.run",
+          "source": "Session.java:158"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.sync.CVSSyncCompareInput.prepareInput",
+          "source": "CVSSyncCompareInput.java:325"
+        },
+        {
+          "method": "org.eclipse.compare.CompareEditorInput.run",
+          "source": "CompareEditorInput.java:311"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:101"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 6,
+      "bugId": "41367",
+      "date": "2003-08-12T13:58:00+02:00",
+      "product": "Platform",
+      "component": "Team",
+      "severity": "blocker"
+    }
+  ],
+  "groupId": "41367",
+  "bugId": "41367",
+  "date": "2003-08-11T10:04:39+02:00",
+  "product": "Platform",
+  "component": "Team",
+  "severity": "blocker"
+}

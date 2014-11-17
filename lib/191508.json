@@ -1,0 +1,137 @@
+{
+  "comments": [
+    "When I used content assist on a very normal sourcecode like:\npublic class Foo {\n\tpublic void foo(){\n\t\tint x \u003d 0;\n\t\tString x \u003d \"\";\n\t\tx.to//here was my cursor\n\t}\n}\n\nI was not able to reproduce it by now.\n\nCaused by: org.eclipse.swt.SWTError: No more callbacks\nat org.eclipse.swt.SWT.error(SWT.java:3589)\nat org.eclipse.swt.SWT.error(SWT.java:3481)\nat org.eclipse.swt.SWT.error(SWT.java:3452)\nat org.eclipse.swt.widgets.Display.getMonitors(Display.java:1907)\nat org.eclipse.jface.text.contentassist.ContentAssistant$LayoutManager.getClosestMonitor(ContentAssistant.java:748)\nat org.eclipse.jface.text.contentassist.ContentAssistant$LayoutManager.computeBoundsBelowAbove(ContentAssistant.java:655)\nat org.eclipse.jface.text.contentassist.ContentAssistant$LayoutManager.layoutProposalSelector(ContentAssistant.java:489)\nat org.eclipse.jface.text.contentassist.ContentAssistant$LayoutManager.layout(ContentAssistant.java:464)\nat org.eclipse.jface.text.contentassist.ContentAssistant$LayoutManager.add(ContentAssistant.java:401)\nat org.eclipse.jface.text.contentassist.ContentAssistant.addToLayout(ContentAssistant.java:1366)\nat org.eclipse.jface.text.contentassist.CompletionProposalPopup.createProposalSelector(CompletionProposalPopup.java:544)\nat org.eclipse.jface.text.contentassist.CompletionProposalPopup.access$22(CompletionProposalPopup.java:493)\nat org.eclipse.jface.text.contentassist.CompletionProposalPopup$2.run(CompletionProposalPopup.java:420)\nat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:67)\nat org.eclipse.jface.text.contentassist.CompletionProposalPopup.showProposals(CompletionProposalPopup.java:404)\nat org.eclipse.jface.text.contentassist.ContentAssistant$2.run(ContentAssistant.java:354)\nat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n... 22 more",
+    "Duong, Silenio and I looked at this before and could not see how we could be leaking Callbacks.  Can you please browse all references to the Callback constructor on Windows and ensure that either\n\n1) The Callback is being creates and disposed in the same method\n2) The Callback is being created once and stored in a static variable\n\nFor case 2) the Callback is not free\u0027d until SWT exits (but is shared by many different instances).",
+    "\u003eCan you please browse all references to the Callback\nWho is \"you\"?\n",
+    "I had 3 eclipse and sametime opened. Is it possible that there is global limit for callbacks, or is it on a per application base?",
+    "\u003e Duong, ...\n\nDuong is you.",
+    "Karsten, you are right.  There is a global limit because the SWT DLL is shared between processes.  Having 3 Eclipses open probably blows the limit.\n\nThe issue here is that callbacks are operating system addresses and cannot be moved or you will GP.  That means the callback table can\u0027t grow (I\u0027m sure there are ways around this using Windows virtual memory flags etc.).  Another strategy is to have a list of segments and delete them when they become empty.  Yet another strategy nis to provide an API to set the limit.",
+    "We had the same problem with SWT.Browser\n- We are using Eclipse 3.3.\n- We have a sample to run SWT Browser with SWT.MOZILLA style.(I have \"-Dorg.eclipse.swt.browser.XULRunnerPath\u003d\u003c\u003e\" specified in VM Args to point to xulrunner runtime). \n- Also we have our own browser widget based on Mozilla/Windows \n- After I run the samples in PDE, we got same No More Callbacks exception in the following steps:\n  A) Show Eclipse Help, it is using SWT Browser with MSIE\n  B) Show SWT.MOZILLA sample, it is using MOZILLA \n  C) Show our browser widget, we got the No more callbacks exception. \nIf we change the sequence, e.g C)B)A) or C)A)B), the third one always fail to create. \nAfter looking into the problem, we found the current JNI callback.h/.c only supports to 128 callbacks as MAX, while COMObject.java \u0026 XPCOMObject.java has maintained/cached its own Array \"Callbacks\", and don\u0027t share with each other. \n  In the testing of only A)B), it reports the Callbacks are used to 115+, it is almost exhaused. \n\nIs there possible to extend to support 256 callbacks? Or make XPCOMObject \u0026 COMObject shares the same \"Callbacks\" array at Eclipse runtime on Windows? \n\nSteve N., I have a question  on your comment 5#\nHow did SWT make global limit among different Eclipse processes? Are they sharing CALLBACK_DATA array(declared in callback.c)? Appreciate if you can explain more, thanks!",
+    "Karsten, do you use pure Eclipse or also have Ajax Toolkit Framework(ATF)? ",
+    "I use quite pure eclipse (mylar,emf,wst) nothing really exciting though. But I used the new builtin Heap Walk feature of JAVA6 and if the current limitation is 128 it is definitely to low because of said COM components. You can show all instances of Callback by setting a breakpoint in a callback method like getAddress and use the broswer widget for example. In the variables view show all instances is enabled on the context menu of this when you are using Sun JVM 6. There are like 80 instances running in a very normal eclipse. Most of them are used in Accessible, some for browser, some for bidi and some for clipboard. I\u0027m not sure which one of those is the bad one though.",
+    "Hmmm, at one point, the callback array pointed to a bunch of C function entry point addresses that were declared in the DLL.  Clearly, these C functions were shared by all processes because they were code.  For 3.3, we changed this to allocate the entry points dynamically (on platforms that supported it) which means we could grow in theory.\n\nAt the very least, we should up the limit and/or allow it to be set before any callback is created.  This is an easy change.",
+    "Ok, after talking with Silenio, I don\u0027t understand how this could be happening (other than we SWT have a leak).  The function addresses can be shared and passed out between processes but when the call-in happens, the data that is not shared between DLL\u0027s is used to look up the Callback object and call into Java.  Each process has 128 Callbacks (we actually confirmed this with code to be 100% sure).\n\nMy new position is either SWT has a leak (see comment #1) or you have a plugin that is accessing internal SWT classes and leaking Callback objects.  Of course, you are seeing \u0027No more callbacks\u0027 so something is leaking.  Karsten, can you track Callback creation and look for a leak?  In the meantime, we will check the SWT code again.",
+    "One thing we noticed is in 3.3, after we bring in Mozilla everywhere(id#154124), we have COMObject \u0026 XPCOMObject class to hold two array of CallBack objects on Windows, and they cached each returned callback address from JNI bind() call and doesn\u0027t share with each other. \n\nWe debugged with Callback.java with construction/dispose method by adding a count value, when the count number increase to 128, the bind() JNI return 0. We havn\u0027t debug inot the JNI layer yet, but from reading the callback.c/.h, we found the number limitation there. \n",
+    "As I mentioned it earlier the bug is not reproducible for me. But I guess the easiest way to leak callbacks is the following:\n\tpublic static void main(String[] args) {\n\t\tRunnable runnable\u003d new Runnable() {\n\t\t\tpublic void run() {\n\t\t\t\tDisplay display\u003d new Display();\n\t\t\t\tdisplay.disposeExec(new Runnable() {\n\t\t\t\t\t\n\t\t\t\t\tpublic void run() {\n\t\t\t\t\t\tthrow new NullPointerException(\"\");\n\t\t\t\t\t}\n\t\t\t\t\t\n\t\t\t\t});\n\t\t\t\ttry {\n\t\t\t\t\tdisplay.dispose();\n\t\t\t\t} catch (RuntimeException e) {\n\t\t\t\t}\n\t\t\t}\n\t\t};\n\t\tfor (int i\u003d0;i\u003c160;i++){\n\t\t\tThread thread\u003d new Thread(runnable);\n\t\t\tthread.start();\n\t\t\ttry {\n\t\t\t\tthread.join();\n\t\t\t} catch (InterruptedException e) {\n\t\t\t}\n\t\t}\n\t}\n}\n\nThis is not too far from being real code. It might have been the cause for my problem, because I used the disposeExec in a plugin I wrote and tried to access some already disposed control. Of course if you do not call dispose at all, you\u0027ll leak callbacks too.\nMaybe there are some other listeners that are not prune to user caused exceptions. And some don\u0027t even get shown at all.",
+    "Created an attachment (id\u003d72217)\nPatch that increases the callback limit\n\nWhen XPCOMObject and COMObject are used together, we are going over the callback limit of 128. This patch increases that limit to 256 on windows x86 only.",
+    "+1. It\u0027s extremely late to be making this kind of change, but adding \"Mozilla everywhere\" and then having it essentially not be usable on Windows seems like it\u0027s something we have to fix.",
+    "We have tested this code quite a lot. Some of the things we did were: \n\n- made sure we could create Callbacks up to the new limit and called each one of them\n- temporarily increased the limit 0x10000 and called each one of the Callbacks that was created to make sure the shifting is right\n- hacked SWT to leak the first 128 Callbacks, ran Eclipse to make SWT use the newly pushing code always to prove is was right\n- hacked SWT to create alternating browsers (one IE, one Mozilla) to make sure the new limit was enough and to touch the new pushing code\n- we put a counter in Callback to see how many were allocated and is was below the new limit\n- the limit was increased for Windows x86 only.  No other platform is affected.",
+    "+1\n\nMozilla everywere was a new feature for Eclipse 3.3 and is unusable within Eclipse without this change.  Unfortunately, or test cases were stand alone and none of them tried to create Mozilla as a plugin.",
+    "Also we tested the new limit by copying every call to the constructor from XPCOMObject and COMObject into a main() and called it.  This represents every single callback from IE and Mozilla that could be allocated.  There were 8 more that were allocated statically in Dislay and other places in SWT.  There are temporary Callbacks that get created and then diposed right away (ColorDialog, Display.getFontList()).  The limit needed for this was 134 (which is much less than 256).",
+    "This has been fixed in the R3.3 maintenance stream."
+  ],
+  "commentCreationDates": [
+    "2007-06-07T18:10:59+02:00",
+    "2007-06-08T14:33:42+02:00",
+    "2007-06-08T14:37:18+02:00",
+    "2007-06-08T14:42:06+02:00",
+    "2007-06-08T16:35:06+02:00",
+    "2007-06-08T16:37:19+02:00",
+    "2007-06-19T09:34:30+02:00",
+    "2007-06-19T09:40:34+02:00",
+    "2007-06-19T10:40:29+02:00",
+    "2007-06-19T15:40:47+02:00",
+    "2007-06-19T22:13:33+02:00",
+    "2007-06-20T00:40:38+02:00",
+    "2007-06-20T12:06:11+02:00",
+    "2007-06-22T22:24:10+02:00",
+    "2007-06-25T17:16:36+02:00",
+    "2007-06-25T17:29:23+02:00",
+    "2007-06-25T17:32:55+02:00",
+    "2007-06-25T18:00:17+02:00",
+    "2007-06-25T20:49:47+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "No more callbacks",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3589"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3481"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3452"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.getMonitors",
+          "source": "Display.java:1907"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant$LayoutManager.getClosestMonitor",
+          "source": "ContentAssistant.java:748"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant$LayoutManager.computeBoundsBelowAbove",
+          "source": "ContentAssistant.java:655"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant$LayoutManager.layoutProposalSelector",
+          "source": "ContentAssistant.java:489"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant$LayoutManager.layout",
+          "source": "ContentAssistant.java:464"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant$LayoutManager.add",
+          "source": "ContentAssistant.java:401"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant.addToLayout",
+          "source": "ContentAssistant.java:1366"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.createProposalSelector",
+          "source": "CompletionProposalPopup.java:544"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.access$22",
+          "source": "CompletionProposalPopup.java:493"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup$2.run",
+          "source": "CompletionProposalPopup.java:420"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:67"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.showProposals",
+          "source": "CompletionProposalPopup.java:404"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant$2.run",
+          "source": "ContentAssistant.java:354"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "191508",
+      "date": "2007-06-07T18:10:59+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "191508",
+  "bugId": "191508",
+  "date": "2007-06-07T18:10:59+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

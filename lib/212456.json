@@ -1,0 +1,87 @@
+{
+  "comments": [
+    "I am finding that if I include more than 52 external jars in my Java build path, I am unable to debug any java classes.\n\nOur real development environment (running in Eclipse 3.1) includes ~86 jar files included from a shared /lib folder.  Several developers reported being unable to debug their classes via junit, so I set out to try to narrow this down.\n\nI created a new Java Project and added a simple Hello World class.  Runs fine, debugs fine.  I then proceeded to add external jar files from my real development /lib directories (jars that are not needed by this simple project, but that I use in my real development).  At 52 jar files, debug still works.  At 53 jar files, I get this in the console:\n\nFATAL ERROR in native method: JDWP No transports initialized, jvmtiError\u003dJVMTI_ERROR_INTERNAL(113)\nERROR: transport error 202: unable to create socket: Provider initialization failed (check %SystemRoot%) [\"transport.c\",L41]\nERROR: JDWP Transport dt_socket failed to initialize, TRANSPORT_INIT(510) [\"debugInit.c\",L500]\nJDWP exit error JVMTI_ERROR_INTERNAL(113): No transports initialized\n\nThe .log file in /workspace/.metatada contained this:\n\n!ENTRY org.eclipse.jdt.launching 4 120 2007-12-10 15:34:29.744\n!MESSAGE Cannot connect to VM\n!STACK 0\njava.net.SocketException: socket closed\n\tat java.net.PlainSocketImpl.socketAccept(Native Method)\n\tat java.net.PlainSocketImpl.accept(PlainSocketImpl.java:384)\n\tat java.net.ServerSocket.implAccept(ServerSocket.java:450)\n\tat java.net.ServerSocket.accept(ServerSocket.java:421)\n\tat org.eclipse.jdi.internal.connect.SocketTransportService.accept(SocketTransportService.java:95)\n\tat org.eclipse.jdi.internal.connect.SocketTransportImpl.accept(SocketTransportImpl.java:56)\n\tat org.eclipse.jdi.internal.connect.SocketListeningConnectorImpl.accept(SocketListeningConnectorImpl.java:135)\n\tat org.eclipse.jdt.internal.launching.StandardVMDebugger$ConnectRunnable.run(StandardVMDebugger.java:106)\n\tat java.lang.Thread.run(Thread.java:595)\n\nOK, I says to myself, lets\u0027s get the (at the time) latest Eclipse and see if that fixes things.  I downloaded and installed version 3.3.1.1, and tried the same thing, with the same results.\n\nThis is a blocking issue for us, as we are unable to run our suite of junit tests, and we\u0027ve grown fond of running these tests to ensure we haven\u0027t mucked anything up.\n\nDetails:\n\nHere\u0027s my eclipse start string:\n\nC:\\devtools\\eclipse\\eclipse.exe -vm \"C:\\devtools\\jdk\\jdk1.5.0_12\\bin\\java\" -data \"C:\\devtools\\eclipse\\workspace\"  -console -consoleLog -debug\n\nMy .options file looks like this:\n\norg.eclipse.jem.proxy/debug/vmtraceout\u003dtrue\norg.eclipse.jem.proxy/debug/debugvm\u003dtrue\norg.eclipse.jem.proxy/debug/ioconsole\u003dtrue\n\nAll this debug stuff was added in an attempt to track this problem.\n\nI am running jdk 1.5.0_12, and this is the only currently installed JDK on my system.  If I go to a command prompt and type \"java -version\", I get this:\n\njava version \"1.5.0_12\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.5.0_12-b04)\nJava HotSpot(TM) Client VM (build 1.5.0_12-b04, mixed mode, sharing)\n\nRegards,\n\nSteve Locke",
+    "I cannot reproduce, even using 200+ external jars. The console error indicates this is a configuration issue, likely a firewall/other network problem as we use TCP to communicate with the debugger. Could that be the problem, that you have a firewall/antivirus or the like that is interfering with the debuggers communication?\n\nlikely a dupe of 65385 or one of its derivatives.... ",
+    "Hi Michael,\n\nPrior to my entering this bug, I spent a lot of time googling this issue, and seeing what other people have done to resolve it.  Many references did suggest a firewall/network issue, so my early tests had me disabling our firewall, disconnecting from my network, and other types of tests.  The problem still persisted.\n\nIf I run TaskManager, I can see when I try to debug that a 2nd JVM is successfully launched, but then closes down right away.  This is making me wonder if the problem stems from the unexpected shutdown of the launched JVM , rather than the inability to communicate with it.  If the JVM is launched, then dies immediately, it would follow that a socket error would occur (Cannot Connect to VM) since there is no longer any VM to be connected to.\n\nI tried to get Eclipse to use the shared memory attach process, instead of using sockets, but was not able to figure out how to do this.  This may be a workaround for me - do you know how to do this?\n\nI also tried to get the launched JRE to display a console (java.exe instead of javaw.exe) so that I could (maybe) see what the problem was, but was unable to figure out how to do that.\n\nI also tried to get the output from the launched JRE to go to a log file, but was unable to figure out how to do this.\n\nAny other debugging suggestions would be welcome.\n\nThanks,\n\ns.l.",
+    "Michael,\n\nI spent some time going thru the bug derivitive chain you suggested.  I tried the edit to the hosts file suggested - no good.  I didn\u0027t find anything else in the chain that helped.\n\ns.l.",
+    "\u003e I tried to get Eclipse to use the shared memory attach process, instead of\n\u003e using sockets, but was not able to figure out how to do this.  This may be a\n\u003e workaround for me - do you know how to do this?\n\nEclipse does not support the shared memory connector.",
+    "What happens if you launch from the command line? i.e. outside Eclipse?",
+    "I\u0027m not very well versed in java operations from the command line, and I know this isn\u0027t the place for Java 101, but how do I debug from the command line?  ",
+    "(In reply to comment #4)\n\u003e \u003e I tried to get Eclipse to use the shared memory attach process, instead of\n\u003e \u003e using sockets, but was not able to figure out how to do this.  This may be a\n\u003e \u003e workaround for me - do you know how to do this?\n\u003e \n\u003e Eclipse does not support the shared memory connector.\n\u003e \n\nWhat about having launched JVM use a console window, or send output to a log file?",
+    "(In reply to comment #6)\n\u003e I\u0027m not very well versed in java operations from the command line, and I know\n\u003e this isn\u0027t the place for Java 101, but how do I debug from the command line?\n\nIf you take the command line that Eclipse generates and use it at the command line to launch your VM in debug mode, what happens? The command line that Eclipse generates should be available from the \"Properties...\" action on the assocaited debug target in the debug view (if it actually appears there when the launch fails).\n\n",
+    "The Eclipse command line uses javaw.exe.  If I use that, nothing happens when I run from a command line.  If I use java.exe instead, I get this (after about 3 seconds):\n\nERROR: transport error 202: unable to create socket: Provider initialization failed (check %SystemRoot%) [\"transport.c\",\nL41]\nERROR: JDWP Transport dt_socket failed to initialize, TRANSPORT_INIT(510) [\"debugInit.c\",L500]\nJDWP exit error JVMTI_ERROR_INTERNAL(113): No transports initializedFATAL ERROR in native method: JDWP No transports ini\ntialized, jvmtiError\u003dJVMTI_ERROR_INTERNAL(113)\n\n\nHere\u0027s the Eclipse command line (again, with java.exe replacing javaw.exe):\n\nC:\\devtools\\jdk\\jdk1.5.0_12\\bin\\java.exe -classpath C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\JarTest\\bin;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\activation-1.1.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\activeio-core-3.0.0-incubator.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\activemq-core-4.1.1.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\activemq-ra-4.1.1.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\antlr-2.7.6.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\aopalliance.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\aqapi13.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\axis.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\axis-ant.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\backport-util-concurrent-2.2.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\bcprov-jdk15-133.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\c3p0-0.9.1.1.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\cglib-nodep-2.1_3.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ClassFile.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\commons-attributes-api-2.1.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\commons-beanutils.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\commons-codec-1.3.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\commons-collections.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\commons-discovery-0.2.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\commons-httpclient-3.0.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\commons-logging.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\cs-security-impl-enterprise.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\dom4j-1.6.1.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ehcache-1.2.4.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-axis.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-bean-services.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-caf.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-core.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-deploy-tools.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-dev-tools.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-edm.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-enterprise-serv.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-eo2.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-eom.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-fax.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-html.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-http.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-java-mail.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-jdbc.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-jms.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-leveler.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-narl.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-orm.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-rules-lang.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-rules-lang-eo2.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-security.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-system-config.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-web-services.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-workflow-hib.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\ha-ztd.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\hibernate3.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\jace.jar;C:\\StarTeamWorkingFolders\\PM_HBI\\Source\\HA\\11.1.0\\lib\\jakarta-oro-2.0.8.jar -agentlib:jdwp\u003dtransport\u003ddt_socket,suspend\u003dy,address\u003dlocalhost:3814 com.mckesson.ebi.test.HelloWorld\n\n \n\n",
+    "Thanks for the update. Since the same problem happens outside of Eclipse, this indicates that Eclipse is not causing the problem. (I realize that this does not solve your problem).\n\nResolving as \"not Eclipse\".\n\nHere is a link with some more suggestions:\n\nhttp://saloon.javaranch.com/cgi-bin/ubb/ultimatebb.cgi?ubb\u003dget_topic\u0026f\u003d56\u0026t\u003d006017",
+    "Right-o.  Thanks for your assistance."
+  ],
+  "commentCreationDates": [
+    "2007-12-10T20:57:39+01:00",
+    "2007-12-12T15:48:38+01:00",
+    "2007-12-12T19:38:52+01:00",
+    "2007-12-12T20:03:14+01:00",
+    "2007-12-12T20:13:20+01:00",
+    "2007-12-12T20:14:17+01:00",
+    "2007-12-12T20:43:14+01:00",
+    "2007-12-13T13:54:13+01:00",
+    "2007-12-13T14:34:05+01:00",
+    "2007-12-13T15:47:49+01:00",
+    "2007-12-13T16:02:21+01:00",
+    "2007-12-13T16:48:42+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.net.SocketException",
+      "message": "socket closed",
+      "elements": [
+        {
+          "method": "java.net.PlainSocketImpl.socketAccept",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.net.PlainSocketImpl.accept",
+          "source": "PlainSocketImpl.java:384"
+        },
+        {
+          "method": "java.net.ServerSocket.implAccept",
+          "source": "ServerSocket.java:450"
+        },
+        {
+          "method": "java.net.ServerSocket.accept",
+          "source": "ServerSocket.java:421"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.connect.SocketTransportService.accept",
+          "source": "SocketTransportService.java:95"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.connect.SocketTransportImpl.accept",
+          "source": "SocketTransportImpl.java:56"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.connect.SocketListeningConnectorImpl.accept",
+          "source": "SocketListeningConnectorImpl.java:135"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.StandardVMDebugger$ConnectRunnable.run",
+          "source": "StandardVMDebugger.java:106"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "212456",
+      "date": "2007-12-10T20:57:39+01:00",
+      "product": "Platform",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "212456",
+  "bugId": "212456",
+  "date": "2007-12-10T20:57:39+01:00",
+  "product": "Platform",
+  "component": "Debug",
+  "severity": "normal"
+}

@@ -1,0 +1,150 @@
+{
+  "comments": [
+    "If an @AspectJ aspect advises itself using after throwing advice that itself throws an exception running the resulting program causes a VerifyError:\n\njava.lang.VerifyError: (class: A, method: stop signature: ()V) catch_type not a subclass of Throwable\n\tat java.lang.Class.getDeclaredMethods0(Native Method)\n\tat java.lang.Class.privateGetDeclaredMethods(Class.java:2365)\n\tat java.lang.Class.getMethod0(Class.java:2611)\n\tat java.lang.Class.getMethod(Class.java:1579)\n\tat org.aspectj.tools.ajc.AjcTestCase.run(AjcTestCase.java:608)\n\tat org.aspectj.testing.RunSpec.execute(RunSpec.java:56)\n\tat org.aspectj.testing.AjcTest.runTest(AjcTest.java:68)\n\tat org.aspectj.testing.XMLBasedAjcTestCase.runTest(XMLBasedAjcTestCase.java:111)\n\tat org.aspectj.systemtest.ajc150.Ajc150Tests.testError(Ajc150Tests.java:877)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat junit.framework.TestCase.runTest(TestCase.java:154)\n\tat junit.framework.TestCase.runBare(TestCase.java:127)\n\tat junit.framework.TestResult$1.protect(TestResult.java:106)\n\tat junit.framework.TestResult.runProtected(TestResult.java:124)\n\tat junit.framework.TestResult.run(TestResult.java:109)\n\tat junit.framework.TestCase.run(TestCase.java:118)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:478)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run(RemoteTestRunner.java:344)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main(RemoteTestRunner.java:196)",
+    "Created an attachment (id\u003d32514)\nTestcase\n\n",
+    "I\u0027m not sure this verify error only occurs when the @AfterReturning advice affects itself that throws an exception. I think it\u0027s to do with the extra JoinPoint argument in the list of method args. I\u0027ve been able to reproduce the problem by running the following:\n\n---------------------------------------------------------------------------\n\nimport org.aspectj.lang.JoinPoint;\nimport org.aspectj.lang.annotation.AfterThrowing;\nimport org.aspectj.lang.annotation.Aspect;\n\n@Aspect\npublic class A {\n\t\n\tpublic static void main(String[] args) {\n\t\ttry {\n\t\t\tnew B().start();\n\t\t} catch (Exception e) {\n\t\t\te.printStackTrace();\n\t\t}\n\t}\n\t\n\t@AfterThrowing(pointcut \u003d \"execution(public void B.start())\", throwing \u003d \"ex\")\n\tpublic void handleException(JoinPoint jp, Exception ex) {\t\n\t}\n\n}\n\nclass B implements I {\n\tpublic void start() throws Exception {\n\t\tthrow new IllegalArgumentException();\n\t}\t\n}\n\ninterface I {\n\tpublic void start() throws Exception;\n}\n\n---------------------------------------------------------------------------------------------------\n\nChanging the @AfterThrowing advice to:\n\n\t@AfterThrowing(pointcut \u003d \"execution(public void B.start())\", throwing \u003d \"ex\")\n\tpublic void handleException(Exception ex) {\t\n\t}\n\nand then rerunning does not result in a verify error.\n\nLooking at the output from decompiling B when there is a verify error, the Exception table for the start() method has \n\n  Exception table:\n   from   to  target type\n     9    17    17   Class org/aspectj/lang/JoinPoint\n\nwhich would result in a verify error saying that the type isn\u0027t a subclass of Throwable.",
+    "Created an attachment (id\u003d34912)\npatch containing failing testcase\n\nApply to the tests project.\n\nTestcase mentioned in previous comment.",
+    "The problem is that Advice.getExtraParameterType() returns the UnresolvedType corresponding to the first argument, so in the example aspect this is org.aspectj.lang.JoinPoint. The fix is to make allowances for the extra parameter corresponding to JoinPoint in the case of annotation style aspects.\n\nAdvice.getExtraParameterType() is used in the processing of the extra parameter both for after throwing and after returning advice. Currently if used with the following advice:\n\n@AfterReturning(pointcut \u003d \"execution(public B1 B1.start())\", returning \u003d \"r\")\npublic void afterJP(JoinPoint jp, B1 r) {\n     r.stop();\n}\n\nit results in a verify error of the form:\n\nException in thread \"main\" java.lang.VerifyError: (class: B1, method: start signature: ()LB1;) Incompatible argument to function at A1.main(A1.java:9)",
+    "Created an attachment (id\u003d34995)\npatch containing failing testcase for @AfterThrowing and @AfterReturning\n\nApply this patch to the tests project.\n\nThis patch replaces the previously attached one as it improves on the tests for @AfterThrowing and adds tests for @AfterReturning.",
+    "Created an attachment (id\u003d34996)\npatch containing proposed fix\n\nApply to the weaver project.\n\nPatch containing proposed fix mentioned above.",
+    "fix committed.",
+    "fix available."
+  ],
+  "commentCreationDates": [
+    "2006-01-05T11:31:44+01:00",
+    "2006-01-05T11:41:03+01:00",
+    "2006-02-17T14:21:01+01:00",
+    "2006-02-17T14:30:22+01:00",
+    "2006-02-20T10:23:21+01:00",
+    "2006-02-20T10:26:36+01:00",
+    "2006-02-20T10:36:29+01:00",
+    "2006-02-21T16:11:39+01:00",
+    "2006-02-22T09:03:15+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.VerifyError",
+      "message": "(class: A, method: stop signature: ()V) catch_type not a subclass of Throwable",
+      "elements": [
+        {
+          "method": "java.lang.Class.getDeclaredMethods0",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.Class.privateGetDeclaredMethods",
+          "source": "Class.java:2365"
+        },
+        {
+          "method": "java.lang.Class.getMethod0",
+          "source": "Class.java:2611"
+        },
+        {
+          "method": "java.lang.Class.getMethod",
+          "source": "Class.java:1579"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.AjcTestCase.run",
+          "source": "AjcTestCase.java:608"
+        },
+        {
+          "method": "org.aspectj.testing.RunSpec.execute",
+          "source": "RunSpec.java:56"
+        },
+        {
+          "method": "org.aspectj.testing.AjcTest.runTest",
+          "source": "AjcTest.java:68"
+        },
+        {
+          "method": "org.aspectj.testing.XMLBasedAjcTestCase.runTest",
+          "source": "XMLBasedAjcTestCase.java:111"
+        },
+        {
+          "method": "org.aspectj.systemtest.ajc150.Ajc150Tests.testError",
+          "source": "Ajc150Tests.java:877"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "junit.framework.TestCase.runTest",
+          "source": "TestCase.java:154"
+        },
+        {
+          "method": "junit.framework.TestCase.runBare",
+          "source": "TestCase.java:127"
+        },
+        {
+          "method": "junit.framework.TestResult$1.protect",
+          "source": "TestResult.java:106"
+        },
+        {
+          "method": "junit.framework.TestResult.runProtected",
+          "source": "TestResult.java:124"
+        },
+        {
+          "method": "junit.framework.TestResult.run",
+          "source": "TestResult.java:109"
+        },
+        {
+          "method": "junit.framework.TestCase.run",
+          "source": "TestCase.java:118"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests",
+          "source": "RemoteTestRunner.java:478"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run",
+          "source": "RemoteTestRunner.java:344"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main",
+          "source": "RemoteTestRunner.java:196"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "122742",
+      "date": "2006-01-05T11:31:44+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.VerifyError",
+      "message": "(class: B1, method: start signature: ()LB1;) Incompatible argument to function",
+      "elements": [
+        {
+          "method": "A1.main",
+          "source": "A1.java:9"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 4,
+      "bugId": "122742",
+      "date": "2006-02-20T10:23:21+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "122742",
+  "bugId": "122742",
+  "date": "2006-01-05T11:31:44+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

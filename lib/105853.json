@@ -1,0 +1,148 @@
+{
+  "comments": [
+    "Overview Description: \nI deployed the BIRT Report Viewer to a Macromedia JRun4 server instance on one\nof our servers. the application was deployed by extracting from the archive\nbirt.war (from the bundle birt-runtime-1.0.1RC1.zip) into the webapps directory\nof the server under a folder birt-viewer.\nThen, from the browser I navigated to the /birt-viewer URL and the install\nsuccessful page showed up fine. However, when I clicked the view example link,\nan error was returned. The error stack from the server log is listed below.\n\nActual Results:\n08/02 15:09:11 error org.mozilla.javascript.ImporterTopLevel.initStandardObjects\n(Lorg/mozilla/javascript/Context;Z)V\njava.lang.NoSuchMethodError: org.mozilla.javascript.ImporterTopLevel.initStandar\ndObjects(Lorg/mozilla/javascript/Context;Z)V\n        at org.eclipse.birt.core.script.ScriptContext.\u003cinit\u003e(ScriptContext.java:\n80)\n        at org.eclipse.birt.report.engine.executor.ExecutionContext.\u003cinit\u003e(Execu\ntionContext.java:163)\n        at org.eclipse.birt.report.engine.api.impl.EngineTask.\u003cinit\u003e(EngineTask.\njava:82)\n        at org.eclipse.birt.report.engine.api.impl.GetParameterDefinitionTask.\u003ci\nnit\u003e(GetParameterDefinitionTask.java:45)\n        at org.eclipse.birt.report.engine.api.impl.ReportEngineHelper.createGetP\narameterDefinitionTask(ReportEngineHelper.java:168)\n        at org.eclipse.birt.report.engine.api.ReportEngine.createGetParameterDef\ninitionTask(ReportEngine.java:278)\n        at org.eclipse.birt.report.viewer.aggregation.BaseFragment.prepareAttrib\nuteBean(Unknown Source)\n        at org.eclipse.birt.report.viewer.aggregation.BaseFragment.prepareAttrib\nuteBean(Unknown Source)\n        at org.eclipse.birt.report.viewer.aggregation.BaseFragment.service(Unkno\nwn Source)\n        at org.eclipse.birt.report.viewer.servlets.ViewerServlet.doPost(Unknown\nSource)\n        at org.eclipse.birt.report.viewer.servlets.ViewerServlet.doGet(Unknown S\nource)\n        at javax.servlet.http.HttpServlet.service(HttpServlet.java:740)\n        at javax.servlet.http.HttpServlet.service(HttpServlet.java:853)\n        at jrun.servlet.ServletInvoker.invoke(ServletInvoker.java:91)\n        at jrun.servlet.JRunInvokerChain.invokeNext(JRunInvokerChain.java:42)\n        at jrun.servlet.JRunRequestDispatcher.invoke(JRunRequestDispatcher.java:\n257)\n        at jrun.servlet.ServletEngineService.dispatch(ServletEngineService.java:\n541)\n        at jrun.servlet.jrpp.JRunProxyService.invokeRunnable(JRunProxyService.ja\nva:204)\n        at jrunx.scheduler.ThreadPool$ThreadThrottle.invokeRunnable(ThreadPool.j\nava:426)\n        at jrunx.scheduler.WorkerThread.run(WorkerThread.java:66)",
+    "I\u0027ve experienced the same problem on WebSphere 5.1:\n\n[12/12/05 11:34:42:508 EST]  ff3d68d WebGroup      E SRVE0026E: [Servlet Error]-[org.mozilla.javascript.ImporterTopLevel: method initStandardObjects\u0026#40;Lorg/mozilla/javascript/Context\u0026#59;Z\u0026#41;V not found]: java.lang.NoSuchMethodError: org.mozilla.javascript.ImporterTopLevel: method initStandardObjects(Lorg/mozilla/javascript/Context;Z)V not found\n\tat org.eclipse.birt.core.script.ScriptContext.\u003cinit\u003e(ScriptContext.java:83)\n\tat org.eclipse.birt.report.engine.executor.ExecutionContext.\u003cinit\u003e(ExecutionContext.java:165)\n\tat org.eclipse.birt.report.engine.api.impl.EngineTask.\u003cinit\u003e(EngineTask.java:107)\n\tat org.eclipse.birt.report.engine.api.impl.GetParameterDefinitionTask.\u003cinit\u003e(GetParameterDefinitionTask.java:74)\n",
+    "Seem it can not load script context class. Any hints?",
+    "BIRT uses the rhino 1.6RC1, perhaps those two web application embeds old version rhino in their distribution. ",
+    "This problem is caused by incorrect environment setting. Please see the following email that I sent to the submitter two days ago for details.\n______________________________________________ \nFrom: \tKai Shen  \nSent:\tWednesday, December 21, 2005 5:16 PM\nTo:\t\u0027hpadmanabhan@mandtbank.com\u0027\nCc:\tStanley Wang\nSubject:\tBugzilla Bug 105853 - Report Viewer sample fails with runtime error when used on application server (JRun4)\n\nThe problem is because the application server contains a older version of Rhino\u0027s js.jar, while BIRT uses the latest version (1.6RC1). Because the js.jar in the application server is loaded before the one in BIRT, the older version of class org.mozilla.javascript.Context is loaded. Since the older version of class org.mozilla.javascript.Context doesn\u0027t contain function initStandardObjects, a runtime java.lang.NoSuchMethodError happened.\n\nTo solve this kind of problem, the application server usually provides a configuration to allow loading application\u0027s java classes before the app server\u0027s. \n\nFor WebSphere, there\u0027s a class loading policy option. You need to set it to \"PARENT_LAST\". This will force websphere to load the classes in BIRT before WebSphere\u0027s classes. Here\u0027s the detailed description on how to set it. In the Server Configuration view or Servers view, double-click the server to open it. The server editor opens. Click the Applications tab at the bottom of the editor. In the Applications list box, select the application to modify the class loader settings. In the Classloader mode field, select the class loading mode for the application to PARENT_LAST.\n\nFor WebLogic, the weblogic.xml contains a prefer-web-inf-classes element (a sub-element of the container-descriptor element). By default, this element is set to False. You need to set it to TRUE. Setting this element to True subverts the classloader delegation model so that class definitions from the Web application are loaded in preference to class definitions in higher-level classloaders. (http://e-docs.bea.com/wls/docs81/programming/classloading.html#1082452).\n\nFor JRUN4, there\u0027s a load-system-classes-first element in in the jrun-web.xml. load-system-classes-first specifies whether system classes should be loaded before enterprise and web application classes. If the value is \u0027true\u0027, the system classpath is given preference over the web-app\u0027s classpath. If the value is \u0027false\u0027, the local web-app classpath is used to load a class or resource first and if it is not found there, then the system class path is searched. (http://livedocs.macromedia.com/jrun/4/descriptordocs/jrun-web/jrun-web.htm). By default, the value is \u0027true\u0027. You need to set it to \u0027false\u0027.\n\nWe\u0027ve tested it in WebLogic 8.1 and WebSphere 5. Please try it out in your environment and let us know if you still have problems. We\u0027re planning to close this bug by Friday. Thanks.\n\nKai Shen\nBIRT Committer\n",
+    "Exception:weblogic.management.ApplicationException: prepare failed for birtTest Module: birtTest Error: Could not load birtTest: java.lang.StringIndexOutOfBoundsException: String index out of range: -1 "
+  ],
+  "commentCreationDates": [
+    "2005-08-02T22:08:56+02:00",
+    "2005-12-12T16:39:55+01:00",
+    "2005-12-21T00:25:10+01:00",
+    "2005-12-21T02:20:53+01:00",
+    "2005-12-23T18:23:54+01:00",
+    "2007-10-12T11:53:13+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoSuchMethodError",
+      "message": "org.mozilla.javascript.ImporterTopLevel.initStandar dObjects(Lorg/mozilla/javascript/Context;Z)V",
+      "elements": [
+        {
+          "method": "org.eclipse.birt.core.script.ScriptContext.\u003cinit\u003e",
+          "source": "ScriptContext.java: 80"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.ExecutionContext.\u003cinit\u003e",
+          "source": "Execu tionContext.java:163"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.EngineTask.\u003cinit\u003e",
+          "source": "EngineTask. java:82"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.GetParameterDefinitionTask.\u003cinit\u003e",
+          "source": "GetParameterDefinitionTask.java:45"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.ReportEngineHelper.createGetParameterDefinitionTask",
+          "source": "ReportEngineHelper.java:168"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.ReportEngine.createGetParameterDefinitionTask",
+          "source": "ReportEngine.java:278"
+        },
+        {
+          "method": "org.eclipse.birt.report.viewer.aggregation.BaseFragment.prepareAttributeBean",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.viewer.aggregation.BaseFragment.prepareAttributeBean",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.viewer.aggregation.BaseFragment.service",
+          "source": "Unkno wn Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.viewer.servlets.ViewerServlet.doPost",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.viewer.servlets.ViewerServlet.doGet",
+          "source": "Unknown S ource"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:740"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:853"
+        },
+        {
+          "method": "jrun.servlet.ServletInvoker.invoke",
+          "source": "ServletInvoker.java:91"
+        },
+        {
+          "method": "jrun.servlet.JRunInvokerChain.invokeNext",
+          "source": "JRunInvokerChain.java:42"
+        },
+        {
+          "method": "jrun.servlet.JRunRequestDispatcher.invoke",
+          "source": "JRunRequestDispatcher.java: 257"
+        },
+        {
+          "method": "jrun.servlet.ServletEngineService.dispatch",
+          "source": "ServletEngineService.java: 541"
+        },
+        {
+          "method": "jrun.servlet.jrpp.JRunProxyService.invokeRunnable",
+          "source": "JRunProxyService.ja va:204"
+        },
+        {
+          "method": "jrunx.scheduler.ThreadPool$ThreadThrottle.invokeRunnable",
+          "source": "ThreadPool.j ava:426"
+        },
+        {
+          "method": "jrunx.scheduler.WorkerThread.run",
+          "source": "WorkerThread.java:66"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "105853",
+      "date": "2005-08-02T22:08:56+02:00",
+      "product": "BIRT",
+      "component": "Report Viewer",
+      "severity": "blocker"
+    },
+    {
+      "exceptionType": "java.lang.NoSuchMethodError",
+      "message": "org.mozilla.javascript.ImporterTopLevel: method initStandardObjects(Lorg/mozilla/javascript/Context;Z)V not found",
+      "elements": [
+        {
+          "method": "org.eclipse.birt.core.script.ScriptContext.\u003cinit\u003e",
+          "source": "ScriptContext.java:83"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.ExecutionContext.\u003cinit\u003e",
+          "source": "ExecutionContext.java:165"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.EngineTask.\u003cinit\u003e",
+          "source": "EngineTask.java:107"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.GetParameterDefinitionTask.\u003cinit\u003e",
+          "source": "GetParameterDefinitionTask.java:74"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 1,
+      "bugId": "105853",
+      "date": "2005-12-12T16:39:55+01:00",
+      "product": "BIRT",
+      "component": "Report Viewer",
+      "severity": "blocker"
+    }
+  ],
+  "groupId": "105853",
+  "bugId": "105853",
+  "date": "2005-08-02T22:08:56+02:00",
+  "product": "BIRT",
+  "component": "Report Viewer",
+  "severity": "blocker"
+}

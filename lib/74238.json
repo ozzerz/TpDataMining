@@ -1,0 +1,96 @@
+{
+  "comments": [
+    "When I used cflow pointcut for my applet, I couldn\u0027t launch the Applet.\n\njava.lang.ExceptionInInitializerError\n        at SandAspect.ajc$preClinit(SandAspect.aj)\n        at SandAspect.\u003cclinit\u003e(SandAspect.aj)\n        at SandApplet.init(SandApplet.java)\n        at sun.applet.AppletPanel.run(AppletPanel.java:353)\n        at java.lang.Thread.run(Thread.java:534)\nCaused by: java.security.AccessControlException: access denied (java.util.Proper\ntyPermission aspectj.runtime.cflowstack.usethreadlocal read)\n        at java.security.AccessControlContext.checkPermission(AccessControlConte\nxt.java:269)\n        at java.security.AccessController.checkPermission(AccessController.java:\n401)\n        at java.lang.SecurityManager.checkPermission(SecurityManager.java:524)\n        at java.lang.SecurityManager.checkPropertyAccess(SecurityManager.java:12\n76)\n        at java.lang.System.getProperty(System.java:612)\n        at org.aspectj.runtime.internal.CFlowStack.selectFactoryForVMVersion(CFl\nowStack.java:124)\n        at org.aspectj.runtime.internal.CFlowStack.\u003cclinit\u003e(CFlowStack.java:59)\n        ... 5 more\n\nIt because CFlowStack uses System.getProperty method with no try..catch block. \nApplet doesn\u0027t have permission to read system property:\n\"aspectj.runtime.cflowstack.usethreadlocal\".\n\nworkaround:\nmodify CFlowStack.java(1.5) line 123,124 like this\n-----\nprivate static String getSystemPropertyWithNoSecurityException(\n  String aPropertyName, String aDefaultValue){\n  try{\n    return System.getProperty(aPropertyName, aDefaultValue);\n  } catch(java.lang.SecurityException e){\n    return aDefaultValue;\n  }\n}\n\nprivate static void selectFactoryForVMVersion() {\n  String override \u003d getSystemPropertyWithNoSecurityException(\n    \"aspectj.runtime.cflowstack.usethreadlocal\"\n    , \"unspecified\"\n  );\n-----\nI think defining getSystemPropertyWithNoSecurityException(or more\nsimple name :-)) method in some utility class and using it where you call\nSystem.getProperty are better way.",
+    "Assigning to Matthew.  The proposed solution looks good.  See related bug 71527.\n In that bug the raiser wanted a way to switch off the use of threadlocal - but\nafter reading this bug I think what they really meant in bug 71527 was they\nwanted a way to use cflow and not hit the security exception.  ",
+    "In the runtime we use 2 other access controlled APIs but do so safely:\n- Class.forName(): use of String argument version and avoid use of \"null\" \nclass loader (see comment in SigantureImpl.makeClass()).\n- Class.getClassLoader(): use on self or class defining static join point \nobject (which must be defined by a classloader at or below that used by the \nruntime which is OK).\n\nShould explore option to enclose calls to System.getProperty() in privileged \nblocks so that full function is availble when correct permissions granted. \nHowever must first explore implications for J2ME (which is the reason for the \nproperty query in the first place).",
+    "Created an attachment (id\u003d14938)\nSuggested fix and Ant-based test\n\nThe java.class.version property is not protected so only the first getProperty\ncall is replaced. The test can be replaced with a harness-based version when\n\"fork\" is supported.",
+    "Fix checked in.  I\u0027ve added Charles Zhang to the CC list as he was having\nproblems with this same bit of property checking code failing on J2ME.  Catching\nthe security exception will now allow the code to proceed, it will be\ninteresting  whether it enables Charles\u0027 code to now run successfully on J2ME. \nI know ThreadLocal isn\u0027t available there but the cflow stuff in aspectjrt.jar\nshould be able to cope with that and fall back on the old non-threadlocal\nimplementation.\n\nMatthew do you want to migrate your test into the new forking harness?\n\nwaiting for build ....",
+    "Build available:\n\nBUILD COMPLETE -  build.383\nDate of build: 10/18/2004 23:39:49\nTime to build: 113 minutes 41 seconds\nLast changed: 10/18/2004 13:04:09\nLatest good AspectJ jar available at:\ndownload.eclipse.org/technology/ajdt/dev/aspectj-DEVELOPMENT.jar",
+    "Fix released as part of AspectJ 1.2.1"
+  ],
+  "commentCreationDates": [
+    "2004-09-19T11:51:49+02:00",
+    "2004-09-29T15:57:18+02:00",
+    "2004-09-29T16:02:31+02:00",
+    "2004-09-30T22:05:03+02:00",
+    "2004-10-14T10:33:21+02:00",
+    "2004-10-19T10:37:34+02:00",
+    "2004-10-21T10:31:16+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ExceptionInInitializerError",
+      "elements": [
+        {
+          "method": "SandAspect.ajc$preClinit",
+          "source": "SandAspect.aj"
+        },
+        {
+          "method": "SandAspect.\u003cclinit\u003e",
+          "source": "SandAspect.aj"
+        },
+        {
+          "method": "SandApplet.init",
+          "source": "SandApplet.java"
+        },
+        {
+          "method": "sun.applet.AppletPanel.run",
+          "source": "AppletPanel.java:353"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:534"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.security.AccessControlException",
+        "message": "access denied (java.util.Proper tyPermission aspectj.runtime.cflowstack.usethreadlocal read)",
+        "elements": [
+          {
+            "method": "java.security.AccessControlContext.checkPermission",
+            "source": "AccessControlConte xt.java:269"
+          },
+          {
+            "method": "java.security.AccessController.checkPermission",
+            "source": "AccessController.java: 401"
+          },
+          {
+            "method": "java.lang.SecurityManager.checkPermission",
+            "source": "SecurityManager.java:524"
+          },
+          {
+            "method": "java.lang.SecurityManager.checkPropertyAccess",
+            "source": "SecurityManager.java:12 76"
+          },
+          {
+            "method": "java.lang.System.getProperty",
+            "source": "System.java:612"
+          },
+          {
+            "method": "org.aspectj.runtime.internal.CFlowStack.selectFactoryForVMVersion",
+            "source": "CFl owStack.java:124"
+          },
+          {
+            "method": "org.aspectj.runtime.internal.CFlowStack.\u003cclinit\u003e",
+            "source": "CFlowStack.java:59"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "74238",
+      "date": "2004-09-19T11:51:49+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "74238",
+  "bugId": "74238",
+  "date": "2004-09-19T11:51:49+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

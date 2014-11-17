@@ -1,0 +1,230 @@
+{
+  "comments": [
+    "There are a wack of unsatified link errors when running the GTK 2.0 M5 \nrelease. Eclipse will not come up and  reports a trace. Not really sure why \n\n\njava.lang.UnsatisfiedLinkError: \n/home/john/bogus/eclipse/plugins/org.eclipse.swt/os/linux/x86/libswt-pi-gtk-\n2034.so: \n/home/john/bogus/eclipse/plugins/org.eclipse.swt/os/linux/x86/libswt-pi-gtk-\n2034.so: \nundefined symbol: gdk_font_full_name_get\n        at java.lang.ClassLoader$NativeLibrary.load(Native Method)\n        at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1414)\n        at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1322)\n        at java.lang.Runtime.loadLibrary0(Runtime.java:744)\n        at java.lang.System.loadLibrary(System.java:815)\n        at org.eclipse.swt.internal.Library.loadLibrary(Library.java:102)\n        at org.eclipse.swt.internal.gtk.OS.\u003cclinit\u003e(OS.java:20)\n        at org.eclipse.swt.widgets.Display.createDisplay(Display.java:328)\n        at org.eclipse.swt.widgets.Display.create(Display.java:322)\n        at org.eclipse.swt.graphics.Device.\u003cinit\u003e(Device.java:95)\n        at org.eclipse.swt.widgets.Display.\u003cinit\u003e(Display.java:261)\n        at org.eclipse.swt.widgets.Display.\u003cinit\u003e(Display.java:257)\n        at org.eclipse.ui.internal.Workbench.run(Workbench.java:810)\n        at \norg.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:777)\n        at org.eclipse.core.boot.BootLoader.run(BootLoader.java:319)\n        at java.lang.reflect.Method.invoke(Native Method)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:190)\n        at org.eclipse.core.launcher.Main.run(Main.java:549)\n        at org.eclipse.core.launcher.Main.main(Main.java:390)\n\n\nSome seem to be remnants of the GTK 1.0 and some are typos in the c code.\n\nTo get it to work, I hacked out the bogus references and recompiled. (I assume \nif the reference doesn\u0027t exist in Gtk2.0, you can\u0027t be \nrelying in it ...) Eventually it does come up.\n\nHere is the list \n\n\nin: swt-gdk.c\n\tgdk_font_full_name_get\n\tNewStringUTF\n\nTwo problems. The first is the non-existant gdk_font_full_name_get (comment it \nout).\nThe second is the call to (jstring)NewStringUTF should be (*env)-\u003eNewStringUTF\n\nThis one is wierd since the gdk headers (gdkfont.h) include a prototype of \nthis function but the source has no implementation.\n\n\n[john@localhost gdk]$ grep gdk_font_full *.c\n\u003cnote none here\u003e\n[john@localhost gdk]$ grep gdk_font_full *.h\ngdkfont.h:gchar*   gdk_font_full_name_get (GdkFont *font);\ngdkfont.h:void   gdk_font_full_name_free (gchar *name);\n\n\n\nThe next one is GTK_WIDGET_REALISED which is a spelling error\ndiff ./swt-gtkwidget.c ../../library/swt-gtkwidget.c\n96c96\n\u003c return (jboolean) GTK_WIDGET_REALISED((GtkWidget*)wid);\n---\n\u003e return (jboolean) GTK_WIDGET_REALIZED((GtkWidget*)wid);\n\nThe method which contains this typo is also spelled wrong so the function is \nprobably never called anyhow.\n\nThe next ones are in swt-gtkwidget.c\n\tgtk_editable_get_selection_start, \n\tgtk_editable_get_selection_end,\n\tgtk_toolbar_set_button_relief,\n\tgtk_signal_connect_swapped\n\n\ndiff ./swt-gtkwidget.c ../../library/swt-gtkwidget.c\n96c96\n\u003c return (jboolean) GTK_WIDGET_REALISED((GtkWidget*)wid);\n---\n\u003e return (jboolean) GTK_WIDGET_REALIZED((GtkWidget*)wid);\ndiff ./swt.c ../../library/swt.c\n1178c1178\n\u003c return (jint)gtk_editable_get_selection_start((GtkEditable*)editable);\n---\n\u003e // return (jint)gtk_editable_get_selection_start((GtkEditable*)editable);\n1184c1184\n\u003c return (jint)gtk_editable_get_selection_end((GtkEditable*)editable);\n---\n\u003e // return (jint)gtk_editable_get_selection_end((GtkEditable*)editable);\n1405c1405\n\u003c gtk_toolbar_set_button_relief((GtkToolbar*)toolbar, \n(GtkReliefStyle)relief);\n---\n\u003e // gtk_toolbar_set_button_relief((GtkToolbar*)toolbar, \n(GtkReliefStyle)relief);\n1763c1763\n\u003c rc \u003d (jint)gtk_signal_connect_swapped((gpointer)instance, (const \nchar*)detailed_signal1, (GCallback)c_handler, (gpointer)data);\n---\n\u003e // rc \u003d (jint)gtk_signal_connect_swapped((gpointer)instance, (const \nchar*)detailed_signal1, (GCallback)c_handler, (gpointer)data);\n\n\nIt comes up afters removing these references.",
+    "Actually, the ones below are in swt.c (the original bug report says swt-\ngtkwidget.c)\n\n\tgtk_editable_get_selection_start, \n\tgtk_editable_get_selection_end,\n\tgtk_toolbar_set_button_relief,\n\tgtk_signal_connect_swapped\n",
+    "Boris to ensure that all bogosity is removed from the C code.\n",
+    "gdk_font_full_name_get only exists on the Win32 version of Gtk.  I\u0027ll ask \nSilenio why he still uses gdk_font (an artifact from 1.2?).\n\nRe: bogosities in C.  We all agreed the C will be auto-generated in a few days, \nso nobody is wasting their time on this.",
+    "gtk_editable_get_selection_start, etc:\nThis never happened to any of us.\nThere is a similar bug report where the guy uses a pre-compiled GTK that came \nas an rpm with ximian-gnome2.  I don\u0027t know if it makes a difference.  How did \nyou install your gtk2?  (source tarball from gtk.org, or something else?)  We \ncertainly want it to work in the other scenarios...",
+    "I installed my gtk from source. I use version 2.0.2 on RedHat 7.2.\n\n\u003eWe certainly want it to work in the other scenarios...\neasy ... just don\u0027t have any unreferenced symbols...\n\n\n\u003eRe: bogosities in C.  We all agreed the C will be auto-generated in a few \n\u003edays, so nobody is wasting their time on this.\n\nexcept me :-)\n\nIf you could just cut out the bogus functions (until you autogen), I won\u0027t \nhave to hack my own version every time I get a drop. \n\n\n\n\n",
+    "Fixed.\n\nWould be curious to see the exact reason why the bug didn\u0027t cause grief in our \npart of the building - i.e., where does it say whether all symbols get resolved \nonce you loadLibrary vs. one by one as you touch them.  I wonder if it\u0027s the \nldd or the jvm that\u0027s set up differently.",
+    "You can use ldd -r to print undefined symbols.\n\nldd -r \u003clibrary\u003e\n\nOn my machine with the original library from the zip file it looks like \nthis ...\n\n[john@localhost x86]$ ldd -r libswt-pi-gtk-2034.so\nldd: warning: you do not have execution permission for `./libswt-pi-gtk-\n2034.so\u0027\n\n        /lib/libNoVersion.so.1 \u003d\u003e /lib/libNoVersion.so.1 (0x4002b000)\n        libgtk-x11-2.0.so.0 \u003d\u003e /usr/local/lib/libgtk-x11-2.0.so.0 (0x4003c000)\n        libgdk-x11-2.0.so.0 \u003d\u003e /usr/local/lib/libgdk-x11-2.0.so.0 (0x40231000)\n        libatk-1.0.so.0 \u003d\u003e /usr/local/lib/libatk-1.0.so.0 (0x40285000)\n        libgdk_pixbuf-2.0.so.0 \u003d\u003e /usr/local/lib/libgdk_pixbuf-2.0.so.0 \n(0x4029a\n000)\n        libm.so.6 \u003d\u003e /lib/i686/libm.so.6 (0x402ac000)\n        libpangox-1.0.so.0 \u003d\u003e /usr/local/lib/libpangox-1.0.so.0 (0x402d0000)\n        libpangoxft-1.0.so.0 \u003d\u003e /usr/local/lib/libpangoxft-1.0.so.0 \n(0x402dc000)\n\n        libpango-1.0.so.0 \u003d\u003e /usr/local/lib/libpango-1.0.so.0 (0x402fa000)\n        libgobject-2.0.so.0 \u003d\u003e /usr/local/lib/libgobject-2.0.so.0 (0x4032a000)\n        libgmodule-2.0.so.0 \u003d\u003e /usr/local/lib/libgmodule-2.0.so.0 (0x40361000)\n        libdl.so.2 \u003d\u003e /lib/libdl.so.2 (0x40365000)\n        libglib-2.0.so.0 \u003d\u003e /usr/local/lib/libglib-2.0.so.0 (0x4036a000)\n        libc.so.6 \u003d\u003e /lib/i686/libc.so.6 (0x403cd000)\n        libXft.so.1 \u003d\u003e /usr/X11R6/lib/libXft.so.1 (0x40508000)\n        libXrender.so.1 \u003d\u003e /usr/X11R6/lib/libXrender.so.1 (0x40532000)\n        libXext.so.6 \u003d\u003e /usr/X11R6/lib/libXext.so.6 (0x40537000)\n        libX11.so.6 \u003d\u003e /usr/X11R6/lib/libX11.so.6 (0x40545000)\n        libfreetype.so.6 \u003d\u003e /usr/lib/libfreetype.so.6 (0x40624000)\n        /lib/ld-linux.so.2 \u003d\u003e /lib/ld-linux.so.2 (0x80000000)\nundefined symbol: gdk_font_full_name_get        (./libswt-pi-gtk-2034.so)\nundefined symbol: GTK_WIDGET_REALISED   (./libswt-pi-gtk-2034.so)\nundefined symbol: NewStringUTF  (./libswt-pi-gtk-2034.so)\nundefined symbol: gtk_signal_connect_swapped    (./libswt-pi-gtk-2034.so)\nundefined symbol: gtk_editable_get_selection_start (./libswt-pi-gtk-2034.so)\nundefined symbol: gtk_toolbar_set_button_relief (./libswt-pi-gtk-2034.so)\nundefined symbol: gtk_editable_get_selection_end        (./libswt-pi-gtk-\n2034.so\n)",
+    "The GTK2 build still doesn\u0027t launch in Build 20020502.\n\n[jburns@radiohead eclipse]$ ./eclipse -vm ~/vms/jdk1.4/bin/java ~/target\njava.lang.UnsatisfiedLinkError: \n/home/jburns/gtkhost/eclipse/plugins/org.eclipse.swt.gtk_1.9.0/os/linux/x86/libswt-pi-gtk-2037.so: \nlibgtk-x11-2.0.so.0: cannot open shared object file: No such file or \ndirectory\n\tat java.lang.ClassLoader$NativeLibrary.load(Native Method)\n\tat java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1480)\n\tat java.lang.ClassLoader.loadLibrary(ClassLoader.java:1388)\n\tat java.lang.Runtime.loadLibrary0(Runtime.java:772)\n\tat java.lang.System.loadLibrary(System.java:832)\n\tat org.eclipse.swt.internal.Library.loadLibrary(Library.java:102)\n\tat org.eclipse.swt.internal.gtk.OS.\u003cclinit\u003e(OS.java:20)\n\tat org.eclipse.swt.widgets.Display.createDisplay(Display.java:332)\n\tat org.eclipse.swt.widgets.Display.create(Display.java:326)\n\tat org.eclipse.swt.graphics.Device.\u003cinit\u003e(Device.java:95)\n\tat org.eclipse.swt.widgets.Display.\u003cinit\u003e(Display.java:265)\n\tat org.eclipse.swt.widgets.Display.\u003cinit\u003e(Display.java:261)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:857)\n\tat \norg.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:733)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:349)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat \nsun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat \nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:162)\n\tat org.eclipse.core.launcher.Main.run(Main.java:588)\n\tat org.eclipse.core.launcher.Main.main(Main.java:437)",
+    "This problem was resolved *after* M5.\nM5 generally had a lot of very serious problems, and was not ready for real \nuse.  Please try downloading a recent nightly build - the earlier \"more stable\" \nbuilds are just missing many pieces in the gtk implementation.",
+    "M5 was April 16.\nThis bug was marked fixed April 24.\nI said I\u0027m using the build from March 5.\n\nWas the fix not included in the 20020502 build?",
+    "It certainly *should* work in may 02.  Whatever is happening in your situation, \nis different from teh original problem reported by John (missing symbols in \nlibgtk*) - it doesn\u0027t find libgtk-x11 at all??  Could you post the output of \nldd -r libswt-pi-gtk-2037.so?\n",
+    "Yikes. It looks like my GTK2 installation is monkeyed. Most of the responses \nto your query come back with \"not found\"\n\nMy mistake."
+  ],
+  "commentCreationDates": [
+    "2002-04-20T16:03:05+02:00",
+    "2002-04-20T16:06:22+02:00",
+    "2002-04-22T15:57:35+02:00",
+    "2002-04-22T20:13:59+02:00",
+    "2002-04-22T21:54:55+02:00",
+    "2002-04-23T02:07:54+02:00",
+    "2002-04-23T23:03:02+02:00",
+    "2002-04-24T12:44:23+02:00",
+    "2002-05-06T20:30:55+02:00",
+    "2002-05-06T20:44:23+02:00",
+    "2002-05-06T21:04:59+02:00",
+    "2002-05-06T22:03:34+02:00",
+    "2002-05-06T22:51:16+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.UnsatisfiedLinkError",
+      "message": "/home/john/bogus/eclipse/plugins/org.eclipse.swt/os/linux/x86/libswt-pi-gtk- 2034.so:  /home/john/bogus/eclipse/plugins/org.eclipse.swt/os/linux/x86/libswt-pi-gtk- 2034.so:  undefined symbol: gdk_font_full_name_get",
+      "elements": [
+        {
+          "method": "java.lang.ClassLoader$NativeLibrary.load",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadLibrary0",
+          "source": "ClassLoader.java:1414"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadLibrary",
+          "source": "ClassLoader.java:1322"
+        },
+        {
+          "method": "java.lang.Runtime.loadLibrary0",
+          "source": "Runtime.java:744"
+        },
+        {
+          "method": "java.lang.System.loadLibrary",
+          "source": "System.java:815"
+        },
+        {
+          "method": "org.eclipse.swt.internal.Library.loadLibrary",
+          "source": "Library.java:102"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.\u003cclinit\u003e",
+          "source": "OS.java:20"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.createDisplay",
+          "source": "Display.java:328"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.create",
+          "source": "Display.java:322"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Device.\u003cinit\u003e",
+          "source": "Device.java:95"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.\u003cinit\u003e",
+          "source": "Display.java:261"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.\u003cinit\u003e",
+          "source": "Display.java:257"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:810"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:777"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:319"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:190"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:549"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:390"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "14280",
+      "date": "2002-04-20T16:03:05+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.UnsatisfiedLinkError",
+      "message": "/home/jburns/gtkhost/eclipse/plugins/org.eclipse.swt.gtk_1.9.0/os/linux/x86/libswt-pi-gtk-2037.so:  libgtk-x11-2.0.so.0: cannot open shared object file: No such file or  directory",
+      "elements": [
+        {
+          "method": "java.lang.ClassLoader$NativeLibrary.load",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadLibrary0",
+          "source": "ClassLoader.java:1480"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadLibrary",
+          "source": "ClassLoader.java:1388"
+        },
+        {
+          "method": "java.lang.Runtime.loadLibrary0",
+          "source": "Runtime.java:772"
+        },
+        {
+          "method": "java.lang.System.loadLibrary",
+          "source": "System.java:832"
+        },
+        {
+          "method": "org.eclipse.swt.internal.Library.loadLibrary",
+          "source": "Library.java:102"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.\u003cclinit\u003e",
+          "source": "OS.java:20"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.createDisplay",
+          "source": "Display.java:332"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.create",
+          "source": "Display.java:326"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Device.\u003cinit\u003e",
+          "source": "Device.java:95"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.\u003cinit\u003e",
+          "source": "Display.java:265"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.\u003cinit\u003e",
+          "source": "Display.java:261"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:857"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:733"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:349"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:162"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:588"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:437"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 8,
+      "bugId": "14280",
+      "date": "2002-05-06T20:30:55+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "14280",
+  "bugId": "14280",
+  "date": "2002-04-20T16:03:05+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

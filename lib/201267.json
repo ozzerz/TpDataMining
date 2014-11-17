@@ -1,0 +1,81 @@
+{
+  "comments": [
+    "Simon,\n\nThat\u0027s of course also an interesting feature. You should add a feature \nrequest for it.\nBut, to be honest, I don\u0027t believe that I\u0027m able to implement it in the \nvery near future because there are many other things that will take time.\n\nIf you have an idea how to implement this feature or even have a patch \nI\u0027d appreciate to discuss/review it with you ;-)\n\nCheers\n/Eike\n\n\n\nSimon McDuff schrieb:\n\u003e I`m interested in a failover strategy for CDO/NET4J.\n\u003e\n\u003e Basically we have many CDOServer. If one of them fail, I would like to \n\u003e redirect clients connected to the failed CDO server\n\u003e to another one and continue like nothing happened.\n\u003e\n\u003e Let me know if you have or interested in such mechanism.\n\u003e\n\u003e\n\u003e\n\u003e",
+    "Some questions:\n\n1. What exactly do you want to protect against? Network failure, server failure, ...\n2. Have you already experienced this kind of failure?\n3. FailOverSignal would wrap a RequestWithConfirmation which is kind of service invocation. What happens/should happen if this service is stateful?\n4. In the case of CDO do the failover connectors point to different servers? Do these servers have the same repositories configured? Do these repositories use the same IStores? Do these IStores use the same DB backend instance?",
+    "(In reply to comment #1)\n\u003e Some questions:\n\u003e 1. What exactly do you want to protect against? Network failure, server\n\u003e failure, ...\nMany thinhs\n- When the server crash.... for any reasons.\nWe are not allowed to have downtime... In the case of redeploying... I can add one server... remove another one... all the request would be redirect to that new one. without having to break anything.\n\n\u003e 2. Have you already experienced this kind of failure?\n- The problem right now I had.. it\u0027s hanging... (maybe solved)\nif the Store throws exception... the client freeze... that should not happen. This problem should be solved by throwing the exception back to the client... \n\n\u003e 3. FailOverSignal would wrap a RequestWithConfirmation which is kind of service\n\u003e invocation. What happens/should happen if this service is stateful?\nStateful service...\nFailOverSignal will delegate to the strategy... The strategy should be able to determine with kind of request it was... and react accordingly.\nIn my case, I connect to another CDOSession... change the channel.. open the current ... and resend the request.\n\n\u003e 4. In the case of CDO do the failover connectors point to different servers?\nDepends of the startegy... but in my case yes.\nDo\n\u003e these servers have the same repositories configured?\nIn my case I have a broker that have a list of CDOServer per repository.\nDo these repositories use the same IStores? \nYes.\n\n\u003e Do these IStores use the same DB backend instance?\nNo.. cannot becaue the others crash. It is the same type... but not the same instance.\n\n",
+    "Added basic fail over support: IFailOverStrategy and implementations\nCDOSessionImpl uses fail over support\n\nSimon, could you test if it works for you?\nThe default strategy is NOOP.\nYou\u0027ll want to subclass FailOverStrategy and override getNewConnector() to return a different connector.\nIf you are accessing  your CDOSessions via IManagedContainer please add an IElementProcessor that injects the strategy of your choice into the session.\n",
+    "(In reply to comment #3)\n\u003e Added basic fail over support: IFailOverStrategy and implementations\n\u003e CDOSessionImpl uses fail over support\n\u003e Simon, could you test if it works for you?\n\u003e The default strategy is NOOP.\n\u003e You\u0027ll want to subclass FailOverStrategy and override getNewConnector() to\n\u003e return a different connector.\n\u003e If you are accessing  your CDOSessions via IManagedContainer please add an\n\u003e IElementProcessor that injects the strategy of your choice into the session.\n\nI test it.. and it doesn`t to work\n\n1- The connection could be interrupted before we send informations... in this case we have the following error when we try to get the channel.\n\nException in thread \"main\" java.lang.IllegalArgumentException: Channel has no protocol\n\tat org.eclipse.net4j.signal.SignalActor.extractSignalProtocol(SignalActor.java:70)\n\tat org.eclipse.net4j.signal.SignalActor.\u003cinit\u003e(SignalActor.java:31)\n\tat org.eclipse.net4j.signal.RequestWithConfirmation.\u003cinit\u003e(RequestWithConfirmation.java:36)\n\tat org.eclipse.emf.internal.cdo.protocol.CDOClientRequest.\u003cinit\u003e(CDOClientRequest.java:27)\n\tat org.eclipse.emf.internal.cdo.protocol.LoadRevisionRequest.\u003cinit\u003e(LoadRevisionRequest.java:47)\n\tat org.eclipse.emf.internal.cdo.CDORevisionManagerImpl.loadRevisions(CDORevisionManagerImpl.java:228)\n\n\n\n2- I think it will be benefit to separate the communication layer and the request (operation)\n\n\n3- Also \nFailOverStrategy.failOver\n{\n    IChannel oldChannel \u003d protocol.getChannel();\n    IConnector connector \u003d getNewConnector(oldChannel);\n    IChannel newChannel \u003d connector.openChannel(protocol);\n    protocol.setChannel(newChannel);\n    oldChannel.close();\n    fireEvent(new FailOverEvent(oldChannel, newChannel));\n}\n\noldChannel is always null ... I have NullpointerException.\n\n\n\n",
+    " (In reply to comment #4)\n\u003e 1- The connection could be interrupted before we send informations... in this\n\u003e case we have the following error when we try to get the channel.\n\nCould you provide a test case?\nCan also be a test case without CDO on top...\n\n\u003e 2- I think it will be benefit to separate the communication layer and the\n\u003e request (operation)\n\nWhat do you mean with this?\n\n\u003e 3- Also [...] oldChannel is always null ... I have NullpointerException.\n\nFixed that and added a comment that getNewConnector() should be overridden.\n",
+    "(In reply to comment #5)\n\u003e  (In reply to comment #4)\n\u003e \u003e 1- The connection could be interrupted before we send informations... in this\n\u003e \u003e case we have the following error when we try to get the channel.\n\u003e Could you provide a test case?\n\nI will work on a test case\n\n\u003e Can also be a test case without CDO on top...\n\n\u003e \u003e 2- I think it will be benefit to separate the communication layer and the\n\u003e \u003e request (operation)\n\u003e What do you mean with this?\n\u003e \u003e 3- Also [...] oldChannel is always null ... I have NullpointerException.\n\u003e Fixed that and added a comment that getNewConnector() should be overridden.\n\nWhen we create a LoadRevisionRequest, it will call (by Inheritance)\n\n protected SignalActor(IChannel channel)\n  {\n    SignalProtocol protocol \u003d extractSignalProtocol(channel); \u003e\u003e\u003e\u003e\u003e \n    setProtocol(protocol);\n    setCorrelationID(protocol.getNextCorrelationID());\n  }\nextractSignalProtocol could throw an exception like :\n\nIllegalArgumentException(\"Channel has no protocol\");\n\nOur FailOverStrategy will not catch it.\n\nI will prefer not initializaing anything in the constructor... Havind a method like SignalActor.setChannel(IChannel) will help. That method will be call somewhere where the FailOver could handle it.\n\n\n\n",
+    "So the basic question seems to be: Should a request (SignalActor) be designed to exist without a strong relation to an IProtocol?\nI have the feeling that the alternative is easier and more robust: On fail over create a new IProtocol instance on a new IChannel and send a new request instance. This has the advantage that the failing protocol and request don\u0027t need to be reset (which is currently missing anyway). When I remember correctly this seems to be closer to what you originally proposed. The FailOverStrategy would have a factory method to produce new instances of the delegate request...",
+    "(In reply to comment #7)\n\u003e So the basic question seems to be: Should a request (SignalActor) be designed\n\u003e to exist without a strong relation to an IProtocol?\nNot exactly... it is more like when does the SignalActor should have a strong relation with IProtocol...You can when you initialize it...\nBut you could set it later!!! Like before the send.\n\n\u003e I have the feeling that the alternative is easier and more robust: On fail over\n\u003e create a new IProtocol instance on a new IChannel and send a new request\n\u003e instance. This has the advantage that the failing protocol and request don\u0027t\n\u003e need to be reset (which is currently missing anyway). When I remember correctly\n\u003e this seems to be closer to what you originally proposed. The FailOverStrategy\n\u003e would have a factory method to produce new instances of the delegate request...\n\nIn the current implementation...\nDoes the number of thread will not be overkill us ?\nChannel have their own thread.. right to send buffer.. ?\nWe are doing a lot of request...\nBy not using the same channel... we will create a bunch of thread.. isn\u0027t\nThese thread stay there for a while...\n\nThis will need to be verified ... but I will prefer use the same channel.\n\n",
+    "The threading model of the channel depends on what is used as receiveExecutor, which is a shared thread pool by default. Currently I\u0027m a bit unhappy with the hard wired creation of the IWorkSerializer which could completely override/ignore the configured receiveExecutor. It\u0027s likely that I change this in the future so that the IWorkSerializer implementation is configurable.\n\nThe intent is that no channel has a fixed thread associated that runs idle when no data is to be processed.\nWith the exception of some suspicious IWorkSerializer implementations the threading model should be well thought and designed.\nBut of course if you detect unwanted behaviour/characteristics with respect to threading, please send me a note or file a bug.\n---\n\nThe same channel will not be usable anyway since it is the channel which caused the fail over attempt.\nThe question is whether to reuse the protocol with a new channel or just create a new protocol instance.\nThe protocol is the connection between a communications channel and the client or server side infrastructure.\nAs such it usually has infrastructure specific state (at least an infrastructure pointer, but could be more).",
+    "(In reply to comment #9)\n\u003e The threading model of the channel depends on what is used as receiveExecutor,\n\u003e which is a shared thread pool by default. Currently I\u0027m a bit unhappy with the\n\u003e hard wired creation of the IWorkSerializer which could completely\n\u003e override/ignore the configured receiveExecutor. It\u0027s likely that I change this\n\u003e in the future so that the IWorkSerializer implementation is configurable.\n\u003e The intent is that no channel has a fixed thread associated that runs idle when\n\u003e no data is to be processed.\n\nWhen you say the intent... it is in the future or right now ?\n\nBecause right now each Channel have one thread to do the job. When no data is send.. the thread is idle.\n\nEach channel creates a QueueWorkerWorkSerializer()\nQueueWorkerWorkSerializer inherit from Worker (not directly).\n\nWorker start the thread when we activate him.. and will remove the thread when we desactivate him.\n\nChannel will desactivate the Worker objects only when it will desactivate himself.\n\n\n\u003e With the exception of some suspicious IWorkSerializer implementations the\n\u003e threading model should be well thought and designed.\n\u003e But of course if you detect unwanted behaviour/characteristics with respect to\n\u003e threading, please send me a note or file a bug.\n\n\n\u003e ---\n\u003e The same channel will not be usable anyway since it is the channel which caused\n\u003e the fail over attempt.\n\u003e The question is whether to reuse the protocol with a new channel or just create\n\u003e a new protocol instance.\n\u003e The protocol is the connection between a communications channel and the client\n\u003e or server side infrastructure.\n\u003e As such it usually has infrastructure specific state (at least an\n\u003e infrastructure pointer, but could be more).\n\n",
+    "It is my intent and it was the reason why I spent effort to develop AsynchronousWorkSerializer which uses the receiveExecutor of the channel.\nIf the receiveExecutor is a ThreadPool like in PluginManagedContainer by default then a thread is only allocated/occupied as long as data is actually received/processed. Unfortunately proved to be not that simple as you know.\n\nSo, as per current implementation/configuration, it\u0027s only my intent.\nBut I\u0027m quite sure that we can find a solution that both scales well and is stable at the same time.",
+    "Created an attachment (id\u003d78241)\ntest Case\n\ntest cases to reproduce the exception not handle by the failover.\n\nTry to run them separately!! :-)",
+    " Committed test cases to CVS.\n \n Thank you very much for your contributions ;-)\n I find it amazing how fast you can work into new technologies!\n \n I\u0027ve run the tests and I see the issues.\n The possible fixes will touch a lot of files in client code!\n This is the reason that I won\u0027t do them right now (need to do other things first).\n But it\u0027s also the reason that I will do them before an official release, if not earlier.\n Promised ;-)\n ",
+    "Fixed in I200710101632."
+  ],
+  "commentCreationDates": [
+    "2007-08-27T17:00:45+02:00",
+    "2007-08-29T09:16:03+02:00",
+    "2007-08-29T13:32:40+02:00",
+    "2007-08-29T17:01:19+02:00",
+    "2007-09-09T19:07:03+02:00",
+    "2007-09-10T09:45:25+02:00",
+    "2007-09-12T04:15:33+02:00",
+    "2007-09-12T09:39:27+02:00",
+    "2007-09-12T13:15:43+02:00",
+    "2007-09-12T13:41:42+02:00",
+    "2007-09-12T14:04:37+02:00",
+    "2007-09-12T14:17:11+02:00",
+    "2007-09-13T01:44:32+02:00",
+    "2007-09-13T10:23:51+02:00",
+    "2007-10-16T11:23:18+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Channel has no protocol",
+      "elements": [
+        {
+          "method": "org.eclipse.net4j.signal.SignalActor.extractSignalProtocol",
+          "source": "SignalActor.java:70"
+        },
+        {
+          "method": "org.eclipse.net4j.signal.SignalActor.\u003cinit\u003e",
+          "source": "SignalActor.java:31"
+        },
+        {
+          "method": "org.eclipse.net4j.signal.RequestWithConfirmation.\u003cinit\u003e",
+          "source": "RequestWithConfirmation.java:36"
+        },
+        {
+          "method": "org.eclipse.emf.internal.cdo.protocol.CDOClientRequest.\u003cinit\u003e",
+          "source": "CDOClientRequest.java:27"
+        },
+        {
+          "method": "org.eclipse.emf.internal.cdo.protocol.LoadRevisionRequest.\u003cinit\u003e",
+          "source": "LoadRevisionRequest.java:47"
+        },
+        {
+          "method": "org.eclipse.emf.internal.cdo.CDORevisionManagerImpl.loadRevisions",
+          "source": "CDORevisionManagerImpl.java:228"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "201267",
+      "date": "2007-09-09T19:07:03+02:00",
+      "product": "EMFT",
+      "component": "CDO",
+      "severity": "enhancement"
+    }
+  ],
+  "groupId": "201267",
+  "bugId": "201267",
+  "date": "2007-08-27T17:00:45+02:00",
+  "product": "EMFT",
+  "component": "CDO",
+  "severity": "enhancement"
+}

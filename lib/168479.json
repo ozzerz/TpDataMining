@@ -1,0 +1,57 @@
+{
+  "comments": [
+    "Hi, I have the following code from http://www.aspectprogrammer.org/blogs/adrian/2005/03/ramnivas_on_ann.html\n\npublic aspect SingletonManager pertypewithin(@Singleton *) {\n    Object _instance \u003d null;\n\n    /** use a static inner aspect as we need to advise call jps\n     *  that happen outside of the pertypewithin type...\n     *  (and the implicit \u0026\u0026 within(T) would exclude them)\n     */\n    static aspect SingletonManagerHelper {\n        \n        pointcut singletonCreation() : call((@Singleton *).new(..));\n        \n        Object around() : singletonCreation() {\n            Class clazz \u003d \n                  thisJoinPoint.getSignature().getDeclaringType();\n            SingletonManager mgr \u003d SingletonManager.aspectOf(clazz);\n            if (mgr._instance \u003d\u003d null) {\n                mgr._instance \u003d proceed();\n            }\n            return mgr._instance;\n        }\n        \n    }\n    \n    // Eager instantiation support\n    after(Singleton singleton) returning :  \n         staticinitialization(@Singleton *) \n         \u0026\u0026 @annotation(singleton) \n    {\n        if (singleton.value() \u003d\u003d SingletonKind.Eager) {\n            try {\n                _instance \u003d thisJoinPoint\n                   .getSignature().getDeclaringType().newInstance();\n            } catch (IllegalAccessException illEx) {\n                ; // nothing we can do - default cons not visible\n            } catch (InstantiationException instEx) {\n                ; // nothing we can do\n            }\n        }\n    }\n    \n@Retention(RetentionPolicy.RUNTIME)\npublic @interface Singleton {\n    public SingletonKind value() default SingletonKind.Lazy;\n}\npublic enum SingletonKind {\n    Lazy,   // create the singleton instance upon first use\n    Eager;  // create the singleton instance as soon as possible\n}\n\n\nand two testing classes\n\n@Singleton(SingletonKind.Eager)\npublic class EagerSingleton {\n   static public boolean instanceCreated \u003d false;\n   public EagerSingleton() {\n       instanceCreated \u003d true;\n   }\n}\n\n@Singleton(SingletonKind.Lazy)\npublic class LazySingleton {\n}\n\neverything works fine when the testing classes are public. But when they are package private,  the above code breaks. I tried putting previledged before each aspect, and it didn\u0027t work. \n\nThe main effect is that SingletonManager.aspectOf(clazz); throws noaspectbound exception.\n\nAny idea how to fix it?",
+    "passing over to compiler",
+    "You haven\u0027t specified which version of AspectJ or AJDT you are having trouble with.  I typed in your code and added this test class:\n\npublic class Test {\n  public static void main(String []argv) {\n    EagerSingleton es \u003d new EagerSingleton();\n    LazySingleton ls  \u003d new LazySingleton();\n    System.err.println(\"aspect for eagersingleton \u003d \"+SingletonManager.aspectOf(EagerSingleton.class));\n    System.err.println(\"aspect for lazysingleton \u003d \"+SingletonManager.aspectOf(LazySingleton.class));\n  }\n}  \n\nIf I compile your code as is and run Test, i get:\naspect for eagersingleton \u003d SingletonManager@11b9fb1\naspect for lazysingleton \u003d SingletonManager@913fe2\n\nIf I change your EagerSingleton and LazySingleton to default (package) visibility (which I presume is what you mean by \u0027package private\u0027):\n\n@Singleton(SingletonKind.Eager)\nclass EagerSingleton {\n   static public boolean instanceCreated \u003d false;\n   public EagerSingleton() {\n       instanceCreated \u003d true;\n   }\n}\n\n@Singleton(SingletonKind.Lazy)\nclass LazySingleton {\n}\n\nand then I recompile and rerun, again it works for me:\n\naspect for eagersingleton \u003d SingletonManager@11b9fb1\naspect for lazysingleton \u003d SingletonManager@913fe2\n\nHave you tried this on an up to date AspectJ/AJDT?  If it still doesn\u0027t work, please can you attach the actual definitions of Eager and Lazy singleton that fail for you?",
+    "I used the latest aspectj compiler. By package private, I mean the two advised classes are defined in a DIFFERENT package and with a DEFAULT visibility  as the aspect.\n\n\n\n(In reply to comment #2)\n\u003e You haven\u0027t specified which version of AspectJ or AJDT you are having trouble\n\u003e with.  I typed in your code and added this test class:\n\u003e \n\u003e public class Test {\n\u003e   public static void main(String []argv) {\n\u003e     EagerSingleton es \u003d new EagerSingleton();\n\u003e     LazySingleton ls  \u003d new LazySingleton();\n\u003e     System.err.println(\"aspect for eagersingleton \u003d\n\u003e \"+SingletonManager.aspectOf(EagerSingleton.class));\n\u003e     System.err.println(\"aspect for lazysingleton \u003d\n\u003e \"+SingletonManager.aspectOf(LazySingleton.class));\n\u003e   }\n\u003e }  \n\u003e \n\u003e If I compile your code as is and run Test, i get:\n\u003e aspect for eagersingleton \u003d SingletonManager@11b9fb1\n\u003e aspect for lazysingleton \u003d SingletonManager@913fe2\n\u003e \n\u003e If I change your EagerSingleton and LazySingleton to default (package)\n\u003e visibility (which I presume is what you mean by \u0027package private\u0027):\n\u003e \n\u003e @Singleton(SingletonKind.Eager)\n\u003e class EagerSingleton {\n\u003e    static public boolean instanceCreated \u003d false;\n\u003e    public EagerSingleton() {\n\u003e        instanceCreated \u003d true;\n\u003e    }\n\u003e }\n\u003e \n\u003e @Singleton(SingletonKind.Lazy)\n\u003e class LazySingleton {\n\u003e }\n\u003e \n\u003e and then I recompile and rerun, again it works for me:\n\u003e \n\u003e aspect for eagersingleton \u003d SingletonManager@11b9fb1\n\u003e aspect for lazysingleton \u003d SingletonManager@913fe2\n\u003e \n\u003e Have you tried this on an up to date AspectJ/AJDT?  If it still doesn\u0027t work,\n\u003e please can you attach the actual definitions of Eager and Lazy singleton that\n\u003e fail for you?\n\u003e ",
+    "I have now recreated this - you could have included the package statements in your test program to demonstrate what you meant.\n\nFor efficient implementation of pertypewithin, the aspect instance is held as a static member in the type affected by the aspect (the type that matches the pertypewithin).  However, due to Java visibility rules, this cannot be accessed if the type isnt visible, just like you can\u0027t compile these two classes:\n\n--- A.java ---\npackage a;\nclass A {\n  public static int i;\n}\n--- B.java ---\npublic class B {\n  public static void main(String []argv) {\n    a.A.i \u003d 5;\n  }\n}\n\njavac A.java B.java\nB.java:3: a.A is not public in a; cannot be accessed from outside package\n    a.A.i \u003d 5;\n     ^\n1 error\n\nAspectJ currently generates code that breaks this rule - and so it fails at runtime.  The reflection code that actually breaks swallows the exception and treats it as meaning \u0027there is no aspect instance\u0027, the actual swallowed exception is something like:\njava.lang.IllegalAccessException: Class c.SingletonManager can not access a member of class a.EagerSingleton with modifiers \"public static\"\n        at sun.reflect.Reflection.ensureMemberAccess(Reflection.java:65)\n        at java.lang.reflect.Method.invoke(Method.java:578)\n        at c.SingletonManager.ajc$getInstance(SingletonManager.java:39)\n        at c.SingletonManager.aspectOf(SingletonManager.java:22)\n        at a.Test.main(Test.java:8)\n\nThe short term solution is to consider this a compiler limitation and check it up front at compile time - if the visibility of the types involved prevents the optimized implementation of pertypewithin then put out an error message (marked compiler limitation).\n\nThe longer term solution would be to consider how the aspect instances can be managed for these non-visible types.  \n\nPrivileged has no effect - that is intended for exposing hidden (package visibility, private) members for use in advice."
+  ],
+  "commentCreationDates": [
+    "2006-12-18T23:42:01+01:00",
+    "2006-12-19T10:54:35+01:00",
+    "2007-02-19T08:40:38+01:00",
+    "2007-02-19T18:21:52+01:00",
+    "2007-02-20T10:38:48+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalAccessException",
+      "message": "Class c.SingletonManager can not access a member of class a.EagerSingleton with modifiers \"public static\"",
+      "elements": [
+        {
+          "method": "sun.reflect.Reflection.ensureMemberAccess",
+          "source": "Reflection.java:65"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:578"
+        },
+        {
+          "method": "c.SingletonManager.ajc$getInstance",
+          "source": "SingletonManager.java:39"
+        },
+        {
+          "method": "c.SingletonManager.aspectOf",
+          "source": "SingletonManager.java:22"
+        },
+        {
+          "method": "a.Test.main",
+          "source": "Test.java:8"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "168479",
+      "date": "2007-02-20T10:38:48+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "major"
+    }
+  ],
+  "groupId": "168479",
+  "bugId": "168479",
+  "date": "2006-12-18T23:42:01+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "major"
+}

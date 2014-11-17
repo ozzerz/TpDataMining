@@ -1,0 +1,154 @@
+{
+  "comments": [
+    "create a file named : \nGPS_Gil_32?11\u002733_ N,34?52\u002722_ E to Sapir, Herzliya.log\n\ntry to open it with file dialog.\nan NPE is thrown:\n\njava.lang.NullPointerException\n\tat\norg.eclipse.swt.widgets.FileDialog.computeResultChooserDialog(FileDialog.java:140)\n\tat org.eclipse.swt.widgets.FileDialog.openChooserDialog(FileDialog.java:324)\n\tat org.eclipse.swt.widgets.FileDialog.open(FileDialog.java:293)\n\tat\ncom.telmap.navtool.gps.views.swt.GPSFileReaderComposite$4.widgetSelected(GPSFileReaderComposite.java:214)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:89)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1009)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2728)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2427)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1612)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1578)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:293)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:144)\n\tat com.telmap.navtool.NavToolApplication.run(NavToolApplication.java:21)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:228)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:333)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:150)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:268)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:260)\n\tat org.eclipse.core.launcher.Main.run(Main.java:887)\n\tat org.eclipse.core.launcher.Main.main(Main.java:871)",
+    "Which build of Eclipse are you using?  I think this should be fixed in M5 ...",
+    "I am using 3.1 M5.",
+    "Can you put a file with a weird name like this in a tarball and post it on this\nbug?  Also, what distribution are you using?",
+    "Created an attachment (id\u003d18444)\nFile with a wierd name\n\nthis is not the file which actually gave me the problem but it has the same\nname.\nI think it will cause the problem.\nI am using Debian (Sarge).\nthe problem happend on kernel version 2.6.8-1\nwith Sun\u0027s JDK 1.5.\n",
+    "Reproduced.  It only happens when the FileDialog is in SWT.MULTI mode.",
+    "I will fix the NPE, but once I do you still won\u0027t be able to open the file.\n\nThe issue here is that the filename is using characters from the ISO-8859-1\ncharset.  Most modern UNIX applications write filenames in UTF-8, but you do not\nseem to be using a UTF-8 locale.  How did you create this file, and what locale\ndo you use?\n\nIf you set the environment variable G_FILENAME_ENCODING to be \"ISO-8859-1\", then\nyou can successfully open the file in Eclipse.  I know that on Red Hat systems,\nthey default to a UTF-8 locale, and I don\u0027t think you would have this issue. \nMaybe this is a problem with how things are set up on Debian?\n\nThis has come up before (bug 84578, bug 84755)...",
+    "the original file was created on a windows machine, by a java servlet (based on\ninput from a client application).\nthe sample file I created with :\ntouch \"GPS_Gil_32?11\u002733_ N,34?52\u002722_ E to Sapir, Herzliya.log\"\n\nmy locale on debian is en_US:\n$ locale\nLANG\u003den_US\nLC_CTYPE\u003d\"en_US\"\n..\n\nmaybe a good solution would be to escape problematic characters like the shell\ndoes, for example this file turns to:\nGPS_Gil_32?11\\\u002733_\\ N\\,34?52\\\u002722_\\ E\\ to\\ Sapir\\,\\ Herzliya.log\n\nnote that \u0027 and , are escaped.\n\n\n\n\n",
+    "hmm, forget about escaping.. its probably not relevant to the problem (its a\nshell issue).",
+    "It is the ? character that gives problems.  It is not ASCII and the character\ncode used in your example is not UTF-8 as expected by GTK+.  I do not think we\ncan use our own escaping either.  We are using the function g_filename_to_utf8()\nwhich is failing unless G_FILENAME_ENCODING is \"ISO-8859-1\".",
+    "g_filename_to_utf8 ():\nConverts a string which is in the encoding used by GLib for filenames into a\nUTF-8 string.\n\nWhat is the connection between the encoding of file names on the disk to the\nencoding used by GLib?\n",
+    "In UNIX, there is no standard for filenames.  They are just a stream of bytes\n(but \u0027/\u0027 is not allowed).  This is the cause of the problem.  glib decided to\ndefault to assuming filenames are UTF-8 unless you set the G_FILENAME_ENCODING\nenvironment variable.",
+    "its not such a big problem for me, but I would assume a FileDialog be\nindependent of file name encoding.\nnot being able to properly display file names is one thing, failing to open them\nis another..\nI don\u0027t mind the bug closed if its not possible to fix.",
+    "The NPE is fixed \u003e 20050508.\n\nUnfortunately, you still can\u0027t open the file unless the G_FILENAME_ENCODING\nvariable is set appropriately.  I don\u0027t think there\u0027s anything better we can do\nthough.  Note that with the old GTK+ file selection dialog, the file wouldn\u0027t\neven have appeared in the list. :)"
+  ],
+  "commentCreationDates": [
+    "2005-03-03T08:16:03+01:00",
+    "2005-03-03T08:38:34+01:00",
+    "2005-03-03T09:00:13+01:00",
+    "2005-03-03T17:32:53+01:00",
+    "2005-03-03T18:47:42+01:00",
+    "2005-03-07T01:03:43+01:00",
+    "2005-03-07T01:54:31+01:00",
+    "2005-03-07T10:13:26+01:00",
+    "2005-03-07T18:33:41+01:00",
+    "2005-03-07T19:39:56+01:00",
+    "2005-03-07T23:01:22+01:00",
+    "2005-03-07T23:14:14+01:00",
+    "2005-03-08T05:13:29+01:00",
+    "2005-05-08T19:53:57+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.widgets.FileDialog.computeResultChooserDialog",
+          "source": "FileDialog.java:140"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.FileDialog.openChooserDialog",
+          "source": "FileDialog.java:324"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.FileDialog.open",
+          "source": "FileDialog.java:293"
+        },
+        {
+          "method": "com.telmap.navtool.gps.views.swt.GPSFileReaderComposite$4.widgetSelected",
+          "source": "GPSFileReaderComposite.java:214"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:89"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1009"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2728"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2427"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1612"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1578"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:293"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:144"
+        },
+        {
+          "method": "com.telmap.navtool.NavToolApplication.run",
+          "source": "NavToolApplication.java:21"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:228"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:333"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:150"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:268"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:260"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:887"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:871"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "87051",
+      "date": "2005-03-03T08:16:03+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "87051",
+  "bugId": "87051",
+  "date": "2005-03-03T08:16:03+01:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

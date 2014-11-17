@@ -1,0 +1,164 @@
+{
+  "comments": [
+    "I20070502-0010\n\nGot this once after opening an editor on JUnit4TestListener for the first time. Could not reproduce, also not after restart.\n\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.jdt.ui\".\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding.computeUniqueKey(LocalVariableBinding.java:68)\n\tat org.eclipse.jdt.internal.compiler.lookup.Binding.computeUniqueKey(Binding.java:55)\n\tat org.eclipse.jdt.core.dom.VariableBinding.getKey(VariableBinding.java:143)\n\tat org.eclipse.jdt.core.dom.DefaultBindingResolver.resolveVariable(DefaultBindingResolver.java:1609)\n\tat org.eclipse.jdt.core.dom.VariableDeclaration.resolveBinding(VariableDeclaration.java:194)\n\tat org.eclipse.jdt.core.dom.ASTConverter.convert(ASTConverter.java:786)\n\tat org.eclipse.jdt.core.dom.ASTConverter.convert(ASTConverter.java:443)\n\tat org.eclipse.jdt.core.dom.ASTConverter.buildBodyDeclarations(ASTConverter.java:179)\n\tat org.eclipse.jdt.core.dom.ASTConverter.convert(ASTConverter.java:2661)\n\tat org.eclipse.jdt.core.dom.ASTConverter.convert(ASTConverter.java:1248)\n\tat org.eclipse.jdt.core.dom.AST.convertCompilationUnit(AST.java:278)\n\tat org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.makeConsistent(ReconcileWorkingCopyOperation.java:207)\n\tat org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.executeOperation(ReconcileWorkingCopyOperation.java:89)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:720)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.runOperation(JavaModelOperation.java:780)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.reconcile(CompilationUnit.java:1169)\n\tat org.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy$1.run(JavaReconcilingStrategy.java:101)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.reconcile(JavaReconcilingStrategy.java:82)\n\tat org.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.initialReconcile(JavaReconcilingStrategy.java:176)\n\tat org.eclipse.jdt.internal.ui.text.CompositeReconcilingStrategy.initialReconcile(CompositeReconcilingStrategy.java:114)\n\tat org.eclipse.jdt.internal.ui.text.JavaCompositeReconcilingStrategy.initialReconcile(JavaCompositeReconcilingStrategy.java:122)\n\tat org.eclipse.jface.text.reconciler.MonoReconciler.initialProcess(MonoReconciler.java:103)\n\tat org.eclipse.jdt.internal.ui.text.JavaReconciler.initialProcess(JavaReconciler.java:347)\n\tat org.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread.run(AbstractReconciler.java:170)",
+    "The only way to get this is to ask the key of an method argument that has no declaring scope.\nThis would mean that the bind(..) method has never been called for it. Looking at the code I don\u0027t see obvious cause of this problem.\nMaybe a concurrent issue.",
+    "I got a couple of these in my log as well. On the class EclipseTestRunner. It had some errors so I clicked on the error in the Problem view and it opened the editor and put this stack in my log file.\n",
+    "Sorry, should have mentioned that I am using I20070503-1400.",
+    "Got a test case from DJ.\nWill see what I can do.",
+    "I could not reproduce it with DJ\u0027s workspace. I\u0027ll investigate oin DJ\u0027s machine tomorrow.",
+    "This happens because the project\u0027s compiler settings are using the workspace default settings (1.5 in this case since DJ runs using a 1.5 VM) and the execution environment is set to 1.4.\nIf the workspace default JRE is a 1.4 JRE, you get a warning in the \"Installed JRE\" tab that says that the current JRE cannot comply with the workspace\u0027s defaults. This should actually be an error.\nIf you have these settings and you check out \"org.eclipse.test\" out of CVS, you end up with a project that has a 1.4 JRE on the classpath and its compiler settings set to 1.5.\nThis can then lead to add kind of errors like this NPE.\nWassim, would it be possible that on the check out PDE is setting the project\u0027s specific compiler settings according to the Execution Environment set for the project and this even if the default JRE of the workspace matches the Execution environment used for the project?\nIn this case, it would set the compiler settings for the project instead of keeping the workspace defaults.\nThe user must not end up in this inconsistent environment. This is extremely error prone.",
+    "Set severity to major as this NPE is related to some inconsistencies in the project\u0027s settings that can be quite bad.",
+    "See also bug 176516 (JDT/UI: Compiler Compliance should follow Execution Environment)",
+    "Olivier, I am not sure if you are asking me a question or asking me to do something, but, in any event, here is the current behaviour:\n\nPDE does not automatically update the project\u0027s compiler settings - although Philippe wants us to start (bug 159547).\n\nThe only time we play with project settings is via explicit actions:\n1. PDE Tools \u003e Update Classpath\nOR\n2. the \u0027update classpath\u0027 link in the Execution Environments section on the Overview page of the plug-in manifest editor.",
+    "I think bug 159547 and bug 176516 are the keys of this issue.\nEven if we could protect ourselves with a null check in order not to get the NPE, we should not end up in this situation.\nWhen the user sets its execution environment (EE) to be 1.4 (and he/she is running Eclipse on a 1.5 VM), the compiler settings of the project (Java project or Plugin) must be changed to be consistent with the desired EE otherwise for sure the user will have compile errors issues or runtime issues.\nIt doesn\u0027t make sense to allow project\u0027s compiler settings to be 1.5 (or to remain 1.5 since these are the workspace\u0027s defaults) and the EE to be set to 1.4. This is clearly not what the user wanted to do.\n\"Update classpath\" sets the compiler settings according to the EE value. This should be run if the project\u0027s compiler settings are inconsistent with its EE. And it should be run automatically. The user should not need to do it as changing the EE should have been enough.\nFrom my point of view, these two bugs are \"must-fix\" bugs for 3.3 or we will get lots of bug reports relative to this inconsistency.",
+    "Created an attachment (id\u003d66705)\nProposed fix\n\nAdd a null check.",
+    "J?r?me, please review.",
+    "Could you please write a regression test ?",
+    "Also the null check should have a comment pointing to this bug",
+    "Created an attachment (id\u003d66863)\nUpdated patch with a comment\n\n",
+    "Created an attachment (id\u003d66864)\nRegression test\n\nWithout the patch, the NPE is thrown on the DOM/AST creation. I already released the two binaries files required for the regression test since they cannot be included in the patch.",
+    "Released for 3.3RC1.\nRegression test added in org.eclipse.jdt.core.tests.dom.ASTConverter15Test#test0273",
+    "Verified for 3.3 RC1 using I20070515-0010"
+  ],
+  "commentCreationDates": [
+    "2007-05-02T16:42:54+02:00",
+    "2007-05-02T19:45:49+02:00",
+    "2007-05-07T20:50:41+02:00",
+    "2007-05-07T20:51:19+02:00",
+    "2007-05-07T21:00:26+02:00",
+    "2007-05-07T21:31:45+02:00",
+    "2007-05-08T18:24:18+02:00",
+    "2007-05-08T18:30:01+02:00",
+    "2007-05-08T19:33:21+02:00",
+    "2007-05-08T19:37:55+02:00",
+    "2007-05-08T20:02:44+02:00",
+    "2007-05-10T18:06:58+02:00",
+    "2007-05-10T18:07:21+02:00",
+    "2007-05-11T13:40:55+02:00",
+    "2007-05-11T16:22:26+02:00",
+    "2007-05-11T16:48:56+02:00",
+    "2007-05-11T16:50:39+02:00",
+    "2007-05-11T16:58:21+02:00",
+    "2007-05-15T11:38:36+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding.computeUniqueKey",
+          "source": "LocalVariableBinding.java:68"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Binding.computeUniqueKey",
+          "source": "Binding.java:55"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.VariableBinding.getKey",
+          "source": "VariableBinding.java:143"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.DefaultBindingResolver.resolveVariable",
+          "source": "DefaultBindingResolver.java:1609"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.VariableDeclaration.resolveBinding",
+          "source": "VariableDeclaration.java:194"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTConverter.convert",
+          "source": "ASTConverter.java:786"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTConverter.convert",
+          "source": "ASTConverter.java:443"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTConverter.buildBodyDeclarations",
+          "source": "ASTConverter.java:179"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTConverter.convert",
+          "source": "ASTConverter.java:2661"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTConverter.convert",
+          "source": "ASTConverter.java:1248"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.AST.convertCompilationUnit",
+          "source": "AST.java:278"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.makeConsistent",
+          "source": "ReconcileWorkingCopyOperation.java:207"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.executeOperation",
+          "source": "ReconcileWorkingCopyOperation.java:89"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.run",
+          "source": "JavaModelOperation.java:720"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.runOperation",
+          "source": "JavaModelOperation.java:780"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.reconcile",
+          "source": "CompilationUnit.java:1169"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy$1.run",
+          "source": "JavaReconcilingStrategy.java:101"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.reconcile",
+          "source": "JavaReconcilingStrategy.java:82"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.initialReconcile",
+          "source": "JavaReconcilingStrategy.java:176"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.CompositeReconcilingStrategy.initialReconcile",
+          "source": "CompositeReconcilingStrategy.java:114"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.JavaCompositeReconcilingStrategy.initialReconcile",
+          "source": "JavaCompositeReconcilingStrategy.java:122"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.MonoReconciler.initialProcess",
+          "source": "MonoReconciler.java:103"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.JavaReconciler.initialProcess",
+          "source": "JavaReconciler.java:347"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread.run",
+          "source": "AbstractReconciler.java:170"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "185129",
+      "date": "2007-05-02T16:42:54+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "major"
+    }
+  ],
+  "groupId": "185129",
+  "bugId": "185129",
+  "date": "2007-05-02T16:42:54+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "major"
+}

@@ -1,0 +1,161 @@
+{
+  "comments": [
+    "HEAD\n\nRunning the MoveTests writes AFEs like the one below to the log. The problem is that the MoveDescriptor is validated too early here:\n\nThread [main] (Suspended)\t\nMoveDescriptor.validateDescriptor() line: 373\t\nMoveDescriptor(JavaRefactoringDescriptor).populateArgumentMap() line: 328\t\nMoveDescriptor.populateArgumentMap() line: 166\t\nMoveDescriptor(JavaRefactoringDescriptor).getArguments() line: 319\t\nMoveRefactoringContribution(JavaRefactoringContribution).retrieveArgumentMap(RefactoringDescriptor) line: 40\t\n\nWe should remove the Assert or make it less stupid by adding the actual validation problem to the message.\n\n\n!ENTRY org.eclipse.core.commands 4 2 2007-06-30 00:48:22.390\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.core.commands\".\n!STACK 0\norg.eclipse.core.runtime.AssertionFailedException: assertion failed: Validation returns a fatal error status.\n\tat org.eclipse.core.runtime.Assert.isTrue(Assert.java:109)\n\tat org.eclipse.jdt.core.refactoring.descriptors.JavaRefactoringDescriptor.populateArgumentMap(JavaRefactoringDescriptor.java:328)\n\tat org.eclipse.jdt.core.refactoring.descriptors.MoveDescriptor.populateArgumentMap(MoveDescriptor.java:166)\n\tat org.eclipse.jdt.core.refactoring.descriptors.JavaRefactoringDescriptor.getArguments(JavaRefactoringDescriptor.java:319)\n\tat org.eclipse.jdt.core.refactoring.descriptors.JavaRefactoringContribution.retrieveArgumentMap(JavaRefactoringContribution.java:40)\n\tat org.eclipse.ltk.internal.core.refactoring.history.RefactoringHistoryManager.getArgumentMap(RefactoringHistoryManager.java:190)\n\tat org.eclipse.ltk.internal.core.refactoring.history.RefactoringHistoryService$RefactoringDescriptorStack.checkDescriptor(RefactoringHistoryService.java:176)\n\tat org.eclipse.ltk.internal.core.refactoring.history.RefactoringHistoryService$RefactoringDescriptorStack.push(RefactoringHistoryService.java:284)\n\tat org.eclipse.ltk.internal.core.refactoring.history.RefactoringHistoryService$RefactoringDescriptorStack.access$0(RefactoringHistoryService.java:281)\n\tat org.eclipse.ltk.internal.core.refactoring.history.RefactoringHistoryService$RefactoringOperationHistoryListener.historyNotification(RefactoringHistoryService.java:449)\n\tat org.eclipse.core.commands.operations.DefaultOperationHistory$2.run(DefaultOperationHistory.java:929)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.commands.operations.DefaultOperationHistory.notifyListeners(DefaultOperationHistory.java:918)\n\tat org.eclipse.core.commands.operations.DefaultOperationHistory.notifyDone(DefaultOperationHistory.java:992)\n\tat org.eclipse.core.commands.operations.DefaultOperationHistory.closeOperation(DefaultOperationHistory.java:1359)\n\tat org.eclipse.ltk.internal.core.refactoring.UndoManager2.changePerformed(UndoManager2.java:149)\n\tat org.eclipse.ltk.core.refactoring.PerformChangeOperation$1.run(PerformChangeOperation.java:265)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1797)\n\tat org.eclipse.ltk.core.refactoring.PerformChangeOperation.executeChange(PerformChangeOperation.java:306)\n\tat org.eclipse.ltk.core.refactoring.PerformChangeOperation.run(PerformChangeOperation.java:218)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1797)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1779)\n\tat org.eclipse.jdt.ui.tests.refactoring.RefactoringTest.executePerformOperation(RefactoringTest.java:288)\n\tat org.eclipse.jdt.ui.tests.refactoring.RefactoringTest.performRefactoring(RefactoringTest.java:266)\n\tat org.eclipse.jdt.ui.tests.refactoring.ccp.MoveTest.performRefactoring(MoveTest.java:87)\n\tat org.eclipse.jdt.ui.tests.refactoring.ccp.MoveTest.testDestination_yes_cuToOtherPackage(MoveTest.java:977)",
+    "Markus, can you fix this?",
+    "Will look into it.",
+    "This is a problem for all refactoring descriptors that set the arguments map directly by calling\nJavaRefactoringDescriptor(String, String, String, String, Map, int). Their validateDescriptor() method validates the refactoring-specific typed fields, but those are all null in this case.\n\nKarsten, what\u0027s the plan here? Where will these descriptors be validated?",
+    "I\u0027m already working on that. In fact I will create a patch later. The problem is that the fields are currently not used for reading. I\u0027m rewriting those few ones that already have fields and initialize those in the constructor. Which leads to another problem.\nIt is for a contribution not allowed to return null on the createDescriptor stuff whith arguments and it is not allowed to throw an exception. So basically it is impossible to handle invalid argument maps. I rewrote it such that an IllegalArgumentException is thrown in such a case and check that it is handled carefully. At the moment it is not specified that a IllegalArgumentException could be thrown.",
+    "As I see it, RefactoringContribution.createDescriptor(..) should not do any checks other than the syntactic checks mentioned in the Javadoc. It should just create a RefactoringDescriptor whose validateDescriptor() will fail if the arguments were not OK.\n\nI guess some of the checks in current validateDescriptor() methods can be dropped (e.g. checks for null or emptiness of new name string). We just have to make sure that a valid descriptor is able to create and initialize its refactoring. A successfully validated descriptor does not necessarily have to pass Refactoring#checkInitialConditions(..).",
+    "The question is, what to do when an attribute is missing, or it\u0027s values are invalid. Like a \"yes\" in a attribute that is expected to be boolean. Imho it would be bad practice to accept it during creation of the descriptor as it might be non trivial to see where this error originated from if the yes would be stored, or even worse silently ignored.\nSome checks like IJavaElement.exists() may be deffered to the validateDescriptor method. But an invalid Map should not be accepted.\nAlso consistency checks are not meant for construction time.\nI\u0027ll now attach a patch that is work in progress and currently fails on the RenameTypeParameterTests because \u003c is not allowed in a xml attribute...",
+    "Created an attachment (id\u003d72961)\nPatch\n\n",
+    "Created an attachment (id\u003d72964)\nFinalised patch\n\nfixed the failing testcase for renameTypeParameterTest\nAt the moment a very extensive RefactoringDescriptor is enabled. Maybe it should not be enabled in the HEAD",
+    "Created an attachment (id\u003d73038)\nUpdated\n\nThis patch is an update for the IntroduceParameterObjectDescriptor to be less restrictive if the method is invalid in some way.",
+    "Created an attachment (id\u003d73310)\nFinal patch\n\n",
+    "Created an attachment (id\u003d73314)\nIntroduceParameterObjectDescriptor update\n\n",
+    "Released patch 4 and 5 with a few changes:\n\nIntroduceParameterObjectDescriptor.validateDescriptor(..) still failed when running IPO tests. Resolved by removing this check:\n\tif (!fMethod.exists()) {\n\t\tresult.addFatalError(\"The method must exist\"); //$NON-NLS-1$\n\t\treturn result;\n\t}\nThis happens when the history service asks the descriptor to populate the argument map *after* the refactoring has been executed. At that time, fMethod indeed does not have to exist any more.\n\nAlso fixed problems in MoveDescriptor(..):\n- read fMovePolicy from map (don\u0027t write it)\n- fDestination can be ATTRIBUTE_DESTINATION or ATTRIBUTE_TARGET\n- callers passed empty map and filled it only afterwards (see all IReorgPolicy.getDescriptor())\n\nDid not release unused DescriptorMessages.RenameJavaElementDescriptor_reference_constraint.\n\nTODO:\n- All methods in JavaRefactoringDescriptorUtil need Javadoc, especially complex queries like getIntArray(Map map, String countAttribute, String arrayAttribute).\n- Methods that throw IllegalArgumentException must declare the thrown exception and explain when that happens (in @throws).\n\n- IPO tests still write to the log because RefactoringHistoryManager.checkArgumentMap(Map) is too restrictive. The mentioned rules (in RefactoringContribution, not RefactoringDescriptor) force map values to be non-empty, although empty value strings can make perfect sense for some usages (e.g. the name of the default package). Fix Javadocs and implementation in RefactoringContribution and all dependencies.",
+    "Created an attachment (id\u003d73431)\njavadoc...\n\n",
+    "Released patch \u0027javadoc...\u0027 with all these fixes:\n\n* IntroduceParameterObjectDescriptor:\n- improved performance and robustness of createParameters(IMethod) by avoiding element access through IMethod#getParameterNames()\n- restored readable if-else formatting in populateArgumentMap() (if-else always needs {}s)\n- added \u0027throws IllegalArgumentException\u0027 where necessary\n\n* JavaRefactoringDescriptorUtil\n- fixed NLS warnings\n- fixed messages (use \u0027, not \u0027\u0027)\n- removed unsed getSelection(..) (the anonymous ISourceRange was a bad idea anyway)\n- Retrieves *a* String/boolean (not \u0027an\u0027)\n\n* RefactoringContribution:\n- fixed Javadoc of createDescriptor(..) (value string can be empty)\n\n* RefactoringHistoryManager:\n- non-NLSd string\n- last Status in checkArgumentMap(..) is bad\n\n- RefactoringHistorySerializationTests.testWriteDescriptor8() failed"
+  ],
+  "commentCreationDates": [
+    "2007-06-30T01:07:43+02:00",
+    "2007-07-02T14:29:10+02:00",
+    "2007-07-02T14:36:15+02:00",
+    "2007-07-03T12:52:16+02:00",
+    "2007-07-03T13:03:40+02:00",
+    "2007-07-03T16:41:39+02:00",
+    "2007-07-03T17:19:38+02:00",
+    "2007-07-03T17:20:19+02:00",
+    "2007-07-03T18:20:27+02:00",
+    "2007-07-04T18:13:52+02:00",
+    "2007-07-09T14:47:16+02:00",
+    "2007-07-09T15:22:38+02:00",
+    "2007-07-10T08:47:26+02:00",
+    "2007-07-10T17:09:05+02:00",
+    "2007-07-11T18:01:02+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.core.runtime.AssertionFailedException",
+      "message": "assertion failed: Validation returns a fatal error status.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.Assert.isTrue",
+          "source": "Assert.java:109"
+        },
+        {
+          "method": "org.eclipse.jdt.core.refactoring.descriptors.JavaRefactoringDescriptor.populateArgumentMap",
+          "source": "JavaRefactoringDescriptor.java:328"
+        },
+        {
+          "method": "org.eclipse.jdt.core.refactoring.descriptors.MoveDescriptor.populateArgumentMap",
+          "source": "MoveDescriptor.java:166"
+        },
+        {
+          "method": "org.eclipse.jdt.core.refactoring.descriptors.JavaRefactoringDescriptor.getArguments",
+          "source": "JavaRefactoringDescriptor.java:319"
+        },
+        {
+          "method": "org.eclipse.jdt.core.refactoring.descriptors.JavaRefactoringContribution.retrieveArgumentMap",
+          "source": "JavaRefactoringContribution.java:40"
+        },
+        {
+          "method": "org.eclipse.ltk.internal.core.refactoring.history.RefactoringHistoryManager.getArgumentMap",
+          "source": "RefactoringHistoryManager.java:190"
+        },
+        {
+          "method": "org.eclipse.ltk.internal.core.refactoring.history.RefactoringHistoryService$RefactoringDescriptorStack.checkDescriptor",
+          "source": "RefactoringHistoryService.java:176"
+        },
+        {
+          "method": "org.eclipse.ltk.internal.core.refactoring.history.RefactoringHistoryService$RefactoringDescriptorStack.push",
+          "source": "RefactoringHistoryService.java:284"
+        },
+        {
+          "method": "org.eclipse.ltk.internal.core.refactoring.history.RefactoringHistoryService$RefactoringDescriptorStack.access$0",
+          "source": "RefactoringHistoryService.java:281"
+        },
+        {
+          "method": "org.eclipse.ltk.internal.core.refactoring.history.RefactoringHistoryService$RefactoringOperationHistoryListener.historyNotification",
+          "source": "RefactoringHistoryService.java:449"
+        },
+        {
+          "method": "org.eclipse.core.commands.operations.DefaultOperationHistory$2.run",
+          "source": "DefaultOperationHistory.java:929"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.commands.operations.DefaultOperationHistory.notifyListeners",
+          "source": "DefaultOperationHistory.java:918"
+        },
+        {
+          "method": "org.eclipse.core.commands.operations.DefaultOperationHistory.notifyDone",
+          "source": "DefaultOperationHistory.java:992"
+        },
+        {
+          "method": "org.eclipse.core.commands.operations.DefaultOperationHistory.closeOperation",
+          "source": "DefaultOperationHistory.java:1359"
+        },
+        {
+          "method": "org.eclipse.ltk.internal.core.refactoring.UndoManager2.changePerformed",
+          "source": "UndoManager2.java:149"
+        },
+        {
+          "method": "org.eclipse.ltk.core.refactoring.PerformChangeOperation$1.run",
+          "source": "PerformChangeOperation.java:265"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1797"
+        },
+        {
+          "method": "org.eclipse.ltk.core.refactoring.PerformChangeOperation.executeChange",
+          "source": "PerformChangeOperation.java:306"
+        },
+        {
+          "method": "org.eclipse.ltk.core.refactoring.PerformChangeOperation.run",
+          "source": "PerformChangeOperation.java:218"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1797"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1779"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.tests.refactoring.RefactoringTest.executePerformOperation",
+          "source": "RefactoringTest.java:288"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.tests.refactoring.RefactoringTest.performRefactoring",
+          "source": "RefactoringTest.java:266"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.tests.refactoring.ccp.MoveTest.performRefactoring",
+          "source": "MoveTest.java:87"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.tests.refactoring.ccp.MoveTest.testDestination_yes_cuToOtherPackage",
+          "source": "MoveTest.java:977"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "194979",
+      "date": "2007-06-30T01:07:43+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "194979",
+  "bugId": "194979",
+  "date": "2007-06-30T01:07:43+02:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "normal"
+}

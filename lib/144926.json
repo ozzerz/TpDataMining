@@ -1,0 +1,154 @@
+{
+  "comments": [
+    "The documentation for IAnnotationPresentation indicates that it can be used to implement annotations that can paint themselves. This message http://dev.eclipse.org/mhonarc/lists/platform-text-dev/msg00112.html indicates that it is used for AnnotationRulerColumn.\n\nFor text annotations (e.g. squiggles), the getLayer() portion of the interface is called by AnnotationPainter, but the paint() portion of the interface is ignored. The interface is therefore used inconsistently. I believe that either:\n\n- AnnotationPainter should check to see if the annotation supports the IAnnotationPresentation interface, and if so, have the annotation draw itself instead of using the drawing strategy\n- IAnnotationPresentation should be split into two interfaces, one which is supported for any kind of annotation (with just the getLayer() method) and one that is supported for ruler annotations (with just the paint() method).\n\nMy vote is for the former, since it would allow me to put my annotation painting code with my custom annotation, and not have to subclass SourceViewerDecorationSupport just to add a new drawing strategy.",
+    "There\u0027s no such thing called \u0027text\u0027 annotation. An annotations can appear somewhere (normally in the vertical ruler) and its location can be shown by the editor and by the overview ruler. Showing the annotated text in the editor and the overview ruler is completely separated from IAnnotationPresentation. Note that the AnnotationPainter does not call IAnnotationPresentation.getLayer().\n\nIn other words: the code is fine but we should clarify the IAnnotationPresentation Javadoc.",
+    "\u003e Note that the AnnotationPainter does not call IAnnotationPresentation.getLayer().\n\nOh I see the problem. There is no explicit call, but AnnotationPainter *does* call IAnnotationPresentation.getLayer() if your annotation implements that interface. I wrote an annotation called BlockAnnotation that implements IAnnotationPresentation, and had it dump a stack trace from getLayer():\n\njava.lang.Exception\n\tat edu.wm.cs.spotlight.editors.BlockAnnotation.getLayer(BlockAnnotation.java:50)\n\tat org.eclipse.ui.texteditor.DefaultMarkerAnnotationAccess.getLayer(DefaultMarkerAnnotationAccess.java:213)\n\tat org.eclipse.jface.text.source.AnnotationPainter.getDecoration(AnnotationPainter.java:652)\n\tat org.eclipse.jface.text.source.AnnotationPainter.catchupWithModel(AnnotationPainter.java:520)\n\tat org.eclipse.jface.text.source.AnnotationPainter.updatePainting(AnnotationPainter.java:795)\n\tat org.eclipse.jface.text.source.AnnotationPainter.access$1(AnnotationPainter.java:792)\n\tat org.eclipse.jface.text.source.AnnotationPainter$1.run(AnnotationPainter.java:920)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3142)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2912)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1914)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1878)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:169)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)\n\nThis is what I mean by inconsistent use of the IAnnotationPresentation interface. This is perhaps unintended behavior--can it be avoided?\n\nBack to custom annotation painting: If I understand you correctly, IAnnotationPresentation is intended for the ruler only, and not for source presentation in an editor. There is no interface that an annotation can implement for custom painting in the editor, correct? Does it make sense to have a separate editor-oriented interface, which also has both getLayer() and paint(..)? Just like AnnotationRulerColumn checks for the IAnnotationPresentation interface, AnnotationPainter would be modified to check for the new editor-based interface, falling back to normal SourceViewerDecorationSupport if the annotation is not a subtype.",
+    "\u003eBack to custom annotation painting: If I understand you correctly,\n\u003eIAnnotationPresentation is intended for the ruler only, and not for source\n\u003epresentation in an editor.\nYes.\n\n\u003eThere is no interface that an annotation can\n\u003eimplement for custom painting in the editor, correct?\nYes.\n\n\u003eThis is perhaps unintended behavior--can it be avoided?\nBasically a bug: we should not query the annotation access to get the layer but the ask the annotation preference for the presentation layer - like we do it for the overview ruler.\n",
+    "Fixed Javadoc in HEAD.\nAvailable in builds \u003e N20060830-0010.",
+    "Changing OS from Mac OS to Mac OS X as per bug 185991"
+  ],
+  "commentCreationDates": [
+    "2006-06-01T19:52:47+02:00",
+    "2006-06-02T15:07:40+02:00",
+    "2006-06-07T17:52:48+02:00",
+    "2006-06-07T18:09:19+02:00",
+    "2006-08-30T11:02:41+02:00",
+    "2007-07-29T15:20:08+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.Exception",
+      "elements": [
+        {
+          "method": "edu.wm.cs.spotlight.editors.BlockAnnotation.getLayer",
+          "source": "BlockAnnotation.java:50"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.DefaultMarkerAnnotationAccess.getLayer",
+          "source": "DefaultMarkerAnnotationAccess.java:213"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.AnnotationPainter.getDecoration",
+          "source": "AnnotationPainter.java:652"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.AnnotationPainter.catchupWithModel",
+          "source": "AnnotationPainter.java:520"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.AnnotationPainter.updatePainting",
+          "source": "AnnotationPainter.java:795"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.AnnotationPainter.access$1",
+          "source": "AnnotationPainter.java:792"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.AnnotationPainter$1.run",
+          "source": "AnnotationPainter.java:920"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3142"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2912"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1914"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1878"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:169"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "144926",
+      "date": "2006-06-07T17:52:48+02:00",
+      "product": "Platform",
+      "component": "Text",
+      "severity": "minor"
+    }
+  ],
+  "groupId": "144926",
+  "bugId": "144926",
+  "date": "2006-06-01T19:52:47+02:00",
+  "product": "Platform",
+  "component": "Text",
+  "severity": "minor"
+}

@@ -1,0 +1,83 @@
+{
+  "comments": [
+    "The status constructor fails with a runtime exception when it is called with a null message argument. The top of the stack trace looks like this:\n\njava.lang.IllegalArgumentException:\nat org.eclipse.core.internal.runtime.Assert.isLegal(Assert.java:58)\nat org.eclipse.core.internal.runtime.Assert.isLegal(Assert.java:42)\nat org.eclipse.core.runtime.Status.setMessage(Status.java:174)\nat org.eclipse.core.runtime.Status.\u003cinit\u003e(Status.java:81)\n\nWhile on the surface, you might say there is nothing wrong with that, in practice we found that a lot of people use a pattern that looks like this:\n\ntry\n{\n   ...\n}\ncatch( SomeExpectedException e )\n{\n   ...\n}\ncatch( RuntimeException e )\n{\n   final IStatus st \u003d new Status( IStatus.ERROR, PLUGIN_ID, 0, \n                                  e.getMessage(), e );\n   // log it...\n}\n\nThis will fail because a lot of common runtime exceptions return null for message. The workaround is to replace e.getMessage() with e.getMessage() + \"\" or equivalent. It would be nice if the Status object would handle the null by using an empty string or some generic error message instead of failing. Having the Status object throw an exception in this case is particularly bad because it will hide the real exception until the reporting code is fixed.",
+    "Moving to Equinox where status now lives.  I don\u0027t recommend relaxing this assertion though. The described code pattern is doubly wrong because the exception is already passed as a parameter, so passing the exception message as well creates duplication in the log and/or UI.  This kind of pattern results in error dialogs like this:\n\nAn internal error occurred\nCause: \u003cexception message\u003e\nDetails: \u003cexception message\u003e",
+    "What would you recommend as the replacement pattern? ",
+    "I would recommend using a localized user-level message that makes sense in the context of what was happening at the time of failure.  A RuntimeException\u0027s message typically won\u0027t mean anything to the end user because it describes the problem in terms of the code.  Something like \"An internal error occurred while \u003cinsert operation here\u003e\", such as \"An internal error occurred while deploying the Web application\".  If you are entirely without context, such as in an event loop, a generic \"An internal error has occurred\" is about the best you can do.",
+    "Thanks for the suggestion. While a context-specific message string is clearly the best solution, in a lot of cases it\u0027s a bit of an overkill. Often all that\u0027s important is to get the stack trace in the log so that it can be reported by the user. The easier that pattern, the more likely that exceptions will be properly reported. Clearly individual plugins can provide their own utility methods to make this easier, but it would sure be nice if there was a standard platform-wide way to log an exception without specifying anything else. If it\u0027s not desirable to allow null message in this constructor, maybe a specialized constructor that doesn\u0027t take a message and uses a generic one?",
+    "is this as easy as adding \n   this.message \u003d message \u003d\u003d null ? \"\" : message\n\nto the constructor?  This seems harmless no?",
+    "Yes, pretty harmless (along with changing the javadoc to say null message is allowed).  Or, add a convenience constructor that doesn\u0027t take message, severity, and code arguments, and just creates an error status with generic message.  There are many copies of StatusUtil and similar conveniences in other plugins that do exactly this.",
+    "Either way seems fine.  At the risk of adding yet more stuff, at there other things in the various StatusUtils that we should add to Status?",
+    "They typically just have various status factory methods with less arguments:\n\npublic static IStatus newStatus(int severity, String pluginId, String message,\n            Throwable exception);\npublic static IStatus newStatus(String pluginId, String message, Throwable exception);\npublic static IStatus newStatus(String pluginId, Throwable exception);\n\nAlso common is a convenience method to flatten a recursive tree of MultiStatus instances - although I think these are typically caused by failure to correctly use MultiStatus#merge.",
+    "These seem pretty reasonable. \n\nWill people be able to toss their StatusUtils etc?  ",
+    "Hard to say... at least a couple of classes would go, and a few other convenience methods.  In other plugins they combine into a convenience method like log(Throwable) that creates a status and immediately logs it. People likely wouldn\u0027t bother removing those methods.  I think it\u0027s safe to say that of the 600 references to the current Status constructor in my workspace, at least a few of them could benefit from simpler constructors...",
+    "+1",
+    "To late for API changes in 3.2.  Moving for consideration in 3.3.",
+    "Created an attachment (id\u003d48583)\nPatch\n\nThe patch allows null messages to be passed into Status and adds the following API methods on the Status class:\n\nStatus(int severity, String pluginId, String message, Throwable exception)\n  Simplified constructor of a new status objects with code \u003d OK.\nStatus(int severity, String pluginId, String message)\n  Simplified constructor: code \u003d OK; exception \u003d null.\nStatusOK(String pluginId)\n  Factory producing \"all is fine\" status.\nlogError(String pluginId, String message)\nlogError(String pluginId, String message, Throwable exception)\n  Creates error message and logs it using standard runtime procedure.\nlogStatus(int severity, String pluginId, String message)\nlogStatus(int severity, String pluginId, String message, Throwable exception)\n  Creates a message and logs it using standard runtime procedure.\n\nJohn, could you review the patch? Are there any more convenience methods to add?\n",
+    "Created an attachment (id\u003d48585)\nPatch\n\nCosmetic changes to the patch above: added @since tags to new methods and renamed proposed \"Status.logStatus()\" methods into \"Status.log()\" methods.\n",
+    "I\u0027m not sure tying logging to the Status class is a good idea.  Many people use classes like Status in standalone applications where no logging is available. Standalone SWT/JFace applications are the most common example. I\u0027m sure RuntimeLog is well behaved when OSGi is not running, but it widens the dependency graph for libraries like JFace, and turns the fairly simple Status data structure into a provider of a more complex service. I\u0027d prefer to see any logging service provided by equinox common placed in a separate class.",
+    "(the extra convenience constructors look good though)",
+    "Sorry for comment spam, but see bug 49497 for a detailed discussion of JFace depencencies on core classes.",
+    "Created an attachment (id\u003d48598)\nPatch\n\nRemoved utility methods from the previous patch.\n",
+    "Patch released into CVS Head."
+  ],
+  "commentCreationDates": [
+    "2005-12-12T18:47:23+01:00",
+    "2005-12-12T19:45:01+01:00",
+    "2005-12-12T19:51:03+01:00",
+    "2005-12-12T20:00:56+01:00",
+    "2005-12-12T22:02:07+01:00",
+    "2006-01-13T03:25:25+01:00",
+    "2006-01-13T14:35:14+01:00",
+    "2006-01-14T19:39:00+01:00",
+    "2006-01-16T15:03:02+01:00",
+    "2006-01-17T03:50:50+01:00",
+    "2006-01-17T14:41:06+01:00",
+    "2006-01-22T03:01:14+01:00",
+    "2006-04-10T17:20:17+02:00",
+    "2006-08-24T16:18:07+02:00",
+    "2006-08-24T16:28:54+02:00",
+    "2006-08-24T17:05:53+02:00",
+    "2006-08-24T17:07:44+02:00",
+    "2006-08-24T17:09:28+02:00",
+    "2006-08-24T18:01:28+02:00",
+    "2006-08-24T18:02:52+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.Assert.isLegal",
+          "source": "Assert.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.Assert.isLegal",
+          "source": "Assert.java:42"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Status.setMessage",
+          "source": "Status.java:174"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Status.\u003cinit\u003e",
+          "source": "Status.java:81"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "120423",
+      "date": "2005-12-12T18:47:23+01:00",
+      "product": "Equinox",
+      "component": "Bundles",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "120423",
+  "bugId": "120423",
+  "date": "2005-12-12T18:47:23+01:00",
+  "product": "Equinox",
+  "component": "Bundles",
+  "severity": "normal"
+}

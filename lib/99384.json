@@ -1,0 +1,153 @@
+{
+  "comments": [
+    "build I20050610-0010\n\n- start up existing workspace with many plug-in projects\n- Ctrl+F4 to close and exit as soon as it comes up\n- got the following in the log\n\n!ENTRY org.eclipse.core.runtime 4 2 2005-06-10 11:30:38.410\n!MESSAGE An internal error occurred during: \"Initializing Java tooling\".\n!STACK 0\njava.lang.NoClassDefFoundError: org.eclipse.pde.internal.core.SourceLocationManager\n\tat org.eclipse.pde.internal.core.PDECore.getSourceLocationManager(PDECore.java:330)\n\tat\norg.eclipse.pde.internal.core.ClasspathUtilCore.getSourceAnnotation(ClasspathUtilCore.java:179)\n\tat\norg.eclipse.pde.internal.core.PDEClasspathContainer.addExternalPlugin(PDEClasspathContainer.java:64)\n\tat\norg.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.addPlugin(RequiredPluginsClasspathContainer.java:237)\n\tat\norg.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.addDependency(RequiredPluginsClasspathContainer.java:209)\n\tat\norg.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.computePluginEntries(RequiredPluginsClasspathContainer.java:130)\n\tat\norg.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.getClasspathEntries(RequiredPluginsClasspathContainer.java:99)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.containerPutIfInitializingWithSameEntries(JavaModelManager.java:297)\n\tat org.eclipse.jdt.core.JavaCore.setClasspathContainer(JavaCore.java:3855)\n\tat\norg.eclipse.pde.internal.core.ModelEntry.updateClasspathContainer(ModelEntry.java:110)\n\tat\norg.eclipse.pde.internal.core.RequiredPluginsInitializer.initialize(RequiredPluginsInitializer.java:40)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.initializeContainer(JavaModelManager.java:1591)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer(JavaModelManager.java:1040)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainer(JavaCore.java:1326)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:2039)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:1947)\n\tat\norg.eclipse.jdt.internal.core.search.JavaSearchScope.add(JavaSearchScope.java:108)\n\tat\norg.eclipse.jdt.internal.core.search.JavaWorkspaceScope.initialize(JavaWorkspaceScope.java:84)\n\tat\norg.eclipse.jdt.internal.core.search.JavaSearchScope.\u003cinit\u003e(JavaSearchScope.java:62)\n\tat\norg.eclipse.jdt.internal.core.search.JavaSearchScope.\u003cinit\u003e(JavaSearchScope.java:58)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.getWorkspaceScope(JavaModelManager.java:1421)\n\tat\norg.eclipse.jdt.internal.core.search.BasicSearchEngine.createWorkspaceScope(BasicSearchEngine.java:157)\n\tat\norg.eclipse.jdt.core.search.SearchEngine.createWorkspaceScope(SearchEngine.java:392)\n\tat org.eclipse.jdt.core.JavaCore$1.run(JavaCore.java:2623)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)",
+    "I was able to repeat this.\n",
+    "A dependent plugin (PDE) shut down before us. Nothing we can do. \n\nA solution would be that the Platform ask us if it can shut down a plugin that\nhas an extension registered with us. We would then wait for our thread to finish\nand then return true.\n\nMoving to Platform Runtime for comment.",
+    "I think the problem here is that the jobs facility is not isolating job \nthreads from the shutdown process.  If a job is using extensions it is \npossible during shutdown that the plugin providing the extension may be \nshutdown.  Once this happens the framework no longer allows new classes to be \nloaded from the shutdown plugin.\n\nWe should consider providing a way to notify the jobs facility that the \nframework is about to shutdown all active plugins.  This would allow us the \nchance to notify/cancel currently running jobs before the shutdown process \nbegins.  See bug 64821 and bug 73926 for similar problems in workbench jobs.  \nThese bugs have been worked around by the ui team by checking if the platform \nis active before running a workbench job.\n\nCC\u0027ing John for his insite.  Would cancelling/notifying jobs before the \nshutdown process begins help prevent these errors?\n",
+    "Just to emphasize, I see this as being a fundamental impedance mismatch between\nthe extension point mechanism and OSGi.  With the up-calls allowed via the\nextension point mechanism, we will see this situation often in any background\nthread that processes extensions, since OSGi knows nothing about these upwards\ndependencies, and just shuts down bundles in top-down order.  The problem is not\nlimited to our jobs mechanism, though that may allow us some extra control than\nwith simple threads.\n\nIt would be good to have some runtime-level support for managing this.  I don\u0027t\nthink it will suffice to simply cancel the jobs and then proceed with shutdown.\n The jobs need to poll for whether they are canceled, and if they don\u0027t do this\nfrequently enough (and it\u0027s often hard to structure the code to poll very\nfrequently), then this situation will still arise.  \n\nI think the runtime should have some way of delaying the shutdown until all the\njobs have processed their cancelation.  As with OS shutdown, there may need to\nbe increasing levels of signals to force job termination, as well as a per-job\ntime limit, and perhaps the ability to involve the user in the decision whether\nto cancel a given job.\n\nSee bug 94537 for another scenario and discussion about delaying shutdown.\n",
+    "I disagree about the impedence mismatch.  In the shutdown order (which is \nactualy dictated by the Runtime not OSGi) we tell all the plugins, in \ndependency order that the system is shutting down.  If you spawned a job you \nshould stop it at that time and not return from stop() until you are actually \nstopped.  Having some timeout there is likely a good idea to prevent infinite \ndelay.\n\nIf the system gets to the point of stopping Runtime and there are still \nrunning Jobs then someone is misbehaving.\n\nRooting this control in the jobs manager may work but it seems problematic.  \nFor example, when do we signal the manager that the system is stopping?  If we \ndo it before signalling the plugins then some plug a) might be depending on a \njob that was running for part of its shutdown or b) might spawn more jobs \nprior to or as part of their shutdown.\n\nIf we signal the jobs manager after shutting down all the plugins then we \nessentially end up in today\u0027s state where jobs are running but their \nsponsoring/required plugins have been shutdown.  Even if we leave the \nclassloaders whole the plugin data structures should have been cleaned up and \nthe plugins may no longer be functional.\n\nSummary:  I agree that this is a problem and needs to be addressed.  It does \nseem however that plugins are allocating a shared resource (a job/thread) and \nthey should free it appropriately on shutdown.\n\nNote also that we want to reconsider the current startup/shutdown processing \nfor 3.2.  There are a number of related issues in this area.",
+    "\u003e If you spawned a job you should stop it at that time and not return from\nstop() until you are actually stopped. \n\nI agree that it\u0027s better for the plug-in to explicitly stop any jobs it started\nbefore returning from stop().  However, if the job executes code in higher-level\nplug-ins via the extension point mechanism, the job may still end up trying to\nload classes from a plug-in that has been shut down.  This can happen even if it\nchecks if the bundle is still active before calling createExecutableExtension.,\nbecause Eclipse can still be shutdown during a method invocation on the\nresulting object.\n\nIn bug 94537, the best approach we could come up with was to cancel the job on\nshutdown and wait for it to terminate with some reasonable timeout, and have the\njob check wether it was canceled before starting each extension.  The wait was a\npolling wait, to avoid a potential deadlock from doing a join().\n\n",
+    "*** Bug 93280 has been marked as a duplicate of this bug. ***",
+    "For historical reference, we tried to address the job problems long ago by\nadding an explicit shutdown() method to IJobManager. This was triggered by the\napplication prior to exiting, ensuring that all plugins were still active and\nable to load classes at the time.  Of course, this broke various plugins that\nwere assuming they could still schedule and run jobs within their shutdown\nsequence (or even between application exit and their stop() method being\ncalled). After some attempts at fixing the new problems this caused, we backed\nout.  See bug 46958 for details.\n\nIt seems that what we really need is a two-phase shutdown sequence.  A first\nnotification to every plugin that the shutdown is commencing, and then a second\nnotification where stop() is called and the plugin\u0027s classloader is tossed.  The\nfirst notification would allow plugins to cancel and join background activity\nwithout running into class-loader problems (i.e, all upstream and downstream\nplugins are still active and able to load classes).",
+    "*** Bug 102215 has been marked as a duplicate of this bug. ***",
+    "*** Bug 102802 has been marked as a duplicate of this bug. ***",
+    "Hi All,\n\nAdding a new use case to reproduce the bug\nPlatform \u003d in 3.2.0 + EMF + BIRT + many owned plugins some extending the build mechanism + my own headless application plugin to build business rules \u0026 java classes.\n\nError : NoClassDefFound org/eclipse/jdt/internal/compiler/codegen/IntegerCache\nor org/eclipse/jdt/internal/compiler/util/Messages \nor ... many occur varing from one headless launch to the other.\n\n\nContext: The Framework is stopping (Framework.shutdown) and closing the workspace when the headless application application finishes. The closing workspace is preparing the operation (Workspace.close l. 353) which is starting the implicit jobs of the JobManager. The AutoBuild Job is trying to perform its basic builds in a worker thread whereas the plugins have been shut down. Various ClassNoDefException occur, sometimes none. \n\nOther NoClassDefFound :\norg/eclipse/jdt/internal/compiler/util/Messages\n",
+    "More on the AutobuildJob running while the Framework is shutting down:\nEclipse 3.2.0\n\namong implicit jobs of the workspace there is the AutoBuildJob\nit will be canceled only later in the close method of Workspace (shutdown is called in workspace line 369). The shutdown of the workspace it would have called BuildManager.shutdown which is calling autoBuildJob.cancel(); \n\nthe shutdown is called too late compared to the JobManager.prepareJob to prevent the AutoBuild from running when the workspace is closing.\n\nThread [main] (Suspended)\t\n\tObject.wait(long) line: not available [native method]\t\n\tThreadJob.joinRun(IProgressMonitor) line: 182\t\n\tImplicitJobs.begin(ISchedulingRule, IProgressMonitor, boolean) line: 87\t\n\tJobManager.beginRule(ISchedulingRule, IProgressMonitor) line: 219\t\n\tWorkManager.checkIn(ISchedulingRule, IProgressMonitor) line: 96\t\n\tWorkspace.prepareOperation(ISchedulingRule, IProgressMonitor) line: 1684\t\n\tWorkspace.close(IProgressMonitor) line: 353\t\n..\n\tFramework.close() line: 440\t\n...\n\tMain.main(String[]) line: 952\t\n\nThread [Worker-1] (Suspended (exception NoClassDefFoundError))\t\n\tCompiler.beginToCompile(ICompilationUnit[]) line: 380\t\n\tCompiler.compile(ICompilationUnit[]) line: 397\t\n\tBatchImageBuilder(AbstractImageBuilder).compile(SourceFile[], SourceFile[], boolean) line: 300\t\n\tBatchImageBuilder.compile(SourceFile[], SourceFile[], boolean) line: 217\t\n\tBatchImageBuilder(AbstractImageBuilder).compile(SourceFile[]) line: 237\t\n\tBatchImageBuilder.build() line: 56\t\n\tJavaBuilder.buildAll() line: 249\t\n\tJavaBuilder.build(int, Map, IProgressMonitor) line: 169\t\n\tBuildManager$2.run() line: 603\t\n\tSafeRunner.run(ISafeRunnable) line: 37\t\n\tBuildManager.basicBuild(int, IncrementalProjectBuilder, Map, MultiStatus, IProgressMonitor) line: 167\t\n\tBuildManager.basicBuild(IProject, int, ICommand[], MultiStatus, IProgressMonitor) line: 201\t\n\tBuildManager$1.run() line: 230\t\n\tSafeRunner.run(ISafeRunnable) line: 37\t\n\tBuildManager.basicBuild(IProject, int, MultiStatus, IProgressMonitor) line: 233\t\n\tBuildManager.basicBuildLoop(IProject[], IProject[], int, MultiStatus, IProgressMonitor) line: 252\t\n\tBuildManager.build(int, IProgressMonitor) line: 285\t\n\tAutoBuildJob.doBuild(IProgressMonitor) line: 145\t\n\tAutoBuildJob.run(IProgressMonitor) line: 208\t\n\tWorker.run() line: 58\t\n\n"
+  ],
+  "commentCreationDates": [
+    "2005-06-10T17:33:13+02:00",
+    "2005-06-10T17:34:30+02:00",
+    "2005-06-10T17:45:43+02:00",
+    "2005-06-13T16:25:16+02:00",
+    "2005-06-13T17:00:48+02:00",
+    "2005-06-16T04:01:58+02:00",
+    "2005-06-17T19:55:50+02:00",
+    "2005-06-17T22:08:47+02:00",
+    "2005-06-27T18:40:22+02:00",
+    "2005-06-29T23:54:40+02:00",
+    "2005-07-06T03:38:47+02:00",
+    "2006-12-13T10:35:24+01:00",
+    "2006-12-18T15:30:15+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "org.eclipse.pde.internal.core.SourceLocationManager",
+      "elements": [
+        {
+          "method": "org.eclipse.pde.internal.core.PDECore.getSourceLocationManager",
+          "source": "PDECore.java:330"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.ClasspathUtilCore.getSourceAnnotation",
+          "source": "ClasspathUtilCore.java:179"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.PDEClasspathContainer.addExternalPlugin",
+          "source": "PDEClasspathContainer.java:64"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.addPlugin",
+          "source": "RequiredPluginsClasspathContainer.java:237"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.addDependency",
+          "source": "RequiredPluginsClasspathContainer.java:209"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.computePluginEntries",
+          "source": "RequiredPluginsClasspathContainer.java:130"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.getClasspathEntries",
+          "source": "RequiredPluginsClasspathContainer.java:99"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.containerPutIfInitializingWithSameEntries",
+          "source": "JavaModelManager.java:297"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.setClasspathContainer",
+          "source": "JavaCore.java:3855"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.ModelEntry.updateClasspathContainer",
+          "source": "ModelEntry.java:110"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsInitializer.initialize",
+          "source": "RequiredPluginsInitializer.java:40"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:1591"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:1040"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1326"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:2039"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1947"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchScope.add",
+          "source": "JavaSearchScope.java:108"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaWorkspaceScope.initialize",
+          "source": "JavaWorkspaceScope.java:84"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchScope.\u003cinit\u003e",
+          "source": "JavaSearchScope.java:62"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchScope.\u003cinit\u003e",
+          "source": "JavaSearchScope.java:58"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getWorkspaceScope",
+          "source": "JavaModelManager.java:1421"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.BasicSearchEngine.createWorkspaceScope",
+          "source": "BasicSearchEngine.java:157"
+        },
+        {
+          "method": "org.eclipse.jdt.core.search.SearchEngine.createWorkspaceScope",
+          "source": "SearchEngine.java:392"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore$1.run",
+          "source": "JavaCore.java:2623"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "99384",
+      "date": "2005-06-10T17:33:13+02:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "99384",
+  "bugId": "99384",
+  "date": "2005-06-10T17:33:13+02:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "normal"
+}

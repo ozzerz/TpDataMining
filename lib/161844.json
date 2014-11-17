@@ -1,0 +1,163 @@
+{
+  "comments": [
+    "I created two remote connections (details at bottom) and tried to copy a file from Windows to Linux (I tried copy\u0026paste and drag\u0026drop). I get an empty (0 byte) file on Linux with what I would consider the wrong name. I would expect to get index.dat and not a file that has the whole Windows path in it.\n\n-rw-r--r-- 1 lothar users   0 2006-10-21 09:33 c\\Documents and Settings\\vmwarebox\\Cookies\\index.dat\n\n-----------Enter bugs above this line-----------\nRSE 1.0 Testing round 2/3\ninstallation : eclipse-platform-3.2 (3.2.0.v20060603)\n               actually this is a eclipse project export of our product based on Eclipse 3.2 that contains RSE\nRSE install  : SDK download RSE 1.0RC2\njava.runtime : java version \"1.5.0_06\"\n               Java(TM) 2 Runtime Environment, Standard Edition (build 1.5.0_06-b05)\n               Java HotSpot(TM) 64-Bit Server VM (build 1.5.0_06-b05, mixed mode)\nos.name:     : Linux janus 2.6.15-27-amd64-generic #1 SMP PREEMPT Sat Sep 16 01:50:50 UTC 2006 x86_64 GNU/Linux\n------------------------------------------------\nsystemtype   : Unix-ssh\ntargetos     : Kubuntu Linux Dapper (6.06)\ntargetuname  : Linux janus 2.6.15-27-amd64-generic #1 SMP PREEMPT Sat Sep 16 01:50:50 UTC 2006 x86_64 GNU/Linux\n------------------------------------------------\nsystemtype   : Windows dstore\ntargetos     : Microsoft Windows XP [Version 5.1.2600]\ntargetuname  : Linux osgiliath 2.6.16.21-0.21-default #1 Tue Aug 29 16:42:05 UTC 2006 i686 athlon i386 GNU/Linux\ntargetvm     : java version \"1.5.0_06\"\n               Java(TM) 2 Runtime Environment, Standard Edition (build 1.5.0_06-b05)\n               Java HotSpot(TM) Client VM (build 1.5.0_06-b05, mixed mode, sharing)\n------------------------------------------------",
+    "The dstore server on Windows had an error, too. Here it is\n\njava.io.FileNotFoundException: C:\\Documents and Settings\\vmwarebox\\Cookies\\index\n.dat (The requested operation cannot be performed on a file with a user-mapped s\nection open)\n\nSo it seems that RSE instead of propagating the access error creates a zero length file.",
+    "I created a new text file on the Windows Desktop and tried again, but I get still a zero length file like\n\n-rw-r--r-- 1 lothar users   0 2006-10-21 09:56 c\\Documents and Settings\\vmwarebox\\Desktop\\test.txt\n\nand this time there was no error on the dstore server side.\n\nI restarted the dstore server and tried again\n\n-rw-r--r-- 1 lothar users   0 2006-10-21 09:59 c\\Documents and Settings\\vmwarebox\\Desktop\\test.txt\n",
+    "I verified that copying a file in the reverse direction from SSH Linux to Windows dstore works. I also get the filename I would expect.\nI also verified that copying from Windows to Linux fails on 32bit.",
+    "Whoa - that\u0027s a bad one. I\u0027ll look into it.\n\nCopying zero-length files might fail due to a limitation in jsch, see also bug 153118 - we\u0027d have to implement a workaroundin upload() just like in createFile().\n\nThe bug with trying to copy a file that is not accessible needs to be addressed.",
+    "Reproduced the issue:\nCopy from Windows-dstore (My Home/test.txt)\nPaste to Linux-dstore does not copy anything at all.\nPaste to Ssh-dstore creates an empty file (0 bytes length), named \"c\\Documents and Settings\\mober\\test.txt\"\n\nIt looks like the issue is that on the Linux client, Dstore-windows host, the path separator char (\"\\\") is not correctly translated.\n\nReassigning to DaveM, please fix ASAP.\nSee also bug 161935, bug 161936 for similar issues.",
+    "It looks like the failure to copy the file to linux-dstore is related to the following exception found in the log. IMHO, it looks like in org.eclipse.rse.services.clientserver.PathUtility.normalizeUnix(), when calling Pattern.compile(), a backslash is not escaped properly:\n\njava.util.regex.PatternSyntaxException: Unexpected internal error near index 1\n\\\n ^\n\tat java.util.regex.Pattern.error(Pattern.java:1650)\n\tat java.util.regex.Pattern.compile(Pattern.java:1403)\n\tat java.util.regex.Pattern.\u003cinit\u003e(Pattern.java:1124)\n\tat java.util.regex.Pattern.compile(Pattern.java:817)\n\tat java.lang.String.replaceAll(String.java:2000)\n\tat org.eclipse.rse.services.clientserver.PathUtility.normalizeUnix(PathUtility.java:75)\n\tat org.eclipse.rse.services.clientserver.PathUtility.normalizeUnknown(PathUtility.java:124)\n\tat org.eclipse.rse.services.dstore.files.DStoreHostFile.getAbsolutePath(DStoreHostFile.java:247)\n\tat org.eclipse.rse.services.dstore.files.DStoreHostFile.internalIsArchive(DStoreHostFile.java:332)\n\tat org.eclipse.rse.services.dstore.files.DStoreHostFile.\u003cinit\u003e(DStoreHostFile.java:45)\n\tat org.eclipse.rse.services.dstore.files.DStoreFileService.convertToHostFile(DStoreFileService.java:815)\n\tat org.eclipse.rse.services.dstore.files.DStoreFileService.convertToHostFiles(DStoreFileService.java:828)\n\tat org.eclipse.rse.services.dstore.files.DStoreFileService.fetch(DStoreFileService.java:1211)\n\tat org.eclipse.rse.services.dstore.files.DStoreFileService.getFilesAndFolders(DStoreFileService.java:1167)\n\tat org.eclipse.rse.subsystems.files.core.servicesubsystem.FileServiceSubSystem.getFilesAndFolders(FileServiceSubSystem.java:302)\n\tat org.eclipse.rse.subsystems.files.core.servicesubsystem.FileServiceSubSystem.listFoldersAndFiles(FileServiceSubSystem.java:340)\n\tat org.eclipse.rse.subsystems.files.core.subsystems.RemoteFileSubSystem.listFoldersAndFiles(RemoteFileSubSystem.java:937)\n\tat org.eclipse.rse.subsystems.files.core.subsystems.RemoteFileSubSystem.internalResolveOneFilterString(RemoteFileSubSystem.java:828)\n\tat org.eclipse.rse.subsystems.files.core.subsystems.RemoteFileSubSystem.internalResolveFilterString(RemoteFileSubSystem.java:764)\n\tat org.eclipse.rse.core.subsystems.SubSystem.resolveFilterString(SubSystem.java:2268)\n\tat org.eclipse.rse.files.ui.view.SystemViewRemoteFileAdapter.internalGetChildren(SystemViewRemoteFileAdapter.java:719)\n\tat org.eclipse.rse.files.ui.view.SystemViewRemoteFileAdapter.getChildren(SystemViewRemoteFileAdapter.java:605)\n\tat org.eclipse.rse.ui.operations.SystemFetchOperation.execute(SystemFetchOperation.java:197)\n\tat org.eclipse.rse.ui.operations.SystemFetchOperation.run(SystemFetchOperation.java:101)\n\tat org.eclipse.rse.ui.view.AbstractSystemViewAdapter.fetchDeferredChildren(AbstractSystemViewAdapter.java:1766)\n\tat org.eclipse.ui.progress.DeferredTreeContentManager$1.run(DeferredTreeContentManager.java:207)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\n",
+    "Created an attachment (id\u003d52514)\nPatch to fix incorrect usage of \\ in path normalizations\n\nI think that attached patch should fix all those issues, but I cannot test this right now. Please check and apply ASAP.",
+    "*** Bug 161935 has been marked as a duplicate of this bug. ***",
+    "The problem was that the temp file location was derived from the local temp files dir + the remote windows path.  Linux client doesn\u0027t like the \\ char so we needed to normalize the local path.  This is now fixed.",
+    "Did you look at my attached patch?\n\nI\u0027d be surprised if that needs not be applied, since the code in PathUtility.java definitely looks buggy as it is.\n\nPlease have a look at the attached patch and apply if you think it\u0027s OK.\nOr I can apply the patch and you look at the result in the repository.",
+    "I\u0027ve applied the patch now.  In my case, I didn\u0027t need it, but the PathUtility bug should be fixed.  ",
+    "Thanks Dave.\nI\u0027ve added myself on the copyright attribution, and added some $NON-NLS-1$ comments.",
+    "Verified as part of RC3 testing."
+  ],
+  "commentCreationDates": [
+    "2006-10-21T18:36:47+02:00",
+    "2006-10-21T18:44:10+02:00",
+    "2006-10-21T18:56:22+02:00",
+    "2006-10-21T19:01:24+02:00",
+    "2006-10-23T07:35:52+02:00",
+    "2006-10-23T15:12:48+02:00",
+    "2006-10-23T15:17:09+02:00",
+    "2006-10-23T15:25:37+02:00",
+    "2006-10-23T16:44:30+02:00",
+    "2006-10-23T17:19:26+02:00",
+    "2006-10-24T13:16:45+02:00",
+    "2006-10-24T14:24:15+02:00",
+    "2006-10-24T16:21:07+02:00",
+    "2006-10-31T21:10:09+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.util.regex.PatternSyntaxException",
+      "message": "Unexpected internal error near index 1 \\  ^",
+      "elements": [
+        {
+          "method": "java.util.regex.Pattern.error",
+          "source": "Pattern.java:1650"
+        },
+        {
+          "method": "java.util.regex.Pattern.compile",
+          "source": "Pattern.java:1403"
+        },
+        {
+          "method": "java.util.regex.Pattern.\u003cinit\u003e",
+          "source": "Pattern.java:1124"
+        },
+        {
+          "method": "java.util.regex.Pattern.compile",
+          "source": "Pattern.java:817"
+        },
+        {
+          "method": "java.lang.String.replaceAll",
+          "source": "String.java:2000"
+        },
+        {
+          "method": "org.eclipse.rse.services.clientserver.PathUtility.normalizeUnix",
+          "source": "PathUtility.java:75"
+        },
+        {
+          "method": "org.eclipse.rse.services.clientserver.PathUtility.normalizeUnknown",
+          "source": "PathUtility.java:124"
+        },
+        {
+          "method": "org.eclipse.rse.services.dstore.files.DStoreHostFile.getAbsolutePath",
+          "source": "DStoreHostFile.java:247"
+        },
+        {
+          "method": "org.eclipse.rse.services.dstore.files.DStoreHostFile.internalIsArchive",
+          "source": "DStoreHostFile.java:332"
+        },
+        {
+          "method": "org.eclipse.rse.services.dstore.files.DStoreHostFile.\u003cinit\u003e",
+          "source": "DStoreHostFile.java:45"
+        },
+        {
+          "method": "org.eclipse.rse.services.dstore.files.DStoreFileService.convertToHostFile",
+          "source": "DStoreFileService.java:815"
+        },
+        {
+          "method": "org.eclipse.rse.services.dstore.files.DStoreFileService.convertToHostFiles",
+          "source": "DStoreFileService.java:828"
+        },
+        {
+          "method": "org.eclipse.rse.services.dstore.files.DStoreFileService.fetch",
+          "source": "DStoreFileService.java:1211"
+        },
+        {
+          "method": "org.eclipse.rse.services.dstore.files.DStoreFileService.getFilesAndFolders",
+          "source": "DStoreFileService.java:1167"
+        },
+        {
+          "method": "org.eclipse.rse.subsystems.files.core.servicesubsystem.FileServiceSubSystem.getFilesAndFolders",
+          "source": "FileServiceSubSystem.java:302"
+        },
+        {
+          "method": "org.eclipse.rse.subsystems.files.core.servicesubsystem.FileServiceSubSystem.listFoldersAndFiles",
+          "source": "FileServiceSubSystem.java:340"
+        },
+        {
+          "method": "org.eclipse.rse.subsystems.files.core.subsystems.RemoteFileSubSystem.listFoldersAndFiles",
+          "source": "RemoteFileSubSystem.java:937"
+        },
+        {
+          "method": "org.eclipse.rse.subsystems.files.core.subsystems.RemoteFileSubSystem.internalResolveOneFilterString",
+          "source": "RemoteFileSubSystem.java:828"
+        },
+        {
+          "method": "org.eclipse.rse.subsystems.files.core.subsystems.RemoteFileSubSystem.internalResolveFilterString",
+          "source": "RemoteFileSubSystem.java:764"
+        },
+        {
+          "method": "org.eclipse.rse.core.subsystems.SubSystem.resolveFilterString",
+          "source": "SubSystem.java:2268"
+        },
+        {
+          "method": "org.eclipse.rse.files.ui.view.SystemViewRemoteFileAdapter.internalGetChildren",
+          "source": "SystemViewRemoteFileAdapter.java:719"
+        },
+        {
+          "method": "org.eclipse.rse.files.ui.view.SystemViewRemoteFileAdapter.getChildren",
+          "source": "SystemViewRemoteFileAdapter.java:605"
+        },
+        {
+          "method": "org.eclipse.rse.ui.operations.SystemFetchOperation.execute",
+          "source": "SystemFetchOperation.java:197"
+        },
+        {
+          "method": "org.eclipse.rse.ui.operations.SystemFetchOperation.run",
+          "source": "SystemFetchOperation.java:101"
+        },
+        {
+          "method": "org.eclipse.rse.ui.view.AbstractSystemViewAdapter.fetchDeferredChildren",
+          "source": "AbstractSystemViewAdapter.java:1766"
+        },
+        {
+          "method": "org.eclipse.ui.progress.DeferredTreeContentManager$1.run",
+          "source": "DeferredTreeContentManager.java:207"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 6,
+      "bugId": "161844",
+      "date": "2006-10-23T15:17:09+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "161844",
+  "bugId": "161844",
+  "date": "2006-10-21T18:36:47+02:00",
+  "product": "Target Management",
+  "component": "RSE",
+  "severity": "critical"
+}

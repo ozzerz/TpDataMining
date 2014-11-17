@@ -1,0 +1,357 @@
+{
+  "comments": [
+    "eclipse.buildId\u003dI20050126-0800\njava.version\u003d1.5.0_01\n\nI extracted the ant patch proposed in\nhttp://issues.apache.org/bugzilla/show_bug.cgi?id\u003d28228 to adapt it for our\ninternal use and i got it perfectly working outside eclipse.\nThe problems arise when i try to use the jar that contains those classes from\nwithin eclipse.\nIf i try to put it in general ant runtime classpath i loose the usage of ant\nview, because all the build files are listed but without any children target to\nbe launched.\nIf i put the jar in the classpath of the ant launch configuration then i\u0027m able\nto run that ant file from within eclipse, and it runs without problems, but i\nloose the possibility to see the targets in the launch configuration panel.\n\nThe culprit seems to be the custom type org.apache.tools.ant.types.URLPath that\nextends org.apache.tools.ant.types.DataType and override its protected\ndieOnCircularReference() method with the following:\n\n    public void dieOnCircularReference(final Stack stk, final Project p)\n        throws BuildException {\n\n        if (isChecked()) {\n            return;\n        }\n        Iterator e \u003d elements.iterator();\n        while (e.hasNext()) {\n            Object o \u003d e.next();\n            if (o instanceof Reference) {\n                o \u003d ((Reference) o).getReferencedObject(p);\n            }\n\n            if (o instanceof DataType) {\n                if (stk.contains(o)) {\n                    throw circularReference();\n                } else {\n                    stk.push(o);\n                    log(\"URLPath: dieOnCircularReference\",\n                            Project.MSG_VERBOSE);\n                    ((DataType) o).dieOnCircularReference(stk, p);\n                    stk.pop();\n                }\n            }\n        }\n        setChecked(true);\n    }\n\nBe aware that i can run an ant file containing istances of that custom type both\n outside and from within eclipse, but i cannot list targets of that ant file\nbecause eclipse says:\n\nError 2005-02-08 14:12:53.246 Internal error occurred retrieving targets\njava.lang.VerifyError: (class: org/apache/tools/ant/types/URLPath, method:\ndieOnCircularReference signature:\n(Ljava/util/Stack;Lorg/apache/tools/ant/Project;)V) Bad access to protected data\nat java.lang.Class.forName0(Native Method)\nat java.lang.Class.forName(Class.java:242)\nat org.apache.tools.ant.taskdefs.Definer.addDefinition(Definer.java:457)\nat org.apache.tools.ant.taskdefs.Definer.loadProperties(Definer.java:304)\nat org.apache.tools.ant.taskdefs.Definer.execute(Definer.java:223)\nat org.apache.tools.ant.taskdefs.Antlib.execute(Antlib.java:160)\nat org.apache.tools.ant.Task.perform(Task.java:364)\nat org.apache.tools.ant.taskdefs.Definer.loadAntlib(Definer.java:330)\nat org.apache.tools.ant.taskdefs.Definer.execute(Definer.java:236)\nat org.apache.tools.ant.UnknownElement.execute(UnknownElement.java:275)\nat\norg.eclipse.ant.internal.ui.model.AntDefiningTaskNode.configure(AntDefiningTaskNode.java:54)\nat org.eclipse.ant.internal.ui.model.AntModel.resolveBuildfile(AntModel.java:450)\nat org.eclipse.ant.internal.ui.model.AntModel.parseDocument(AntModel.java:286)\nat org.eclipse.ant.internal.ui.model.AntModel.reconcile(AntModel.java:233)\nat org.eclipse.ant.internal.ui.model.AntModel.getProjectNode(AntModel.java:1230)\nat org.eclipse.ant.internal.ui.model.AntModel.getProjectNode(AntModel.java:1240)\nat org.eclipse.ant.internal.ui.AntUtil.getTargets(AntUtil.java:203)\nat\norg.eclipse.ant.internal.ui.launchConfigurations.AntTargetsTab$7.run(AntTargetsTab.java:495)\nat\norg.eclipse.jface.operation.ModalContext.runInCurrentThread(ModalContext.java:344)\nat org.eclipse.jface.operation.ModalContext.run(ModalContext.java:289)\nat org.eclipse.jface.window.ApplicationWindow$1.run(ApplicationWindow.java:624)\nat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\nat org.eclipse.jface.window.ApplicationWindow.run(ApplicationWindow.java:621)\nat org.eclipse.ui.internal.WorkbenchWindow.run(WorkbenchWindow.java:1952)\nat org.eclipse.ui.internal.progress.ProgressManager$5.run(ProgressManager.java:1061)\nat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\nat\norg.eclipse.ui.internal.progress.ProgressManager.runInUI(ProgressManager.java:1057)\nat\norg.eclipse.ant.internal.ui.launchConfigurations.AntTargetsTab.getTargets(AntTargetsTab.java:512)\nat\norg.eclipse.ant.internal.ui.launchConfigurations.AntTargetsTab.initializeFrom(AntTargetsTab.java:621)\nat\norg.eclipse.debug.ui.AbstractLaunchConfigurationTabGroup.initializeFrom(AbstractLaunchConfigurationTabGroup.java:86)\nat\norg.eclipse.ant.internal.ui.launchConfigurations.AntTabGroup.initializeFrom(AntTabGroup.java:46)\nat\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer.displayInstanceTabs(LaunchConfigurationTabGroupViewer.java:538)\nat\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer$5.run(LaunchConfigurationTabGroupViewer.java:471)\nat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\nat\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer.inputChanged(LaunchConfigurationTabGroupViewer.java:488)\nat\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer.setInput(LaunchConfigurationTabGroupViewer.java:452)\nat\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.handleLaunchConfigurationSelectionChanged(LaunchConfigurationsDialog.java:785)\nat\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog$3.selectionChanged(LaunchConfigurationsDialog.java:595)\nat org.eclipse.jface.viewers.StructuredViewer$3.run(StructuredViewer.java:681)\nat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1051)\nat org.eclipse.core.runtime.Platform.run(Platform.java:747)\nat\norg.eclipse.jface.viewers.StructuredViewer.firePostSelectionChanged(StructuredViewer.java:679)\nat\norg.eclipse.jface.viewers.StructuredViewer.setSelection(StructuredViewer.java:1359)\nat org.eclipse.jface.viewers.Viewer.setSelection(Viewer.java:380)\nat\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.doInitialTreeSelection(LaunchConfigurationsDialog.java:370)\nat\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.initializeContent(LaunchConfigurationsDialog.java:311)\nat\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.createContents(LaunchConfigurationsDialog.java:306)\nat org.eclipse.jface.window.Window.create(Window.java:375)\nat org.eclipse.jface.dialogs.Dialog.create(Dialog.java:983)\nat\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.create(LaunchConfigurationsDialog.java:1603)\nat org.eclipse.jface.window.Window.open(Window.java:685)\nat\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.open(LaunchConfigurationsDialog.java:433)\nat org.eclipse.debug.ui.DebugUITools$1.run(DebugUITools.java:356)\nat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\nat\norg.eclipse.debug.ui.DebugUITools.openLaunchConfigurationDialogOnGroup(DebugUITools.java:360)\nat\norg.eclipse.debug.ui.DebugUITools.openLaunchConfigurationDialogOnGroup(DebugUITools.java:302)\nat\norg.eclipse.debug.ui.actions.OpenLaunchDialogAction.run(OpenLaunchDialogAction.java:80)\nat org.eclipse.jface.action.Action.runWithEvent(Action.java:989)\nat\norg.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:555)\nat\norg.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:505)\nat\norg.eclipse.jface.action.ActionContributionItem$6.handleEvent(ActionContributionItem.java:419)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:837)\nat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2877)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2515)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1584)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1550)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:288)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:144)\nat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:102)\nat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:225)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:274)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:129)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\nat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\nat java.lang.reflect.Method.invoke(Method.java:585)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:255)\nat org.eclipse.core.launcher.Main.run(Main.java:811)\nat org.eclipse.core.launcher.Main.main(Main.java:795)\n\nI assume that if neither the compiler (eclipse compiler and genuine jdk\u0027s javac\ncompiler) nor the jdk runtime complains and the same Antlib definition process\nruns without problems when ant is launched the problem should be somewhere else,\nhave you any clue on this?",
+    "Which Ant are you setting to use for the global preferences and which Ant are \nyou setting to use for the actual build from the launch configuration?\n\nIt would appear that you have incompatible versions of Ant for parsing the \nbuildfile as opposed to the Ant you have compiled you custom task against.\n\nOn a side note...with the latest Eclipse build and the fix for 71888 we should \nmore gracefully handle this problems.\n\nA question for me is why we are resolving the buildfile when retrieving \ntargets...it would appear unnecessary.",
+    "and you are compiling and running the class with the same JRE?",
+    "Ok Darin, five minutes of shame...\nIt turns out you are right, it was my fault. I was compilng and running with a\nself built ant distribution because i need org.apache.tools.ant.BuildFileTest to\ncompile and run some test cases and may be that even if the build was successful\nthere still is something wrong with it.\nNow i\u0027ve followed a different approach, i extracted\norg.apache.tools.ant.BuildFileTest and inserted it into my project so that i can\ncompile and run with eclipse ant plugin and now it works...\nI was mistaken by the fact that, using the same self built ant, running the \nbuild file was successful while eclipse was complaining (why this was happening\nis still somehow puzzling me...).\n\nI think you can close the bug.\nThanks,  Gabriele.",
+    "No problem at all. Thank you for reporting back."
+  ],
+  "commentCreationDates": [
+    "2005-02-11T08:52:34+01:00",
+    "2005-02-11T16:37:39+01:00",
+    "2005-02-12T02:22:31+01:00",
+    "2005-02-15T07:05:36+01:00",
+    "2005-02-15T15:00:27+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.VerifyError",
+      "message": "(class: org/apache/tools/ant/types/URLPath, method: dieOnCircularReference signature: (Ljava/util/Stack;Lorg/apache/tools/ant/Project;)V) Bad access to protected data",
+      "elements": [
+        {
+          "method": "java.lang.Class.forName0",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.Class.forName",
+          "source": "Class.java:242"
+        },
+        {
+          "method": "org.apache.tools.ant.taskdefs.Definer.addDefinition",
+          "source": "Definer.java:457"
+        },
+        {
+          "method": "org.apache.tools.ant.taskdefs.Definer.loadProperties",
+          "source": "Definer.java:304"
+        },
+        {
+          "method": "org.apache.tools.ant.taskdefs.Definer.execute",
+          "source": "Definer.java:223"
+        },
+        {
+          "method": "org.apache.tools.ant.taskdefs.Antlib.execute",
+          "source": "Antlib.java:160"
+        },
+        {
+          "method": "org.apache.tools.ant.Task.perform",
+          "source": "Task.java:364"
+        },
+        {
+          "method": "org.apache.tools.ant.taskdefs.Definer.loadAntlib",
+          "source": "Definer.java:330"
+        },
+        {
+          "method": "org.apache.tools.ant.taskdefs.Definer.execute",
+          "source": "Definer.java:236"
+        },
+        {
+          "method": "org.apache.tools.ant.UnknownElement.execute",
+          "source": "UnknownElement.java:275"
+        },
+        {
+          "method": "org.eclipse.ant.internal.ui.model.AntDefiningTaskNode.configure",
+          "source": "AntDefiningTaskNode.java:54"
+        },
+        {
+          "method": "org.eclipse.ant.internal.ui.model.AntModel.resolveBuildfile",
+          "source": "AntModel.java:450"
+        },
+        {
+          "method": "org.eclipse.ant.internal.ui.model.AntModel.parseDocument",
+          "source": "AntModel.java:286"
+        },
+        {
+          "method": "org.eclipse.ant.internal.ui.model.AntModel.reconcile",
+          "source": "AntModel.java:233"
+        },
+        {
+          "method": "org.eclipse.ant.internal.ui.model.AntModel.getProjectNode",
+          "source": "AntModel.java:1230"
+        },
+        {
+          "method": "org.eclipse.ant.internal.ui.model.AntModel.getProjectNode",
+          "source": "AntModel.java:1240"
+        },
+        {
+          "method": "org.eclipse.ant.internal.ui.AntUtil.getTargets",
+          "source": "AntUtil.java:203"
+        },
+        {
+          "method": "org.eclipse.ant.internal.ui.launchConfigurations.AntTargetsTab$7.run",
+          "source": "AntTargetsTab.java:495"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.runInCurrentThread",
+          "source": "ModalContext.java:344"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.run",
+          "source": "ModalContext.java:289"
+        },
+        {
+          "method": "org.eclipse.jface.window.ApplicationWindow$1.run",
+          "source": "ApplicationWindow.java:624"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.jface.window.ApplicationWindow.run",
+          "source": "ApplicationWindow.java:621"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.run",
+          "source": "WorkbenchWindow.java:1952"
+        },
+        {
+          "method": "org.eclipse.ui.internal.progress.ProgressManager$5.run",
+          "source": "ProgressManager.java:1061"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.ui.internal.progress.ProgressManager.runInUI",
+          "source": "ProgressManager.java:1057"
+        },
+        {
+          "method": "org.eclipse.ant.internal.ui.launchConfigurations.AntTargetsTab.getTargets",
+          "source": "AntTargetsTab.java:512"
+        },
+        {
+          "method": "org.eclipse.ant.internal.ui.launchConfigurations.AntTargetsTab.initializeFrom",
+          "source": "AntTargetsTab.java:621"
+        },
+        {
+          "method": "org.eclipse.debug.ui.AbstractLaunchConfigurationTabGroup.initializeFrom",
+          "source": "AbstractLaunchConfigurationTabGroup.java:86"
+        },
+        {
+          "method": "org.eclipse.ant.internal.ui.launchConfigurations.AntTabGroup.initializeFrom",
+          "source": "AntTabGroup.java:46"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer.displayInstanceTabs",
+          "source": "LaunchConfigurationTabGroupViewer.java:538"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer$5.run",
+          "source": "LaunchConfigurationTabGroupViewer.java:471"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer.inputChanged",
+          "source": "LaunchConfigurationTabGroupViewer.java:488"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer.setInput",
+          "source": "LaunchConfigurationTabGroupViewer.java:452"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.handleLaunchConfigurationSelectionChanged",
+          "source": "LaunchConfigurationsDialog.java:785"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog$3.selectionChanged",
+          "source": "LaunchConfigurationsDialog.java:595"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$3.run",
+          "source": "StructuredViewer.java:681"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:1051"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:747"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.firePostSelectionChanged",
+          "source": "StructuredViewer.java:679"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.setSelection",
+          "source": "StructuredViewer.java:1359"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.Viewer.setSelection",
+          "source": "Viewer.java:380"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.doInitialTreeSelection",
+          "source": "LaunchConfigurationsDialog.java:370"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.initializeContent",
+          "source": "LaunchConfigurationsDialog.java:311"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.createContents",
+          "source": "LaunchConfigurationsDialog.java:306"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.create",
+          "source": "Window.java:375"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.Dialog.create",
+          "source": "Dialog.java:983"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.create",
+          "source": "LaunchConfigurationsDialog.java:1603"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:685"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.open",
+          "source": "LaunchConfigurationsDialog.java:433"
+        },
+        {
+          "method": "org.eclipse.debug.ui.DebugUITools$1.run",
+          "source": "DebugUITools.java:356"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.debug.ui.DebugUITools.openLaunchConfigurationDialogOnGroup",
+          "source": "DebugUITools.java:360"
+        },
+        {
+          "method": "org.eclipse.debug.ui.DebugUITools.openLaunchConfigurationDialogOnGroup",
+          "source": "DebugUITools.java:302"
+        },
+        {
+          "method": "org.eclipse.debug.ui.actions.OpenLaunchDialogAction.run",
+          "source": "OpenLaunchDialogAction.java:80"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:989"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:555"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:505"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$6.handleEvent",
+          "source": "ActionContributionItem.java:419"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:837"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2877"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2515"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1584"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1550"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:288"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:144"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:102"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:225"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:274"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:129"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:255"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:811"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:795"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "84974",
+      "date": "2005-02-11T08:52:34+01:00",
+      "product": "Platform",
+      "component": "Ant",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "84974",
+  "bugId": "84974",
+  "date": "2005-02-11T08:52:34+01:00",
+  "product": "Platform",
+  "component": "Ant",
+  "severity": "normal"
+}

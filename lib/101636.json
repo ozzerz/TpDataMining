@@ -1,0 +1,112 @@
+{
+  "comments": [
+    "When doing Creation or Imports (which contain nested creation) I am getting a\nseries of NPEs from server core code.  My Server is a J2EE contianer pointing to\nan install of 6.0 WAS.  The below expection is easily seen if you attempt to\ncreate an ejb project named \"EJBTest\", keeping all defaults (be sure this is in\na clean workspace with only the one j2ee container server target).  CLick finish\nand a few of these will be logged.  This was found in the 6.24 Ibuild canidate.\n\n\n!ENTRY org.eclipse.core.resources 2 2 2005-06-24 10:05:08.267\n!MESSAGE Save operation warnings.\n!SUBENTRY 1 org.eclipse.core.resources 2 566 2005-06-24 10:05:08.277\n!MESSAGE Problems occurred during save.\n!STACK 0\njava.lang.NullPointerException\n        at\norg.eclipse.jst.server.generic.core.internal.ServerTypeDefinitionUtil.getServerTypeDefinition(ServerTypeDefinitionUtil.java:64)\n        at\norg.eclipse.jst.server.generic.core.internal.ServerTypeDefinitionUtil.getServerClassPathEntry(ServerTypeDefinitionUtil.java:73)\n        at\norg.eclipse.jst.server.generic.core.internal.GenericServerRuntimeTargetHandler.resolveClasspathContainer(GenericServerRuntimeTargetHandler.java:62)\n        at\norg.eclipse.jst.server.core.ClasspathRuntimeTargetHandler.resolveClasspathContainerImpl(ClasspathRuntimeTargetHandler.java:397)\n        at\norg.eclipse.jst.server.core.internal.RuntimeClasspathContainer.getClasspathEntries(RuntimeClasspathContainer.java:55)\n        at\norg.eclipse.jdt.internal.core.JavaModelManager.saveVariablesAndContainers(JavaModelManager.java:2257)\n        at\norg.eclipse.jdt.internal.core.JavaModelManager.saving(JavaModelManager.java:2301)\n        at\norg.eclipse.core.internal.resources.SaveManager.executeLifecycle(SaveManager.java:324)\n        at\norg.eclipse.core.internal.resources.SaveManager$1.run(SaveManager.java:153)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java(Inlined\nCompiled Code))\n        at org.eclipse.core.runtime.Platform.run(Platform.java(Compiled Code))\n        at\norg.eclipse.core.internal.resources.SaveManager.broadcastLifecycle(SaveManager.java:156)\n        at\norg.eclipse.core.internal.resources.SaveManager.save(SaveManager.java:957)\n        at\norg.eclipse.core.internal.resources.DelayedSnapshotJob.run(DelayedSnapshotJob.java:44)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)",
+    "Looks like a dup of a bug from a day or two ago.",
+    "*** Bug 101784 has been marked as a duplicate of this bug. ***",
+    "Derek, are you still able to reproduce this one with the latest I-build. I have\nreleased a fix for a similiar one at the weekend but I am not %100 sure if this\nis fixed as well because I have not been able to reproduce yet.",
+    "Gorkem,\nYes I was still able to reproduce with the 6.27 Ibuild.  Running outside of \ndevelopment with consolelog on.(haven\u0027t tried inside)\nDerek",
+    "If it helps, I can easily reproduce this exception running a current WTP HEAD \nproject set and a fresh workspace.  If I define a Tomcat runtime and then \ncreate Dynamic Web Project I will encounter this exception.\n\nThis occurs because \no.e.wst.server.core.internal.ProjectProperties.setRuntimeTarget(oldRT, \nnewRT,...) contains:\n\n    // add new target\n    ...\n        for(...)\n            ...\n            boolean supports \u003d handler.supportsRuntimeType(runtimeType);\n            ...\n            if (supports)\n                ((RuntimeTargetHandler)handler).setRuntimeTarget(...);\n            ...\n\nSince \"supports\" is based on \"j2ee version\", the flag is true for the handler \ncontaining GenericServerRuntimeTargetHandler as the delegate as well as one \ncontaining TomcatRuntimeTargetHander.\n\nThe GenericServerRuntimeTargetHander.setRuntimeTarget() adds a classpath entry \ncontaining the segments:\n\n    1. org.eclipse.jst.server.core.container\n    2. org.eclipse.jst.server.generic.runtimeTarget\n    3. Apache Tomcat v5.0\n\nwhich causes ServerTypeDefinitionUtil.getServerTypeDefinition() to be called \nwhen trying to resolve this classpath entry.  The getServerTypeDefinition() \ndoesn\u0027t currently deal with the possibility of loadAdapter() returning null, \nwhich it will since its working with a Runtime that has a TomcatRuntime as its \ndelegate.\n\nPerhaps ProjectProperties.setRuntimeTarget() needs to be more selective with \nrespect to which handlers it calls setRuntimeTarget().",
+    "Sorry, I managed to confuse myself with respect to the setting of \nthe \"supports\" flag.  The \"supports\" flag it true for the \nGenericServerRuntimeTargetHandler even with the Tomcat runtime type because the \nhandler\u0027s runtime type matching pattern is set to \"*\".",
+    "Derek, can you confirm, did you have a second server especially a Tomcat\nconfigured when you encounter this.",
+    "All I have is 1 J2EE Container....fresh workspace, created this one server,\ncreate module then i get hte exception.",
+    "*** Bug 101258 has been marked as a duplicate of this bug. ***",
+    "I have released two fixes. First I have returned to my older way of defining\nruntimeTargetHandlers, GenericServerRuntimeTargetHandler should no longer\ninterfere with servers like Tomcat. Also I now handle situations where\nGenericServerRuntimeTargetHandler is called for non-generic servers. \nUnfortunately, I could not repro any of the situations but the one Larry\ndescribed, I am closing this for now but please reopen if you still see this one\nin next build.",
+    "*** Bug 102222 has been marked as a duplicate of this bug. ***",
+    "Fixed in current builds"
+  ],
+  "commentCreationDates": [
+    "2005-06-24T16:08:28+02:00",
+    "2005-06-24T16:44:16+02:00",
+    "2005-06-27T06:34:36+02:00",
+    "2005-06-28T14:44:56+02:00",
+    "2005-06-28T15:17:31+02:00",
+    "2005-06-28T20:00:41+02:00",
+    "2005-06-28T20:18:57+02:00",
+    "2005-06-28T22:38:07+02:00",
+    "2005-06-28T22:46:44+02:00",
+    "2005-06-29T00:08:58+02:00",
+    "2005-06-29T00:19:54+02:00",
+    "2005-06-30T00:25:30+02:00",
+    "2005-07-07T21:27:23+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.server.generic.core.internal.ServerTypeDefinitionUtil.getServerTypeDefinition",
+          "source": "ServerTypeDefinitionUtil.java:64"
+        },
+        {
+          "method": "org.eclipse.jst.server.generic.core.internal.ServerTypeDefinitionUtil.getServerClassPathEntry",
+          "source": "ServerTypeDefinitionUtil.java:73"
+        },
+        {
+          "method": "org.eclipse.jst.server.generic.core.internal.GenericServerRuntimeTargetHandler.resolveClasspathContainer",
+          "source": "GenericServerRuntimeTargetHandler.java:62"
+        },
+        {
+          "method": "org.eclipse.jst.server.core.ClasspathRuntimeTargetHandler.resolveClasspathContainerImpl",
+          "source": "ClasspathRuntimeTargetHandler.java:397"
+        },
+        {
+          "method": "org.eclipse.jst.server.core.internal.RuntimeClasspathContainer.getClasspathEntries",
+          "source": "RuntimeClasspathContainer.java:55"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.saveVariablesAndContainers",
+          "source": "JavaModelManager.java:2257"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.saving",
+          "source": "JavaModelManager.java:2301"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.SaveManager.executeLifecycle",
+          "source": "SaveManager.java:324"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.SaveManager$1.run",
+          "source": "SaveManager.java:153"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java(Inlined Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.SaveManager.broadcastLifecycle",
+          "source": "SaveManager.java:156"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.SaveManager.save",
+          "source": "SaveManager.java:957"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.DelayedSnapshotJob.run",
+          "source": "DelayedSnapshotJob.java:44"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "101636",
+      "date": "2005-06-24T16:08:28+02:00",
+      "product": "Web Tools",
+      "component": "jst.server",
+      "severity": "major"
+    }
+  ],
+  "groupId": "101636",
+  "bugId": "101636",
+  "date": "2005-06-24T16:08:28+02:00",
+  "product": "Web Tools",
+  "component": "jst.server",
+  "severity": "major"
+}

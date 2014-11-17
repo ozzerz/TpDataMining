@@ -1,0 +1,117 @@
+{
+  "comments": [
+    "There is VM bug which assumes all class loaders have access to classes of the \nparent classloader.  This forces us to always ask the boot classloader for all \nclasses even though we know the boot classloader does not have the class we \nare looking for.  There is another approach which should help remedy the \nproblem.\n\nTo summarize the idea: At the point just before a bundle class loader is going \nto throw a class not found exception, it gets the class call stack and finds \nthe first class on the stack that is neither a class loader instance of an \ninstance of Class (effectively, this is to ignore calls to \nClassLoader.loadClass() and Class.forName() so we can find who called them). \nFor the first non-ClassLoader/non-Class class found, it checks to see if the \nclass\u0027 class loader is a bundle class loader. If it is, it throws the \nexception (i.e., the bundle gets strict class loading), if it is not, it \ndelegates to the the parent class loader instead.\n\nThis works around the bug where a class on the boot classpath uses the calling \nclassloader to load another class from the boot classloader.",
+    "Created an attachment (id\u003d20406)\nImplements the proposed solution\n",
+    "I have released the changes into HEAD.  Please run and test with the latest \ncode for org.eclipse.osgi and let me know if you see any issues.",
+    "I cannot be sure that this is the cause, but it seems that with this code,\nOptimizeIT cannot launch Eclipse any longer. Using org.eclipse.osgi from\ni20050426 works fine.\n\nIt seems OptimizeIT instruments the code to be profiled, and the instrumentation\ncalls a class that was supposed to be available, but is not:\n\nRoot exception:\njava.lang.NoClassDefFoundError: intuitive/audit/profiler/OIContext\n        at org.eclipse.update.internal.configurator.ConfigurationActivator.\u003cclin\nit\u003e(ConfigurationActivator.java:30)\n        at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)\n\n        at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstruct\norAccessorImpl.java:39)\n        at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingC\nonstructorAccessorImpl.java:27)\n        at java.lang.reflect.Constructor.newInstance(Constructor.java:274)\n        at java.lang.Class.newInstance0(Class.java:308)\n        at java.lang.Class.newInstance(Class.java:261)\n        at org.eclipse.osgi.framework.internal.core.AbstractBundle.loadBundleAct\nivator(AbstractBundle.java:146)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl.start(Bund\nleContextImpl.java:965)\n        at org.eclipse.osgi.framework.internal.core.BundleHost.startWorker(Bundl\neHost.java:321)\n        at org.eclipse.osgi.framework.internal.core.AbstractBundle.resume(Abstra\nctBundle.java:339)\n        at org.eclipse.osgi.framework.internal.core.Framework.resumeBundle(Frame\nwork.java:1000)\n        at org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBund\nles(StartLevelManager.java:576)\n        at org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL(St\nartLevelManager.java:498)\n        at org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStart\nLevel(StartLevelManager.java:275)\n        at org.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEv\nent(StartLevelManager.java:458)\n        at org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent(EventM\nanager.java:186)\n        at org.eclipse.osgi.framework.eventmgr.EventThread.run(EventThread.java:\n104)\n\nThe stack trace below (main thread) shows that OptimizeIT calls the user\napplication with a special class.\n\n...\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:272)\n        at org.eclipse.core.launcher.Main.run(Main.java:951)\n        at org.eclipse.core.launcher.Main.main(Main.java:935)\n        at intuitive.audit.Main.runProgramWithClass(Native Method)\n        at intuitive.audit.Audit.main(Audit.java:835)\nExit called. (ignored)\n",
+    "Rafael, try passing this VM arg\n\n-Dorg.osgi.framework.bootdelegation\u003dintuitive.\n\nThis will force all intuitive.* packages to be delegated to parent first.",
+    "Yes, that does the trick.",
+    "We need to publicize this.  many people are using optimizeit and other tools.\n",
+    "What is going on? Is what OptimizeIT is doing illegitimate?",
+    "I ran into this same issue with another profiling tool.  I think profilers are \nadding additional libraries to the boot classpath and somehow cause these \nclasses to get loaded during certain operations.  The problem is we no longer \ngive bundles everything for free from the boot classpath.  As a result when an \nattempt is made to load the profiler classes we fail because we do not allow \nthe request to go to the boot classpath.\n\nThe org.osgi.framework.bootdelegation property forces requests for certain \npackage prefixes to always go to the parent classloader."
+  ],
+  "commentCreationDates": [
+    "2005-04-27T17:31:41+02:00",
+    "2005-04-27T17:34:27+02:00",
+    "2005-04-28T20:05:33+02:00",
+    "2005-04-29T02:45:00+02:00",
+    "2005-04-29T14:46:27+02:00",
+    "2005-04-29T16:54:42+02:00",
+    "2005-04-29T17:02:28+02:00",
+    "2005-04-29T17:10:57+02:00",
+    "2005-04-29T17:44:00+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "intuitive/audit/profiler/OIContext",
+      "elements": [
+        {
+          "method": "org.eclipse.update.internal.configurator.ConfigurationActivator.\u003cclinit\u003e",
+          "source": "ConfigurationActivator.java:30"
+        },
+        {
+          "method": "sun.reflect.NativeConstructorAccessorImpl.newInstance0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeConstructorAccessorImpl.newInstance",
+          "source": "NativeConstruct orAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingConstructorAccessorImpl.newInstance",
+          "source": "DelegatingC onstructorAccessorImpl.java:27"
+        },
+        {
+          "method": "java.lang.reflect.Constructor.newInstance",
+          "source": "Constructor.java:274"
+        },
+        {
+          "method": "java.lang.Class.newInstance0",
+          "source": "Class.java:308"
+        },
+        {
+          "method": "java.lang.Class.newInstance",
+          "source": "Class.java:261"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.loadBundleActivator",
+          "source": "AbstractBundle.java:146"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "Bund leContextImpl.java:965"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "Bundl eHost.java:321"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.resume",
+          "source": "Abstra ctBundle.java:339"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.resumeBundle",
+          "source": "Frame work.java:1000"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles",
+          "source": "StartLevelManager.java:576"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL",
+          "source": "St artLevelManager.java:498"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel",
+          "source": "StartLevelManager.java:275"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent",
+          "source": "StartLevelManager.java:458"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent",
+          "source": "EventM anager.java:186"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventThread.run",
+          "source": "EventThread.java: 104"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 3,
+      "bugId": "92924",
+      "date": "2005-04-29T02:45:00+02:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "92924",
+  "bugId": "92924",
+  "date": "2005-04-27T17:31:41+02:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "normal"
+}

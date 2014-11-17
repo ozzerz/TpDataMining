@@ -1,0 +1,247 @@
+{
+  "comments": [
+    "I20031008\n\nI selected about 10 launch configuration (java launch configuration) in the\nlaunch configuration dialog, and clicked \u0027delete\u0027.\n\nI got twice the same exception in the .log file.\n\n\n!MESSAGE An exception occurred during launch configuration change notification.\n!STACK 0\norg.eclipse.jface.util.Assert$AssertionFailedException: null argument;\n        at java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n        at java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n        at\norg.eclipse.jface.util.Assert$AssertionFailedException.\u003cinit\u003e(Assert.java:54)\n        at org.eclipse.jface.util.Assert.isNotNull(Assert.java:139)\n        at org.eclipse.jface.util.Assert.isNotNull(Assert.java)\n        at\norg.eclipse.jface.viewers.StructuredSelection.\u003cinit\u003e(StructuredSelection.java:61)\n        at\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationView.launchConfigurationRemoved(LaunchConfigurationView.java:264)\n        at\norg.eclipse.debug.internal.core.LaunchManager$ConfigurationNotifier.run(LaunchManager.java:1451)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java)\n        at org.eclipse.core.runtime.Platform.run(Platform.java)\n        at\norg.eclipse.debug.internal.core.LaunchManager$ConfigurationNotifier.notify(LaunchManager.java:1472)\n        at\norg.eclipse.debug.internal.core.LaunchManager.launchConfigurationDeleted(LaunchManager.java:693)\n        at\norg.eclipse.debug.internal.core.LaunchConfiguration.delete(LaunchConfiguration.java:326)\n        at\norg.eclipse.debug.internal.ui.launchConfigurations.DeleteLaunchConfigurationAction.performAction(DeleteLaunchConfigurationAction.java:65)\n        at\norg.eclipse.debug.internal.ui.launchConfigurations.AbstractLaunchConfigurationAction$1.run(AbstractLaunchConfigurationAction.java:103)\n        at org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java)\n        at\norg.eclipse.debug.internal.ui.launchConfigurations.AbstractLaunchConfigurationAction.run(AbstractLaunchConfigurationAction.java:106)\n        at\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog$ButtonActionDelete.run(LaunchConfigurationsDialog.java:1614)\n        at\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog$1.widgetSelected(LaunchConfigurationsDialog.java:1569)\n        at org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java)\n        at org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java)\n        at org.eclipse.swt.widgets.Widget.sendEvent(Widget.java)\n        at org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java)\n        at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java)\n        at org.eclipse.jface.window.Window.runEventLoop(Window.java:583)\n        at org.eclipse.jface.window.Window.open(Window.java:563)\n        at\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.open(LaunchConfigurationsDialog.java:442)\n        at org.eclipse.debug.ui.DebugUITools$1.run(DebugUITools.java:391)\n        at org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java)\n        at\norg.eclipse.debug.ui.DebugUITools.openLaunchConfigurationDialogOnGroup(DebugUITools.java:395)\n        at\norg.eclipse.debug.ui.DebugUITools.openLaunchConfigurationDialogOnGroup(DebugUITools.java:337)\n        at\norg.eclipse.debug.ui.actions.OpenLaunchDialogAction.run(OpenLaunchDialogAction.java:79)\n        at org.eclipse.jface.action.Action.runWithEvent(Action.java:842)\n        at\norg.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:543)\n        at\norg.eclipse.jface.action.ActionContributionItem.access$4(ActionContributionItem.java:496)\n        at\norg.eclipse.jface.action.ActionContributionItem$6.handleEvent(ActionContributionItem.java:468)\n        at org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java)\n        at org.eclipse.swt.widgets.Widget.sendEvent(Widget.java)\n        at org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java)\n        at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java)\n        at org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2332)\n        at org.eclipse.ui.internal.Workbench.run(Workbench.java:2315)\n        at\norg.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:858)\n        at org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at\nsun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:79)\n        at\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:41)\n        at java.lang.reflect.Method.invoke(Method.java:386)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:299)\n        at org.eclipse.core.launcher.Main.run(Main.java:765)\n        at org.eclipse.core.launcher.Main.main(Main.java:599)",
+    "Reassigning to Platform UI for comment.\n\nThis is what the execution flow here looks like. I\u0027ve altered the code a bit, flattening it and replacing \na variable or two with their values to reduce complexity.\n\n1. The tree starts out like so:\n  TreeItem - data: configuration type\n    TreeItem - data: configuration\n  TreeItem - data: configuration type\n\n2. Then we remove the tree item containing the configuration (first line of code).\n3. Next, we ask the tree for the children of the first configuration type. Since we just removed the \nconfiguration from the tree, I\u0027d expect this to return an empty array on the third line of the code. \n4. Instead, we get an array containing a single TreeItem, with null data. Line 6 blows up when we \npass the null data to the StructuredSelection constructor.\n\ngetTreeViewer().remove(configuration);\nIStructuredSelection newSelection\u003d null;\nTreeItem[] configItems\u003d getTreeViewer().getTree().getItems()[0].getItems();\nint numItems\u003d configItems.length;\nif (numItems \u003e 0) { // Select the item at the same index as the deleted\n  newSelection\u003d new StructuredSelection(configItems[0].getData());\n} \n\nWhy is the tree returning an empty node after we\u0027ve told it to remove the configuration? Is there a \nproblem with our code or is this a bug in the tree/treeviewer?",
+    "tod can you have a look here and add a response",
+    "Why was this bounced back to us?",
+    "comments should be coming ",
+    "I don\u0027t see any comments yet :-)",
+    "Is this a consistently replicatble case? You are accessing the tree directly \nand making assumptions about how things are mapped - we likely should not have \nelements with null values there but you are going a little wild.\n\nIf you use the tree viewer API do you get this - i.e. use the content provider \nand say getElements?",
+    "I cannot reproduce the error - but we have a null check in place now. I\u0027m \ngoing to mark this as works for me."
+  ],
+  "commentCreationDates": [
+    "2003-10-08T23:46:47+02:00",
+    "2003-11-20T21:35:29+01:00",
+    "2004-05-25T20:53:38+02:00",
+    "2004-05-25T23:12:49+02:00",
+    "2004-05-27T17:40:05+02:00",
+    "2004-06-11T17:06:34+02:00",
+    "2004-06-11T17:17:35+02:00",
+    "2004-06-11T17:51:33+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.jface.util.Assert$AssertionFailedException",
+      "message": "null argument;",
+      "elements": [
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "org.eclipse.jface.util.Assert$AssertionFailedException.\u003cinit\u003e",
+          "source": "Assert.java:54"
+        },
+        {
+          "method": "org.eclipse.jface.util.Assert.isNotNull",
+          "source": "Assert.java:139"
+        },
+        {
+          "method": "org.eclipse.jface.util.Assert.isNotNull",
+          "source": "Assert.java"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredSelection.\u003cinit\u003e",
+          "source": "StructuredSelection.java:61"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationView.launchConfigurationRemoved",
+          "source": "LaunchConfigurationView.java:264"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchManager$ConfigurationNotifier.run",
+          "source": "LaunchManager.java:1451"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchManager$ConfigurationNotifier.notify",
+          "source": "LaunchManager.java:1472"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchManager.launchConfigurationDeleted",
+          "source": "LaunchManager.java:693"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.delete",
+          "source": "LaunchConfiguration.java:326"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.DeleteLaunchConfigurationAction.performAction",
+          "source": "DeleteLaunchConfigurationAction.java:65"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.AbstractLaunchConfigurationAction$1.run",
+          "source": "AbstractLaunchConfigurationAction.java:103"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.AbstractLaunchConfigurationAction.run",
+          "source": "AbstractLaunchConfigurationAction.java:106"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog$ButtonActionDelete.run",
+          "source": "LaunchConfigurationsDialog.java:1614"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog$1.widgetSelected",
+          "source": "LaunchConfigurationsDialog.java:1569"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:583"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:563"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.open",
+          "source": "LaunchConfigurationsDialog.java:442"
+        },
+        {
+          "method": "org.eclipse.debug.ui.DebugUITools$1.run",
+          "source": "DebugUITools.java:391"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java"
+        },
+        {
+          "method": "org.eclipse.debug.ui.DebugUITools.openLaunchConfigurationDialogOnGroup",
+          "source": "DebugUITools.java:395"
+        },
+        {
+          "method": "org.eclipse.debug.ui.DebugUITools.openLaunchConfigurationDialogOnGroup",
+          "source": "DebugUITools.java:337"
+        },
+        {
+          "method": "org.eclipse.debug.ui.actions.OpenLaunchDialogAction.run",
+          "source": "OpenLaunchDialogAction.java:79"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:842"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:543"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$4",
+          "source": "ActionContributionItem.java:496"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$6.handleEvent",
+          "source": "ActionContributionItem.java:468"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2332"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:2315"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:858"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:79"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:41"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:386"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:299"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:765"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:599"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "44505",
+      "date": "2003-10-08T23:46:47+02:00",
+      "product": "Platform",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "44505",
+  "bugId": "44505",
+  "date": "2003-10-08T23:46:47+02:00",
+  "product": "Platform",
+  "component": "Debug",
+  "severity": "normal"
+}

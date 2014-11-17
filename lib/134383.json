@@ -1,0 +1,62 @@
+{
+  "comments": [
+    "When I add a pointcut like: \n\n  pointcut methodCallsTo(): call(* tracing.*.*(..));\n\nI get the below exception every _second_ save starting with the first.  The code\nseems to work though. \n\njava.lang.RuntimeException\nat org.aspectj.asm.AsmManager.verifyAssumption(AsmManager.java:748)\nat org.aspectj.asm.AsmManager.removeSingleNode(AsmManager.java:684)\nat org.aspectj.asm.AsmManager.processDelta(AsmManager.java:646)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:249)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.incrementalBuild(AjBuildManager.java:163)\nat org.aspectj.ajde.internal.CompilerAdapter.compile(CompilerAdapter.java:117)\nat org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run(AspectJBuildManager.java:191)\n\nRuntimeException thrown: Assertion is false",
+    "The route to the runtime exception seems to be the following:\n\n- from the code that tries to remove sources that have no valid relationships we get hold of the IProgramElement and if it has kind \"code\" then we call removeSingleNode(ipe).\n- in removeSingleNode(ipe) we first check whether ipe is non null (this isn\u0027t causing the RuntimeException)\n- we then get the parent via ipe.getParent()\n- we then get all the children via parent.getChildren()\n- we then loop through all the children and see if any of these are equal to the ipe we called the method with\n- if we find it then we remove the child, set deleteOK to be true and break out from the loop\n- the final call is to verifyAssumption(deleteOK)\n\nIn the case of this bug, deleteOK was false and so we get the RuntimeException.\n\nFor future reference, in the latest code from HEAD:\n\nAsmManager.java:748 - is now line 750\nAsmManager.java:684 - is now line 686\nAsmManager.java:646 - is now ine 648\n\nI\u0027ve not as yet though, been able to reproduce this bug, although I would imagine a full build (by pressing the build button or doing Project \u003e Clean) will stop you getting the RuntimeException. Could you provide any more information about your project?",
+    "I believe I fixed this bug with the recent overhaul to the incremental structure model repair code - I wasn\u0027t trying to recreate this but it happened to me.\n\nThe problem occurred because of a cache entry that wasnt being cleared out - we were looking for a CODE node that needed deleting by walking the tree, we would find one and then attempt to delete it.  Unfortunately the walking code and the deletion code were working with different program element structures for the source file in question - although a new one had been built (which did not contain the code node on this compile), the old one was still reachable via a cache (handleMap in AspectJElementHierarchy I think it was) - so we\u0027d walk the stale old one, find a node then attempt to remove it from the current model where it didnt exist - BANG.\n\nAs that build then fails, the next build is then full where no repairs are attempted, then the next build is incremental where this happens again - etc/etc - thats why it fails every second compile.\n\nso... does this happen for you on the latest AJDT (1.4.0 stream) since that includes the fix.",
+    "Helen informs me we have a testcase in for this, so closing as that works!"
+  ],
+  "commentCreationDates": [
+    "2006-04-01T23:10:43+02:00",
+    "2006-04-03T14:02:11+02:00",
+    "2006-05-18T12:05:32+02:00",
+    "2006-05-18T12:25:46+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "elements": [
+        {
+          "method": "org.aspectj.asm.AsmManager.verifyAssumption",
+          "source": "AsmManager.java:748"
+        },
+        {
+          "method": "org.aspectj.asm.AsmManager.removeSingleNode",
+          "source": "AsmManager.java:684"
+        },
+        {
+          "method": "org.aspectj.asm.AsmManager.processDelta",
+          "source": "AsmManager.java:646"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:249"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.incrementalBuild",
+          "source": "AjBuildManager.java:163"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:117"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:191"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "134383",
+      "date": "2006-04-01T23:10:43+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "major"
+    }
+  ],
+  "groupId": "134383",
+  "bugId": "134383",
+  "date": "2006-04-01T23:10:43+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "major"
+}

@@ -1,0 +1,62 @@
+{
+  "comments": [
+    "I\u0027ve written my own editor and EFS implementation, which works surprisingly well and easily :-) However, although the \u0027Compare With ... Each Other\u0027 functionality works, I can\u0027t see the local resource history changes (either for Compare With or Replace With ... Element from local history).\n\nIt\u0027s not the editor -- if I create a file on the normal filing system, I can use the local history changes -- but it doesn\u0027t get displayed as a menu item if the resource is on EFS.\n\nIs there anything I\u0027m missing to make this functionality happen? Or is the local history limited to using the local file system?",
+    "Very strange. Local history doesn\u0027t know or care about what file system the IResource is stored in.  I tried this with a toy EFS implementation I have here and it worked just fine.  If you create a text file in your EFS impl and edit with the built in Eclipse editor, do you get local history?  Are you using Compare With... from the editor context menu, or from the Navigator context menu?",
+    "I\u0027ll try that and get back to you. I used it from the navigator contextual menu. I should have been clearer in my original bug ... the local changes history isn\u0027t populated (as opposed to doesn\u0027t show changes). So, no matter how many times I make changes or save the file, no local change history entries are created (so therefore, I can\u0027t compare/replace with previous entries).\n\nI believe that the implementation doesn\u0027t return a value for the toLocalFile() (at the moment). It\u0027s quite possible that this is the problem?",
+    "The toLocalFile method is unrelated. You don\u0027t need to implement it for local history to work. ",
+    "This is getting weird. Here\u0027s what I\u0027ve managed to debug so far:\n\n1) When saving changes to files, caches are created in the .metadata\\.plugins\\org.eclipse.core.resources\\history\\ locations. So the changes are there.\n2) When doing Compare With-\u003eLocal history on a file on EFS that hasn\u0027t had any changes, it brings up a dialog box saying \u0027No changes for the local resource have been found\u0027 or similar.\n3) When doing Compare With-\u003eLocal history on a file on EFS that has had changes, I get nothing at all. No dialog box or message box shown at all. It\u0027s almost as if something is silently generating a null pointer exception in the processing.\n\nI\u0027ve checked that it\u0027s not the editor; if I create files on non-EFS, and make changes, they show up when I do the compare with. I\u0027ve also tested the file in the default text edtior on EFS, and I still don\u0027t see any local history. \n\nIt appears to be the intersection of the compare with action and my implementation of EFS that\u0027s causing this. I might be able to debug further from the compare action ...\n\nAha. This might be something to do with it:\n\njava.lang.NullPointerException\n\tat org.eclipse.compare.ResourceNode.getModificationDate(ResourceNode.java:78)\n\tat org.eclipse.compare.EditionSelectionDialog$10.compare(EditionSelectionDialog.java:868)\n\tat java.util.Arrays.mergeSort(Arrays.java:1284)\n",
+    "Here\u0027s at the offending line:\n\nIPath path\u003d fResource.getLocation();\nFile file\u003d path.toFile();\nreturn file.lastModified();\n\nWhat\u0027s happening is that the path contains a perfectly valid character, but the getLocation() is returning null. So path.toFile() is giving the NPE.\n\nThe getLocationURI() works for this file. Wasn\u0027t this one of the big no-no\u0027s for\nmoving towards EFS?",
+    "Result!\n\nModifying the org.eclipse.compare.ResourceNode.java file to use this implementation instead fixed the problem:\n\npublic long getModificationDate() {\n  try {\n    return EFS.getStore(fResource.getLocationURI()).fetchInfo().getLastModified();\n  } catch (CoreException e) {\n    e.printStackTrace();\n    return 0;\n  }\n}\n\nIn order to do this, I had to add a dependency between org.eclipse.compare and org.eclipse.core.filesystem. \n\nI\u0027ve punted the bug to platform/compare instead, seeing as it\u0027s not an EFS specific problem. (I am curious, though, why your implementation of EFS didn\u0027t exhibit this behaviour)",
+    "It\u0027s probably because you\u0027re using 3.2.1 and I was using the latest I-build.  In 3.3 compare/replace always uses the history view rather than the compare dialog, so this code path is no longer hit.  However, it should be fixed for any old clients using the compare dialogs.",
+    "Thanks for the pointer Alex. However, I decided to use IResource#getLocalTimeStamp() which amounts to the same thing.",
+    "Cool. Will this be backported to 3.2.x?",
+    "Typically only severe bugs are back-ported to the maintenance branch.",
+    "Pity. The fix doesn\u0027t seem to be that difficult or problematic, and it prevents an incredibly useful feature from being used with an EFS-backed filesystem. Still, I\u0027ve had to patch the core libraries for other EFS related things, so it won\u0027t exactly be difficult to patch this again for my own needs."
+  ],
+  "commentCreationDates": [
+    "2006-10-30T22:10:28+01:00",
+    "2006-10-31T20:30:32+01:00",
+    "2006-10-31T22:07:50+01:00",
+    "2006-11-01T15:47:42+01:00",
+    "2006-11-01T16:45:49+01:00",
+    "2006-11-01T16:58:34+01:00",
+    "2006-11-01T17:06:17+01:00",
+    "2006-11-01T17:17:49+01:00",
+    "2006-11-01T18:28:11+01:00",
+    "2006-11-01T21:37:14+01:00",
+    "2006-11-03T22:22:29+01:00",
+    "2006-11-03T22:37:57+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.compare.ResourceNode.getModificationDate",
+          "source": "ResourceNode.java:78"
+        },
+        {
+          "method": "org.eclipse.compare.EditionSelectionDialog$10.compare",
+          "source": "EditionSelectionDialog.java:868"
+        },
+        {
+          "method": "java.util.Arrays.mergeSort",
+          "source": "Arrays.java:1284"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "162808",
+      "date": "2006-11-01T16:45:49+01:00",
+      "product": "Platform",
+      "component": "Compare",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "162808",
+  "bugId": "162808",
+  "date": "2006-10-30T22:10:28+01:00",
+  "product": "Platform",
+  "component": "Compare",
+  "severity": "normal"
+}

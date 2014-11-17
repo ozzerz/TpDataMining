@@ -1,0 +1,111 @@
+{
+  "comments": [
+    "Eclipse Compiler 3.2 and 3.3 seems to generate wrong bytecode for nested try-finally blocks (see the code for reproducing below). \n\nApache Harmony throws VerifyError when running such class (java.lang.VerifyError: (class: Test, method: test()Z) A subroutine splits execution into several ret instructions) and BCEL 5.2 tool also reports verification issue (Instruction \u0027 53: ret[169](2) 1\u0027 is part of more than one subroutine (or of the top level and a subroutine)).\n\nPlease find more details below (see instruction \u002753: ret 1\u0027, it seems to return from 2 different subroutines depending on execution branch). \n\nIt seems that Sun verifier doesn\u0027t check this specific constraint in this case, but Apache Harmony and BCEL tool strictly follow specification which says: \n\n\"When executing the ret instruction, which implements a return from a subroutine, there must be only one possible subroutine from which the instruction can be returning.\" \n\nI might probably misunderstand what the specification says or how the bytecode below can be interpreted, so I would be very grateful for the explanations then. Thanks!\n\nTo reproduce:\n\n1. Create Test.java:\n-------------------------------------\npublic class Test {\n\n    public boolean test() {\n        try {\n            Thread.sleep(10);\n        } catch (Exception e) {\n        } finally {\n            try {\n                try {\n                    Thread.sleep(10);\n                } finally {\n                    Thread.sleep(10);\n                }\n            } catch (Exception e) {\n            }\n        }\n        return true;\n    }\n\n    public static void main(String[] args) {\n        new Test().test();\n        System.out.println(\"SUCCESS\");\n    }\n\n}\n-------------------------------------\n\n2. Compile Test.java (below) with Eclipse 3.2/3.3 compiler:\n\nC:\\jdk1.5.0_06\\bin\\java.exe -classpath c:\\work\\eut_eclipse\\eclipse\\plugins\\org.eclipse.jdt.core_3.2.0.v_671.jar org.eclipse.jdt.internal.compiler.batch.Main \n\nTest.java\n\n3. Output on Apache Harmony:\n\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\nApache Harmony Launcher : (c) Copyright 1991, 2006 The Apache Software Foundation or its licensors, as applicable.\njava version \"1.5.0\"\npre-alpha : not complete or compatible\nsvn \u003d r547521, (Jun 15 2007), Windows/ia32/msvc 1310, release build\nhttp://harmony.apache.org\nUncaught exception in main:\njava.lang.VerifyError: (class: Test, method: test()Z) A subroutine splits execution into several ret instructions\n        at java.lang.ClassLoader.defineClass0(ClassLoader.java)\n        at java.lang.ClassLoader.defineClass(ClassLoader.java:438)\n        at java.security.SecureClassLoader.defineClass(SecureClassLoader.java:70)\n        at java.net.URLClassLoader.access$3(URLClassLoader.java:1)\n        at java.net.URLClassLoader$URLHandler.createClass(URLClassLoader.java:261)\n        at java.net.URLClassLoader$URLFileHandler.findClass(URLClassLoader.java:560)\n        at java.net.URLClassLoader.findClassImpl(URLClassLoader.java:1194)\n        at java.net.URLClassLoader$4.run(URLClassLoader.java:889)\n        at java.net.URLClassLoader$4.run(URLClassLoader.java:1)\n        at java.security.AccessController.doPrivilegedImpl(AccessController.java:171)\n        at java.security.AccessController.doPrivileged(AccessController.java:64)\n        at java.net.URLClassLoader.findClass(URLClassLoader.java:891)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:575)\n        at java.lang.ClassLoader$SystemClassLoader.loadClass(ClassLoader.java:963)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:319)\nFAILED to invoke JVM.\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\nNote, that if \u0027-noverify\u0027 option is specified the test passes ok and all \"finally\" blocks are executed correctly.\n\n\nOutput on Sun Java 1.5 (with or without -Xfuture):\n\njava version \"1.5.0_06\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.5.0_06-b05)\nJava HotSpot(TM) Client VM (build 1.5.0_06-b05, mixed mode)\n\nSUCCESS\n\n4. The bytecode below corresponds to Eclipse compiler 3.2 compiled .class file:\n-----------------\nCompiled from \"Test.java\"\npublic class Test extends java.lang.Object{\npublic Test();\n  Code:\n   0: aload_0\n   1: invokespecial #8; //Method java/lang/Object.\"\u003cinit\u003e\":()V\n   4: return\n\npublic boolean test();\n  Code:\n   0: ldc2_w #13; //long 10l\n   3: invokestatic #15; //Method java/lang/Thread.sleep:(J)V\n   6: goto 55\n   9: pop\n   10: goto 55\n   13: astore_2\n   14: jsr 19\n   17: aload_2\n   18: athrow\n   19: astore_1\n   20: ldc2_w #13; //long 10l\n   23: invokestatic #15; //Method java/lang/Thread.sleep:(J)V\n   26: goto 46\n   29: astore 4\n   31: jsr 37\n   34: aload 4\n   36: athrow\n   37: astore_3\n   38: ldc2_w #13; //long 10l\n   41: invokestatic #15; //Method java/lang/Thread.sleep:(J)V\n   44: ret 3\n   46: jsr 37\n   49: goto 53\n   52: pop\n   53: ret 1\n   55: jsr 19\n   58: iconst_1\n   59: ireturn\n  Exception table:\n   from to target type\n     0 9 9 Class java/lang/Exception\n\n     0 13 13 any\n    55 58 13 any\n    20 29 29 any\n    46 49 29 any\n    20 52 52 Class java/lang/Exception\n\n\npublic static void main(java.lang.String[]);\n  Code:\n   0: new #1; //class Test\n   3: dup\n   4: invokespecial #25; //Method \"\u003cinit\u003e\":()V\n   7: invokevirtual #26; //Method test:()Z\n   10: pop\n   11: getstatic #28; //Field java/lang/System.out:Ljava/io/PrintStream;\n   14: ldc #34; //String SUCCESS\n   16: invokevirtual #36; //Method java/io/PrintStream.println:(Ljava/lang/String;)V\n   19: return\n\n}\n\n5. BCEL 5.2 tool (http://jakarta.apache.org/bcel) reports:\n\n$java -cp C:\\work\\harmony-jdk-r540603\\jre\\lib\\boot\\bcel-5.2\\bcel-5.2.jar;. org.apache.bcel.verifier.Verifier Test.class\n....\nPass 3b, method number 1 [\u0027public boolean test()\u0027]:\nVERIFIED_REJECTED\nConstraint violated in method \u0027public boolean test()\u0027:\nInstruction \u0027 53: ret[169](2) 1\u0027 is part of more than one subroutine (or of the top level and a subroutine).\n....",
+    "Here is a trackback URL:\nhttp://issues.apache.org/jira/browse/HARMONY-3862",
+    "A workaround is to use the option to inline jsrs.",
+    "Same bug is found in old 1.4 javac version (1.4.0_04).\nLatest versions of javac 1.4.2 are inlining the inner finally blocks. So they never end up with a shared ret bytecodes.",
+    "Using the option -XDjsrlimit\u003d0 with latest jdk1.4.2 produces a .class file that leads to the same error.",
+    "I think the problem comes from the exception handlers.\nIn theory, the line [20 52 52 Class java/lang/Exception] means that it is possible to escape from nested finally back into outer one; which must cause grief to bytecode verifier.\n\nNeed to check code generation, which is supposed to properly exit/reenter code blocks as appropriate (and this would indicate the bug if not doing it properly).\nI believe it should generate a sub interval for the nested finally block.",
+    "Actually, the exception handler is correct, to ensure the proper control transfer if an exception occurs at pc 41.\n\nCould it be that the spec is being too strict ? And the reason why Sun\u0027s verifier doesn\u0027t enforce the extra constraint ?",
+    "It seems that it is legal to return to a higher level in the subroutines call chain.\nFrom the JVMS (2nd edition):\nhttp://java.sun.com/docs/books/jvms/second_edition/html/ClassFile.doc.html#9308\n\n\"Each instance of type returnAddress can be returned to at most once. If a ret instruction returns to a point in the subroutine call chain above the ret instruction corresponding to a given instance of type returnAddress, then that instance can never be used as a return address.\"\n\nThis would mean that as long as the ret instruction is executed only once, this is fined. It would be a verify error if the ret 3 could be executed after the ret 1 has been executed.\n\nSo I would close this one as WONTFIX since the code generation is actually fine and it seems that the Harmony bytecode verifier is too strict.\n\nPhilippe, any comment on this ?",
+    "Makes sense, otherwise, I don\u0027t see how we could generate proper bytecode meeting runtime expectation (other than by inlining some subroutines, but this would feel a bit of a hack).\n\nI\u0027d like to hear back from Harmony verifier...",
+    "Then we should close as INVALID.\nI am waiting from an update coming from the Harmony team.",
+    "Closing as INVALID.",
+    "Thanks, Philippe and Olivier, for an excellent citation. It seems the following is true: a subroutine may conditionally branch to the code which is part of an upper level subroutine."
+  ],
+  "commentCreationDates": [
+    "2007-06-26T13:16:27+02:00",
+    "2007-07-05T14:45:02+02:00",
+    "2007-07-05T20:02:14+02:00",
+    "2007-07-05T21:25:38+02:00",
+    "2007-07-05T21:45:11+02:00",
+    "2007-07-09T13:07:50+02:00",
+    "2007-07-09T13:57:19+02:00",
+    "2007-07-09T18:17:47+02:00",
+    "2007-07-09T18:25:29+02:00",
+    "2007-07-09T18:33:32+02:00",
+    "2007-07-10T16:05:24+02:00",
+    "2007-07-10T23:06:01+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.VerifyError",
+      "message": "(class: Test, method: test()Z) A subroutine splits execution into several ret instructions",
+      "elements": [
+        {
+          "method": "java.lang.ClassLoader.defineClass0",
+          "source": "ClassLoader.java"
+        },
+        {
+          "method": "java.lang.ClassLoader.defineClass",
+          "source": "ClassLoader.java:438"
+        },
+        {
+          "method": "java.security.SecureClassLoader.defineClass",
+          "source": "SecureClassLoader.java:70"
+        },
+        {
+          "method": "java.net.URLClassLoader.access$3",
+          "source": "URLClassLoader.java:1"
+        },
+        {
+          "method": "java.net.URLClassLoader$URLHandler.createClass",
+          "source": "URLClassLoader.java:261"
+        },
+        {
+          "method": "java.net.URLClassLoader$URLFileHandler.findClass",
+          "source": "URLClassLoader.java:560"
+        },
+        {
+          "method": "java.net.URLClassLoader.findClassImpl",
+          "source": "URLClassLoader.java:1194"
+        },
+        {
+          "method": "java.net.URLClassLoader$4.run",
+          "source": "URLClassLoader.java:889"
+        },
+        {
+          "method": "java.net.URLClassLoader$4.run",
+          "source": "URLClassLoader.java:1"
+        },
+        {
+          "method": "java.security.AccessController.doPrivilegedImpl",
+          "source": "AccessController.java:171"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "AccessController.java:64"
+        },
+        {
+          "method": "java.net.URLClassLoader.findClass",
+          "source": "URLClassLoader.java:891"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:575"
+        },
+        {
+          "method": "java.lang.ClassLoader$SystemClassLoader.loadClass",
+          "source": "ClassLoader.java:963"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:319"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "194398",
+      "date": "2007-06-26T13:16:27+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "194398",
+  "bugId": "194398",
+  "date": "2007-06-26T13:16:27+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

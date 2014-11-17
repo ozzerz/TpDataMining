@@ -1,0 +1,116 @@
+{
+  "comments": [
+    "I have removed this test from M5, but we need to find out why it fails \nintermittently.\n\nworking dir should be the src directory. expected:\u003c/buildtest/I-I20031119-\n200311190010/eclipse-testing/test-eclipse/eclipse/jdt_folder/DebugTests/src\u003e \nbut was:\u003c/buildtest/I-I20031119-200311190010/eclipse-testing/test-\neclipse/eclipse/jdt_folder/DebugTests\u003e \n\njunit.framework.AssertionFailedError: working dir should be the src directory. \nexpected:\u003c/buildtest/I-I20031119-200311190010/eclipse-testing/test-\neclipse/eclipse/jdt_folder/DebugTests/src\u003e but was:\u003c/buildtest/I-I20031119-\n200311190010/eclipse-testing/test-eclipse/eclipse/jdt_folder/DebugTests\u003e\nat \norg.eclipse.jdt.debug.tests.core.WorkingDirectoryTests.testWorkspaceRelativeWork\ningDirectory(WorkingDirectoryTests.java:84)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\nat org.eclipse.jdt.debug.tests.AutomatedSuite$1.run(AutomatedSuite.java:154)\nat java.lang.Thread.run(Thread.java:534)",
+    "The next test failed, it didn\u0027t fail before. I think it\u0027s the same problem, just\nthat this test is now the first of it\u0027s type to be run.\n\nworking dir should be the src directory.\nexpected:\u003c/buildtest/I-I20031119-200311191827/eclipse-testing/test-eclipse/eclipse/jdt_folder/DebugTests/src\u003e\nbut\nwas:\u003c/buildtest/I-I20031119-200311191827/eclipse-testing/test-eclipse/eclipse/jdt_folder/DebugTests\u003e\n\njunit.framework.AssertionFailedError: working dir should be the src directory.\nexpected:\u003c/buildtest/I-I20031119-200311191827/eclipse-testing/test-eclipse/eclipse/jdt_folder/DebugTests/src\u003e\nbut\nwas:\u003c/buildtest/I-I20031119-200311191827/eclipse-testing/test-eclipse/eclipse/jdt_folder/DebugTests\u003e\nat\norg.eclipse.jdt.debug.tests.core.WorkingDirectoryTests.testAbsoluteWorkingDirectory(WorkingDirectoryTests.java:107)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\nat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\nat org.eclipse.jdt.debug.tests.AutomatedSuite$1.run(AutomatedSuite.java:154)\nat java.lang.Thread.run(Thread.java:534)",
+    "I tried to debug it, without much luck.\nMy idea was, that may be the new data for the launch configuration is not\n\u0027really\u0027 saved on the file system before the debug target is created from the\nlaunch configuration.\n\nI didn\u0027t find anything in the code that can generate this case. But that can be\na problem/feature of the filesystem, if there is a delay between when the data\nis saved and when the data is available to read.\nWe should ask releng.\n\n",
+    "I have removed the working directory tests from M5.",
+    "The LaunchConfigurationWorkingCopy implementation implements doSave() in a\nrunnable (in this case), which means the saved directory attribute may not be\nwritten to disk by the time the launch occurs. But, it\u0027s not clear that it\nmatters. Does the working directory for a new launch get initialized from the\nbits in the configuration file or can it just come from the LaunchConfiguration\ninstance? The getInfo().getAttribute() calls should get the values from memory\n(the up-to-date and correct values). If they come from the configuration file on\ndisk, then we should add synchronization between the doSave0() and the launch()\nso that we don\u0027t launch until the save to disk is finished. Comments?",
+    "When the launch configuration is written, we clear it from the cache of launch \nconfig infos. That means the old info is in the cache until the new one is \nwritten. This could be the timing issue.\n\nThere are two ways for us to remove the info from the cache - see \nLaunchManager.launchConfigurationChanged(...). This method is called for a \nlocal (non-shared) config when the file is written, or when a resource delta \nindicates a shared config file has changed. The timing on this could be \nproblematic (especically for shared configs).\n\nWe need to ensure the cache is not accessed while writting a config, to be \nsafe. Perpahs we can synch on it somehow.",
+    "Darin\u0027s comments make sense. Upon further inspection, I see that the runnable doSave() is \nsynchronous, so it\u0027s not inherent in our code to cause a timing issue there. I\u0027ll look at the cache. \nThanks for the comments.",
+    "I verified that, at least on the Mac platform, the sequence of calls that write the new config and \nclear the cache are all synchronous. They even occur all in the same thread so there appears no \nway to request the new config and get it from cache accidently due to any timing issues. The \nchange notification is all occuring after the config has been marked as changed. We could still \nsynch on the cache/file update, but I\u0027m not optimistic that will fix the problem. I still wonder if the \nfile stream is completely written in the underlying system before we read it back in the launch \nsequence. The input stream stream is closed, but I don\u0027t see where the output stream is flushed. \nThat\u0027s my next place to poke around.",
+    "Tracing the doSave() code to the bottom, the platform uses a FileOutputStream to\nwrite the updated launch configuration out to a file. FileOutputStream has no\nflush() method and the superclass does nothing on flush(). The documentation\nclaims that all buffered output is written to the file when the\nFileOutputStream.close() method is called, which is called in the platform\nimplementation. So, this takes it down a level into the specific JVM platform\nimplementation. I\u0027ll look around a bit, but we may also want to instrument the\ncode and put the test back in place so that we can verify my theories on the\ntest machines. For example, I claim that all of the actions and notifications\nare synchronous because they happen in the same thread. We could log some output\non a test failure that validates that assumption. Ideas?",
+    "Deferred",
+    "Re-opening. All the working directory tests work for me on 3.3Rc4 and should be re-instated in 3.4",
+    "Tests pass on XP and Linux.",
+    "Released old tests. Will watch in the builds...",
+    "Marking verified. Passing in nightly builds."
+  ],
+  "commentCreationDates": [
+    "2003-11-19T16:43:57+01:00",
+    "2003-11-20T06:39:04+01:00",
+    "2003-11-20T07:30:45+01:00",
+    "2003-11-20T14:24:38+01:00",
+    "2004-01-06T21:17:56+01:00",
+    "2004-01-06T21:33:13+01:00",
+    "2004-01-07T00:39:29+01:00",
+    "2004-01-07T02:38:54+01:00",
+    "2004-01-09T00:26:13+01:00",
+    "2004-05-12T17:36:12+02:00",
+    "2007-06-11T20:49:38+02:00",
+    "2007-06-11T20:50:05+02:00",
+    "2007-06-19T18:58:55+02:00",
+    "2007-06-25T16:25:56+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "junit.framework.AssertionFailedError",
+      "message": "working dir should be the src directory.  expected:\u003c/buildtest/I-I20031119-200311190010/eclipse-testing/test- eclipse/eclipse/jdt_folder/DebugTests/src\u003e but was:\u003c/buildtest/I-I20031119- 200311190010/eclipse-testing/test-eclipse/eclipse/jdt_folder/DebugTests\u003e",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.debug.tests.core.WorkingDirectoryTests.testWorkspaceRelativeWorkingDirectory",
+          "source": "WorkingDirectoryTests.java:84"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "org.eclipse.jdt.debug.tests.AutomatedSuite$1.run",
+          "source": "AutomatedSuite.java:154"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:534"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "46991",
+      "date": "2003-11-19T16:43:57+01:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "junit.framework.AssertionFailedError",
+      "message": "working dir should be the src directory. expected:\u003c/buildtest/I-I20031119-200311191827/eclipse-testing/test-eclipse/eclipse/jdt_folder/DebugTests/src\u003e but was:\u003c/buildtest/I-I20031119-200311191827/eclipse-testing/test-eclipse/eclipse/jdt_folder/DebugTests\u003e",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.debug.tests.core.WorkingDirectoryTests.testAbsoluteWorkingDirectory",
+          "source": "WorkingDirectoryTests.java:107"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "org.eclipse.jdt.debug.tests.AutomatedSuite$1.run",
+          "source": "AutomatedSuite.java:154"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:534"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 1,
+      "bugId": "46991",
+      "date": "2003-11-20T06:39:04+01:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "46991",
+  "bugId": "46991",
+  "date": "2003-11-19T16:43:57+01:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

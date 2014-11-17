@@ -1,0 +1,81 @@
+{
+  "comments": [
+    "We are having a serious problem with the Junit classpath using the web tools platform or a Java project. The Junit classpath does not seem to be the same as the project classpath even though you can see it listed as the same. I have attached a very simple project that has just one class and references a third party .jar file.\n\n1. Import the project in the attached .zip file into Eclipse\n2. Run the junit.classpath.Test.testJunitClasspath() test\n3. It fails with a NoClassDefFoundError for org.nfis.testutils.TestUtilities which is in the org.nfis.test.jar file on the projects classpath. (Oddly the junit.jar classes are found even though they are referenced in the same way!)\n4. Go to the top menu and select Run/Run...\n5. In the run dialog box, select the Ju Junit/Test\n6. Click on the Classpath Tab\n7. Expand the JunitClassPath node and see that the classpath listed is the same     \n   as the project\n8. Highlight the Bootstrap Entries\n9. Click Add Jar and select JunitClassPath/WebContent/WEB-INF/lib/org.nfis.test.jar and click OK\n10. Click Apply and Run, the test passes\n\nThis work around seems to prove that the org.nfis.test.jar file is valid and will make the test run if it can be found.\n\nI have tested this on three separate Eclipse 3.2.1 installations.",
+    "Created an attachment (id\u003d54507)\nContains a complete project which can be imported directly into Eclipse\n\n",
+    "Created an attachment (id\u003d54508)\nComplete project to be imported into Eclipse\n\n",
+    "I\u0027ve had the same issue, and have been able to replicate this ...",
+    "Can Web Tooling have a look at this? I\u0027m lacking experience with type resoving in the web tooling environment.\nEric, did you try to debug the class resolving?\nTo see the launch classpath of a project, open the properties on the launch object.",
+    "Assigning to myself for now ... to at least see who else to assign it to :) \n\n",
+    "Maybe this will take some discussion, but, I do not think it is a valid jar. \nI discovered this by accident, just poking around, but you can likly convince\nyourself that java can not read the jar, by the following test: just using \njava -jar (my console output pasted below). \n\nI did in fact \"hack\" into your jar, removed the problematic last line in the manifest.mf\nand then your scenario worked fine for me. \n\nThe scenario you found to work _might_ have been worked if you were using the OSGI runtime? I suspect it\u0027s friendlier about headers in the jar that it does not recognize?\n\n\u003d \u003d \u003d \u003d \u003d \u003d\n\nD:\\temp\\JunitClassPath\\WebContent\\WEB-INF\\lib\u003ejava -jar org.nfis.test.jar\nException in thread \"main\" java.io.IOException: invalid header field name: Test classes\n        at java.util.jar.Attributes.read(Unknown Source)\n        at java.util.jar.Manifest.read(Unknown Source)\n        at java.util.jar.Manifest.\u003cinit\u003e(Unknown Source)\n        at java.util.jar.JarFile.getManifestFromReference(Unknown Source)\n        at java.util.jar.JarFile.getManifest(Unknown Source)",
+    "Adding Pascal and Martin for confirmation and/or further comment. \n\nPascal, can you confirm the OSGI runtime is more forgiving of manifest headers? \n\nMartin, seems to me instead of \"class not found\" the \"real\" error of \"IOException\" (can\u0027t read jar manifest) should be surfaced. \n\nEric, what prompted you to add the line to your manifest? \n\"Test classes: This .jars files are for running tests.\"\n\nJust some college class :) ... or is there some common practice I don\u0027t know about? I think simply not using a space might work ... Test-classes: \n\nOr ... you can read all the nitty gritty at \nhttp://java.sun.com/j2se/1.5.0/docs/guide/jar/jar.html\n\n\n\n",
+    "Adding Darin (jdt.debug) for the comment:\n\u0027seems to me instead of \"class not found\" the \"real\" error of\n\"IOException\" (can\u0027t read jar manifest) should be surfaced.\u0027",
+    "(In reply to comment #8)\n\u003e Adding Darin (jdt.debug) for the comment:\n\u003e \u0027seems to me instead of \"class not found\" the \"real\" error of\n\u003e \"IOException\" (can\u0027t read jar manifest) should be surfaced.\u0027\n\u003e \nThis .jar was created using Ant invoked through Eclipse. The manifest line was used in the Ant script for documentation purposes. Here is the snippet from the script that created the .jar:\n\n\u003cjar destfile\u003d\"./test/org.nfis.test.jar\" duplicate\u003d\"preserve\"\u003e\n  \u003cfileset dir\u003d\"../Org.Nfis/bin\" \u003e\n    \u003cinclude name\u003d\"org/nfis/testutils/TestUtilities.*\"/\u003e\n    \u003cinclude name\u003d\"org/nfis/testutils/HttpUnitTestUtils.*\"/\u003e\n  \u003c/fileset\u003e  \n  \u003cmanifest\u003e\n        \u003cattribute name\u003d\"Test classes\" value\u003d\"This .jars files are for running     tests.\"/\u003e\n    \u003c/manifest\u003e\n\u003c/jar\u003e\n\nThere was never any \"manual\" editing of the manifest created by Ant.\n\nIf you follow the instructions I included with my original comments and add the org.nfis.test.jar to the \"Bootstrap Entries\" classpath for running the test you will see Java/Eclipse has no problem using the org.nfis.test.jar. ",
+    "(In reply to comment #6)\nThere is no \"main\" method in this .jar. The .jar is not meant to be run by Java from the command line. It is a very simple library used for demonstrating the problem we are having with the Junit classpath.\n\nHowever... great to see that removing the line feed at the end of the manifest file solves this problem. Ant must be adding this extra line feed as we have the same problem with all the .jars we are generating using scripts with Ant in Eclipse. No one has ever manually edited the .manifest files.",
+    "(In reply to comment #10)\nJust to clarify, I only removed the line feed at the end of the manifest to make this run. The line \"Test classes: This .jars files are for running tests.\" is still in the manifest file.",
+    "According to the JAR file manifest specification, the newline before the end of \"main section\" of the manifest file is required. To quote: \"A JAR file manifest consists of a main section followed by a list of sections for individual JAR file entries, each separated by a newline\". This link (http://java.sun.com/j2se/1.5.0/docs/guide/jar/jar.html#JAR%20Manifest) includes BNF for the manifest specification.\n\nANT is creating the JAR manifest file correctly - which makes sense as it uses the jar executable which is included as part of the Sun Java SDK. The problem must lie with how the manifest is being parsed by the JUnit plugin.\n\nThis bug is not \"resolved\"!",
+    "\"The Ant team regularly gets complaints that this task in generating invalid manifests. By and large, this is not the case: we believe that we are following the specification to the letter. The usual problem is that some third party manifest reader is not following the same specification as well as they think they should; we cannot generate invalid manifest files just because one single application is broken. J2ME runtimes appear to be particularly troublesome.\"\n\nhttp://ant.apache.org/manual/CoreTasks/manifest.html",
+    "David Lewis, I agree with you. The new lines are spec\u0027d and required. In fact, see http://bugs.sun.com/bugdatabase/view_bug.do?bug_id\u003d4274235 \nthat long standing bug explains why Eric\u0027s test succeeded ... the last line \nis ignored! if not terminated by 2 EOLs. \n\nI wrote a small program to read a jar\u0027s manifest, and found the problem is indeed the space in the name, as I originally suggested. That is, the \nspace in \"Test classes:\".  And ... before you start on me :) ...  I know the spec sounds like it should accept it (\"any unicode character\"), but every JRE I tried (2 from sun and one from ibm) are implemented to require only alpha characters (literally a-z,A-Z), digits, and \"_\" and \"-\". So ... avoiding the space(s) will allow you to continue to use ant\u0027s jar task in full confidence :) \n\n\nThe \"bootstrap entries\" you mention originally, is an OSGI bundle loader construct, so, I suspect they do a better job of meeting the jar manifest spec. \n\nSo, I think this is (still) resolved from an Eclipse point of view. You could open an enhancement request that Eclipse always use their own manifest parser so they could be more in spec than the main JRE\u0027s are ... but, I\u0027m pretty sure that wouldn\u0027t go too far. Let us know, though, if you open a bug on Sun\u0027s JRE that they do not allow spaces, contrary to spec ... if you think it at all worth it. \n\n",
+    "(In reply to comment #14)\nThanks David, I realize now that the space in the header is causing the problem in this case (Good find by the way). I will let others debate the \"legality\" of the space. I think the thing that threw me off the most is the fact that the compiler in Eclipse accepts this .jar on the classpath but Junit does not. In fact it is not just Junit. If you insert a main() into the juint.classpath.Test the same behaviour occurs. The class compiles, obviously the class is found by the compiler but when it runs you get the ClassNotFound exception.",
+    "Closing as part of mass query to clean up old resolved bugs in untargetted milestones."
+  ],
+  "commentCreationDates": [
+    "2006-11-24T23:07:03+01:00",
+    "2006-11-24T23:09:35+01:00",
+    "2006-11-24T23:15:29+01:00",
+    "2006-11-28T19:13:06+01:00",
+    "2006-12-15T09:41:21+01:00",
+    "2006-12-16T20:36:03+01:00",
+    "2006-12-20T05:03:35+01:00",
+    "2006-12-20T05:21:20+01:00",
+    "2006-12-20T08:50:07+01:00",
+    "2006-12-20T16:39:31+01:00",
+    "2006-12-20T16:57:08+01:00",
+    "2006-12-20T17:03:21+01:00",
+    "2006-12-20T18:30:06+01:00",
+    "2006-12-21T00:00:30+01:00",
+    "2006-12-21T04:12:46+01:00",
+    "2006-12-21T16:42:49+01:00",
+    "2007-04-03T17:49:09+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.IOException",
+      "message": "invalid header field name: Test classes",
+      "elements": [
+        {
+          "method": "java.util.jar.Attributes.read",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.util.jar.Manifest.read",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.util.jar.Manifest.\u003cinit\u003e",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.util.jar.JarFile.getManifestFromReference",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.util.jar.JarFile.getManifest",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 6,
+      "bugId": "165834",
+      "date": "2006-12-20T05:03:35+01:00",
+      "product": "Web Tools",
+      "component": "Web Standard Tools",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "165834",
+  "bugId": "165834",
+  "date": "2006-11-24T23:07:03+01:00",
+  "product": "Web Tools",
+  "component": "Web Standard Tools",
+  "severity": "critical"
+}

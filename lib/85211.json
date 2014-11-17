@@ -1,0 +1,119 @@
+{
+  "comments": [
+    "java.lang.Exception when importing log files.\n\nWhen importing a log file using the Hyades v3.3 (20050214_1001), the following \nexception is thrown in the .log file:\n\n!ENTRY org.eclipse.osgi Feb 14, 2005 15:59:06.139\n!MESSAGE While loading \nclass \"org.eclipse.hyades.logging.adapter.ui.internal.util.TestContextListener\",\n thread \"Worker-6\" timed out waiting (5000ms) for thread \"Worker-2\" to finish \nstarting bundle \"org.eclipse.hyades.logging.adapter.ui\". To avoid deadlock, \nthread \"Worker-6\" is proceeding \nbut \"org.eclipse.hyades.logging.adapter.ui.internal.util.TestContextListener\" \nmay not be fully initialized.\n!STACK 0\njava.lang.Exception: Generated exception.\n\tat org.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass\n(EclipseClassLoader.java(Compiled Code))\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass\n(BundleLoader.java(Compiled Code))\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass\n(BundleLoader.java(Compiled Code))\n\tat org.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass\n(AbstractClassLoader.java(Compiled Code))\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java(Compiled Code))\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.loadClass\n(BundleLoader.java:307)\n\tat org.eclipse.osgi.framework.internal.core.BundleHost.loadClass\n(BundleHost.java:336)\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.loadClass\n(AbstractBundle.java:1313)\n\tat \norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtensio\nn(ConfigurationElement.java:131)\n\tat \norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtensio\nn(ConfigurationElement.java:124)\n\tat \norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtensio\nn(ConfigurationElement.java:113)\n\tat org.eclipse.hyades.logging.adapter.AdapterPlugin.getContextListeners\n(AdapterPlugin.java)\n\tat org.eclipse.hyades.logging.adapter.impl.Controller.prepareAdapter\n(Controller.java)\n\tat org.eclipse.hyades.logging.adapter.Adapter.start(Adapter.java)\n\tat org.eclipse.hyades.logging.adapter.config.StaticParserWrapper.parse\n(StaticParserWrapper.java)\n\tat \norg.eclipse.hyades.log.ui.internal.wizards.LocalLogParserLoader.startParsing\n(LocalLogParserLoader.java)\n\tat \norg.eclipse.hyades.log.ui.internal.wizards.ImportLogWizard$LocalLogImportJob.run\nOnLocalHost(ImportLogWizard.java)\n\tat \norg.eclipse.hyades.log.ui.internal.wizards.ImportLogWizard$LocalLogImportJob.run\n(ImportLogWizard.java)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:66)",
+    "This should be linked with the port to the OSGI framework",
+    "Decreasing severity since log files imported seemingly correctly despite the \nexception in the .log file.",
+    "This is a synchronization problem with the GLA AdapterPlugin.getContextListeners\n() method.  Here is the investigation done by Terry Fountoulakis:\n\n++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\nThis bug concerns an exception being thrown to the Eclipse log file, when \nmultiple log files are imported at once.  In my tests there were no visible \nproblems as a result of the exception in the UI, and neither from Paul.  I \nthink though that this problem has the potential of causing a problem.\n\nWhen multiple files are imported, they\u0027re launched by different worker \nthreads.  Each thread calls AdapterPlugin.getContextListeners().  This in turn, \nloads context listeners by querying the class from an extention point.  It then \nloads the class, which causes the exception to occur in \nEclipseClassLoader.findLocalClass(String).  One or more of the worker threads \nhold on to the bundle for 5 seconds at least, leaving one thread unable to \nproceed from the lock within 5 seconds and this exception is thrown and written \nto the log file on line 102 in that class file.  The lock in this eclipse \ninternal code is for 5 seconds, as I believe they implemented so that their \nwould be no deadlock.\n\nWe can make sure that only one call is made to getContextListeners() at a time, \nby synchronizing the method.  This prevents the exception from being thrown and \nthe potential problem of having some instance not have the proper context \nlisteners.\n\nSo the change would consist of changing the getContextListeners() method in \norg.eclipse.hyades.logging.adapter.AdapterPlugin to:\npublic synchronized static List getContextListeners().\n+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n\nThis exception does not cause a problem in the log import case because the \ncontext listeners are not used by the log import operation.  The \nTestContextListener is only used by the GLA configuration file editor when it \nis validating or running adapter files. There is a low probability that two \nadapter files will be run or validated at the same time in the GLA editor.\n\nThis is a low priority bug and therefore will be deferred to 3.3 i2.",
+    "This is a valid bug.",
+    "Committed fix to AdapterPlugin class to Hyades 3.3 and TPTP 4.0 Head streams.",
+    "Verified in Toronto\u0027s Hyades 3.3 (20050317_1102 build of HEAD) driver on March \n21, 2005.",
+    "Closing."
+  ],
+  "commentCreationDates": [
+    "2005-02-15T00:47:32+01:00",
+    "2005-02-15T01:38:17+01:00",
+    "2005-02-16T14:43:51+01:00",
+    "2005-02-16T21:52:00+01:00",
+    "2005-02-16T22:15:56+01:00",
+    "2005-03-14T17:10:36+01:00",
+    "2005-03-21T18:46:06+01:00",
+    "2005-03-21T18:46:16+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.Exception",
+      "message": "Generated exception.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass",
+          "source": "EclipseClassLoader.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+          "source": "BundleLoader.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass",
+          "source": "AbstractClassLoader.java(Compiled Code)"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.loadClass",
+          "source": "BundleLoader.java:307"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.loadClass",
+          "source": "BundleHost.java:336"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.loadClass",
+          "source": "AbstractBundle.java:1313"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:131"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:124"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:113"
+        },
+        {
+          "method": "org.eclipse.hyades.logging.adapter.AdapterPlugin.getContextListeners",
+          "source": "AdapterPlugin.java"
+        },
+        {
+          "method": "org.eclipse.hyades.logging.adapter.impl.Controller.prepareAdapter",
+          "source": "Controller.java"
+        },
+        {
+          "method": "org.eclipse.hyades.logging.adapter.Adapter.start",
+          "source": "Adapter.java"
+        },
+        {
+          "method": "org.eclipse.hyades.logging.adapter.config.StaticParserWrapper.parse",
+          "source": "StaticParserWrapper.java"
+        },
+        {
+          "method": "org.eclipse.hyades.log.ui.internal.wizards.LocalLogParserLoader.startParsing",
+          "source": "LocalLogParserLoader.java"
+        },
+        {
+          "method": "org.eclipse.hyades.log.ui.internal.wizards.ImportLogWizard$LocalLogImportJob.runOnLocalHost",
+          "source": "ImportLogWizard.java"
+        },
+        {
+          "method": "org.eclipse.hyades.log.ui.internal.wizards.ImportLogWizard$LocalLogImportJob.run",
+          "source": "ImportLogWizard.java"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:66"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "85211",
+      "date": "2005-02-15T00:47:32+01:00",
+      "product": "Hyades",
+      "component": "Exec.logging",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "85211",
+  "bugId": "85211",
+  "date": "2005-02-15T00:47:32+01:00",
+  "product": "Hyades",
+  "component": "Exec.logging",
+  "severity": "normal"
+}

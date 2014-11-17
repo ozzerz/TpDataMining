@@ -1,0 +1,110 @@
+{
+  "comments": [
+    "20040413\n\nFound this exception in the console.\nMy guess is that came from visiting the AST from multiple threads. The cursor \nmanagment doesn\u0027t seem to be thread save.\n\n\njava.lang.NullPointerException\n        at java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n        at java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n        at java.lang.NullPointerException.\u003cinit\u003e(NullPointerException.java:60)\n        at org.eclipse.jdt.core.dom.ASTNode$NodeList.releaseCursor\n(ASTNode.java)\n\n        at org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java)\n        at org.eclipse.jdt.core.dom.CompilationUnit.accept0\n(CompilationUnit.java\n)\n        at org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java)\n        at \norg.eclipse.jdt.internal.ui.javaeditor.OverrideIndicatorManager.updat\neAnnotations(OverrideIndicatorManager.java)\n        at \norg.eclipse.jdt.internal.ui.javaeditor.OverrideIndicatorManager.recon\nciled(OverrideIndicatorManager.java:271)\n        at \norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.reconcil\ned(CompilationUnitEditor.java)\n        at \norg.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.reconci\nle(JavaReconcilingStrategy.java)\n        at \norg.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.reconci\nle(JavaReconcilingStrategy.java:118)\n        at \norg.eclipse.jface.text.reconciler.CompositeReconcilingStrategy.reconc\nile(CompositeReconcilingStrategy.java)\n        at \norg.eclipse.jdt.internal.ui.text.JavaCompositeReconcilingStrategy.rec\noncile(JavaCompositeReconcilingStrategy.java)\n        at org.eclipse.jface.text.reconciler.MonoReconciler.process\n(MonoReconcil\ner.java:76)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java)",
+    "Jim, any comment?",
+    "The problem does indeed look like its caused by multiple threads accessing the \nsame AST. No aspect of ASTs is thread-safe (not even for just reading).\n\nASTNode\n * AST nodes are \u003cb\u003enot\u003c/b\u003e thread-safe; this is true even for trees that\n * are read-only. If synchronization is required, consider using the common AST\n * object that owns the node; that is, use \n * \u003ccode\u003esynchronize (node.getAST()) {...}\u003c/code\u003e.\n\n",
+    "Reopening. Investigate how to make ASTs thread safe for reading.",
+    "Ensuring that AST is safe for separate threads reading the same AST required \ntwo kinds of changes:\n(1) ASTNode.NodeList.newCursor() and releaseCursor().\nBoth of these methods are used by ASTVisitor while visiting nodes. The methods\nmodify an internal list of known cursors. Adding internal synch on \nNodeList.this makes these thread-safe for readers. Minor performance impact \nonly for ASTVisitors.\n(2) various getXXX() methods on node subclasses.\nThese methods do lazy init, which actually creates new nodes and modifies the \nnode being accessed. There are no callbacks during lazy init (there is already \na mechanism that prevents callbacks from within callbacks). Adding internal \nsync on ASTNode.this make lazy init sequence thread-safe for readers. No issue \nwith performance since lazy init is not on critical path (nodes created by \nASTParser are explicitly init\u0027d).\n\nUpdated comment on ASTNode to say that ASTs are safe for multiple readers\n(but still utterly unsafe if there are any writers).\n",
+    "Great, thank a lot, Jim!\nI was thinking that some more locks ar required in the BindingResolver at \nplaces where the binding elements are created and cached.",
+    "Reopening while investigating possible need for further locks.",
+    "Indeed, two more kinds of changes were required:\n(3) AST.disableEvents\nLazy init causes this instance variable to be modified. Adding internal \nsync (on AST.internalAstLock) to make event management thread-safe for readers.\n(4) BindingResolver\nAny of the methods could be called by a reader. Adding internal \nsync on DefaultBindingResolver to make binding lookup thread-safe for readers.\n\n",
+    "*** Bug 58428 has been marked as a duplicate of this bug. ***",
+    "Verified that code is in 200405180816"
+  ],
+  "commentCreationDates": [
+    "2004-04-13T17:45:43+02:00",
+    "2004-04-13T18:37:18+02:00",
+    "2004-04-13T19:04:18+02:00",
+    "2004-04-16T02:50:19+02:00",
+    "2004-04-16T05:35:37+02:00",
+    "2004-04-16T09:34:25+02:00",
+    "2004-04-16T15:14:43+02:00",
+    "2004-04-16T18:30:49+02:00",
+    "2004-04-18T18:07:11+02:00",
+    "2004-05-18T19:10:06+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.NullPointerException.\u003cinit\u003e",
+          "source": "NullPointerException.java:60"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode$NodeList.releaseCursor",
+          "source": "ASTNode.java"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.CompilationUnit.accept0",
+          "source": "CompilationUnit.java "
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.OverrideIndicatorManager.updateAnnotations",
+          "source": "OverrideIndicatorManager.java"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.OverrideIndicatorManager.reconciled",
+          "source": "OverrideIndicatorManager.java:271"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.reconciled",
+          "source": "CompilationUnitEditor.java"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.reconcile",
+          "source": "JavaReconcilingStrategy.java"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.reconcile",
+          "source": "JavaReconcilingStrategy.java:118"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.CompositeReconcilingStrategy.reconcile",
+          "source": "CompositeReconcilingStrategy.java"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.JavaCompositeReconcilingStrategy.reconcile",
+          "source": "JavaCompositeReconcilingStrategy.java"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.MonoReconciler.process",
+          "source": "MonoReconcil er.java:76"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread.run",
+          "source": "AbstractReconciler.java"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "58314",
+      "date": "2004-04-13T17:45:43+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "58314",
+  "bugId": "58314",
+  "date": "2004-04-13T17:45:43+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

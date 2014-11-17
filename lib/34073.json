@@ -1,0 +1,106 @@
+{
+  "comments": [
+    "build i0306 (2359), linux-gtk, redhat 8, ibm jre 1.3.1\n\nStarted the new build on my old workspace and found the following NPE in my log\nfile. (no dialog to the user)\n\n!MESSAGE Problems occurred when invoking code from plug-in:\n\"org.eclipse.core.resources\".\n!STACK 0\njava.lang.NullPointerException\n        at\norg.eclipse.ui.views.tasklist.TasksFilter.selectByAttributes(TasksFilter.java(Compiled\nCode))\n        at\norg.eclipse.ui.views.tasklist.TasksFilter.selectByAttributes(TasksFilter.java(Compiled\nCode))\n        at\norg.eclipse.ui.views.tasklist.TasksFilter.selectByAttributes(TasksFilter.java(Compiled\nCode))\n        at\norg.eclipse.ui.views.tasklist.TaskListContentProvider.resourceChanged(TaskListContentProvider.java(Compiled\nCode))\n        at\norg.eclipse.ui.views.tasklist.TaskListContentProvider.resourceChanged(TaskListContentProvider.java(Compiled\nCode))\n        at\norg.eclipse.core.internal.events.NotificationManager$1.run(NotificationManager.java:137)\n        at org.eclipse.core.runtime.Platform.run(Platform.java(Compiled Code))\n        at org.eclipse.core.runtime.Platform.run(Platform.java(Compiled Code))\n        at\norg.eclipse.core.internal.events.NotificationManager.notify(NotificationManager.java:152)\n        at\norg.eclipse.core.internal.events.NotificationManager.broadcastChanges(NotificationManager.java:67)\n        at\norg.eclipse.core.internal.resources.Workspace.broadcastChanges(Workspace.java:161)\n        at\norg.eclipse.core.internal.resources.Workspace.endOperation(Workspace.java(Compiled\nCode))\n        at org.eclipse.core.internal.resources.Workspace.build(Workspace.java:187)\n        at\norg.eclipse.jdt.internal.ui.wizards.buildpaths.VariableBlock$VariableBlockRunnable.run(VariableBlock.java:371)\n        at\norg.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:95)",
+    "Note I got this message again after re-importing all my binary projects. \nAuto-build is on.\n",
+    "This is the same JIT bug we\u0027ve been seeing with the IBM 1.3.1 VM.\nOne theory is:\n- it tries to inline the call to MarkerDelta.getAttribute(String, String) in \nTasksFilter.selectByAttributes\n- getAttribute(String, String) has the following pattern:\n\tAssert.isTrue(false);\n\t// avoid compiler error\n\treturn null;\nSo if it reaches here (the value is not null and is not a String for some \nreason), the assertion failed will always get thrown and the return null \nshould never be reached.\nIf the JIT fails on this case, and generates just the return null code \ninstead, then null will be returned, contrary to the spec.\n- TasksFilter.selectByAttributes then calls checkDescription with the null \nstring.\n- This in turn calls containsSubstring.\n- It calls length() on the null substring and generates the NPE.\n- This is 2 stack frames down from selectByAttributes, so if the JIT inlined \nthese, the stack trace might well look like the one above.\n\nOf course, this is just a theory since we don\u0027t have a reproduceable case.\nWe should try to determine if it\u0027s possible to get a non-null, non-String \nvalue for this attribute.  In some other PRs, we have seen \nAssertionFailedExceptions getting thrown as well, which would be the correct \nresponse to such a value.\n\nIn the meantime, we have added a null check to checkDescription.\n\nCore could also change the unreachable code in getAttribute to not return null.\nThe best option would be to return the defaultValue.\nThis should be done in all getAttribute methods.\n\nThe assertions should also be taken out for consistency with Marker.\n\nLeaving this PR in UI for now until we determine whether it\u0027s possible for the \nattribute value to be non-null and non-String.\n",
+    "No further action planned for 2.1.\nMoving to Core to consider changes to MarkerDelta.getAttribute methods, post \n2.1.",
+    "I looked through our calls to getAttribute, and could not see how any of the \nattributes in use here could have the incorrect type.\n",
+    "Old Summary:\n  [Tasks] NPE in TasksFilter.selectByAttributes\n\nSee Nick\u0027s comments above.\n\nBasically MarkerDelta.getAttribute(String, String) has a \"return null\" to avoid \na compiler warning but this code is never reached. We surmise that in some \ncases (JIT problem) this code might actually be reached and the null be \nreturned. So we should change it to return the empty string in the non-\nreachable case.",
+    "Why not make it work the same as IMarker and have it return the default value?  \nIt\u0027s confusing to have different behaviours for the same methods.\n",
+    "True.\nConsider changing the API for 2.2.",
+    "Fixed in HEAD.  IMarkerDelta spec updated to clarify behaviour here.  The\nbehaviour in this case was previously unspecified, but now it is in line with\nthe spec of IMarker.",
+    "*** Bug 33882 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2003-03-07T12:50:59+01:00",
+    "2003-03-07T12:54:22+01:00",
+    "2003-03-07T17:14:57+01:00",
+    "2003-03-12T16:18:42+01:00",
+    "2003-03-12T16:19:14+01:00",
+    "2003-03-12T18:39:25+01:00",
+    "2003-03-12T20:04:35+01:00",
+    "2003-03-12T21:45:40+01:00",
+    "2003-04-16T22:58:24+02:00",
+    "2005-01-12T21:42:05+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.views.tasklist.TasksFilter.selectByAttributes",
+          "source": "TasksFilter.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.views.tasklist.TasksFilter.selectByAttributes",
+          "source": "TasksFilter.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.views.tasklist.TasksFilter.selectByAttributes",
+          "source": "TasksFilter.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.views.tasklist.TaskListContentProvider.resourceChanged",
+          "source": "TaskListContentProvider.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.views.tasklist.TaskListContentProvider.resourceChanged",
+          "source": "TaskListContentProvider.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager$1.run",
+          "source": "NotificationManager.java:137"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.notify",
+          "source": "NotificationManager.java:152"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.broadcastChanges",
+          "source": "NotificationManager.java:67"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.broadcastChanges",
+          "source": "Workspace.java:161"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.endOperation",
+          "source": "Workspace.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.build",
+          "source": "Workspace.java:187"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.wizards.buildpaths.VariableBlock$VariableBlockRunnable.run",
+          "source": "VariableBlock.java:371"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:95"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "34073",
+      "date": "2003-03-07T12:50:59+01:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "34073",
+  "bugId": "34073",
+  "date": "2003-03-07T12:50:59+01:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "normal"
+}

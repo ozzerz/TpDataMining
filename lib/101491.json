@@ -1,0 +1,126 @@
+{
+  "comments": [
+    "Remote OS: HP-UX\nLocal  OS: Windows XP\n\nImporting a non-existing log file from HP-UX doesn\u0027t produce any errors in the\nworkbench.  The workbench just display \u0027importing log file...\u0027 and it never ends.",
+    "Transferring to the correct componet.",
+    "Alex, please take a look at the problem.",
+    "Yes, it looks like a UI problem.  Changing to the monitor.UI component:\n\n\nHere\u0027s the stack trace:\n\n!ENTRY org.eclipse.tptp.monitoring.logui 4 2 2005-06-23 12:02:35.566\n!MESSAGE Problems occurred when invoking code from plug-in:\n\"org.eclipse.tptp.monitoring.logui\".\n!STACK 0\njava.lang.NullPointerException\n\tat\norg.eclipse.tptp.monitoring.logui.internal.wizards.ImportLogWizard$LogImportJobListener.done(ImportLogWizard.java:1505)\n\tat org.eclipse.core.internal.jobs.JobListeners$3.notify(JobListeners.java:39)\n\tat org.eclipse.core.internal.jobs.JobListeners.doNotify(JobListeners.java:112)\n\tat org.eclipse.core.internal.jobs.JobListeners.done(JobListeners.java:158)\n\tat org.eclipse.core.internal.jobs.JobManager.endJob(JobManager.java:477)\n\tat org.eclipse.core.internal.jobs.WorkerPool.endJob(WorkerPool.java:100)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:92)\n\n!ENTRY org.eclipse.core.runtime 4 2 2005-06-23 12:02:35.596\n!MESSAGE An internal error occurred during: \"Importing log file...\".\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.swt.widgets.Display.asyncExec(Display.java:578)\n\tat\norg.eclipse.tptp.monitoring.logui.internal.wizards.ImportLogWizard$RemoteLogImportJob.stop(ImportLogWizard.java:1144)\n\tat\norg.eclipse.tptp.monitoring.logui.internal.wizards.ImportLogWizard$RemoteLogImportJob.monitorProgress(ImportLogWizard.java:1277)\n\tat\norg.eclipse.tptp.monitoring.logui.internal.wizards.ImportLogWizard$RemoteLogImportJob.runOnRemoteHost(ImportLogWizard.java:1251)\n\tat\norg.eclipse.tptp.monitoring.logui.internal.wizards.ImportLogWizard$RemoteLogImportJob.run(ImportLogWizard.java:1192)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)\n",
+    "What happens is the UI is listening for error messages from the GLA. If not \nerror message is displayed that measn that three things could have happened:\n- the GLA is not sending the error message\n- the GLA is trying to send but because some RAC communication problems the \nmessage is not sent to the client.\n- the message is sent but too late, the client timeout has expired and the \nclient has finished listening to the error channel.\n\nCould you please do me a favor and turn debug on the RAC, try the same scenario \nagain and send me the RAC log file.\nThanks.",
+    "Created an attachment (id\u003d23878)\nRAC log file in debug mode\n\nHere\u0027s the RAC log file in debug mode.\tIt starts from the point where the RAC\nis started to the point where the defect is reproduced.\n\nThere\u0027s no high severity messages logged to this file.\n\nAlso note that the the following error is continuously displayed on the prompt\nof HP-UX: \"sh: kmtune:\tnot found.\"\n\n\u0027kmtune\u0027 is used in HP-UX to query/set system parameters.",
+    "I don\u0027t receive any agentInactive event on the error agent listener. The import \nlog monitoring client thinks that errors are still to come and doesn\u0027t finish \nthe job. There is no TCPDataServer.shutdown() server called on the error data \nchannel.",
+    "Based on the investigations I did, I conclude that this is not a UI problem. \nDave can you please further investigate. \nThanks.",
+    "I ran the code with a system.out debug  statement in the \norg.eclipse.hyades.internal.execution.local.control.AgentImpl.handleCommand(), \nand in\norg.eclipse.hyades.internal.execution.local.control.AgentImpl.processExited() \nand this time \nI got the error agent inactive event, which makes me think it\u0027s a \nsynchronization problem in the client execution framework.",
+    "Scott, I am assigning this problem to you.  I have tracked the problem down to \nthe changes you made to ProcessImpl and AgentImpl to prevent memory leaks \n(bugzilla 99368).  AgentImpl.cleanup() calls _process.removeProcessListener\n(this); (twice) to remove this agent from the process\u0027 listeners.  However, \nAgentImpl.cleanup() is called from AgentImpl.processExited() which is in turn \ncalled from the following code fragment in ProcessImpl.handleCommand when \nprocessing a RA_PROCESS_EXITED command:\n\nif(!_isComplete) {\n\t_isComplete\u003dtrue;\n\tsynchronized(_listeners) {\n       \t\tEnumeration enum\u003d_listeners.elements();\n\t\twhile(enum.hasMoreElements()) {\n\t\t\t((ProcessListener)enum.nextElement()).processExited\n(this);\n\t\t}\n\t}\n\t\t\t\t\n\t// Clean up process members as the process exits (avoid memory leaks)\n\tthis._listeners.clear(); \n\tthis._variables.clear();\n\tthis._agents.clear();\n}\n\nEntries in ProcessImpl._listeners vector are being removed while the vector is \nbeing stepped through which results in some listeners not being with their \nprocessExited method.  In our case the \"Remote Log Loader Error IRemoteEntity\" \nagent\u0027s processExited method does not get called so its listener agentInactive\n() method isn\u0027t called which results in a hang in the Log Import wizard code \nwhile it waits for the agent inactive notification.\n\nTo fix this, I suggest removing the two calls to _process.removeProcessListener\n(this); from AgentImpl.cleanup().  The ProcessImpl._listener vector is cleared \nin RA_PROCESS_EXITED handler anyways.\n\nI notice that the same code is in 3.3 so it should be fixed there as well. \t\n\t\t",
+    "This needs to be fixed in 3.3 and 4.0 because it causes the Log Import job to \nhang forever.  I consider the severity to be critical.",
+    "I confirmed that this is a problem in 3.3 as well.  I can reproduced it with \nthe 20050622_1116 3.3 driver.\n\nFor 4.0 I can reproduce it with the 20050623_0100 driver.  This is a regression \nbecause I cannot reproduce the problem with 20050614_1236 4.0 driver.",
+    "\nPosted suggested fix from Dave in TPTP 4.0 codebase -- cannot make changes in\n3.3.  Dave, if you get approval to get this fix into TPTP 3.3 please\nre-assign/re-open back to me and I will post the fix there as well.  As far as I\nknow, TPTP 3.3 it completely closed for changes.\n\nThanks for finding this problem; the fix is cleaner now (especially removing the\n*two* remove calls :-)",
+    "Since this problem only occurs on an error path and not on the main line, it \nwill be readme\u0027ed for TPTP 3.3.",
+    "\nNote that this issue will exist for TPTP 3.3 -- for those that are adopting and\nconsuming TPTP 3.3 into their products.",
+    "Created bugzilla 103042 to add a 3.3 readme item readme item for this problem.",
+    "Verified in TPTP-4.0.0-200507120100 driver.",
+    "Closing"
+  ],
+  "commentCreationDates": [
+    "2005-06-23T18:29:44+02:00",
+    "2005-06-23T18:35:01+02:00",
+    "2005-06-23T18:40:55+02:00",
+    "2005-06-23T18:42:05+02:00",
+    "2005-06-23T19:10:31+02:00",
+    "2005-06-23T19:56:27+02:00",
+    "2005-06-23T23:28:07+02:00",
+    "2005-06-24T16:57:17+02:00",
+    "2005-06-25T01:30:02+02:00",
+    "2005-06-27T22:57:42+02:00",
+    "2005-06-27T23:00:30+02:00",
+    "2005-06-27T23:41:05+02:00",
+    "2005-06-28T17:27:57+02:00",
+    "2005-06-28T19:58:32+02:00",
+    "2005-06-30T23:25:37+02:00",
+    "2005-07-07T19:39:10+02:00",
+    "2005-07-14T21:37:40+02:00",
+    "2005-07-14T21:37:50+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.tptp.monitoring.logui.internal.wizards.ImportLogWizard$LogImportJobListener.done",
+          "source": "ImportLogWizard.java:1505"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobListeners$3.notify",
+          "source": "JobListeners.java:39"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobListeners.doNotify",
+          "source": "JobListeners.java:112"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobListeners.done",
+          "source": "JobListeners.java:158"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobManager.endJob",
+          "source": "JobManager.java:477"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.WorkerPool.endJob",
+          "source": "WorkerPool.java:100"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:92"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 3,
+      "bugId": "101491",
+      "date": "2005-06-23T18:42:05+02:00",
+      "product": "TPTP Agent Controller",
+      "component": "Platform.Execution.Framework",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.widgets.Display.asyncExec",
+          "source": "Display.java:578"
+        },
+        {
+          "method": "org.eclipse.tptp.monitoring.logui.internal.wizards.ImportLogWizard$RemoteLogImportJob.stop",
+          "source": "ImportLogWizard.java:1144"
+        },
+        {
+          "method": "org.eclipse.tptp.monitoring.logui.internal.wizards.ImportLogWizard$RemoteLogImportJob.monitorProgress",
+          "source": "ImportLogWizard.java:1277"
+        },
+        {
+          "method": "org.eclipse.tptp.monitoring.logui.internal.wizards.ImportLogWizard$RemoteLogImportJob.runOnRemoteHost",
+          "source": "ImportLogWizard.java:1251"
+        },
+        {
+          "method": "org.eclipse.tptp.monitoring.logui.internal.wizards.ImportLogWizard$RemoteLogImportJob.run",
+          "source": "ImportLogWizard.java:1192"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 3,
+      "bugId": "101491",
+      "date": "2005-06-23T18:42:05+02:00",
+      "product": "TPTP Agent Controller",
+      "component": "Platform.Execution.Framework",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "101491",
+  "bugId": "101491",
+  "date": "2005-06-23T18:29:44+02:00",
+  "product": "TPTP Agent Controller",
+  "component": "Platform.Execution.Framework",
+  "severity": "critical"
+}

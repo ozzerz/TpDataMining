@@ -1,0 +1,219 @@
+{
+  "comments": [
+    "I tried to mark about 1900 query hits as read (just need to get rid of incoming markers). But that practically killed the whole IDE.\n\nHere is the stack trace from main thread and it looks like Mylar generated enormous number of refresh events that runs asynchronously and that made impossible for any other events to run at that time.\n\nThread [main] (Suspended)\t\n\torg.eclipse.swt.internal.win32.OS.SendMessageW(int, int, int, org.eclipse.swt.internal.win32.TVITEM) line: not available [native method] [local variables unavailable]\t\n\torg.eclipse.swt.internal.win32.OS.SendMessage(int, int, int, org.eclipse.swt.internal.win32.TVITEM) line: 2589\t\n\torg.eclipse.swt.widgets.Tree.getItems(int) line: 2807\t\n\torg.eclipse.swt.widgets.TreeItem.getItems() line: 762\t\n\torg.eclipse.jface.viewers.TreeViewer.getChildren(org.eclipse.swt.widgets.Widget) line: 385\t\n\torg.eclipse.jface.viewers.TreeViewer(org.eclipse.jface.viewers.AbstractTreeViewer).internalRefreshStruct(org.eclipse.swt.widgets.Widget, java.lang.Object, boolean) line: 1641\t\n\torg.eclipse.jface.viewers.TreeViewer.internalRefreshStruct(org.eclipse.swt.widgets.Widget, java.lang.Object, boolean) line: 955\t\n\torg.eclipse.jface.viewers.TreeViewer(org.eclipse.jface.viewers.AbstractTreeViewer).internalRefresh(org.eclipse.swt.widgets.Widget, java.lang.Object, boolean, boolean) line: 1616\t\n\torg.eclipse.jface.viewers.TreeViewer(org.eclipse.jface.viewers.AbstractTreeViewer).internalRefresh(java.lang.Object, boolean) line: 1571\t\n\torg.eclipse.jface.viewers.StructuredViewer$8.run() line: 1415\t\n\torg.eclipse.jface.viewers.TreeViewer(org.eclipse.jface.viewers.StructuredViewer).preservingSelection(java.lang.Runnable) line: 1323\t\n\torg.eclipse.jface.viewers.TreeViewer(org.eclipse.jface.viewers.StructuredViewer).refresh(java.lang.Object, boolean) line: 1413\t\n------\n\torg.eclipse.mylar.internal.tasks.ui.views.TaskListView$11.run() line: 1555\t\n------\n\torg.eclipse.swt.widgets.RunnableLock.run() line: 35\t\n\torg.eclipse.ui.internal.UISynchronizer(org.eclipse.swt.widgets.Synchronizer).runAsyncMessages(boolean) line: 123\t\n\torg.eclipse.swt.widgets.Display.runAsyncMessages(boolean) line: 3325\t\n\torg.eclipse.swt.widgets.Display.readAndDispatch() line: 2971\t\n\torg.eclipse.ui.internal.Workbench.runEventLoop(org.eclipse.jface.window.Window$IExceptionHandler, org.eclipse.swt.widgets.Display) line: 1914\t\n\torg.eclipse.ui.internal.Workbench.runUI() line: 1878\t\n\torg.eclipse.ui.internal.Workbench.createAndRunWorkbench(org.eclipse.swt.widgets.Display, org.eclipse.ui.application.WorkbenchAdvisor) line: 419\t\n\torg.eclipse.ui.PlatformUI.createAndRunWorkbench(org.eclipse.swt.widgets.Display, org.eclipse.ui.application.WorkbenchAdvisor) line: 149\t\n\torg.eclipse.ui.internal.ide.IDEApplication.run(java.lang.Object) line: 95\t\n\torg.eclipse.core.internal.runtime.PlatformActivator$1.run(java.lang.Object) line: 78\t\n\torg.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(java.lang.Object) line: 92\t\n\torg.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(java.lang.Object) line: 68\t\n\torg.eclipse.core.runtime.adaptor.EclipseStarter.run(java.lang.Object) line: 400\t\n\torg.eclipse.core.runtime.adaptor.EclipseStarter.run(java.lang.String[], java.lang.Runnable) line: 177\t\n\tsun.reflect.NativeMethodAccessorImpl.invoke0(java.lang.reflect.Method, java.lang.Object, java.lang.Object[]) line: not available [native method]\t\n\tsun.reflect.NativeMethodAccessorImpl.invoke(java.lang.Object, java.lang.Object[]) line: 39\t\n\tsun.reflect.DelegatingMethodAccessorImpl.invoke(java.lang.Object, java.lang.Object[]) line: 25\t\n\tjava.lang.reflect.Method.invoke(java.lang.Object, java.lang.Object...) line: 585\t\n\torg.eclipse.core.launcher.Main.invokeFramework(java.lang.String[], java.net.URL[]) line: 336\t\n\torg.eclipse.core.launcher.Main.basicRun(java.lang.String[]) line: 280\t\n\torg.eclipse.core.launcher.Main.run(java.lang.String[]) line: 977\t\n\torg.eclipse.core.launcher.Main.main(java.lang.String[]) line: 952",
+    "Rob, Mik, are you planning to look at this any time soon?\n\nI got caught by this issue again trying to use Mik\u0027s favorite workaround against tasks jumping between categories. So, I choose all tasks from Mylar project and then tried to mark all completed tasks as read. Now I am sitting with dead workbench window... Whatever these actions do (also see bug 154726) they should not kill the workbench.",
+    "I agree, this shouldn\u0027t kill the workbench. I\u0027ll bump up the priority so it gets some attention at the beginning of the 1.0 cycle.",
+    "I have fixed part of the excessive refresh that had to do with listening to resource changes unecessarily.  The rest has to do with the fact that synchronizing causes every task to get multiple refreshes, and we need to fix that by suppressing the excessive refresh during synchronize operations.",
+    "When we look at this we should also to investigate why focus is being taken away from new local task editor (bug#138145).",
+    "Refresh laziness and performance much improved.  Will need to watch for lack of elements to refresh (full refresh can be forced by toggling Focus button), but policy should be correct.",
+    "Created an attachment (id\u003d54387)\nmylar/context/zip\n\n",
+    "Here is an Eclipse thread dump when Task List is flickering after synchronization.\nWhat I noticed is that we should probably cache user name for repository, so it won\u0027t hit Eclipse keyring...\n\nFull thread dump Java HotSpot(TM) Client VM (1.5.0_08-b03 mixed mode):\n\n\"Timer-12\" daemon prio\u003d6 tid\u003d0x1b254de8 nid\u003d0x9d8 in Object.wait() [0x1dcff000..0x1dcffae8]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x07bde2b8\u003e (a java.util.TaskQueue)\n        at java.lang.Object.wait(Object.java:474)\n        at java.util.TimerThread.mainLoop(Timer.java:483)\n        - locked \u003c0x07bde2b8\u003e (a java.util.TaskQueue)\n        at java.util.TimerThread.run(Timer.java:462)\n\n\"Timer-11\" daemon prio\u003d6 tid\u003d0x1c31a088 nid\u003d0xd04 in Object.wait() [0x1db7f000..0x1db7fb68]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x07197bc8\u003e (a java.util.TaskQueue)\n        at java.lang.Object.wait(Object.java:474)\n        at java.util.TimerThread.mainLoop(Timer.java:483)\n        - locked \u003c0x07197bc8\u003e (a java.util.TaskQueue)\n        at java.util.TimerThread.run(Timer.java:462)\n\n\"Worker-9\" prio\u003d6 tid\u003d0x1c319f00 nid\u003d0xbd8 in Object.wait() [0x1db3f000..0x1db3fbe8]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x04291948\u003e (a org.eclipse.core.internal.jobs.WorkerPool)\n        at org.eclipse.core.internal.jobs.WorkerPool.sleep(WorkerPool.java:173)\n        - locked \u003c0x04291948\u003e (a org.eclipse.core.internal.jobs.WorkerPool)\n        at org.eclipse.core.internal.jobs.WorkerPool.startJob(WorkerPool.java:205)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:51)\n\n\"Timer-10\" daemon prio\u003d6 tid\u003d0x1c3dce70 nid\u003d0x94 in Object.wait() [0x1d78f000..0x1d78fc68]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x070d0620\u003e (a java.util.TaskQueue)\n        at java.lang.Object.wait(Object.java:474)\n        at java.util.TimerThread.mainLoop(Timer.java:483)\n        - locked \u003c0x070d0620\u003e (a java.util.TaskQueue)\n        at java.util.TimerThread.run(Timer.java:462)\n\n\"Timer-9\" daemon prio\u003d6 tid\u003d0x1c39de78 nid\u003d0x2e8 in Object.wait() [0x1d74f000..0x1d74fce8]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x06f85e98\u003e (a java.util.TaskQueue)\n        at java.lang.Object.wait(Object.java:474)\n        at java.util.TimerThread.mainLoop(Timer.java:483)\n        - locked \u003c0x06f85e98\u003e (a java.util.TaskQueue)\n        at java.util.TimerThread.run(Timer.java:462)\n\n\"Timer-8\" daemon prio\u003d6 tid\u003d0x1c2cbe08 nid\u003d0xd10 in Object.wait() [0x1ca2f000..0x1ca2f9e8]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x06d84b50\u003e (a java.util.TaskQueue)\n        at java.lang.Object.wait(Object.java:474)\n        at java.util.TimerThread.mainLoop(Timer.java:483)\n        - locked \u003c0x06d84b50\u003e (a java.util.TaskQueue)\n        at java.util.TimerThread.run(Timer.java:462)\n\n\"Timer-7\" daemon prio\u003d6 tid\u003d0x1c04f490 nid\u003d0xc9c in Object.wait() [0x1be7f000..0x1be7fa68]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x06d84bc8\u003e (a java.util.TaskQueue)\n        at java.lang.Object.wait(Object.java:474)\n        at java.util.TimerThread.mainLoop(Timer.java:483)\n        - locked \u003c0x06d84bc8\u003e (a java.util.TaskQueue)\n        at java.util.TimerThread.run(Timer.java:462)\n\n\"Worker-7\" prio\u003d6 tid\u003d0x1b167780 nid\u003d0x3cc in Object.wait() [0x1bbdf000..0x1bbdfae8]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x07d5ed00\u003e (a org.eclipse.ui.internal.Semaphore)\n        at org.eclipse.ui.internal.Semaphore.acquire(Semaphore.java:43)\n        - locked \u003c0x07d5ed00\u003e (a org.eclipse.ui.internal.Semaphore)\n        at org.eclipse.ui.internal.UISynchronizer.syncExec(UISynchronizer.java:46)\n        at org.eclipse.swt.widgets.Display.syncExec(Display.java:3878)\n        at org.eclipse.team.internal.ccvs.ui.CVSLightweightDecorator.ensureFontAndColorsCreated(CVSLightweightDecorator.java:92)\n        at org.eclipse.team.internal.ccvs.ui.CVSLightweightDecorator.\u003cinit\u003e(CVSLightweightDecorator.java:77)\n        at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)\n        at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:39)\n        at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:27)\n        at java.lang.reflect.Constructor.newInstance(Constructor.java:494)\n        at java.lang.Class.newInstance0(Class.java:350)\n        at java.lang.Class.newInstance(Class.java:303)\n        at org.eclipse.core.internal.registry.osgi.RegistryStrategyOSGI.createExecutableExtension(RegistryStrategyOSGI.java:170)\n        at org.eclipse.core.internal.registry.ExtensionRegistry.createExecutableExtension(ExtensionRegistry.java:787)\n        at org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension(ConfigurationElement.java:243)\n        at org.eclipse.core.internal.registry.ConfigurationElementHandle.createExecutableExtension(ConfigurationElementHandle.java:51)\n        at org.eclipse.ui.internal.WorkbenchPlugin.createExtension(WorkbenchPlugin.java:234)\n        at org.eclipse.ui.internal.decorators.LightweightDecoratorDefinition$1.run(LightweightDecoratorDefinition.java:117)\n        at org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n        at org.eclipse.core.runtime.Platform.run(Platform.java:850)\n        at org.eclipse.ui.internal.decorators.LightweightDecoratorDefinition.internalGetDecorator(LightweightDecoratorDefinition.java:113)\n        at org.eclipse.ui.internal.decorators.LightweightDecoratorDefinition.decorate(LightweightDecoratorDefinition.java:241)\n        at org.eclipse.ui.internal.decorators.LightweightDecoratorManager$LightweightRunnable.run(LightweightDecoratorManager.java:71)\n        at org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n        at org.eclipse.core.runtime.Platform.run(Platform.java:850)\n        at org.eclipse.ui.internal.decorators.LightweightDecoratorManager.decorate(LightweightDecoratorManager.java:336)\n        at org.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecorations(LightweightDecoratorManager.java:322)\n        at org.eclipse.ui.internal.decorators.DecorationScheduler$1.ensureResultCached(DecorationScheduler.java:357)\n        at org.eclipse.ui.internal.decorators.DecorationScheduler$1.run(DecorationScheduler.java:322)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\n\"MultiThreadedHttpConnectionManager cleanup\" daemon prio\u003d6 tid\u003d0x1af41008 nid\u003d0x11c in Object.wait() [0x1dd5f000..0x1dd5fb68]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x06740560\u003e (a java.lang.ref.ReferenceQueue$Lock)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:116)\n        - locked \u003c0x06740560\u003e (a java.lang.ref.ReferenceQueue$Lock)\n        at org.apache.commons.httpclient.MultiThreadedHttpConnectionManager$ReferenceQueueThread.run(MultiThreadedHttpConnectionManager.java\n:1082)\n\n\"Thread-8\" prio\u003d6 tid\u003d0x1bffe8c8 nid\u003d0x8c4 waiting on condition [0x1dd9f000..0x1dd9f9e8]\n        at java.lang.Thread.sleep(Native Method)\n        at org.eclipse.mylar.internal.context.core.util.TimerThread.run(TimerThread.java:65)\n\n\"Timer-3\" daemon prio\u003d6 tid\u003d0x1af58998 nid\u003d0x280 in Object.wait() [0x1d6cf000..0x1d6cfa68]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x05cb5018\u003e (a java.util.TaskQueue)\n        at java.lang.Object.wait(Object.java:474)\n        at java.util.TimerThread.mainLoop(Timer.java:483)\n        - locked \u003c0x05cb5018\u003e (a java.util.TaskQueue)\n        at java.util.TimerThread.run(Timer.java:462)\n\n\"Thread-6\" prio\u003d6 tid\u003d0x1c002008 nid\u003d0x8e0 waiting on condition [0x1d68f000..0x1d68fae8]\n        at java.lang.Thread.sleep(Native Method)\n        at org.eclipse.mylar.internal.context.core.util.TimerThread.run(TimerThread.java:65)\n\n\"Timer-2\" prio\u003d6 tid\u003d0x1af57e08 nid\u003d0xabc in Object.wait() [0x1d64f000..0x1d64fb68]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x05cb5100\u003e (a java.util.TaskQueue)\n        at java.util.TimerThread.mainLoop(Timer.java:509)\n        - locked \u003c0x05cb5100\u003e (a java.util.TaskQueue)\n        at java.util.TimerThread.run(Timer.java:462)\n\n\"CodePro Background Startup\" prio\u003d2 tid\u003d0x1b01dcb0 nid\u003d0xca8 in Object.wait() [0x1d51f000..0x1d51fc68]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x058e6b78\u003e (a java.util.ArrayList)\n        at java.lang.Object.wait(Object.java:474)\n        at com.instantiations.eclipse.startup.StartupManager.start0(StartupManager.java:176)\n        - locked \u003c0x058e6b78\u003e (a java.util.ArrayList)\n        at com.instantiations.eclipse.startup.StartupManager.access$0(StartupManager.java:94)\n        at com.instantiations.eclipse.startup.StartupManager$1.run(StartupManager.java:82)\n\n\"Worker-1\" prio\u003d6 tid\u003d0x1b01dad0 nid\u003d0xaa4 in Object.wait() [0x1d3bf000..0x1d3bfd68]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x04291948\u003e (a org.eclipse.core.internal.jobs.WorkerPool)\n        at org.eclipse.core.internal.jobs.WorkerPool.sleep(WorkerPool.java:173)\n        - locked \u003c0x04291948\u003e (a org.eclipse.core.internal.jobs.WorkerPool)\n        at org.eclipse.core.internal.jobs.WorkerPool.startJob(WorkerPool.java:205)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:51)\n\n\"Timer-1\" daemon prio\u003d6 tid\u003d0x1b0013b0 nid\u003d0xe38 in Object.wait() [0x1d37f000..0x1d37f9e8]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x057a2168\u003e (a java.util.TaskQueue)\n        at java.lang.Object.wait(Object.java:474)\n        at java.util.TimerThread.mainLoop(Timer.java:483)\n        - locked \u003c0x057a2168\u003e (a java.util.TaskQueue)\n        at java.util.TimerThread.run(Timer.java:462)\n\n\"Java indexing\" daemon prio\u003d4 tid\u003d0x1b306b80 nid\u003d0x4d0 in Object.wait() [0x1c70f000..0x1c70fae8]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x049f11d8\u003e (a org.eclipse.jdt.internal.core.search.indexing.IndexManager)\n        at java.lang.Object.wait(Object.java:474)\n        at org.eclipse.jdt.internal.core.search.processing.JobManager.run(JobManager.java:349)\n        - locked \u003c0x049f11d8\u003e (a org.eclipse.jdt.internal.core.search.indexing.IndexManager)\n        at java.lang.Thread.run(Thread.java:595)\n\n\"Timer-0\" prio\u003d6 tid\u003d0x1b25cf40 nid\u003d0x4cc in Object.wait() [0x1becf000..0x1becfb68]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x049e33c0\u003e (a java.util.TaskQueue)\n        at java.util.TimerThread.mainLoop(Timer.java:509)\n        - locked \u003c0x049e33c0\u003e (a java.util.TaskQueue)\n        at java.util.TimerThread.run(Timer.java:462)\n\n\"Start Level Event Dispatcher\" daemon prio\u003d6 tid\u003d0x1b058e30 nid\u003d0xaac in Object.wait() [0x1b41f000..0x1b41fce8]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x041e0070\u003e (a org.eclipse.osgi.framework.eventmgr.EventManager$EventThread)\n        at java.lang.Object.wait(Object.java:474)\n        at org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.getNextEvent(EventManager.java:349)\n        - locked \u003c0x041e0070\u003e (a org.eclipse.osgi.framework.eventmgr.EventManager$EventThread)\n        at org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.run(EventManager.java:287)\n\n\"Framework Event Dispatcher\" daemon prio\u003d6 tid\u003d0x1b0447d8 nid\u003d0xc34 in Object.wait() [0x1b3df000..0x1b3dfd68]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x041e00d8\u003e (a org.eclipse.osgi.framework.eventmgr.EventManager$EventThread)\n        at java.lang.Object.wait(Object.java:474)\n        at org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.getNextEvent(EventManager.java:349)\n        - locked \u003c0x041e00d8\u003e (a org.eclipse.osgi.framework.eventmgr.EventManager$EventThread)\n        at org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.run(EventManager.java:287)\n\n\"State Data Manager\" daemon prio\u003d6 tid\u003d0x00acf8c0 nid\u003d0x86c waiting on condition [0x1b39f000..0x1b39f9e8]\n        at java.lang.Thread.sleep(Native Method)\n        at org.eclipse.osgi.internal.baseadaptor.StateManager.run(StateManager.java:297)\n        at java.lang.Thread.run(Thread.java:595)\n\n\"Low Memory Detector\" daemon prio\u003d6 tid\u003d0x00a94430 nid\u003d0xcbc runnable [0x00000000..0x00000000]\n\n\"CompilerThread0\" daemon prio\u003d10 tid\u003d0x00a93000 nid\u003d0xfbc waiting on condition [0x00000000..0x1acdf8c8]\n\n\"Signal Dispatcher\" daemon prio\u003d10 tid\u003d0x00a923e0 nid\u003d0x354 waiting on condition [0x00000000..0x00000000]\n\n\"Finalizer\" daemon prio\u003d8 tid\u003d0x00a893b8 nid\u003d0x4a8 in Object.wait() [0x1ac5f000..0x1ac5fc68]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x041e0368\u003e (a java.lang.ref.ReferenceQueue$Lock)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:116)\n        - locked \u003c0x041e0368\u003e (a java.lang.ref.ReferenceQueue$Lock)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:132)\n        at java.lang.ref.Finalizer$FinalizerThread.run(Finalizer.java:159)\n\n\"Reference Handler\" daemon prio\u003d10 tid\u003d0x00a87f50 nid\u003d0xb80 in Object.wait() [0x1ac1f000..0x1ac1fce8]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x041e03e8\u003e (a java.lang.ref.Reference$Lock)\n        at java.lang.Object.wait(Object.java:474)\n        at java.lang.ref.Reference$ReferenceHandler.run(Reference.java:116)\n        - locked \u003c0x041e03e8\u003e (a java.lang.ref.Reference$Lock)\n\n\"main\" prio\u003d6 tid\u003d0x00034b78 nid\u003d0x38c runnable [0x0007e000..0x0007fc40]\n        at java.io.WinNTFileSystem.getLastModifiedTime(Native Method)\n        at java.io.File.lastModified(File.java:795)\n        at org.eclipse.core.internal.runtime.auth.AuthorizationHandler.loadKeyring(AuthorizationHandler.java:37)\n        at org.eclipse.core.internal.runtime.auth.AuthorizationHandler.getAuthorizationInfo(AuthorizationHandler.java:176)\n        at org.eclipse.core.runtime.Platform.getAuthorizationInfo(Platform.java:608)\n        at org.eclipse.mylar.tasks.core.TaskRepository.getAuthInfo(TaskRepository.java:259)\n        at org.eclipse.mylar.tasks.core.TaskRepository.getUserName(TaskRepository.java:135)\n        at org.eclipse.mylar.tasks.ui.TaskListManager.isCompletedToday(TaskListManager.java:698)\n        at org.eclipse.mylar.internal.context.ui.TaskListInterestFilter.shouldAlwaysShow(TaskListInterestFilter.java:71)\n        at org.eclipse.mylar.internal.tasks.ui.views.TaskListContentProvider.shouldAlwaysShow(TaskListContentProvider.java:185)\n        at org.eclipse.mylar.internal.tasks.ui.views.TaskListContentProvider.shouldAlwaysShow(TaskListContentProvider.java:168)\n        at org.eclipse.mylar.internal.tasks.ui.views.TaskListContentProvider.selectContainer(TaskListContentProvider.java:150)\n        at org.eclipse.mylar.internal.tasks.ui.views.TaskListContentProvider.applyFilter(TaskListContentProvider.java:118)\n        at org.eclipse.mylar.internal.tasks.ui.views.TaskListContentProvider.getElements(TaskListContentProvider.java:55)\n        at org.eclipse.jface.viewers.StructuredViewer.getRawChildren(StructuredViewer.java:930)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.getRawChildren(AbstractTreeViewer.java:1192)\n        at org.eclipse.jface.viewers.TreeViewer.getRawChildren(TreeViewer.java:662)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.getFilteredChildren(AbstractTreeViewer.java:612)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.getSortedChildren(AbstractTreeViewer.java:578)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.updateChildren(AbstractTreeViewer.java:2418)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.internalRefreshStruct(AbstractTreeViewer.java:1719)\n        at org.eclipse.jface.viewers.TreeViewer.internalRefreshStruct(TreeViewer.java:860)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh(AbstractTreeViewer.java:1694)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh(AbstractTreeViewer.java:1650)\n        at org.eclipse.jface.viewers.StructuredViewer$8.run(StructuredViewer.java:1418)\n        at org.eclipse.jface.viewers.StructuredViewer.preservingSelection(StructuredViewer.java:1326)\n        at org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java:1416)\n        at org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java:1373)\n        at org.eclipse.mylar.internal.tasks.ui.views.TaskListView.refresh(TaskListView.java:1412)\n        at org.eclipse.mylar.internal.tasks.ui.views.TaskListView.refresh(TaskListView.java:1427)\n        at org.eclipse.mylar.internal.tasks.ui.views.TaskListView.access$2(TaskListView.java:1407)\n        at org.eclipse.mylar.internal.tasks.ui.views.TaskListView$2$1.run(TaskListView.java:303)\n        at org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n        at org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n        - locked \u003c0x06d9ae58\u003e (a org.eclipse.swt.widgets.RunnableLock)\n        at org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3440)\n        at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3080)\n        at org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1924)\n        at org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1888)\n        at org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\n        at org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\n        at org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\n        at org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n        at org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:104)\n        at org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:74)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:348)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:165)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n        at java.lang.reflect.Method.invoke(Method.java:585)\n        at org.eclipse.core.launcher.Main.invokeFramework(Main.java:341)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:285)\n        at org.eclipse.core.launcher.Main.run(Main.java:987)\n        at org.eclipse.core.launcher.Main.main(Main.java:962)\n\n\"VM Thread\" prio\u003d10 tid\u003d0x00a854b0 nid\u003d0x59c runnable\n\n\"VM Periodic Task Thread\" prio\u003d10 tid\u003d0x00a95610 nid\u003d0xc6c waiting on condition",
+    "Nice catch!  Investigating now.",
+    "(In reply to comment #8)\n\u003e Nice catch!  Investigating now.\n\nMik, I think it is a bigger issue with jira error logging when host is not available. You can probably reproduce it by disconnecting network and synchronize some query with few hundreds jira issues...\n\n",
+    "OK, we now cache the username, resetting the cached value on first retrieval or when setAuthenticationCredentials is called.\n\nCan you verify from HEAD or do you need a dev build?\n\nRegarding the other problem, I\u0027ll answer on the mylar-dev list.",
+    "Here is another nasty one. Hash code calculation for AbstractQueryHit is way too expensive:\n\n\"main\" prio\u003d6 tid\u003d0x00034b78 nid\u003d0x9ec runnable [0x0007e000..0x0007fc40]\n        at java.lang.String.indexOf(String.java:1600)\n        at java.lang.String.indexOf(String.java:1564)\n        at java.lang.String.indexOf(String.java:1546)\n        at java.lang.String.contains(String.java:1934)\n        at org.eclipse.mylar.tasks.core.AbstractRepositoryTask.getHandle(AbstractRepositoryTask.java:136)\n        at org.eclipse.mylar.tasks.core.AbstractQueryHit.getHandleIdentifier(AbstractQueryHit.java:110)\n        at org.eclipse.mylar.tasks.core.AbstractQueryHit.hashCode(AbstractQueryHit.java:148)\n        at java.util.HashMap.put(HashMap.java:418)\n        at java.util.HashSet.add(HashSet.java:194)\n        at org.eclipse.mylar.tasks.core.TaskList.getQueryHits(TaskList.java:413)\n        at org.eclipse.mylar.tasks.core.AbstractRepositoryQuery.getHits(AbstractRepositoryQuery.java:77)\n        - locked \u003c0x05764b28\u003e (a org.eclipse.mylar.internal.bugzilla.core.BugzillaRepositoryQuery)\n        at org.eclipse.mylar.tasks.core.AbstractRepositoryQuery.getChildren(AbstractRepositoryQuery.java:52)\n        at org.eclipse.mylar.internal.tasks.ui.views.TaskElementLabelProvider.getForeground(TaskElementLabelProvider.java:138)\n        at org.eclipse.jface.viewers.DecoratingLabelProvider.getForeground(DecoratingLabelProvider.java:288)\n        at org.eclipse.mylar.internal.tasks.ui.views.TaskListTableLabelProvider.getForeground(TaskListTableLabelProvider.java:185)\n....",
+    "Another good catch :)  Fixed.  AbstractQueryHit has an immutable handle, so it is now set on creation.",
+    "Not sure if it is really the cause but it seems like there is a resource leak somewhere. Eclipse is just existing when that happens.\n\norg.eclipse.swt.SWTError: No more handles\n\tat org.eclipse.swt.SWT.error(SWT.java:3433)\n\tat org.eclipse.swt.SWT.error(SWT.java:3330)\n\tat org.eclipse.swt.SWT.error(SWT.java:3301)\n\tat org.eclipse.swt.graphics.Image.init(Image.java:1797)\n\tat org.eclipse.swt.graphics.Image.init(Image.java:1922)\n\tat org.eclipse.swt.graphics.Image.\u003cinit\u003e(Image.java:490)\n\tat org.eclipse.jface.resource.ImageDescriptor.createImage(ImageDescriptor.java:289)\n\tat org.eclipse.jface.resource.ImageDescriptor.createImage(ImageDescriptor.java:227)\n\tat org.eclipse.jface.resource.ImageDescriptor.createImage(ImageDescriptor.java:205)\n\tat org.eclipse.mylar.internal.tasks.ui.TaskListImages.getImage(TaskListImages.java:238)\n\tat org.eclipse.mylar.internal.tasks.ui.views.TaskListTableLabelProvider.getColumnImage(TaskListTableLabelProvider.java:146)\n\tat org.eclipse.jface.viewers.TableColumnViewerLabelProvider.update(TableColumnViewerLabelProvider.java:77)\n\tat org.eclipse.jface.viewers.ViewerColumn.refresh(ViewerColumn.java:91)\n\tat org.eclipse.jface.viewers.TreeViewer.doUpdateItem(TreeViewer.java:167)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer$UpdateItemSafeRunnable.run(AbstractTreeViewer.java:97)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:850)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(AbstractTreeViewer.java:893)\n\tat org.eclipse.jface.viewers.StructuredViewer$UpdateItemSafeRunnable.run(StructuredViewer.java:465)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:850)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.StructuredViewer.updateItem(StructuredViewer.java:1977)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.updateChildren(AbstractTreeViewer.java:2526)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.internalRefreshStruct(AbstractTreeViewer.java:1719)\n\tat org.eclipse.jface.viewers.TreeViewer.internalRefreshStruct(TreeViewer.java:860)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh(AbstractTreeViewer.java:1694)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh(AbstractTreeViewer.java:1650)\n\tat org.eclipse.jface.viewers.StructuredViewer$8.run(StructuredViewer.java:1418)\n\tat org.eclipse.jface.viewers.StructuredViewer.preservingSelection(StructuredViewer.java:1326)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java:1416)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java:1373)\n\tat org.eclipse.mylar.internal.tasks.ui.views.TaskListView.refresh(TaskListView.java:1412)\n\tat org.eclipse.mylar.internal.tasks.ui.views.TaskListView.refresh(TaskListView.java:1427)\n\tat org.eclipse.mylar.internal.tasks.ui.views.TaskListView.access$2(TaskListView.java:1407)\n\tat org.eclipse.mylar.internal.tasks.ui.views.TaskListView$2$1.run(TaskListView.java:303)\n",
+    "This is a regression, thanks for identifying the cause, fixed.  Fixed.\n\nRob or Steffen: when you add the following facility to the TaskListTableLabelProvider\n\n\t\t\t\t\treturn TaskListImages.getImage(TaskListImages.createWithOverlay(image,\n\t\t\t\t\t\t\tTaskListImages.OVERLAY_WARNING, false, true));\n\t\t\t\t\t\t\t\nThis results in a new image being created on each refresh, and never disposed, so Windows eventually runs out of handles.  It\u0027s a really easy mistake to make with SWT, and the same goes for Fonts and Colors (use TaskListColorsAndFonts).  All images should be accessed via TaskListImages, which manages our image registry.  I have made the createWithOverlay method private again, and put a field on TaskListImages for that particular image.  Eclispe has fancier facilities for disposing of decorated images, but we should use these for now.",
+    "(In reply to comment #14)\n\u003e This is a regression, thanks for identifying the cause, fixed.  Fixed.\n\nIt would be nice to have a dev build with this fix...",
+    "Should be available within 1/2 hour, will post.",
+    "Dev build 0.9.0.v20061124-1230 is now available."
+  ],
+  "commentCreationDates": [
+    "2006-09-29T05:13:51+02:00",
+    "2006-10-28T17:12:47+02:00",
+    "2006-10-31T01:12:45+01:00",
+    "2006-11-16T02:10:34+01:00",
+    "2006-11-21T20:25:13+01:00",
+    "2006-11-23T03:27:57+01:00",
+    "2006-11-23T03:27:59+01:00",
+    "2006-11-24T17:59:07+01:00",
+    "2006-11-24T18:12:56+01:00",
+    "2006-11-24T18:15:19+01:00",
+    "2006-11-24T18:28:32+01:00",
+    "2006-11-24T18:29:52+01:00",
+    "2006-11-24T18:48:19+01:00",
+    "2006-11-24T18:51:51+01:00",
+    "2006-11-24T19:13:44+01:00",
+    "2006-11-24T19:21:06+01:00",
+    "2006-11-24T19:39:21+01:00",
+    "2006-11-24T21:17:53+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "No more handles",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3433"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3330"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3301"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.init",
+          "source": "Image.java:1797"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.init",
+          "source": "Image.java:1922"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.\u003cinit\u003e",
+          "source": "Image.java:490"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageDescriptor.createImage",
+          "source": "ImageDescriptor.java:289"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageDescriptor.createImage",
+          "source": "ImageDescriptor.java:227"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageDescriptor.createImage",
+          "source": "ImageDescriptor.java:205"
+        },
+        {
+          "method": "org.eclipse.mylar.internal.tasks.ui.TaskListImages.getImage",
+          "source": "TaskListImages.java:238"
+        },
+        {
+          "method": "org.eclipse.mylar.internal.tasks.ui.views.TaskListTableLabelProvider.getColumnImage",
+          "source": "TaskListTableLabelProvider.java:146"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TableColumnViewerLabelProvider.update",
+          "source": "TableColumnViewerLabelProvider.java:77"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ViewerColumn.refresh",
+          "source": "ViewerColumn.java:91"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TreeViewer.doUpdateItem",
+          "source": "TreeViewer.java:167"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer$UpdateItemSafeRunnable.run",
+          "source": "AbstractTreeViewer.java:97"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:850"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:893"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$UpdateItemSafeRunnable.run",
+          "source": "StructuredViewer.java:465"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:850"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.updateItem",
+          "source": "StructuredViewer.java:1977"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.updateChildren",
+          "source": "AbstractTreeViewer.java:2526"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalRefreshStruct",
+          "source": "AbstractTreeViewer.java:1719"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TreeViewer.internalRefreshStruct",
+          "source": "TreeViewer.java:860"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh",
+          "source": "AbstractTreeViewer.java:1694"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh",
+          "source": "AbstractTreeViewer.java:1650"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$8.run",
+          "source": "StructuredViewer.java:1418"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.preservingSelection",
+          "source": "StructuredViewer.java:1326"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java:1416"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java:1373"
+        },
+        {
+          "method": "org.eclipse.mylar.internal.tasks.ui.views.TaskListView.refresh",
+          "source": "TaskListView.java:1412"
+        },
+        {
+          "method": "org.eclipse.mylar.internal.tasks.ui.views.TaskListView.refresh",
+          "source": "TaskListView.java:1427"
+        },
+        {
+          "method": "org.eclipse.mylar.internal.tasks.ui.views.TaskListView.access$2",
+          "source": "TaskListView.java:1407"
+        },
+        {
+          "method": "org.eclipse.mylar.internal.tasks.ui.views.TaskListView$2$1.run",
+          "source": "TaskListView.java:303"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 13,
+      "bugId": "159223",
+      "date": "2006-11-24T18:51:51+01:00",
+      "product": "Mylyn",
+      "component": "Tasks",
+      "severity": "major"
+    }
+  ],
+  "groupId": "159223",
+  "bugId": "159223",
+  "date": "2006-09-29T05:13:51+02:00",
+  "product": "Mylyn",
+  "component": "Tasks",
+  "severity": "major"
+}

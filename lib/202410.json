@@ -1,0 +1,360 @@
+{
+  "comments": [
+    "I20070904-0800.\n\n1. start fresh workspace\n2. Window \u003e Preferences \u003e Plug-in Development \u003e Target Platform\n3. click \u0027Reset\u0027\n4. click \u0027Deselect All\u0027\n5. click \u0027OK\u0027\n5. import a binary plug-in (e.g. \u0027org.eclipse.core.commands\u0027)\n6. open a class from that plug-in (e.g. \u0027Category\u0027)\n\u003d\u003d\u003e no source\n\nThis used to work in I20070828-0800 and all previous builds.",
+    "It looks like \u0027Deselect All\u0027 destroys the source attachment settings.",
+    "This could be a side effect of the new registry work.  I will look at it right away.",
+    "Thanks.",
+    "Daniel, we recently incorporated the extension registry into PDE to replace our\ninefficient extension implementation.  One design compromise we had to make was\nto have the extension registry be aware of only enabled plug-ins.  This\ncompromise is what is causing problems.  With all the plug-ins removed from the\ntarget platform, the plug-in containing the source is not enabled and therefore\nits source extension is not being found.\n\nThe work around for this compromise is to import all your plug-ins before\ndeselecting your target platform.  If you do this, everything should work as\nplanned.\n\nI hate to tell people they have to change the way they do things, but in this\ncase if you can work with us on this one we would appreciate it.",
+    "Sorry but the test case in comment 0 is just a simplification so that you could reproduce.\n\nI have my dev workspace where I often switch targets and import all non-shared plug-ins from there. One important part of importing the plug-ins is to be self contained and hence it is important that target plug-ins are all deselected.\n\nI don\u0027t want to first select all, import, go back to the preference again, deselect etc.\n\nRemoving the source locations behind the users back is a no GO.",
+    "Darin, this is a major regression. Can this please be fixed asap.\n\nI did not yet fully debug yet but I suspect that the new registry work might also causes the full build on startup (see bug 203053).",
+    "Dani, we are trying to get to bugs as we can.  This bug is caused by the new extension registry work.  That undertaking took nearly two months.  It seems one of my design decisions was incorrect.  This involves a minor redesign of the PDE registry.  This will take some time to do and to test to make sure we don\u0027t break other pieces.\n\nFor the time being, I suggest you use the work around in comment #4.  If all goes well, you hopefully won\u0027t be using the work around for too long :)",
+    "Great to hear (wasn\u0027t sure what the silence after my last comment meant ;-).",
+    "Brian, what is the story for the M2 re this bug?",
+    "Unfortunately, this is not going to make it into M2.  One of the more complicated areas of the registry is how to handle when a model changes.  This required new listeners in PDE along with alot of testing to make sure we tried to handle every possible case.  This bug requires us to go back and redo this work.  This is very doable, but I want to make sure we don\u0027t introduce more regressions due to the complexity.  This is the #1 bug I want to look at after we finish M2.",
+    "Ack. Is there a decent workaround?",
+    "\u003eAck. Is there a decent workaround?\nDepends what you call \"decent\" ;-)\n\nFor each plug-in import I have to:\n1. before importing remember that I have to do a workaround\n   (this is the hardest part i.e. I end up importing, waiting and once I start\n    working, see that there\u0027s no source). Then go to 2.\n2. go to the Plug-in Development \u003e Target Platform preference page\n3. click \u0027Select All\u0027\n4. click \u0027OK\u0027\n5. now import\n6. go to the Plug-in Development \u003e Target Platform preference page\n7. click \u0027Deselect All\u0027\n8. click \u0027OK\u0027",
+    "(In reply to comment #12)\n\u003e \u003eAck. Is there a decent workaround?\n\u003e Depends what you call \"decent\" ;-)\n\u003e \n\u003e For each plug-in import I have to:\n\u003e 1. before importing remember that I have to do a workaround\n\u003e    (this is the hardest part i.e. I end up importing, waiting and once I start\n\u003e     working, see that there\u0027s no source). Then go to 2.\n\u003e 2. go to the Plug-in Development \u003e Target Platform preference page\n\u003e 3. click \u0027Select All\u0027\n\u003e 4. click \u0027OK\u0027\n\u003e 5. now import\n\u003e 6. go to the Plug-in Development \u003e Target Platform preference page\n\u003e 7. click \u0027Deselect All\u0027\n\u003e 8. click \u0027OK\u0027\n\u003e \n\nThis works, but is not optimal.  I hope to get Dani up and running back with his old way as soon as we can.  Dani is near and dear to our hearts, so we will do what we can once we have time to do it right.  For the time being, bear with us and we should be able to fix this early in the M3 cycle.",
+    "Thanks Brian.\nBTW: the full build bug is worse than this bug.",
+    "(In reply to comment #14)\n\u003e Thanks Brian.\n\u003e BTW: the full build bug is worse than this bug.\n\nThank for letting me know. I would have guessed it to be the other way around, so that information definitely helps us prioritize.",
+    "As the full build bug is now sort of resolved can you fix this one for me ;-)\nThanks.",
+    "Brian, in comment 10 you wrote: \"This is the #1 bug I want to look at after\nwe finish M2.\". So far I see no progress and M3 is approaching quickly ;-)",
+    "Created an attachment (id\u003d80913)\nwork in progress\n\nBrian, I took a stab at this. It looks like the import always tries to import source based on the state of the target platform, rather than the contents on disk that are being imported. My fix is to create a new extension registry based on the root import location and determine source locations from that registry. It seems to work, however, the patch creates a compilation error in the \"ImportActionGroup\" - as it now needs to specify a root import location. I wasn\u0027t sure how to fix that up, or if I\u0027m headed down the right path.\n\nTake a look at let me know. Thanks.",
+    "Created an attachment (id\u003d80966)\nmodified patch\n\nDarin, that is a really good start.  I modified a couple small things.\n\n1. Instead of making the 1st constructor in PluginImportOperation private, I just removed it.  If we don\u0027t reference it, I figured we should just remove it.\n\n2. Instead of passing the plug-ins locations, I instead pass an array of IPluginModelBase[] which represent the target plug-ins.  I do this so we don\u0027t have to reparse the location, build the PDEState and all the external models.\n\n3. Minimized code in SourceLocationManager.  I saw the new functions in SourceLocationManager were similar to others.  So I made the existing function call the new function with \u0027null\u0027 for the extension registry.  Then when querying the registry, we can use the PDECore one if the extension registry \u003d\u003d null.\n\n4. Added a TODO in the PluginImportOperation for a later date.  When we get the full solution, when we import plug-ins from the current target platform we should use the current SourceLocationManager/extension registry instead of creating a new one.  Don\u0027t worry about implementing this TODO.\n\nSince I am trying to get this back to you as quickly as possible, I did not clean up the code as well as I could.  I didn\u0027t write many comments and commented out some code.  \n\nOne thing we might look at, is with right now we iterate through all the IPluginModelBases to find org.eclipse.pde.core.source extensions.  If we pass an extension registry into the function, we might consider trying to use the registry by trying to find the extension point, then finding all the references to the extension point from the registry.  This might speed up processing.\n\nUpon reviewing the old code, the suggestion and your implementation are actually changing the way we look up code upon import.  We may want to open a separate bug report since we are changing the behavior.  Personally, I think the new behavior works better :)",
+    "Created an attachment (id\u003d80974)\ncleaned up patch\n\nThanks Brian, the changes make sense. I cleaned up the patch a little - removed commented out code, etc.",
+    "We still have some more work to do on this one.  In the SourceLocationsManager, we call PDEExtensionRegistry.findExtensionsForPlugin().  This does a look up through PluginRegistry.findModel().  When you import a plug-in from a different location than the one you are currently in, odds are this look up will fail and return null.  When this happens, we will not look for source from the look up location nor will we do the look up from the current source locations set in the preferences.  \n\nOne interesting thing I found was when importing from a location other than the target platform, we put a warning on the wizard to have the user adjust their source locations to include source for new plug-ins.  With this warning, it would be acceptable to leave the source look up the same way it was before since we inform the user the source look up will be based on the existing source locations.  Depending how much work this is to continue down this path, we might consider trying to allow disabled plug-ins in the extension registry and go back to the current algorithm for looking up source code.",
+    "\u003eWe still have some more work to do on this one. \nSad. This was promised to be done immediately after M2.",
+    "(In reply to comment #22)\n\u003e \u003eWe still have some more work to do on this one. \n\u003e Sad. This was promised to be done immediately after M2.\n\u003e \n\nI am sorry we could not get to this in a manner that was satisfactory.  This is a difficult problem and with only one dedicated full time committeer on the PDE project, we get a little backed up.  We got a few more critical/blocking bugs coming into PDE this milestone than normal, which has set back our fixing schedule and development schedule.\n\nI wish it was a perfect world, but unfortunately I can only do what I can in the time I have.",
+    "Created an attachment (id\u003d82918)\npatch\n\nHere\u0027s a simple solution that fixes Dani\u0027s problem until we update for individual source bundles. Basically, when source cannot be found, I look for the source plug-in in the bundle\u0027s plug-ins directory. A cache is created of all source plug-ins in a plug-ins directory for quick lookup. \n\nThe code is only used when the SourceLocationManager does not find source for a given plug-in.",
+    "This patch also appears to fix bug 208453. Dani will test the patch.",
+    "Dani is happy :-)\nIt fixes both source import problems.",
+    "Patch looks good to me and shouldn\u0027t conflict much with the changes for individual source bundles.  However, Darin\u0027s fix will stop working when the SDK source comes packaged only as individual jarred source bundles (import operations still need work).",
+    "*** WARNING: THE FIX BREAKS LAUNCHING ***\n\nWhen I use the plug-in that Darin sent me it *seems* that everything got imported correctly and the source is there but I can no longer launch the target!\n\nSteps:\n1. install fresh I20071113-0800\n2. start fresh workspace\n4. disable all external plug-ins\n5. import *jdt.ui and *.ide.app with all its required plug-ins\n6. launch Eclipse target\n   \u003d\u003d\u003e works as expected\n\nNow do the same but add the pde.ui plug-in Darin sent me to test his patch\n\u003d\u003d\u003e does not launch (see exceptions below).\n\nEither the fix is not good or the exported plug-in does not work well with I20071113-0800.\n\n\n!SESSION 2007-11-16 09:48:03.352 -----------------------------------------------\neclipse.buildId\u003dunknown\njava.version\u003d1.6.0_02\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003dde_CH\nFramework arguments:  -application org.eclipse.ui.ide.workbench\nCommand-line arguments:  -application org.eclipse.ui.ide.workbench -data C:\\eclipse\\workspaces\\tmp/../runtime-New_configuration -dev file:C:/eclipse/workspaces/tmp/.metadata/.plugins/org.eclipse.pde.core/New_configuration/dev.properties -os win32 -ws win32 -arch x86\n\n!ENTRY org.eclipse.core.runtime 4 0 2007-11-16 09:48:03.993\n!MESSAGE \n!STACK 0\norg.osgi.framework.BundleException: Exception in org.eclipse.core.internal.runtime.PlatformActivator.start() of bundle org.eclipse.core.runtime.\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:1018)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.start(BundleContextImpl.java:974)\n\tat org.eclipse.osgi.framework.internal.core.BundleHost.startWorker(BundleHost.java:346)\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.resume(AbstractBundle.java:351)\n\tat org.eclipse.osgi.framework.internal.core.Framework.resumeBundle(Framework.java:1061)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles(StartLevelManager.java:632)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL(StartLevelManager.java:506)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel(StartLevelManager.java:280)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent(StartLevelManager.java:466)\n\tat org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent(EventManager.java:209)\n\tat org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.run(EventManager.java:319)\nCaused by: java.lang.NoClassDefFoundError: org/eclipse/core/runtime/IRegistryChangeListener\n\tat java.lang.ClassLoader.defineClass1(Native Method)\n\tat java.lang.ClassLoader.defineClass(ClassLoader.java:620)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.defineClass(DefaultClassLoader.java:161)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.defineClass(ClasspathManager.java:503)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findClassImpl(ClasspathManager.java:473)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClassImpl(ClasspathManager.java:432)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClass(ClasspathManager.java:415)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.findLocalClass(DefaultClassLoader.java:189)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass(BundleLoader.java:344)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClassInternal(BundleLoader.java:412)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:373)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:361)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass(DefaultClassLoader.java:83)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:251)\n\tat java.lang.ClassLoader.loadClassInternal(ClassLoader.java:319)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.start(InternalPlatform.java:753)\n\tat org.eclipse.core.internal.runtime.PlatformActivator.start(PlatformActivator.java:31)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run(BundleContextImpl.java:999)\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:993)\n\t... 10 more\nRoot exception:\njava.lang.NoClassDefFoundError: org/eclipse/core/runtime/IRegistryChangeListener\n\tat java.lang.ClassLoader.defineClass1(Native Method)\n\tat java.lang.ClassLoader.defineClass(ClassLoader.java:620)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.defineClass(DefaultClassLoader.java:161)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.defineClass(ClasspathManager.java:503)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findClassImpl(ClasspathManager.java:473)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClassImpl(ClasspathManager.java:432)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClass(ClasspathManager.java:415)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.findLocalClass(DefaultClassLoader.java:189)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass(BundleLoader.java:344)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClassInternal(BundleLoader.java:412)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:373)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:361)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass(DefaultClassLoader.java:83)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:251)\n\tat java.lang.ClassLoader.loadClassInternal(ClassLoader.java:319)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.start(InternalPlatform.java:753)\n\tat org.eclipse.core.internal.runtime.PlatformActivator.start(PlatformActivator.java:31)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run(BundleContextImpl.java:999)\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:993)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.start(BundleContextImpl.java:974)\n\tat org.eclipse.osgi.framework.internal.core.BundleHost.startWorker(BundleHost.java:346)\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.resume(AbstractBundle.java:351)\n\tat org.eclipse.osgi.framework.internal.core.Framework.resumeBundle(Framework.java:1061)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles(StartLevelManager.java:632)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL(StartLevelManager.java:506)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel(StartLevelManager.java:280)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent(StartLevelManager.java:466)\n\tat org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent(EventManager.java:209)\n\tat org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.run(EventManager.java:319)\n\n!ENTRY org.eclipse.osgi 4 0 2007-11-16 09:48:04.003\n!MESSAGE Bundle initial@reference:file:../../workspaces/tmp/org.eclipse.core.runtime/ [207] is not active.\n\n!ENTRY org.eclipse.osgi 4 0 2007-11-16 09:48:04.013\n!MESSAGE Application error\n!STACK 1\njava.lang.IllegalStateException: Unable to acquire application service. Ensure that the org.eclipse.core.runtime bundle is resolved and started (see config.ini).\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:72)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:362)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:175)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:597)\n\tat org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:516)\n\tat org.eclipse.equinox.launcher.Main.basicRun(Main.java:456)\n\tat org.eclipse.equinox.launcher.Main.run(Main.java:1194)\n\tat org.eclipse.equinox.launcher.Main.main(Main.java:1170)\n",
+    "I concur. My fix breaks launching - although I don\u0027t know how. However, the fix to bgu 207804 now fixes source import - which is in HEAD.",
+    "Sorry, referenced the wrong bug - the fix to bug 210026 fixes source import.",
+    "Finally found time to make the necessary extension registry updates (bug 210131).  As long as the changes didn\u0027t break anything else, the registry should be able to search source locations from disabled plug-ins, allowing this to work.   \n\nPlease note that due to bug 208453, source for some plug-ins may not be able to be found. \n\nSorry Dani for taking so long to fix this.  This touches a lot of code and has the potential to break quite a few things.  Hope this works for you.  You can try out the nightly build if you want to test it early (I would send you a copy but figure you are gone for the weekend anyways).",
+    "Verified in N20071119-0010. Thanks guys!",
+    "."
+  ],
+  "commentCreationDates": [
+    "2007-09-06T11:33:37+02:00",
+    "2007-09-06T11:34:29+02:00",
+    "2007-09-06T14:48:47+02:00",
+    "2007-09-06T14:51:24+02:00",
+    "2007-09-06T16:46:43+02:00",
+    "2007-09-06T16:55:06+02:00",
+    "2007-09-12T12:43:02+02:00",
+    "2007-09-12T16:20:00+02:00",
+    "2007-09-12T16:27:04+02:00",
+    "2007-09-18T16:35:10+02:00",
+    "2007-09-18T18:30:45+02:00",
+    "2007-09-18T19:11:34+02:00",
+    "2007-09-19T09:39:13+02:00",
+    "2007-09-19T16:22:02+02:00",
+    "2007-09-19T16:26:54+02:00",
+    "2007-09-21T18:05:48+02:00",
+    "2007-10-06T12:39:35+02:00",
+    "2007-10-22T11:52:10+02:00",
+    "2007-10-23T00:36:03+02:00",
+    "2007-10-23T18:02:49+02:00",
+    "2007-10-23T20:10:22+02:00",
+    "2007-10-29T16:43:53+01:00",
+    "2007-10-29T16:49:50+01:00",
+    "2007-10-29T17:34:46+01:00",
+    "2007-11-14T22:05:47+01:00",
+    "2007-11-15T14:42:05+01:00",
+    "2007-11-15T14:50:19+01:00",
+    "2007-11-15T15:04:41+01:00",
+    "2007-11-16T08:52:09+01:00",
+    "2007-11-16T16:06:54+01:00",
+    "2007-11-16T16:08:41+01:00",
+    "2007-11-16T19:17:16+01:00",
+    "2007-11-19T09:34:10+01:00",
+    "2007-11-19T09:34:26+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.osgi.framework.BundleException",
+      "message": "Exception in org.eclipse.core.internal.runtime.PlatformActivator.start() of bundle org.eclipse.core.runtime.",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:1018"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "BundleContextImpl.java:974"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "BundleHost.java:346"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.resume",
+          "source": "AbstractBundle.java:351"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.resumeBundle",
+          "source": "Framework.java:1061"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles",
+          "source": "StartLevelManager.java:632"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL",
+          "source": "StartLevelManager.java:506"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel",
+          "source": "StartLevelManager.java:280"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent",
+          "source": "StartLevelManager.java:466"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent",
+          "source": "EventManager.java:209"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.run",
+          "source": "EventManager.java:319"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.NoClassDefFoundError",
+        "message": "org/eclipse/core/runtime/IRegistryChangeListener",
+        "elements": [
+          {
+            "method": "java.lang.ClassLoader.defineClass1",
+            "source": "Native Method"
+          },
+          {
+            "method": "java.lang.ClassLoader.defineClass",
+            "source": "ClassLoader.java:620"
+          },
+          {
+            "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.defineClass",
+            "source": "DefaultClassLoader.java:161"
+          },
+          {
+            "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.defineClass",
+            "source": "ClasspathManager.java:503"
+          },
+          {
+            "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findClassImpl",
+            "source": "ClasspathManager.java:473"
+          },
+          {
+            "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClassImpl",
+            "source": "ClasspathManager.java:432"
+          },
+          {
+            "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClass",
+            "source": "ClasspathManager.java:415"
+          },
+          {
+            "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.findLocalClass",
+            "source": "DefaultClassLoader.java:189"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+            "source": "BundleLoader.java:344"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClassInternal",
+            "source": "BundleLoader.java:412"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+            "source": "BundleLoader.java:373"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+            "source": "BundleLoader.java:361"
+          },
+          {
+            "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass",
+            "source": "DefaultClassLoader.java:83"
+          },
+          {
+            "method": "java.lang.ClassLoader.loadClass",
+            "source": "ClassLoader.java:251"
+          },
+          {
+            "method": "java.lang.ClassLoader.loadClassInternal",
+            "source": "ClassLoader.java:319"
+          },
+          {
+            "method": "org.eclipse.core.internal.runtime.InternalPlatform.start",
+            "source": "InternalPlatform.java:753"
+          },
+          {
+            "method": "org.eclipse.core.internal.runtime.PlatformActivator.start",
+            "source": "PlatformActivator.java:31"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run",
+            "source": "BundleContextImpl.java:999"
+          },
+          {
+            "method": "java.security.AccessController.doPrivileged",
+            "source": "Native Method"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+            "source": "BundleContextImpl.java:993"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 28,
+      "bugId": "202410",
+      "date": "2007-11-16T08:52:09+01:00",
+      "product": "PDE",
+      "component": "UI",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "org/eclipse/core/runtime/IRegistryChangeListener",
+      "elements": [
+        {
+          "method": "java.lang.ClassLoader.defineClass1",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.ClassLoader.defineClass",
+          "source": "ClassLoader.java:620"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.defineClass",
+          "source": "DefaultClassLoader.java:161"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.defineClass",
+          "source": "ClasspathManager.java:503"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findClassImpl",
+          "source": "ClasspathManager.java:473"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClassImpl",
+          "source": "ClasspathManager.java:432"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClass",
+          "source": "ClasspathManager.java:415"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.findLocalClass",
+          "source": "DefaultClassLoader.java:189"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+          "source": "BundleLoader.java:344"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClassInternal",
+          "source": "BundleLoader.java:412"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:373"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:361"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass",
+          "source": "DefaultClassLoader.java:83"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:251"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClassInternal",
+          "source": "ClassLoader.java:319"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.start",
+          "source": "InternalPlatform.java:753"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator.start",
+          "source": "PlatformActivator.java:31"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run",
+          "source": "BundleContextImpl.java:999"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:993"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "BundleContextImpl.java:974"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "BundleHost.java:346"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.resume",
+          "source": "AbstractBundle.java:351"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.resumeBundle",
+          "source": "Framework.java:1061"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles",
+          "source": "StartLevelManager.java:632"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL",
+          "source": "StartLevelManager.java:506"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel",
+          "source": "StartLevelManager.java:280"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent",
+          "source": "StartLevelManager.java:466"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent",
+          "source": "EventManager.java:209"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.run",
+          "source": "EventManager.java:319"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 28,
+      "bugId": "202410",
+      "date": "2007-11-16T08:52:09+01:00",
+      "product": "PDE",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "202410",
+  "bugId": "202410",
+  "date": "2007-09-06T11:33:37+02:00",
+  "product": "PDE",
+  "component": "UI",
+  "severity": "major"
+}

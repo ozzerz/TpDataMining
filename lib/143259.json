@@ -1,0 +1,128 @@
+{
+  "comments": [
+    "I will attach a project that causes the following exception when opened in eclipse 3.2RC4 with jdk 1.5.  If you open the model.Project class, you will get this exception in the error log.  If you add the java.lang.Collection import, the exception no longer occurs.  It\u0027s somehow related to the annotation being there and having a compiler error elsewhere in the class. I can also repeat the exception with this as the Project class body (notice the lower case string):\n{\n\tprivate string asdf;\n\t\n\t@GeneratedValue(strategy\u003dGenerationType.TABLE, generator \u003d \"jkljljk\")\n\tprivate int projectId;\n}\n\n\njava.lang.NullPointerException\nat org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding.binarySearch(ReferenceBinding.java:76)\nat org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.getField(SourceTypeBinding.java:845)\nat org.eclipse.jdt.internal.compiler.lookup.Scope.findField(Scope.java:826)\nat org.eclipse.jdt.internal.compiler.lookup.Scope.getBinding(Scope.java:1412)\nat org.eclipse.jdt.internal.compiler.lookup.BlockScope.getBinding(BlockScope.java:424)\nat org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.resolveType(QualifiedNameReference.java:972)\nat org.eclipse.jdt.internal.compiler.ast.MemberValuePair.resolveTypeExpecting(MemberValuePair.java:83)\nat org.eclipse.jdt.internal.compiler.ast.Annotation.resolveType(Annotation.java:266)\nat org.eclipse.jdt.internal.compiler.ast.ASTNode.resolveAnnotations(ASTNode.java:513)\nat org.eclipse.jdt.internal.compiler.lookup.FieldBinding.getAnnotationTagBits(FieldBinding.java:252)\nat org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.resolveTypeFor(SourceTypeBinding.java:1226)\nat org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.fields(SourceTypeBinding.java:603)\nat org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.faultInTypesForFieldsAndMethods(SourceTypeBinding.java:582)\nat org.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope.faultInTypes(CompilationUnitScope.java:427)\nat org.eclipse.jdt.internal.compiler.Compiler.process(Compiler.java:587)\nat org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:411)\nat org.eclipse.jdt.internal.core.builder.AbstractImageBuilder.compile(AbstractImageBuilder.java:300)",
+    "Created an attachment (id\u003d42281)\nTest case project\n\n",
+    "Reduced testcase:\n\nclass X {\n\t@Ann(m\u003dObject)\n\tprivate int foo;\n\tprivate NonExisting bar;\n}\n@interface Ann {\n\tString m();\n}",
+    "Created an attachment (id\u003d42299)\nProposed fix\n\nSimple fix that reverts to a linear search if one of the field binding is null.",
+    "Created an attachment (id\u003d42301)\nPatch to clean up field array\n\nThe problem is in the method SourceTypeBinding.fields().\n\nIt nulls out a field when it detects that its type cannot be resolved, but continues to resolve the other fields, which cause an Annotation type to be resolved. We end up in getField where the null\u0027ed out field is detected.\n\nThe proposed patch uses a separate set to keep track of the failed fields and builds the new field array but skipping the failed ones.",
+    "We should make a similar change to SourceTypeBinding.methods() so failed methods are not null\u0027ed out immediately.",
+    "Problem comes from annotation resolution (looking for @Deprecated) which is reentering field resolution (while fields are being resolved) to resolve \u0027Object\u0027 reference. \n\nHere is a scenario with methods, which doesn\u0027t cause any NPE:\npublic class X {\n\t@Ann(m\u003dObject())\n\tprivate void foo(){}\n\tprivate NonExisting bar(){}\n}\n@interface Ann {\n    String m();\n}\n",
+    "Previous case doesn\u0027t fail, since unresolved return type is not directly nulling out the entry in method array.\nHere is another case which causes a NPE with methods:\npublic class X {\n\t@Ann(m\u003dbar())\n\tprivate void foo(){}\n\tprivate NonExisting bar(NonExisting ne){}\n}\n@interface Ann {\n    String m();\n}",
+    "My fix is along the same line as Kent\u0027s proposed one, except using an array which makes the logic closer to original one (especially on method scenario).\nAdded AnnotationTest#test202-207",
+    "Created an attachment (id\u003d42942)\nProposed patch\n\n",
+    "The scenario is rather rare, it arises through annotation resolution and in presence of unresolved types. This is why it is safer to queue this one for 3.2.1, as opposed to RC7 where we want to be really conservative.",
+    "Created an attachment (id\u003d42948)\nBetter patch\n\nHad forgotten to use resolvedMethod in methods() when finding collisions",
+    "Added AnnotationTest#test202-207.\nReleased fix for 3.2.1",
+    "Released for 3.2.1\nReleased for 3.3 M1 while merging TARGET_321 in HEAD",
+    "*** Bug 146858 has been marked as a duplicate of this bug. ***",
+    "Verified for 3.3 M1 using build I20060807-2000.",
+    "Verified for 3.2.1 using build M20060908-1655"
+  ],
+  "commentCreationDates": [
+    "2006-05-23T18:49:04+02:00",
+    "2006-05-23T18:50:11+02:00",
+    "2006-05-23T20:31:09+02:00",
+    "2006-05-23T20:50:58+02:00",
+    "2006-05-23T20:55:13+02:00",
+    "2006-05-24T17:06:34+02:00",
+    "2006-05-30T12:55:15+02:00",
+    "2006-05-30T13:14:26+02:00",
+    "2006-05-30T13:52:35+02:00",
+    "2006-05-30T13:53:45+02:00",
+    "2006-05-30T13:56:45+02:00",
+    "2006-05-30T15:35:37+02:00",
+    "2006-05-31T20:45:04+02:00",
+    "2006-06-12T11:25:49+02:00",
+    "2006-06-13T19:35:41+02:00",
+    "2006-08-08T12:50:47+02:00",
+    "2006-09-11T16:25:58+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding.binarySearch",
+          "source": "ReferenceBinding.java:76"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.getField",
+          "source": "SourceTypeBinding.java:845"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.findField",
+          "source": "Scope.java:826"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.getBinding",
+          "source": "Scope.java:1412"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.BlockScope.getBinding",
+          "source": "BlockScope.java:424"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.resolveType",
+          "source": "QualifiedNameReference.java:972"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MemberValuePair.resolveTypeExpecting",
+          "source": "MemberValuePair.java:83"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Annotation.resolveType",
+          "source": "Annotation.java:266"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.ASTNode.resolveAnnotations",
+          "source": "ASTNode.java:513"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.FieldBinding.getAnnotationTagBits",
+          "source": "FieldBinding.java:252"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.resolveTypeFor",
+          "source": "SourceTypeBinding.java:1226"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.fields",
+          "source": "SourceTypeBinding.java:603"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.faultInTypesForFieldsAndMethods",
+          "source": "SourceTypeBinding.java:582"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope.faultInTypes",
+          "source": "CompilationUnitScope.java:427"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.process",
+          "source": "Compiler.java:587"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:411"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.builder.AbstractImageBuilder.compile",
+          "source": "AbstractImageBuilder.java:300"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "143259",
+      "date": "2006-05-23T18:49:04+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "143259",
+  "bugId": "143259",
+  "date": "2006-05-23T18:49:04+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

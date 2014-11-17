@@ -1,0 +1,134 @@
+{
+  "comments": [
+    "Start with a brand new workspace. \nThe first thing you do is import a project interchange file. \n\nYou get a NPE during the auto-build. I think it\u0027s a static field initialization order problem, since the NPE is on a line that is pointing to a static final field of another class (Binding.NO_SUPERINTERFACES) but the of that field is null.\n\nPlease email me if you\u0027d like the project interchange file. \n\njava.lang.NullPointerException\n\tat org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding.findSuperTypeErasingTo(ReferenceBinding.java:616)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve(TypeDeclaration.java:947)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve(TypeDeclaration.java:1094)\n\tat org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.resolve(CompilationUnitDeclaration.java:353)\n\tat org.eclipse.jdt.internal.core.hierarchy.HierarchyResolver.resolve(HierarchyResolver.java:696)\n\tat org.eclipse.jdt.internal.core.hierarchy.HierarchyResolver.resolve(HierarchyResolver.java:515)\n\tat org.eclipse.jdt.internal.core.hierarchy.HierarchyBuilder.buildSupertypes(HierarchyBuilder.java:113)\n\tat org.eclipse.jdt.internal.core.hierarchy.IndexBasedHierarchyBuilder.build(IndexBasedHierarchyBuilder.java:133)\n\tat org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy.compute(TypeHierarchy.java:300)\n\tat org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy.refresh(TypeHierarchy.java:1235)\n\tat org.eclipse.jdt.internal.core.CreateTypeHierarchyOperation.executeOperation(CreateTypeHierarchyOperation.java:90)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:720)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.runOperation(JavaModelOperation.java:779)\n\tat org.eclipse.jdt.internal.core.SourceType.newSupertypeHierarchy(SourceType.java:700)\n\tat org.eclipse.jdt.internal.core.SourceType.newSupertypeHierarchy(SourceType.java:652)",
+    "Would it be possible to get a test case to reproduce this issue?\nThanks.",
+    "Also what is the build ID ?",
+    "pls reopen when steps and required info is made available",
+    "Got testcase from Mindaugas.",
+    "Cannot reproduce any issue with latest.\nPlease provide accurate steps, including what you were doing to get the exception, build ID, installed JRE ...",
+    "Mindaugas said it is based on Eclipse RC4",
+    "cc\u0027ing kevin",
+    "Found using: WinXP SP2\n\njava version \"1.5.0\"\nJava(TM) 2 Runtime Environment, Standard Edition (build pwi32dev-20060425\n(SR2))\nIBM J9 VM (build 2.3, J2RE 1.5.0 IBM J9 2.3 Windows XP x86-32\nj9vmwi3223-20060425 (JIT enabled)\nJ9VM - 20060424_06327_lHdSMR\nJIT  - 20060420_1800_r8\nGC   - 20060412_AA)\nJCL  - 20060425\n\nEclipse 3.2RC4\n\nI also tried the updating jdt to jdt-core (v669) and the problem was still\nthere. After import, it happens during every build, even after which to Java\nperspective and creating a new java project.  ",
+    "I\u0027ll update this PR if we think we\u0027ll need this fixed for 3.2.0, but the current thinking is that 3.2.1 will be ok. ",
+    "Offending line is:\n\npublic ReferenceBinding findSuperTypeErasingTo(int wellKnownErasureID, boolean erasureIsClass) {\n\n    // do not allow type variables to match with erasures for free\n    if (this.id \u003d\u003d wellKnownErasureID || (!isTypeVariable() \u0026\u0026 erasure().id \u003d\u003d wellKnownErasureID)) return this;\n\n    ReferenceBinding currentType \u003d this;\n    // iterate superclass to avoid recording interfaces if searched supertype is class\n    if (erasureIsClass) {\n\t\twhile ((currentType \u003d currentType.superclass()) !\u003d null) { \n\t\t\tif (currentType.id \u003d\u003d wellKnownErasureID || (!currentType.isTypeVariable() \u0026\u0026 currentType.erasure().id \u003d\u003d wellKnownErasureID))\n\t\t\t\treturn currentType;\n\t\t}    \n\t\treturn null;\n    }\n\tReferenceBinding[] interfacesToVisit \u003d null;\n\tint nextPosition \u003d 0;\n\tdo {\n\t\tReferenceBinding[] itsInterfaces \u003d currentType.superInterfaces();\n\t\tif (itsInterfaces !\u003d Binding.NO_SUPERINTERFACES) {\n\t\t\tif (interfacesToVisit \u003d\u003d null) {\n\t\t\t\tinterfacesToVisit \u003d itsInterfaces;\n\u003e\u003e\u003e\u003e\u003e\t\t\t\tnextPosition \u003d interfacesToVisit.length;\n\nwhich would indicate \u0027itsInterfaces\u0027 is still null at this stage.\nIn theory, it should be at least an empty array. Smells like type hierarchy computation is not triggering supertype connecting properly.",
+    "Suspecting type hierarchy computation to try to be more resilient than it needs.\nEnabling hierarchy trace, found the following when manually asking for a full type hierarchy (ctrl-H) on ActionServlet:\n\nCREATING TYPE HIERARCHY [Thread[Worker-0,5,main]]\n  on type ActionServlet [in ActionServlet.class [in org.apache.struts.action [in WebContent/WEB-INF/lib/struts.jar [in StudioPerf14]]]]\norg.eclipse.jdt.internal.compiler.problem.AbortCompilation\n\tat org.eclipse.jdt.internal.compiler.problem.ProblemHandler.handle(ProblemHandler.java:93)\n\tat org.eclipse.jdt.internal.compiler.problem.ProblemReporter.handle(ProblemReporter.java:1768)\n\tat org.eclipse.jdt.internal.compiler.problem.ProblemReporter.isClassPathCorrect(ProblemReporter.java:3430)\n\tat org.eclipse.jdt.internal.compiler.lookup.UnresolvedReferenceBinding.resolve(UnresolvedReferenceBinding.java:47)\n\tat org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.resolveUnresolvedType(BinaryTypeBinding.java:138)\n\tat org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.superclass(BinaryTypeBinding.java:907)\n\tat org.eclipse.jdt.internal.core.hierarchy.HierarchyResolver.findSuperClass(HierarchyResolver.java:157)\n\tat org.eclipse.jdt.internal.core.hierarchy.HierarchyResolver.reportHierarchy(HierarchyResolver.java:460)\n\tat org.eclipse.jdt.internal.core.hierarchy.HierarchyResolver.resolve(HierarchyResolver.java:712)\n\tat org.eclipse.jdt.internal.core.hierarchy.IndexBasedHierarchyBuilder.buildForProject(IndexBasedHierarchyBuilder.java:199)\n\tat org.eclipse.jdt.internal.core.hierarchy.IndexBasedHierarchyBuilder.buildFromPotentialSubtypes(IndexBasedHierarchyBuilder.java:306)\n\tat org.eclipse.jdt.internal.core.hierarchy.IndexBasedHierarchyBuilder.build(IndexBasedHierarchyBuilder.java:129)\n\tat org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy.compute(TypeHierarchy.java:300)\n\tat org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy.refresh(TypeHierarchy.java:1235)\n\tat org.eclipse.jdt.internal.core.CreateTypeHierarchyOperation.executeOperation(CreateTypeHierarchyOperation.java:90)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:720)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.runOperation(JavaModelOperation.java:779)\n\tat org.eclipse.jdt.internal.core.BinaryType.newTypeHierarchy(BinaryType.java:877)\n\tat org.eclipse.jdt.internal.core.BinaryType.newTypeHierarchy(BinaryType.java:896)\n\tat org.eclipse.jdt.internal.core.BinaryType.newTypeHierarchy(BinaryType.java:866)\n\tat org.eclipse.jdt.internal.ui.typehierarchy.TypeHierarchyLifeCycle.createTypeHierarchy(TypeHierarchyLifeCycle.java:118)\n\tat org.eclipse.jdt.internal.ui.typehierarchy.TypeHierarchyLifeCycle.doHierarchyRefresh(TypeHierarchyLifeCycle.java:157)\n\tat org.eclipse.jdt.internal.ui.typehierarchy.TypeHierarchyViewPart.doRestoreInBackground(TypeHierarchyViewPart.java:1506)\n\tat org.eclipse.jdt.internal.ui.typehierarchy.TypeHierarchyViewPart.access$9(TypeHierarchyViewPart.java:1505)\n\tat org.eclipse.jdt.internal.ui.typehierarchy.TypeHierarchyViewPart$15.run(TypeHierarchyViewPart.java:1491)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\norg.eclipse.jdt.internal.compiler.problem.AbortCompilation\n\tat org.eclipse.jdt.internal.compiler.problem.ProblemHandler.handle(ProblemHandler.java:93)\n\tat org.eclipse.jdt.internal.compiler.problem.ProblemReporter.handle(ProblemReporter.java:1768)\n\tat org.eclipse.jdt.internal.compiler.problem.ProblemReporter.isClassPathCorrect(ProblemReporter.java:3430)\n\tat org.eclipse.jdt.internal.compiler.lookup.UnresolvedReferenceBinding.resolve(UnresolvedReferenceBinding.java:47)\n\tat org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.resolveUnresolvedType(BinaryTypeBinding.java:138)\n\tat org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.superclass(BinaryTypeBinding.java:907)\n\tat org.eclipse.jdt.internal.core.hierarchy.HierarchyResolver.findSuperClass(HierarchyResolver.java:157)\n\tat org.eclipse.jdt.internal.core.hierarchy.HierarchyResolver.reportHierarchy(HierarchyResolver.java:460)\n\tat org.eclipse.jdt.internal.core.hierarchy.HierarchyResolver.resolve(HierarchyResolver.java:712)\n\tat org.eclipse.jdt.internal.core.hierarchy.IndexBasedHierarchyBuilder.buildForProject(IndexBasedHierarchyBuilder.java:199)\n\tat org.eclipse.jdt.internal.core.hierarchy.IndexBasedHierarchyBuilder.buildFromPotentialSubtypes(IndexBasedHierarchyBuilder.java:321)\n\tat org.eclipse.jdt.internal.core.hierarchy.IndexBasedHierarchyBuilder.build(IndexBasedHierarchyBuilder.java:129)\n\tat org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy.compute(TypeHierarchy.java:300)\n\tat org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy.refresh(TypeHierarchy.java:1235)\n\tat org.eclipse.jdt.internal.core.CreateTypeHierarchyOperation.executeOperation(CreateTypeHierarchyOperation.java:90)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:720)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.runOperation(JavaModelOperation.java:779)\n\tat org.eclipse.jdt.internal.core.BinaryType.newTypeHierarchy(BinaryType.java:877)\n\tat org.eclipse.jdt.internal.core.BinaryType.newTypeHierarchy(BinaryType.java:896)\n\tat org.eclipse.jdt.internal.core.BinaryType.newTypeHierarchy(BinaryType.java:866)\n\tat org.eclipse.jdt.internal.ui.typehierarchy.TypeHierarchyLifeCycle.createTypeHierarchy(TypeHierarchyLifeCycle.java:118)CREATED TYPE HIERARCHY in 16781ms\nFocus: ActionServlet [in ActionServlet.class [in org.apache.struts.action [in WebContent/WEB-INF/lib/struts.jar [in StudioPerf14]]]]\nSuper types:\nSub types:",
+    "What we see is that some AbortCompilation got raised due to some incomplete classpath (there are some buidpath problems). Instead of stopping on these exceptions, the hierarchy resolver still tries to infer more data, and thus it enters code areas which are not met to be entered in such an inconsistent state.\n\nQuestionning the need for resilience here... i.e. is it trying to recover more than it should ?\n\nMindaugas: can you confirm presence of build path errors in your setup ? If so, does fixing them make the problem go away ?",
+    "Yes, there were build path problems in the project.\n\n(org.apache.struts.action.ActionServlet extends javax.servlet.http.HttpServlet which was missing from the classpath)\n\nFixing this problem did make the new type hierarchy problem go away.\n\nOur use case is only trying to find out if a specific type extends ActionServlet. It would be nice if this would be possible to do in the presence of build path errors, but I understand if it\u0027s not possible and I think it\u0027s a fair limitation.",
+    "Created an attachment (id\u003d43580)\nProposed patch\n\nThis patch also addresses bug 145500.\n\nAdded null check for increased resilience to intermediate AbortCompilation (which hierarchies are swallowing for maximal resilience).\nAlso ensured leaving supertype connecting code with at least an empty array, in case of AbortCompilation (double protection).\n\nAlso improved resilience to missing supertype (bug 145500)",
+    "Sent JAR patch to Mindaugas. Please confirm whether this addresses your problem.",
+    "I tested the JAR, and it fixes the problem. ",
+    "Mindaugas agreed to wait until 3.2.1 to get the fix.\n\nAdded TypeHierarchyTests#testResilienceToMissingBinaries()\nReleased for 3.2.1 inclusion",
+    "Jerome - pls verify",
+    "Released for 3.3 M1 while merging TARGET_321 in HEAD",
+    "Created an attachment (id\u003d44248)\nImproved patch\n\nThis patch (applied after Philippe\u0027s patch) fixes super type bindings before reporting the hierarchy. As a result, a type with a missing super class has null as the super class instead of Object. Thus the hierarchy appears correctly in the hierarchy view (instead of just showing Object).",
+    "Patch released for 3.3M1 in HEAD and released for 3.2.1 in TARGET_321 branch.",
+    "Verified for 3.3 M1 by user",
+    "Verified for 3.2.1 using build M20060908-1655"
+  ],
+  "commentCreationDates": [
+    "2006-06-01T22:32:35+02:00",
+    "2006-06-02T04:39:39+02:00",
+    "2006-06-02T10:09:05+02:00",
+    "2006-06-02T10:26:03+02:00",
+    "2006-06-02T10:48:18+02:00",
+    "2006-06-02T12:08:28+02:00",
+    "2006-06-02T14:58:20+02:00",
+    "2006-06-02T17:12:23+02:00",
+    "2006-06-02T17:41:14+02:00",
+    "2006-06-02T17:43:25+02:00",
+    "2006-06-02T19:08:05+02:00",
+    "2006-06-05T15:00:23+02:00",
+    "2006-06-05T15:03:22+02:00",
+    "2006-06-05T16:05:48+02:00",
+    "2006-06-06T13:37:48+02:00",
+    "2006-06-06T13:38:57+02:00",
+    "2006-06-06T16:09:25+02:00",
+    "2006-06-06T16:21:08+02:00",
+    "2006-06-07T11:52:43+02:00",
+    "2006-06-12T12:21:16+02:00",
+    "2006-06-13T11:24:58+02:00",
+    "2006-06-13T11:53:20+02:00",
+    "2006-08-08T13:32:15+02:00",
+    "2006-09-12T09:39:38+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding.findSuperTypeErasingTo",
+          "source": "ReferenceBinding.java:616"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve",
+          "source": "TypeDeclaration.java:947"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve",
+          "source": "TypeDeclaration.java:1094"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.resolve",
+          "source": "CompilationUnitDeclaration.java:353"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.hierarchy.HierarchyResolver.resolve",
+          "source": "HierarchyResolver.java:696"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.hierarchy.HierarchyResolver.resolve",
+          "source": "HierarchyResolver.java:515"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.hierarchy.HierarchyBuilder.buildSupertypes",
+          "source": "HierarchyBuilder.java:113"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.hierarchy.IndexBasedHierarchyBuilder.build",
+          "source": "IndexBasedHierarchyBuilder.java:133"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy.compute",
+          "source": "TypeHierarchy.java:300"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy.refresh",
+          "source": "TypeHierarchy.java:1235"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CreateTypeHierarchyOperation.executeOperation",
+          "source": "CreateTypeHierarchyOperation.java:90"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.run",
+          "source": "JavaModelOperation.java:720"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.runOperation",
+          "source": "JavaModelOperation.java:779"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SourceType.newSupertypeHierarchy",
+          "source": "SourceType.java:700"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SourceType.newSupertypeHierarchy",
+          "source": "SourceType.java:652"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "144976",
+      "date": "2006-06-01T22:32:35+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "major"
+    }
+  ],
+  "groupId": "144976",
+  "bugId": "144976",
+  "date": "2006-06-01T22:32:35+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "major"
+}

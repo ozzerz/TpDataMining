@@ -1,0 +1,160 @@
+{
+  "comments": [
+    "Build 20040310\n\nDebug to BreakpointManager#loadBreakpoints, just after the line that reads:\n  IMarker markers\u003d createPersistedMarkers(resource);\n\nTry to evaluate the string:\n  markers\u003d new IMarker[0]\n\nThe following exception is returned:\n  Evaluation failed. Reason(s):\n    com.sun.jdi.ClassNotLoadedException: Type has not been loaded occurred while attempting to \nset value of local variable.",
+    "I debugged this problem a little, the assigment fails when it checks if the\nfield type and the value type come from the same classloader (or two compatible\nclassloaders).\nNeed more investigation.",
+    "Re-assign for investigation.",
+    "Deferred",
+    "I think that our methods that force load classes can use the wrong class \nloader and cause this problem. The methods in Instruction.getType(...) and \nclassForName(...) should be re-written to use the receiving type\u0027s class \nloader. We\u0027ll need to re-write these methods to take a classloader context \n(but I think it\u0027s do-able, as it\u0027s all internal implementation).",
+    "Created an attachment (id\u003d24687)\nPatch to use correct class loader\n",
+    "Released changes to fix class loader usage. Changes to IRuntimeContext, \nJavaObjectRuntimeContext, RuntimeContext, [+] AbstractRuntimeContext, and \nInstruction. The context is now responsible for loading classes, and the \nbehavior is implemented/shared by our contexts via the new class \nAbstractRuntimeContext. Can\u0027t reproduce original problem due to a different \nbug.",
+    "Problem still occurrs on J9/IBM with patch. Problem does not occurr on Sun VM.",
+    "Appears to be a VM bug on J9/IBM VM? When we attempt to perform the final \u0027set \nvalue\u0027 after the evaluation we ensure that the type of the local variable \nbeing assigned the new value is compatible with the value\u0027s type, and the type \nfor \u0027IMarker[]\u0027 is claimed not to be loaded in the target VM (when it is). The \ntype check attempts to retrive the type of the local, which results in this \nexception (i.e. the type of the local is not loaded). It checks that the \nmethod\u0027d declaring type\u0027s classloader can see the type \u0027IMarker[]\u0027, which \nclaims it cannot (on J9, but Sun VM can). We eventually perform a JDWP call to \nget the visible classes for the classloader, and the result does not contain \nIMarker[].\n\n\ncom.sun.jdi.ClassNotLoadedException: Type has not been loaded\nat org.eclipse.jdi.internal.ReferenceTypeImpl.create\n(ReferenceTypeImpl.java:1278)\nat org.eclipse.jdi.internal.TypeImpl.create(TypeImpl.java:64)\nat org.eclipse.jdi.internal.LocalVariableImpl.type(LocalVariableImpl.java:166)\nat org.eclipse.jdi.internal.StackFrameImpl.setValue(StackFrameImpl.java:174)\nat org.eclipse.jdt.internal.debug.core.model.JDILocalVariable.setJDIValue\n(JDILocalVariable.java:84)\nat org.eclipse.jdt.internal.debug.core.model.JDILocalVariable.setValue\n(JDILocalVariable.java:185)\nat \norg.eclipse.jdt.internal.debug.eval.ast.instructions.AssignmentOperator.execute\n(AssignmentOperator.java:66)\nat org.eclipse.jdt.internal.debug.eval.ast.engine.Interpreter.execute\n(Interpreter.java:50)\nat org.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$1\n$EvaluationRunnable.run(ASTEvaluationEngine.java:347)\nat org.eclipse.jdt.internal.debug.core.model.JDIThread.runEvaluation\n(JDIThread.java:565)\nat \norg.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$EvalRunnable\n.run(ASTEvaluationEngine.java:381)\nat org.eclipse.jdt.internal.debug.core.model.JDIThread$ThreadJob.run\n(JDIThread.java:2446)\nat org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)\n",
+    "Would be good to write a stand-alone test case with JDI client (no Eclipse) \nthat demos the problem. However, the problem appears to be related to having \nmultiple class loaders.",
+    "Found a test case that fails on Sun, works on J9:\n* debug to the breakpoint\n* step over the line\n* eval \u0027patterns \u003d new Pattern[0]\u0027\n\norg.eclipse.debug.core.DebugException[5010]: \ncom.sun.jdi.ClassNotLoadedException: Type has not been loaded\n\tat org.eclipse.jdi.internal.ReferenceTypeImpl.create\n(ReferenceTypeImpl.java:1278)\n\tat org.eclipse.jdi.internal.TypeImpl.create(TypeImpl.java:64)\n\tat org.eclipse.jdi.internal.ArrayTypeImpl.componentType\n(ArrayTypeImpl.java:91)\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIArrayType.getComponentType\n(JDIArrayType.java:58)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.instructions.ArrayAllocation.execute\n(ArrayAllocation.java:62)\n\tat org.eclipse.jdt.internal.debug.eval.ast.engine.Interpreter.execute\n(Interpreter.java:50)\n\tat org.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$1\n$EvaluationRunnable.run(ASTEvaluationEngine.java:347)\n\tat org.eclipse.jdt.internal.debug.core.model.JDIThread.runEvaluation\n(JDIThread.java:565)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$EvalRunnable\n.run(ASTEvaluationEngine.java:381)\n\tat org.eclipse.jdt.internal.debug.core.model.JDIThread$ThreadJob.run\n(JDIThread.java:2446)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)\n\n\n\npublic class LoadingExample {\n    \n    public static void main(String[] args) {\n        new LoadingExample().load();\n    }\n    \n    public void load() {\n        ClassLoader rootClassLoader \u003d this.getClass().getClassLoader();\n        try {\n            URL url \u003d new File(\"\").toURL();\n            URLClassLoader loader1 \u003d new URLClassLoader(new URL[]{url}, \nrootClassLoader);\n            URLClassLoader loader2 \u003d new URLClassLoader(new URL[]{url}, \nrootClassLoader);\n            loader1.loadClass(\"java.util.regex.Pattern\");\n            loader2.loadClass(\"[Ljava.util.regex.Pattern;\");\n            Pattern[] patterns \u003d new Pattern[0]; // BREAKPOINT\n            System.out.println(patterns);\n        } catch (MalformedURLException e) {\n            e.printStackTrace();\n        } catch (ClassNotFoundException e) {\n            e.printStackTrace();\n        }\n        \n    }\n}",
+    "Deferred"
+  ],
+  "commentCreationDates": [
+    "2004-03-16T18:34:38+01:00",
+    "2004-03-17T19:08:32+01:00",
+    "2004-06-11T18:02:08+02:00",
+    "2004-06-15T16:08:58+02:00",
+    "2005-07-13T17:19:22+02:00",
+    "2005-07-13T20:10:50+02:00",
+    "2005-07-13T21:11:37+02:00",
+    "2005-07-13T22:30:56+02:00",
+    "2005-07-14T17:08:37+02:00",
+    "2005-07-14T17:47:28+02:00",
+    "2005-07-14T20:30:54+02:00",
+    "2006-02-22T19:59:29+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "com.sun.jdi.ClassNotLoadedException",
+      "message": "Type has not been loaded",
+      "elements": [
+        {
+          "method": "org.eclipse.jdi.internal.ReferenceTypeImpl.create",
+          "source": "ReferenceTypeImpl.java:1278"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.TypeImpl.create",
+          "source": "TypeImpl.java:64"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.LocalVariableImpl.type",
+          "source": "LocalVariableImpl.java:166"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.StackFrameImpl.setValue",
+          "source": "StackFrameImpl.java:174"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDILocalVariable.setJDIValue",
+          "source": "JDILocalVariable.java:84"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDILocalVariable.setValue",
+          "source": "JDILocalVariable.java:185"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.instructions.AssignmentOperator.execute",
+          "source": "AssignmentOperator.java:66"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.Interpreter.execute",
+          "source": "Interpreter.java:50"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$1$EvaluationRunnable.run",
+          "source": "ASTEvaluationEngine.java:347"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread.runEvaluation",
+          "source": "JDIThread.java:565"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$EvalRunnable.run",
+          "source": "ASTEvaluationEngine.java:381"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread$ThreadJob.run",
+          "source": "JDIThread.java:2446"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 8,
+      "bugId": "54987",
+      "date": "2005-07-14T17:08:37+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "com.sun.jdi.ClassNotLoadedException",
+      "message": "Type has not been loaded",
+      "elements": [
+        {
+          "method": "org.eclipse.jdi.internal.ReferenceTypeImpl.create",
+          "source": "ReferenceTypeImpl.java:1278"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.TypeImpl.create",
+          "source": "TypeImpl.java:64"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.ArrayTypeImpl.componentType",
+          "source": "ArrayTypeImpl.java:91"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIArrayType.getComponentType",
+          "source": "JDIArrayType.java:58"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.instructions.ArrayAllocation.execute",
+          "source": "ArrayAllocation.java:62"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.Interpreter.execute",
+          "source": "Interpreter.java:50"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$1$EvaluationRunnable.run",
+          "source": "ASTEvaluationEngine.java:347"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread.runEvaluation",
+          "source": "JDIThread.java:565"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$EvalRunnable.run",
+          "source": "ASTEvaluationEngine.java:381"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread$ThreadJob.run",
+          "source": "JDIThread.java:2446"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 10,
+      "bugId": "54987",
+      "date": "2005-07-14T20:30:54+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "54987",
+  "bugId": "54987",
+  "date": "2004-03-16T18:34:38+01:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

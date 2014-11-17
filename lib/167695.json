@@ -1,0 +1,100 @@
+{
+  "comments": [
+    "We in WTP have recently moved up to the latest I-build from platform (near M4) from our previously used M3 version. And, we suddenty started having problems with our JUnit tests (and, I\u0027m sure running, that function, but we haven\u0027t got that far). \n\nFor example, see http://download.eclipse.org/webtools/committers/drops/R2.0/I-I200612121445-200612121445/testResults.php\n\n\n\nSeems related to our use of xerces. Given the changes made recently for boot delegation order, thought I\u0027d open this bug right away. \n\nA typical error message is given below ... sometimes its verify Error, sometimes it\u0027s \"incompatible class change error\". \n\nWe do re-export our import of xerces, in our xml.core plugin (since, there are \nsome javax/DOM parameters in our API ... we wanted to be sure all were using the same version. \n\norg.apache.xerces;visibility:\u003dreexport;bundle-version\u003d\"[2.8.0,2.9.0)\"\n\nIs re-export now a bad thing to do? \n\n\u003d \u003d \u003d \u003d \u003d \u003d\n*** ERROR ***: Tue Dec 12 10:18:04 EST 2006    java.lang.IncompatibleClassChangeError\n    \tat org.eclipse.wst.xml.core.internal.validation.XMLValidator.createXMLReader(XMLValidator.java:155)\n    \tat org.eclipse.wst.xml.core.internal.validation.XMLValidator.validate(XMLValidator.java:270)\n    \tat org.eclipse.wst.xml.core.internal.validation.eclipse.Validator.validate(Validator.java:65)\n    \tat org.eclipse.wst.xml.core.internal.validation.core.AbstractNestedValidator.validate(AbstractNestedValidator.java:231)\n    \tat org.eclipse.wst.xml.core.internal.validation.core.AbstractNestedValidator.validateInJob(AbstractNestedValidator.java:110)\n    \tat org.eclipse.wst.validation.internal.operations.ValidatorJob.run(ValidatorJob.java:70)\n    \tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\n\u003d \u003d \u003d \u003d \u003d \u003d",
+    "BTW, as a sanity check, to get old behavior, I tried putting \n\norg.osgi.framework.bootdelegation\u003d* \n\nin the config.ini and it did not help JUnit\u0027s pass. \n\n\n\n\n",
+    "If you don\u0027t mind me thinking aloud ... given that the classpath delegation has changed at runtime, wouldn\u0027t the classpath order have to change at compile-time too? \n\nHas this been done in PDE build? \n\n",
+    "Wassim, CCing you for the PDE build question. I understand Pascal\u0027s out, so thought you might know if PDE build has been adjust to order classpath differently during compile time? Or .. if that\u0027s needed. \n\nThanks, for any help/insight. \n\n",
+    "David, can you tell us the list of projects we need in our workspace to run the junit tests?",
+    "Correction ... \nsetting org.osgi.framework.bootdelegation\u003d* \n_did_ help ... JUnits passed (I hadn\u0027t waited long enough for web page replication). \n\nSo, guess that \"proves\" its related to this change ... now we can work on the solution :) \n\n\n",
+    "At development time:\n1. The JRE container is always before the PDE container in the .classpath file.\nThis order has been the default/recommended order since 3.2.\n2. In \u003c\u003d 3.3M3, there were no access rules on the JRE container (ie. it was equivalent to org.osgi.framework.delegation\u003d*)\nIn recent builds and \u003e\u003d 3.3M4, there are access rules on the JRE container giving plug-ins access to packages that they would only get access to at runtime, given their execution environment.  This is a feature added by the JDT/Debug team.\n\nNeither issue is related to your releng build problem though.",
+    "This issue is pretty complex.  First of all, this is *not* a compiler or development classpath issue.  The errors are occuring because of different JAXP classes being loaded by different bundles.  Now that we no longer delegate everything to boot first it is actually possible to load and use the classes from the javax.xml package exported by the org.apache.xerces bundle.\n\n- The org.apache.xerces bundle is not functional by itself.  The javax.xml packages that it includes and exports do not provide all the necessary implementations to the factories.  For example, it does not include xalan so if you try to get an instance of a TransformerFactory the class org.apache.xalan.processor.TransformerFactoryImpl will not be found.  This is the default TransformerFactory that the apache versions of javax.xml package use if no others are configured.  In its current state org.apache.xerces bundle should require the system.bundle so that it gets the available JAXP classes from the execution environment before itself.  The JAXP simply will not work correctly unless you ship every default apache implementation with the xml-apis.\n\n- The org.eclipse.wst.xml.core project requires org.eclipse.core.runtime *before* org.apache.xercies.  The org.eclipse.core.runtime bundle reexports the system bundle (org.eclipse.osgi).  The net result of this is that every package from the VM execution environment profile is reexported by org.eclipse.core.runtime.  On J2SE 1.4 or higher this includes the javax.xml package.  This causes org.eclipse.wst.xml.core to see the JAXP packages from the VM before the ones from org.apache.xerces.\n\n- The ContextFinder (which is the default context classloader for the Framework) still delegates every classload to boot before it searches the bundle classloaders.  This really messes things up when a class from the xerces bundle uses the context classloader.  I think the ContextFinder should delegate to the bundle classloaders before delegating to the parent classloader.\n\nI will attach some patches to the three projects with these changes.  The org.eclipse.wst.xml.validation.tests tests pass on both IBM and Sun 1.5 VMs when test patches are applied.",
+    "Created an attachment (id\u003d55557)\norg.eclipse.osgi ContextFinder patch\n\nThis patch fixes ContextFinder so it searches bundle classloaders before delegating to the parent classloader.  Pascal, please review the.  It would be nice to release for M4, but I think it is too late for such a change.  ContextFinder always seem to be very sensitive.",
+    "Created an attachment (id\u003d55558)\nwst manifest patches\n\nThis patch updates the bundle manifests of the wst projects\n\n- add Require-Bundle: system.bundle to xerces to get JAXP classes from the EE first\n\n- put Require-Bundle: org.apache.xerces before org.eclipse.core.runtime so it is searched first from the org.eclipse.wst.xml.core bundle.",
+    "(In reply to comment #8)\n\u003e\n\u003e It would be\n\u003e nice to release for M4, but I think it is too late for such a change. \n\u003e \n\nDoes this mean you are proposing to revert to the previous default behavior of \norg.osgi.framework.bootdelegation\u003d* \nfor M4? \n\nSeems so, but, thought I\u0027d be explicit. \n",
+    "Absolutely not!!  The only change to the framework is in ContextFinder so that it does *not* delegate to parent first.  This is needed because of the change we made to not bootdelegation\u003d*.  The patch changes ContextFinder to use the same rules as the Bundle classloaders where we only delegate to parent as a last resort.\n\nThe manifest changes in WST are needed to use the correct search order when looking up classes in xerces.",
+    "(In reply to comment #7)\n\u003e\n\u003e In its current state org.apache.xerces bundle\n\u003e should require the system.bundle so that it gets the available JAXP classes\n\u003e from the execution environment before itself.\n\u003e\n\nWhat about the change to xerces bundle ... ? \nsystem.bundle? I\u0027ve not heard of that before ... .is that something I should know about? Or, is it \"short hand\" for something else that I am missing? \n",
+    "And ... one more question ... are you recommending that in every manifest where we use xerces, it should come before the runtime bundle, or is it only in this special case where we reexport it? \n\n",
+    "I have reviewed the patch and it is good to go.\nI would be inclined to put it in for M4 because it is the first shot at Europa.",
+    "I released the patch for ContextFinder into M4.  That is the only changes required from the Framework for this bug.\n\n(In reply to comment #12)\n\u003e What about the change to xerces bundle ... ? \n\u003e system.bundle? I\u0027ve not heard of that before ... .is that something I should\n\u003e know about? Or, is it \"short hand\" for something else that I am missing? \n\nThe system.bundle symbolic name is an alias for the symbolic name of the system bundle (org.eclipse.osgi).  In this case you are only requiring it so that you get the public API that is exported from the VM Execution Environment profile.  You do not care which framework implementation you get wired to, that is why I recommend system.bundle vs org.eclipse.osgi.\n\n\n(In reply to comment #13)\n\u003e And ... one more question ... are you recommending that in every manifest where\n\u003e we use xerces, it should come before the runtime bundle, or is it only in this\n\u003e special case where we reexport it? \n\nYes, technically this is required to ensure that you get the JAXP classes from the perspective of the xerces bundle.  This ensures that your classpath at runtime is the same as the xerces bundle.  You will find that things will work without changing the manifests of bundles that require xerces though.  This is because xerces now reqiures the system.bundle first.  So even if you do require org.eclipse.core.runtime first you will still see the same thing as the xerces bundle.  The only reason this works now is because xerces requires the system.bundle and therefore will attempt to load the JAXP classes from the execution environment first.\n\nDavid can you open a bug against WST to change the xerces manifest file?",
+    "\u003e David can you open a bug against WST to change the xerces manifest file?\n\nWell, I\u0027ve already changed the xerces bundle, just using this bug number to refer to the change. \n\nIt\u0027s building now ... we\u0027ll test it out this afternoon. But, we\u0027ll still be using the version of Ecipse without the ContextFinder change ... is the _required_ to fix this case? Or, is that just a \"tweak\" you found by looking into this case? (Sounds like the latter, so I\u0027m hoping we\u0027ll work without it, but ... thought I\u0027d ask explicitly in case I misunderstood ... as I usually do :) \n",
+    "David, you will have to wait until the ContextFinder fix is in place (I think the next M4 build is at 1:00 PM EST today).  The reason this is needed is because ContextFinder is the default context classloader.  If you do not set it manually then it will be used.  This will cause issues in xerces when it tries to load implementation classes from itself and the implementation classes exist in the VM.\n",
+    "Sorry, I think I accidentally reset target milestone, so, resetting it to what Tom has set it to. \n",
+    "BTW, if I may continue commenting on this \"bug\" ... \n\nIsn\u0027t this change in behavior large enough to be considered an API change? \n\nThere\u0027s certainly some (many?) plugins that will not be \"binary compatible\". \n\nReady for Eclipse 4.0? :) \n\nJust thought I\u0027d point that out, since normally such breaking changes are announced plenty early, and some confirmation/review from the community received. \n\nI, for one, certainly think it is a good change, but think it should be well documented, circulated, etc., so adopters can review and plan time to react. \n\nAnd, if I may summarize the history (so others can correct me): \npre OSGI was called PSP: Platform, Self, Pre-reqs\nthen OSGI was PPS: Platform, pre-reqs, self\nSo ... now we are back to PSP? but in reverse from original: Pre-reqs, Self, Platform? \n\n",
+    "I\u0027ll document another case we had, with slightly different solution, since it too is xerces related. \n\nWe had some css.core JUnit\u0027s failing with java.lang.IncompatibleClassChangeError\nSee http://download.eclipse.org/webtools/committers/drops/R2.0/I-I200612141609-200612141609/testResults.php \nif you look soon :) \n\nFrom what I can tell, org.w3c.dom.css.CSSStyleSheet was the problem class, which comes from both xerces, and jaxp in JRE\u0027s (at least in 1.5, not all 1.4 versions). \n\nI think it especially ended up causing propblems, since css.core pre-req\u0027d xml.core (which has to re-export xerces). BUT, the client (the junit bundle, in this case) did not pre-req either xml.core, nor xerces. \n\nSo .... in css.core plugin, I added xerces pre-req and re-exported it (so, clients should not have to change). \n\nThis does make me wonder, though, if we will find other places where xerces is pre-req\u0027d (directly or indirectly) and will now have to be re-exported, to avoid classloading conflicts? Or ... is there a design rule we should be applying but not? \n\n\n",
+    "David, there is some documentation on this change on the wiki:\n\nhttp://wiki.eclipse.org/index.php/Equinox_Boot_Delegation\n\nIt\u0027s not clear that this is an \"API change\", since the implementation of OSGi class loaders isn\u0027t really API in the usual sense of the word. It\u0027s certainly true that clients can be affected and we need to make sure this appears in the 3.3 porting guide.",
+    "*** Bug 172659 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2006-12-12T18:09:17+01:00",
+    "2006-12-12T19:04:53+01:00",
+    "2006-12-12T19:06:17+01:00",
+    "2006-12-12T19:09:45+01:00",
+    "2006-12-12T19:13:34+01:00",
+    "2006-12-12T19:33:26+01:00",
+    "2006-12-12T19:36:12+01:00",
+    "2006-12-13T04:16:23+01:00",
+    "2006-12-13T04:19:19+01:00",
+    "2006-12-13T04:22:12+01:00",
+    "2006-12-13T13:46:12+01:00",
+    "2006-12-13T14:01:18+01:00",
+    "2006-12-13T14:08:20+01:00",
+    "2006-12-13T14:30:58+01:00",
+    "2006-12-13T14:46:37+01:00",
+    "2006-12-13T15:38:01+01:00",
+    "2006-12-13T16:26:04+01:00",
+    "2006-12-13T16:40:30+01:00",
+    "2006-12-14T03:46:44+01:00",
+    "2006-12-14T07:54:37+01:00",
+    "2006-12-14T20:51:14+01:00",
+    "2006-12-18T20:03:30+01:00",
+    "2007-03-26T16:02:33+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IncompatibleClassChangeError",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.xml.core.internal.validation.XMLValidator.createXMLReader",
+          "source": "XMLValidator.java:155"
+        },
+        {
+          "method": "org.eclipse.wst.xml.core.internal.validation.XMLValidator.validate",
+          "source": "XMLValidator.java:270"
+        },
+        {
+          "method": "org.eclipse.wst.xml.core.internal.validation.eclipse.Validator.validate",
+          "source": "Validator.java:65"
+        },
+        {
+          "method": "org.eclipse.wst.xml.core.internal.validation.core.AbstractNestedValidator.validate",
+          "source": "AbstractNestedValidator.java:231"
+        },
+        {
+          "method": "org.eclipse.wst.xml.core.internal.validation.core.AbstractNestedValidator.validateInJob",
+          "source": "AbstractNestedValidator.java:110"
+        },
+        {
+          "method": "org.eclipse.wst.validation.internal.operations.ValidatorJob.run",
+          "source": "ValidatorJob.java:70"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "167695",
+      "date": "2006-12-12T18:09:17+01:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "blocker"
+    }
+  ],
+  "groupId": "167695",
+  "bugId": "167695",
+  "date": "2006-12-12T18:09:17+01:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "blocker"
+}

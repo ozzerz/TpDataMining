@@ -1,0 +1,220 @@
+{
+  "comments": [
+    "Build 20030206\n\nI have a view (the good \u0027old EditorList) that references the active workbench \npage via PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage() \ninside the createPartControl(Composite) method. In recent builds, this call \nhas started to always return null if the view is being created at startup.\n\nThe stack trace I\u0027m getting looks like so:\n\n!SESSION Feb 07, 2003 10:27:06.474 ---------------------------------------------\njava.fullversion\u003dJ2RE 1.3.1 IBM build cxia32131-20020410 (JIT enabled: jitc)\nBootLoader constants: OS\u003dlinux, ARCH\u003dx86, WS\u003dgtk, NL\u003den_US\nCommand-line arguments: -os linux -ws gtk -arch x86 -debug -dev bin -data /home/jburns/target -install file:/home/jburns/host/eclipse/\n!ENTRY org.eclipse.ui.workbench 4 2 Feb 07, 2003 10:27:06.475\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.ui.workbench\".\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.ui.views.editorlist.EditorList.initViewerContents(EditorList.java:136)\n\tat org.eclipse.ui.views.editorlist.EditorList.createViewer(EditorList.java:124)\n\tat org.eclipse.ui.views.editorlist.EditorList.createPartControl(EditorList.java:103)\n\tat org.eclipse.ui.internal.PartPane$4.run(PartPane.java:138)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:867)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:413)\n\tat org.eclipse.ui.internal.PartPane.createChildControl(PartPane.java:134)\n\tat org.eclipse.ui.internal.ViewPane.createChildControl(ViewPane.java:202)\n\tat org.eclipse.ui.internal.PartPane.createControl(PartPane.java:183)\n\tat org.eclipse.ui.internal.ViewPane.createControl(ViewPane.java:181)\n\tat org.eclipse.ui.internal.ViewFactory$2.run(ViewFactory.java:165)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:867)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:413)\n\tat org.eclipse.ui.internal.ViewFactory.busyRestoreView(ViewFactory.java:93)\n\tat org.eclipse.ui.internal.ViewFactory$1.run(ViewFactory.java:77)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:65)\n\tat org.eclipse.ui.internal.ViewFactory.restoreView(ViewFactory.java:73)\n\tat org.eclipse.ui.internal.Perspective.restoreState(Perspective.java:907)\n\tat org.eclipse.ui.internal.WorkbenchPage.restoreState(WorkbenchPage.java:2245)\n\tat org.eclipse.ui.internal.WorkbenchWindow.restoreState(WorkbenchWindow.java:1224)\n\tat org.eclipse.ui.internal.Workbench.restoreState(Workbench.java:1150)\n\tat org.eclipse.ui.internal.Workbench.access$9(Workbench.java:1110)\n\tat org.eclipse.ui.internal.Workbench$10.run(Workbench.java:1028)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:867)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:413)\n\tat org.eclipse.ui.internal.Workbench.openPreviousWorkbenchState(Workbench.java:980)\n\tat org.eclipse.ui.internal.Workbench.init(Workbench.java:725)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1260)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:845)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat java.lang.reflect.Method.invoke(Native Method)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:247)\n\tat org.eclipse.core.launcher.Main.run(Main.java:703)\n\tat org.eclipse.core.launcher.Main.main(Main.java:539)\n\nMy createViewer method gets the page as follows and then passes \"page\" into\ninitViewerContents(). I know that the API specifies that the active\nworkbench window and active page can be null, but they\u0027ve never been null\nat startup before. This seems to be a change in the lifecycle of the active\nworkbench page.\n\nIWorkbenchPage page\u003d PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();",
+    "\n\n*** This bug has been marked as a duplicate of 30971 ***",
+    "This still occurs in RC1 of 3.0.\n\nDuring startup:\ngetSite().getWorkbenchWindow().getActivePage() \u003d\u003d null\nBUT\ngetSite().getPage() !\u003d null\n\nThe only time getActivePage returns null is at startup, yet there are both \nparts and pages, so why isn\u0027t one active?\n\nI couldn\u0027t really understand bug 30971 so I reopened this one instead. Hope \nthat\u0027s ok.",
+    "Removed target milestone and changed Version to 3.0.",
+    "The workbench restores the page(s) before setting the active page.\nView and editors should get their page and window from their site, not use\ngetActive*.\n",
+    "Nick, this behavior is prone to errors.  Also, parts and controls are *only* \ncreated for the active page. So once you start calling createControl(), there \nmust be an active page already.",
+    "This appears to have been fixed by the recent changes to workbench lifecycle.\nI set a breakpoint in ResourceNavigator.createPartControl, and\ngetSite().getPage().getWorkbenchWindow().getActivePage() returns the site\u0027s page.\n",
+    "This works too:\nPlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage() \n\nNote that it\u0027s still preferable to obtain the page directly from the part\u0027s\nsite, rather than using getActive*.\n\n",
+    "The recent changes were intended to make things more lazy... not to guarantee\nany particular relationship between part lifecycle and the window\u0027s active page.\nParts need to check for null from getActivePage(), or access the page from their\nsite.",
+    "Verified in I20050512-1200.\n",
+    "I\u0027ve noticed (in 3.1M7) that this doesn\u0027t affect getActivePerspective(), which \nstill returns null during startup (and that problem is documented in Bug \n70701).\n\nSo, if these changes weren\u0027t intended to, and don\u0027t, guarantee an active page \nduring startup, why has this bug been marked as fixed?  What are the scenarios \nwhen the active page is null?",
+    "\u003e this doesn\u0027t affect getActivePerspective()\nCorrect, that\u0027s covered by bug 70701.\n\n\u003e Why has this bug been marked as fixed?\nBecause there were changes in M7 that fix the problem here (although they were\nnot originally intended to specifically address this issue).\n\n\u003e What are the scenarios when the active page is null?\nThere are no known scenarios currently.  But in any case, the part should get\nthe containing page from its site, not use getActive*.\n\n",
+    "I think that findViewReference is calling getActivePage, not us.",
+    "The page should be null if there are no pages in the window (happens if there\nare no perspectives open yet) or if the only page hasn\u0027t been fully initialized yet.\n\nIMHO, WorkbenchWindow should not be handing out pointers to\npartially-initialized workbench pages. It is possible that one or more parts may\nneed to be created in order to fully initialize the page, in which case a part\nwould be created while the page pointer is null.\n",
+    "By the time the workbench start to realize a page, all of the view *references* \nshould be in existence and available. Views themselves may be in the process of \nbeing created.\n\nHow is this scenario different than the user opening a view?",
+    "Re comment 15:\n\nThat\u0027s why this is marked as fixed. Right now, there\u0027s no need to realize any\nparts. However, this is just a sensible optimization - not an API guarantee. If\nwe ever discovered a good reason why a concrete part would be needed in order to\nfully initialize the page, this would change.\n\nFor example, we might want to query the active part for an adapter or take\nadvantage of some batching optimization by pre-creating visible parts before the\npage is activated... or some client code may call one of the APIs that forces\npart creation.\n",
+    "Stefan, You can\u0027t claim complete freedom to make changes in the future. Sure, \nthe API is not documented very clearly, but the IViewReference interface exists \nfor this startup scenario. Assuming that the interface is actually used for its \nintended purpose is valid.\n\nIf you did batch notification and existence of other parts, the effect would be \nthat the GEF palette would display in a client\u0027s editor, and then disappear \nwhen the editor gets told that the view was created and get reconstructed in \nthe view.",
+    "IViewReference is there to allow views to be lazily materialized, and it is\nindeed used for this purpose. Views are materialized the first time they are\nneeded, not at a particular point in the lifecycle of the page. The reason it\ndoes not specify any relationship with particular pointers from the workbench\npage is because there is no relationship -- not because there is any ambiguity\nin the doc.\n\nIf there is some code that is assuming a non-null active page (or even that the\nactive page is the same as the page containing the view), please file a bug\nagainst that component so that it can be fixed.\n",
+    "Correctly closing as invalid. This is not a bug.",
+    "I haven\u0027t been following this recent discussion but the original bug report was\nmost certainly a bug. Just because an API says that something *can* return null,\ndoesn\u0027t mean that you always should. This bug was filed for a case where null\nwas being returned when it shouldn\u0027t.\n\nAs per Nick\u0027s remarks in comment #6, this bug was fixed.",
+    "It should be returning null until the page is initialized. That is the correct\nbehaviour. The fact that no parts have been created yet is coincidence.\n\nConsider this: Right now, this PR is complaining that getActivePage() is null.\nNext week, someone complains that getActivePage().getActivePart() is null.\nHowever, it is not possible to satisfy both requirements at the same time (since\nreturning anything from getActivePart() would require creating a part).\n\nThe correct order of initialization in the workbench is bottom-up. Part refs are\ninitialized before being added to a perspective. Perspectives are initialized\nbefore being added to a page, and pages are initialized before being added to a\nwindow. If the page needs to create a part to honor one of its API contracts,\nthat part would be created before the page is added to the window.\n\ngetActivePart is a good example. It does not -- and should not -- have\nrestrictions like \"you can only call this method on an active page\", making it\npossible to create a part in an inactive page.\n",
+    "\u003e It should be returning null until the page is initialized. That is the correct\n\u003e behaviour.\n\nMaybe so, depending on what \"initialized\" means.  Initialized should not \ninclude creating parts in the page. You can\u0027t create a part\u0027s control without \nthere being an active page and an active perspective.  This is true at other \ntimes and it is fixable during restore.\n\n\u003e Consider this: Right now, this PR is complaining that getActivePage() is null.\n\u003e Next week, someone complains that getActivePage().getActivePart() is null.\n\nUmm, but that case is completely valid.  Close all of your views and editors, \nand go open a view or editor and put a breakpoint in init(...), and query the \nactive part. The javadoc also indicates that null is possible, and this is a \nforeseeable case.",
+    "\u003e Maybe so, depending on what \"initialized\" means.  Initialized \n\u003e should not include creating parts in the page.\n\nInitialized means that it is capable of respecting the API contract on all of\nits methods, and all invariants are met. It is allowed to create any necessary\nchild objects to ensure that this is true. Parts are child objects, so this DOES\ninclude parts.\n\n\u003e You can\u0027t create a part\u0027s control without there being an active page \n\u003e and an active perspective. \n\nThat\u0027s due to bugs which will eventually be fixed. There\u0027s no reason why you\nshouldn\u0027t be able to ask for an IWorkbenchPartReference for a part in a hidden\nperspective and then call getPart(true) on that reference. The fact that you\ncurrently can\u0027t is a real bug (it violates an API contract)... and once that is\nfixed, there will be cases where controls get created in inactive perspectives.\n\n\u003e Consider this: Right now, this PR is complaining that getActivePage() is null.\n\u003e Next week, someone complains that getActivePage().getActivePart() is null.\n\n\u003e Umm, but that case is completely valid.  Close all of your views and\n\u003e editors, and go open a view or editor and put a breakpoint in init(...), \n\u003e and query the active part. The javadoc also indicates that null is \n\u003e possible, and this is a foreseeable case.\n\nSo your argument is: if a method is javadoc\u0027d to return null in a certain\nsituation, then returning null in that situation is not a bug. That sounds\nreasonable to me.\n\nTry this: close all perspectives, put a breakpoint in WorkbenchPage.init, open a\nperspective, and query the active page. This is also valid, forseeable, and in\nthe javadoc, and therefore not a bug. Returning null from getActivePage is no\nmore or less a bug than returning null from getActivePart. \n\nYou don\u0027t need an active part to create a new part, just like you don\u0027t need an\nactive page. You also don\u0027t need an active perspective, window, shell, editor,\netc. The part is guaranteed to get a parent page when it is created, but that\npage does not need to be active (or even to belong to a window that has an\nactive page).\n",
+    "All theoretical arguments aside, this bug has been fixed. I just triple-checked\nand the breakage I reported no longer exists.\n\n1. getActivePage() used to return non-null\n2. For a brief period, the workbench window was broken such that it was\nreturning null when it shouldn\u0027t.\n3. As Nick observed and I\u0027ve since verified, this bug was fixed and\ngetActivePage() now returns non-null again.\n\nI\u0027m not sure why we\u0027re still arguing about this or why the bug has been marked\nINVALID after it was fixed. Are you saying that you want to force the method to\nreturn null again, Stephan?",
+    "\u003e So your argument is: if a method is javadoc\u0027d to return null in a certain\n\u003e situation, then returning null in that situation is not a bug. That sounds\n\u003e reasonable to me.\n\nProbably because it\u0027s your arguement from comment 8:\n\n\"Parts need to check for null from getActivePage()\"",
+    "\u003e You don\u0027t need an active part to create a new part, just like you don\u0027t need \nan\n\u003e active page.\n\nThat\u0027s not a very good analogy. The page owns the part so you need a page. \nAnyway, what GEF is specifically interested in is finding another part \nreference when one part is being created. So back over to bug 70701.",
+    "Re: comment 23\n\nThe window was never broken. It still returns null if there is no active page,\nand that\u0027s exactly what it\u0027s supposed to do. There was never any guarantee that\nparts won\u0027t be created in a window with no active page and there still isn\u0027t.\n\nThis will probably happen again in the future.\n\nRe: comment 25\n\nYes, you definitely need a page. My point is that it does not need to be the\nactive page. It is possible to create parts in any page, active or not.\n",
+    "\"It still returns null if there is no active page, and that\u0027s exactly what it\u0027s\nsupposed to do.\"\n\nIn my test case there is supposed to be an active page. That was the bug that\nwas fixed. I still don\u0027t understand why a fixed bug has been marked invalid, but\nI\u0027m not going to debate this anymore. The bug is fixed so I don\u0027t care. :-P",
+    "*** Bug 126037 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2003-02-07T18:21:36+01:00",
+    "2003-02-11T17:42:53+01:00",
+    "2004-06-08T22:27:21+02:00",
+    "2004-06-09T15:05:01+02:00",
+    "2004-06-09T15:59:02+02:00",
+    "2004-06-09T16:49:05+02:00",
+    "2005-05-02T17:51:27+02:00",
+    "2005-05-02T17:54:14+02:00",
+    "2005-05-02T20:08:56+02:00",
+    "2005-05-13T18:11:37+02:00",
+    "2005-05-17T18:17:18+02:00",
+    "2005-05-17T19:20:17+02:00",
+    "2005-05-17T20:31:04+02:00",
+    "2005-05-17T23:37:29+02:00",
+    "2005-05-18T00:08:11+02:00",
+    "2005-05-18T00:58:48+02:00",
+    "2005-05-18T16:41:24+02:00",
+    "2005-05-18T18:18:23+02:00",
+    "2005-05-18T18:21:36+02:00",
+    "2005-05-18T19:22:49+02:00",
+    "2005-05-18T19:46:23+02:00",
+    "2005-05-18T20:14:11+02:00",
+    "2005-05-18T22:36:18+02:00",
+    "2005-05-18T23:00:27+02:00",
+    "2005-05-18T23:38:42+02:00",
+    "2005-05-18T23:54:40+02:00",
+    "2005-05-19T00:17:28+02:00",
+    "2005-05-19T00:24:54+02:00",
+    "2006-02-01T16:51:53+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.views.editorlist.EditorList.initViewerContents",
+          "source": "EditorList.java:136"
+        },
+        {
+          "method": "org.eclipse.ui.views.editorlist.EditorList.createViewer",
+          "source": "EditorList.java:124"
+        },
+        {
+          "method": "org.eclipse.ui.views.editorlist.EditorList.createPartControl",
+          "source": "EditorList.java:103"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane$4.run",
+          "source": "PartPane.java:138"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:867"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:413"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.createChildControl",
+          "source": "PartPane.java:134"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewPane.createChildControl",
+          "source": "ViewPane.java:202"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.createControl",
+          "source": "PartPane.java:183"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewPane.createControl",
+          "source": "ViewPane.java:181"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewFactory$2.run",
+          "source": "ViewFactory.java:165"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:867"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:413"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewFactory.busyRestoreView",
+          "source": "ViewFactory.java:93"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewFactory$1.run",
+          "source": "ViewFactory.java:77"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:65"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewFactory.restoreView",
+          "source": "ViewFactory.java:73"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Perspective.restoreState",
+          "source": "Perspective.java:907"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.restoreState",
+          "source": "WorkbenchPage.java:2245"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.restoreState",
+          "source": "WorkbenchWindow.java:1224"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.restoreState",
+          "source": "Workbench.java:1150"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$9",
+          "source": "Workbench.java:1110"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$10.run",
+          "source": "Workbench.java:1028"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:867"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:413"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.openPreviousWorkbenchState",
+          "source": "Workbench.java:980"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.init",
+          "source": "Workbench.java:725"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1260"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:845"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:247"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:703"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:539"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "31356",
+      "date": "2003-02-07T18:21:36+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "31356",
+  "bugId": "31356",
+  "date": "2003-02-07T18:21:36+01:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "major"
+}

@@ -1,0 +1,120 @@
+{
+  "comments": [
+    "I am attempting to run an RCP application using the standard IApplication start code:\n\n Display display \u003d PlatformUI.createDisplay();\n    try {\n      int code \u003d PlatformUI.createAndRunWorkbench(display,\n          new ChronosWorkbenchAdvisor());\n      // exit the application with an appropriate return code\n      return code \u003d\u003d PlatformUI.RETURN_RESTART\n          ? EXIT_RESTART\n          : EXIT_OK;\n    } finally {\n      if (display !\u003d null)\n        display.dispose();\n    }\n\nWith the addition of my own WorkbenchAdvisor. This very same application has worked since Eclipse 3.1, however, after some minor changes, such as switching to IApplication, I get the following error:\n\nException in thread \"Thread-2\" java.lang.NullPointerException\nException in thread \"Thread-2\" java.lang.NullPointerException\n\tat org.eclipse.jface.resource.JFaceResources.getResources(JFaceResources.java:203)\n\tat org.eclipse.jface.resource.ImageRegistry.\u003cinit\u003e(ImageRegistry.java:151)\n\tat org.eclipse.jface.resource.ImageRegistry.\u003cinit\u003e(ImageRegistry.java:123)\n\tat org.eclipse.ui.internal.WorkbenchImages.initializeImageRegistry(WorkbenchImages.java:568)\n\tat org.eclipse.ui.internal.WorkbenchImages.getDescriptors(WorkbenchImages.java:469)\n\tat org.eclipse.ui.internal.WorkbenchImages.getImageDescriptor(WorkbenchImages.java:499)\n\tat org.eclipse.ui.internal.registry.PerspectiveDescriptor.getImageDescriptor(PerspectiveDescriptor.java:236)\n\tat org.eclipse.ui.internal.registry.PerspectiveDescriptor.restoreState(PerspectiveDescriptor.java:337)\n\tat org.eclipse.ui.internal.registry.PerspectiveRegistry.loadCustom(PerspectiveRegistry.java:435)\n\tat org.eclipse.ui.internal.registry.PerspectiveRegistry.load(PerspectiveRegistry.java:395)\n\tat org.eclipse.ui.internal.WorkbenchPlugin.getPerspectiveRegistry(WorkbenchPlugin.java:561)\n\tat org.eclipse.ui.internal.Workbench.getPerspectiveRegistry(Workbench.java:1191)\n\tat org.eclipse.ui.internal.Workbench.doOpenFirstTimeWindow(Workbench.java:1844)\n\tat org.eclipse.ui.internal.Workbench.access$29(Workbench.java:1834)\n\tat org.eclipse.ui.internal.Workbench$45.run(Workbench.java:1794)\n\tat org.eclipse.ui.internal.Workbench.runStartupWithProgress(Workbench.java:1820)\n\tat org.eclipse.ui.internal.Workbench.openFirstTimeWindow(Workbench.java:1792)\n\tat org.eclipse.ui.internal.WorkbenchConfigurer.openFirstTimeWindow(WorkbenchConfigurer.java:190)\n\tat org.eclipse.ui.application.WorkbenchAdvisor$1.run(WorkbenchAdvisor.java:785)\n\nThe error stems from the creation of the Workbench ImageRegistry. Within the ImageRegistry constructor (line 123) we are retrieving the current display. \n\n   /**\n     * Creates an empty image registry.\n     * \u003cp\u003e\n     * There must be an SWT Display created in the current \n     * thread before calling this method.\n     * \u003c/p\u003e\n     */\n    public ImageRegistry() {\n        this(Display.getCurrent());\n    }\n\nThe thread is NULL. When it gets to the JFaceResources.getResources(final Display toQuery) method it throws the null pointer on this line:\n\n\ttoQuery.disposeExec(new Runnable() \n\nWhich makes sense, since \u0027toQuery\u0027 is null. The problem is, I have no idea why. I can\u0027t see that I am doing something incorrect. \n\nAdditional information:\n1) When I delete the entire application workspace and run it works fine. The second time I try to run it is when I get this error. Something written to disk?\n\n2) I tried a very basic application by using one of the Examples provided in the create new plugin project wizard. The same problem arose. Run once, ok. Run twice, problem occurs. Same error. I could easily upload that code.\n\nAny help would be appreciated.",
+    "(In reply to comment #0)\n\u003e 2) I tried a very basic application by using one of the Examples provided in\n\u003e the create new plugin project wizard. The same problem arose. Run once, ok. Run\n\u003e twice, problem occurs. Same error. I could easily upload that code.\n\nI mis-spoke. I altered a little of the code in the WorkbenchAdvisor for this application. Apparently this created the problem because when I remove my code, which worked in previous releases, it didn\u0027t have the problem. \n\nSomething in this code is contributing to the problem:\n\n\n  public void preWindowOpen(IWorkbenchWindowConfigurer configurer) {\n    configurer.setInitialSize(new Point(600, 500));\n    configurer.setShowStatusLine(true);\n    configurer.setShowProgressIndicator(true);\n    configurer.setShowCoolBar(true);\n    configurer.setShowMenuBar(true);\n    configurer.setShowPerspectiveBar(false);\n    configurer.getWorkbenchConfigurer().setSaveAndRestore(true);       \n  }\n\n  public boolean preShutdown() {\n    // Save the perspective\n    IWorkbenchPage page \u003d PlatformUI.getWorkbench().getActiveWorkbenchWindow().getWorkbench()\n        .getActiveWorkbenchWindow().getActivePage();\n    IPerspectiveDescriptor persp \u003d page.getPerspective();\n    if (persp !\u003d null) {\n      page.savePerspectiveAs(persp);\n      // Save the workspace\n      try {\n        ResourcesPlugin.getWorkspace().save(true, null);\n      } catch (Exception e) {\n        e.printStackTrace();\n      }\n    }    \n    return super.preShutdown();\n  }\n\n  public void fillActionBars(IWorkbenchWindow window, IActionBarConfigurer configurer, int flags) {\n    IMenuManager menuBar \u003d configurer.getMenuManager();\n    menuBar.add(createFileMenu(window));\n    menuBar.add(new GroupMarker(IWorkbenchActionConstants.MB_ADDITIONS));\n    menuBar.add(createWindowMenu(window));\n    menuBar.add(createHelpMenu(window));\n  }\n\n  private MenuManager createFileMenu(IWorkbenchWindow window) {\n    MenuManager menu \u003d new MenuManager(\"\u0026File\", IWorkbenchActionConstants.M_FILE);\n    menu.add(new GroupMarker(IWorkbenchActionConstants.FILE_START));\n    menu.add(new GroupMarker(IWorkbenchActionConstants.MB_ADDITIONS));\n\n    menu.add(ActionFactory.QUIT.create(window));\n    menu.add(new GroupMarker(IWorkbenchActionConstants.FILE_END));\n    return menu;\n  }\n\n  private MenuManager createHelpMenu(IWorkbenchWindow window) {\n    MenuManager menu \u003d new MenuManager(\"Help\", IWorkbenchActionConstants.M_HELP);\n    menu.add(new GroupMarker(IWorkbenchActionConstants.FILE_START));\n    menu.add(new GroupMarker(IWorkbenchActionConstants.MB_ADDITIONS));\n    menu.add(ActionFactory.ABOUT.create(window));\n    menu.add(new GroupMarker(IWorkbenchActionConstants.FILE_END));\n    return menu;\n  }\n\n  private MenuManager createWindowMenu(IWorkbenchWindow window) {\n    // Create a menu manager. Use properties to get name\n    MenuManager menu \u003d new MenuManager(\"Window\", IWorkbenchActionConstants.M_WINDOW);\n    menu.add(ActionFactory.OPEN_NEW_WINDOW.create(window));\n\n    menu.add(new Separator());\n    MenuManager perspectiveMenu \u003d new MenuManager(\"Open_Perspective\", \"openPerspective\");\n    IContributionItem perspectiveList \u003d ContributionItemFactory.PERSPECTIVES_SHORTLIST.create(window);\n    perspectiveMenu.add(perspectiveList);\n    menu.add(perspectiveMenu);\n\n    MenuManager viewMenu \u003d new MenuManager(\"Show_View\");\n    IContributionItem viewList \u003d ContributionItemFactory.VIEWS_SHORTLIST.create(window);\n    viewMenu.add(viewList);\n    menu.add(viewMenu);\n\n    menu.add(new Separator(IWorkbenchActionConstants.MB_ADDITIONS));\n\n    menu.add(ActionFactory.PREFERENCES.create(window));\n    menu.add(ContributionItemFactory.OPEN_WINDOWS.create(window));\n\n    return menu;\n  }\n",
+    "I\u0027ve been debugging and it appears the error happens when I try to save the perspective. In my WorkbenchAdvisor I have filled in the preShutdown() method as follows:\n\npublic boolean preShutdown() {\n\t\t// Save the perspective\n\t\tIWorkbenchPage page \u003d getWorkbenchConfigurer().getWorkbench()\n\t\t\t\t.getActiveWorkbenchWindow().getWorkbench()\n\t\t\t\t.getActiveWorkbenchWindow().getActivePage();\n\t\t page.savePerspective();\n\t\t// Save the workspace\n\t\ttry {\n\t\t\tResourcesPlugin.getWorkspace().save(true, null);\n\t\t} catch (Exception e) {\n\t\t\te.printStackTrace();\n\t\t}\n\n\t\treturn super.preShutdown();\n\t}\n\nThe page.savePerspective() causes the problem. When I run the program with a clean workspace it\u0027s fine. Run it again, after saving the perspective, and the program has the null Display error. Clearly savePerspective() is writing out some bad data. Perhaps I am calling it when I shouldn\u0027t be. Has Europa changed this?\n",
+    "Looks like we missed another place where code needs to run on the UI thread. Kim?",
+    "preShutdown() shouldn\u0027t have been affected by the startup changes...",
+    "The NPE happens during startup:\n\n...\norg.eclipse.ui.internal.Workbench.getPerspectiveRegistry(Workbench.java:1191)\norg.eclipse.ui.internal.Workbench.doOpenFirstTimeWindow(Workbench.java:1844)\n\nThe call to getPerspectiveRegistry is outside of the runnable.",
+    "Aha.  Custom perspectives without icons.  Mmm.  I think we can safely wrap the call to get the perspective registry with a startup runnable... will look for other calls in the startup.",
+    "Fix in HEAD.  I will look into getting this into 3.3.1",
+    "Verified that the call to the perspective registry.load() method occurs in the UI thread."
+  ],
+  "commentCreationDates": [
+    "2007-07-12T19:36:49+02:00",
+    "2007-07-12T19:45:57+02:00",
+    "2007-07-13T01:14:37+02:00",
+    "2007-07-16T16:55:04+02:00",
+    "2007-07-16T20:15:20+02:00",
+    "2007-07-16T20:21:04+02:00",
+    "2007-07-16T20:48:01+02:00",
+    "2007-07-16T21:31:48+02:00",
+    "2007-08-07T15:44:20+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.resource.JFaceResources.getResources",
+          "source": "JFaceResources.java:203"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageRegistry.\u003cinit\u003e",
+          "source": "ImageRegistry.java:151"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageRegistry.\u003cinit\u003e",
+          "source": "ImageRegistry.java:123"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchImages.initializeImageRegistry",
+          "source": "WorkbenchImages.java:568"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchImages.getDescriptors",
+          "source": "WorkbenchImages.java:469"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchImages.getImageDescriptor",
+          "source": "WorkbenchImages.java:499"
+        },
+        {
+          "method": "org.eclipse.ui.internal.registry.PerspectiveDescriptor.getImageDescriptor",
+          "source": "PerspectiveDescriptor.java:236"
+        },
+        {
+          "method": "org.eclipse.ui.internal.registry.PerspectiveDescriptor.restoreState",
+          "source": "PerspectiveDescriptor.java:337"
+        },
+        {
+          "method": "org.eclipse.ui.internal.registry.PerspectiveRegistry.loadCustom",
+          "source": "PerspectiveRegistry.java:435"
+        },
+        {
+          "method": "org.eclipse.ui.internal.registry.PerspectiveRegistry.load",
+          "source": "PerspectiveRegistry.java:395"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPlugin.getPerspectiveRegistry",
+          "source": "WorkbenchPlugin.java:561"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.getPerspectiveRegistry",
+          "source": "Workbench.java:1191"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.doOpenFirstTimeWindow",
+          "source": "Workbench.java:1844"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$29",
+          "source": "Workbench.java:1834"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$45.run",
+          "source": "Workbench.java:1794"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runStartupWithProgress",
+          "source": "Workbench.java:1820"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.openFirstTimeWindow",
+          "source": "Workbench.java:1792"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchConfigurer.openFirstTimeWindow",
+          "source": "WorkbenchConfigurer.java:190"
+        },
+        {
+          "method": "org.eclipse.ui.application.WorkbenchAdvisor$1.run",
+          "source": "WorkbenchAdvisor.java:785"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "196352",
+      "date": "2007-07-12T19:36:49+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "196352",
+  "bugId": "196352",
+  "date": "2007-07-12T19:36:49+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "major"
+}

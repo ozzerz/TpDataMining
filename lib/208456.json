@@ -1,0 +1,168 @@
+{
+  "comments": [
+    "build i1101-0010\n\n- download agent from Equinox downloads page and start\n- add metadata repo (http://download.eclipse.org/eclipse/testUpdates\n- don\u0027t add an artifact repo\n- create a new profile\n- try to install an SDK\n- get errors - this is good\n- the Progress icon has a little red exclamation point on it\n- click on the Progress icon and nothing happens\n- you get the following NPE in the log\n\n!ENTRY org.eclipse.ui 4 0 2007-11-01 13:23:52.497\n!MESSAGE Unhandled event loop exception\n!STACK 0\njava.lang.NullPointerException\n        at org.eclipse.ui.statushandlers.StatusManager.handle(StatusManager.java:199)\n        at org.eclipse.ui.internal.progress.ProgressAnimationItem.doAction(ProgressAnimationItem.java:104)\n        at org.eclipse.ui.internal.progress.ProgressAnimationItem$3.widgetSelected(ProgressAnimationItem.java:271)\n        at org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:227)\n        at org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n        at org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1105)\n        at org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3335)\n        at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2982)\n        at org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2395)\n        at org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2359)\n        at org.eclipse.ui.internal.Workbench.access$4(Workbench.java:2225)\n        at org.eclipse.ui.internal.Workbench$4.run(Workbench.java:468)\n        at org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:288)\n        at org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:463)\n        at org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\n        at org.eclipse.equinox.p2.ui.admin.rcp.Application.start(Application.java:30)\n        at org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:193)\n        at org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:106)\n        at org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:76)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:362)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:175)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:64)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n        at java.lang.reflect.Method.invoke(Method.java:615)\n        at org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:515)\n        at org.eclipse.equinox.launcher.Main.basicRun(Main.java:455)\n        at org.eclipse.equinox.launcher.Main.run(Main.java:1193)\n        at org.eclipse.equinox.launcher.Main.main(Main.java:1169)",
+    "*** Bug 208643 has been marked as a duplicate of this bug. ***",
+    "Note that in this scenario, an RCP app has added the progress region but there is no progress view registered in the plugin.xml.  Not sure if that is the root cause of the problem, but probably an important setup.",
+    "This looks like time racing. I am not sure about the diagnose, but feel free to comment it:\n\nErrorDialog (or StatusDialog if you want call it that way) is the only thing that should appear to the user.\n\nOnce the job ends, we raise the dialog and clean all jobs finished with errors.\n(StatusManager.handle which calls FinishedJobs.getInstance().removeErrorJobs()).\n\nIf the situation ended here, it would be perfect.\n\nBut then comes following code ProgressMonitorFocusJobDialog.cleanUpFinishedJob  (I do not know from where it comes, some UI Job but I cannot figure out what\u0027s going on).\nThis method results in putting finished job again (or the first time) in the FinishedJobs, that comes refresh and that little error indicator appears. But there is nothing to display when the user wants to see errors, because we have discarded all informations when handling the status...\n\nAny guidance and suggestions are welcomed. \n\n\n",
+    "Created an attachment (id\u003d82419)\nChanges that remove incorrect behavior\n\nAny volunteer to write tests? I will try to this later today.\n\nShould we open the bug for StatusManager.handle to report when passed status is null?",
+    "Actually the stack trace from the comment #0 is what StatusManager when something wrong happens during handling. Of course we can be more specific during logging it.\nSo instead of just NPE we can log extra message.\n\nIt is a quick fix, so Krzysztof feel free to log a bug and make a fix :-)",
+    "The problem is in ProgressAnimationItem in the new status handling\n\nStatusAdapter statusAdapter \u003d StatusAdapterHelper.getInstance().getStatusAdapter(ji);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tStatusManager.getManager().handle(statusAdapter,StatusManager.SHOW);\n\ndoes not handle the case where there is no registered adapter.\n\n\nif (statusAdapter \u003d\u003d null) {\n\tstatusAdapter \u003d new StatusAdapter(status);\n\tStatusAdapterHelper.getInstance().putStatusAdapter(ji, statusAdapter);\t\t\t}\n\nshould be inserted between these lines.\n\nSyzmon I\u0027ll need you to check why this is happening. Do we still want to register this? Why are we using this helper?",
+    "Created an attachment (id\u003d84648)\npatch\n\nHere is a patch that does not register the status adapter with the helper as it is not clear to me if this is of any value.\n\n",
+    "Fixed in build \u003e20071106 with attached patch",
+    "DJ can I get some help verifying this please?",
+    "re-opening to verify",
+    "marking fixed",
+    "I\u0027ve run the same scenerio with the latest agent build (based off the i-build from 20071211-0010) and it works ok.\n"
+  ],
+  "commentCreationDates": [
+    "2007-11-01T18:30:30+01:00",
+    "2007-11-05T13:19:43+01:00",
+    "2007-11-05T16:01:16+01:00",
+    "2007-11-06T13:55:18+01:00",
+    "2007-11-08T10:30:32+01:00",
+    "2007-11-08T11:41:44+01:00",
+    "2007-12-05T15:43:25+01:00",
+    "2007-12-06T18:24:36+01:00",
+    "2007-12-06T18:25:18+01:00",
+    "2007-12-11T18:05:50+01:00",
+    "2007-12-11T18:06:22+01:00",
+    "2007-12-11T18:07:16+01:00",
+    "2007-12-11T18:43:03+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.statushandlers.StatusManager.handle",
+          "source": "StatusManager.java:199"
+        },
+        {
+          "method": "org.eclipse.ui.internal.progress.ProgressAnimationItem.doAction",
+          "source": "ProgressAnimationItem.java:104"
+        },
+        {
+          "method": "org.eclipse.ui.internal.progress.ProgressAnimationItem$3.widgetSelected",
+          "source": "ProgressAnimationItem.java:271"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:227"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1105"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3335"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2982"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2395"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2359"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:2225"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$4.run",
+          "source": "Workbench.java:468"
+        },
+        {
+          "method": "org.eclipse.core.databinding.observable.Realm.runWithDefault",
+          "source": "Realm.java:288"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:463"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.ui.admin.rcp.Application.start",
+          "source": "Application.java:30"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:193"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:106"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:76"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:362"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:175"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:64"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:43"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:615"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:515"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:455"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1193"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.main",
+          "source": "Main.java:1169"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "208456",
+      "date": "2007-11-01T18:30:30+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "208456",
+  "bugId": "208456",
+  "date": "2007-11-01T18:30:30+01:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

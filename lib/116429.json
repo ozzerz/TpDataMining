@@ -1,0 +1,229 @@
+{
+  "comments": [
+    "Note: This might be a PDE issue.\n\nI created a trivial Eclipse plugin that contains a package that defines a\njava.nio.Charset.spi provider. The provider works just fine outside of Eclipse.\n\nI created a second package that depends on the first. From within the second\npackage, I have visibility to the classes in the first, but the Provider is\nnever called and so the charsets aren\u0027t available through the standard API.\n\nI have not packaged this up as jars -- I\u0027m running entirely with dynamic\ndeployment from workbench via the PDE.",
+    "Can you attach an example to reproduce the problem?  thanks.",
+    "Yes, stand by, as it were.",
+    "Created an attachment (id\u003d32373)\ntest case\n\n",
+    "I\u0027m sorry, I thought I posted the test case weeks ago. There\u0027s a junit test in the plugin I\u0027ve posted here, it fails when run as a PDE junit but passes if run outside of eclipse. ",
+    "I see. I posted the test case on another bug by mistake.",
+    "The problem is CharSet only looks in the following places for Charset providers\n\n- providers may be installed in an instance of the Java platform as extensions, that is, jar files placed into any of the usual extension directories. \n- providers may also be made available by adding them to the applet or application class path or by some other platform-specific means. Charset providers are looked up via the current thread\u0027s context class loader. \n\nWhen a bundle is installed its code is not available from the extension classloader.  I had some hope when the docs say the context classloader is being used, but I do not see our context classloader being used at all.  In fact I never see Thread.getContextClassLoader get called when charset providers are being looked up.  If the context classloader was being used by CharSet to find providers then we could play some tricks to find your providers.  But the VM does not seem to be doing what the docs state.\n\nI\u0027m not sure how we can fix this ...",
+    "I\u0027m not quite enough of a classpath expert to follow the exposition here. This works when you just include the jar in the plain-old-classpath. You don\u0027t have to use any special args to the jre or drop jars into the \u0027ext\u0027 directory, so long as you have the special SPI file in the META-INF directory.\n\nAre you sure that the main issue here isn\u0027t the fact that there is a file in META-INF that has to be seen to trigger the process? My suspicion when I ran into this was that the problem isn\u0027t looking up the class, it is that the META-INF department is somehow special.\n\n\nIf this really is caused by a core issue with how Java loads this stuff,\nThe entire platform could have an SPI that then picked up charsets from an extension point as a way around this. I would code it if were deemed a desirable solution.",
+    "Could be that the system is doing a getResources on the appclassloader (or some such).  Since this special file is likely in the META-INF dir of the bundle, the CharSet code cannot see it.\n\nShould be able to test this idea by putting the SPI file into teh META-INF dir of startup.jar.  According to the theory, the CharSet code would then find the file, discover a class to look up and then (presumably) use the context classloader to find it.  No idea how to make that part work but at least we should see differetn behaviour.\n\nAlternatively, someonen can grovel through the JRE code...",
+    "Yes, that sounds right to me. ",
+    "are you able to test the theory?",
+    "I\u0027ll find some time for this in the next week or two.",
+    "Is there a document I can read to get set up for development work on the contents of startup.jar?",
+    "Extract the org.eclipse.platform from CVS and self-host eclipse.  The code out of org.eclipse.platform will be used instead of the startup.jar from your target platform.",
+    "When I do this, there\u0027s a source folder called src-intro that won\u0027t compile, because it has dependencies up in the UI department. \n\nIs there a list of additional projects to pull, or should I just manually patch startup.jar for now?",
+    "Progress report. When the SPI file is in startup.jar, but the provider class itself is not, I get the following. \u0027org.eclipse.runtime.charsetspi.CharsetProvider\u0027 is the name I picked for my plugin for this experiment. Is the next experiment to actually put a provider in startup.jar that trampolines out to some more modular location?\n\nsun.misc.ServiceConfigurationError: java.nio.charset.spi.CharsetProvider: Provider org.eclipse.runtime.charsetspi.CharsetProvider not found\n\tat sun.misc.Service.fail(Service.java:129)\n\tat sun.misc.Service.access$000(Service.java:111)\n\tat sun.misc.Service$LazyIterator.next(Service.java:272)\n\tat java.nio.charset.Charset$1.getNext(Charset.java:306)\n\tat java.nio.charset.Charset$1.hasNext(Charset.java:319)\n\tat java.nio.charset.Charset$2.run(Charset.java:362)\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat java.nio.charset.Charset.lookupViaProviders(Charset.java:359)\n\tat java.nio.charset.Charset.lookup2(Charset.java:437)\n\tat java.nio.charset.Charset.lookup(Charset.java:425)\n\tat java.nio.charset.Charset.forName(Charset.java:483)\n\tat com.basistech.charset.TestCp720.testCharsetExists(TestCp720.java:28)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat junit.framework.TestCase.runTest(TestCase.java:154)\n\tat junit.framework.TestCase.runBare(TestCase.java:127)\n\tat junit.framework.TestResult$1.protect(TestResult.java:106)\n\tat junit.framework.TestResult.runProtected(TestResult.java:124)\n\tat junit.framework.TestResult.run(TestResult.java:109)\n\tat junit.framework.TestCase.run(TestCase.java:118)\n\tat junit.framework.TestSuite.runTest(TestSuite.java:208)\n\tat junit.framework.TestSuite.run(TestSuite.java:203)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:478)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run(RemoteTestRunner.java:344)\n\tat org.eclipse.pde.internal.junit.runtime.RemotePluginTestRunner.main(RemotePluginTestRunner.java:57)\n\tat org.eclipse.pde.internal.junit.runtime.CoreTestApplication.run(CoreTestApplication.java:24)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:226)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:163)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:334)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:278)\n\tat org.eclipse.core.launcher.Main.run(Main.java:973)\n\tat org.eclipse.core.launcher.Main.main(Main.java:948)\n\n",
+    "(In reply to comment #14)\n\nThe src-intro is not interesting to you (it is not included in startup.jar), but I\u0027m not sure why it is not compiling.  What version of Eclipse do you use for your development env?  PDE should control the classpath for you as long as your target platform has all the required plugins.\n\n",
+    "(In reply to comment #15)\nThis proves that it is using the application classloader.  Unfortunately this limits our possiblities to including charset stuff only in the startup.jar.  \n\nI still do not understand why we don\u0027t see the context classloader being used.  At least then we could put an provider implementation in the framework that could search for other providers supplied by bundles.  The context classloader is set by the framework to the ContextFinder class which should allow us to load classes/resources out of the framework.",
+    "Here\u0027s what I think I know.\n\n1) The service file works if it\u0027s in startup.jar. The nio doc is not clear on why; the comment about the context classloader is talking about the class(es) indicated in the file, not about the file itself.\n\n2) The provider class has to be in the \u0027context classloader\u0027. As an OSGi-ignoramus, the only place I can see to accomplish this is, again, in startup.jar. I haven\u0027t been able to test that, yet.\n\n3) I build a plugin which provides an extension point for charset classes. As these turn up, they can be stuck into the provider and provided.   ... however\n\n4) Any bundle providing a charset has to be fully activated even though no other bundle explicitly depends on it. I don\u0027t know how to arrange that. Essentially, it seems to me that this whole charset mechanism is parallel to the OSGi universe.\n\nAnyway, here\u0027s my development chaos. I downloaded the 3.2 nightly windows SDK package, fired it up, and checked out the head of org.eclipse.platform. I got errors in the src-intro folder. The build.properties didn\u0027t seem to correspond to the actual contents of the startup.jar. Running from this environment didn\u0027t seem to work. I verified #1 above by manually patching a startup.jar to have the SPI file.\n\n",
+    "I made some additional progress. On a full night\u0027 sleep, the devo platform was behaving itself.\n\nI set up the following:\n\n1) SPI file in startup.jar\n2) Provider class in startup.jar\n3) extension with extension point and listener. Each time a new bundle shows up that provides a charset, pass it into the provider in startup.jar which hangs onto it in a static variable.\n\nUnfortunately, it seems as if the Provider class is ending up loaded in two different class loaders, since by the time yet another plugin tries to look up a charset, the static variable is back to being null.\n\nI\u0027m supposing that I need to use a more formal structure for accessing the common provider.\n",
+    "I looked at the community edition source for 1.4.2. The system classloader is user to look up the service provider, if I\u0027m reading the code right.",
+    "This bug has been stale for over a year.  Benson have you made any progress?  There are no plans to address this in Equinox.  Please reopen if you have something you would like to contribute.  Thanks.",
+    "I would want to revisit this in the light of the ICU4J integration. \n\nGenerally, though, no, I have nothing to add. Sadly, if I\u0027m the only person who cares about this, it\u0027s appropriate to time it out. I don\u0027t care very much right now.\n"
+  ],
+  "commentCreationDates": [
+    "2005-11-15T12:27:17+01:00",
+    "2005-11-15T14:00:31+01:00",
+    "2005-12-08T16:36:46+01:00",
+    "2005-12-31T02:54:39+01:00",
+    "2005-12-31T02:55:23+01:00",
+    "2005-12-31T02:56:34+01:00",
+    "2006-01-05T20:11:17+01:00",
+    "2006-01-05T22:04:44+01:00",
+    "2006-01-13T04:04:44+01:00",
+    "2006-01-13T12:42:01+01:00",
+    "2006-01-13T14:25:36+01:00",
+    "2006-01-13T15:50:02+01:00",
+    "2006-01-13T22:49:28+01:00",
+    "2006-01-13T23:13:03+01:00",
+    "2006-01-14T00:45:20+01:00",
+    "2006-01-14T03:53:10+01:00",
+    "2006-01-14T14:32:15+01:00",
+    "2006-01-14T14:39:03+01:00",
+    "2006-01-14T19:39:49+01:00",
+    "2006-01-14T20:29:39+01:00",
+    "2006-01-14T20:49:13+01:00",
+    "2007-03-28T00:02:30+02:00",
+    "2007-03-28T02:42:12+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "sun.misc.ServiceConfigurationError",
+      "message": "java.nio.charset.spi.CharsetProvider: Provider org.eclipse.runtime.charsetspi.CharsetProvider not found",
+      "elements": [
+        {
+          "method": "sun.misc.Service.fail",
+          "source": "Service.java:129"
+        },
+        {
+          "method": "sun.misc.Service.access$000",
+          "source": "Service.java:111"
+        },
+        {
+          "method": "sun.misc.Service$LazyIterator.next",
+          "source": "Service.java:272"
+        },
+        {
+          "method": "java.nio.charset.Charset$1.getNext",
+          "source": "Charset.java:306"
+        },
+        {
+          "method": "java.nio.charset.Charset$1.hasNext",
+          "source": "Charset.java:319"
+        },
+        {
+          "method": "java.nio.charset.Charset$2.run",
+          "source": "Charset.java:362"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.nio.charset.Charset.lookupViaProviders",
+          "source": "Charset.java:359"
+        },
+        {
+          "method": "java.nio.charset.Charset.lookup2",
+          "source": "Charset.java:437"
+        },
+        {
+          "method": "java.nio.charset.Charset.lookup",
+          "source": "Charset.java:425"
+        },
+        {
+          "method": "java.nio.charset.Charset.forName",
+          "source": "Charset.java:483"
+        },
+        {
+          "method": "com.basistech.charset.TestCp720.testCharsetExists",
+          "source": "TestCp720.java:28"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "junit.framework.TestCase.runTest",
+          "source": "TestCase.java:154"
+        },
+        {
+          "method": "junit.framework.TestCase.runBare",
+          "source": "TestCase.java:127"
+        },
+        {
+          "method": "junit.framework.TestResult$1.protect",
+          "source": "TestResult.java:106"
+        },
+        {
+          "method": "junit.framework.TestResult.runProtected",
+          "source": "TestResult.java:124"
+        },
+        {
+          "method": "junit.framework.TestResult.run",
+          "source": "TestResult.java:109"
+        },
+        {
+          "method": "junit.framework.TestCase.run",
+          "source": "TestCase.java:118"
+        },
+        {
+          "method": "junit.framework.TestSuite.runTest",
+          "source": "TestSuite.java:208"
+        },
+        {
+          "method": "junit.framework.TestSuite.run",
+          "source": "TestSuite.java:203"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests",
+          "source": "RemoteTestRunner.java:478"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run",
+          "source": "RemoteTestRunner.java:344"
+        },
+        {
+          "method": "org.eclipse.pde.internal.junit.runtime.RemotePluginTestRunner.main",
+          "source": "RemotePluginTestRunner.java:57"
+        },
+        {
+          "method": "org.eclipse.pde.internal.junit.runtime.CoreTestApplication.run",
+          "source": "CoreTestApplication.java:24"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:226"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:163"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:334"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:278"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:973"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:948"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 15,
+      "bugId": "116429",
+      "date": "2006-01-14T03:53:10+01:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "116429",
+  "bugId": "116429",
+  "date": "2005-11-15T12:27:17+01:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "normal"
+}

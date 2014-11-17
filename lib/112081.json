@@ -1,0 +1,255 @@
+{
+  "comments": [
+    "Version: 3.1.0\nBuild id: I20050923-1000\n\nI was editing a launch configuration while a lengthy workspace build was in\nprogress.  After pressing the Close button i was prompted to save changes which\ni said yes to.  The dialog remained and the button was still enabled, so i\npressed it again, and again (it was a very long build).\n\norg.eclipse.swt.SWTException: Widget is disposed\n    at org.eclipse.swt.SWT.error(SWT.java:3251)\n    at org.eclipse.swt.SWT.error(SWT.java:3174)\n    at org.eclipse.swt.SWT.error(SWT.java:3145)\n    at org.eclipse.swt.widgets.Widget.error(Widget.java:407)\n    at org.eclipse.swt.widgets.Widget.checkWidget(Widget.java:310)\n    at org.eclipse.swt.widgets.Control.setEnabled(Control.java:2104)\n    at\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer.updateButtons(LaunchConfigurationTabGroupViewer.java:423)\n    at\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer.handleApplyPressed(LaunchConfigurationTabGroupViewer.java:1216)\n    at\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer$2.widgetSelected(LaunchConfigurationTabGroupViewer.java:263)\n    at org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:90)\n    at org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n    at org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:884)\n    at org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3194)\n    at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2823)\n    at org.eclipse.jface.window.Window.runEventLoop(Window.java:809)\n    at org.eclipse.jface.window.Window.open(Window.java:787)\n    at\norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.open(LaunchConfigurationsDialog.java:439)\n    at org.eclipse.debug.ui.DebugUITools$1.run(DebugUITools.java:356)\n    at org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\n    at\norg.eclipse.debug.ui.DebugUITools.openLaunchConfigurationDialogOnGroup(DebugUITools.java:360)\n    at\norg.eclipse.debug.ui.DebugUITools.openLaunchConfigurationDialogOnGroup(DebugUITools.java:302)\n    at\norg.eclipse.debug.ui.actions.OpenLaunchDialogAction.run(OpenLaunchDialogAction.java:80)\n    at org.eclipse.jface.action.Action.runWithEvent(Action.java:996)\n    at\norg.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:538)\n    at\norg.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:488)\n    at\norg.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:400)\n    at org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n    at org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:884)\n    at org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3194)\n    at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2823)\n    at org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1755)\n    at org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1719)\n    at org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:368)\n    at org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n    at org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:106)\n    at\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:226)\n    at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:377)\n    at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:164)\n    at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n    at sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n    at sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n    at java.lang.reflect.Method.invoke(Unknown Source)\n    at org.eclipse.core.launcher.Main.invokeFramework(Main.java:338)\n    at org.eclipse.core.launcher.Main.basicRun(Main.java:282)\n    at org.eclipse.core.launcher.Main.run(Main.java:977)\n    at org.eclipse.core.launcher.Main.main(Main.java:952)",
+    "I have been unable to reproduce. Do you have steps to make this happen?",
+    "Yes.  The trick is to be editing a launch configuration while it is waiting to run.\n\ntry the following:\n1 Rebuild the entire workspace\nWhile rebuilding\n2. Execute an external launch (it should wait for the build to finish)\n3. Edit the launch executed in 2\n4. Change something and press apply\n5. Press appy again\n6. Press close and say ok\n7. Wait for the worksapce build to finish and the launch to execute\n\nYou should have a few errors in the console now.",
+    "Reopening since there is a test case in comment 2.  Darin, can you confirm if\nthese steps work for you?",
+    "These steps do not work for me. I start a long build, launch a config (waits \nfor build), edit the config a few times, pressing apply \u0026 close. Works without \nproblem.",
+    "Are you waiting for the build to fisinsh before editing the launch, or editing\nwhile it shows as waiting in the debug view?",
+    "I was editing while the launch shows as waiting, and closing the dialog before \nthe build was complete.",
+    "I will try to narrow down the cause tomorrow when i get to work.  The only other\nthing is that my launches are shared launches.  So perhaps it is waiting for the\nworkspace lock to be released before saving the change to the file.",
+    "Brock, did you get a chance to reproduce this one?",
+    "Yes, it seems to happen for shared launches only.  You have to try saving the launch while the workspace is building, not while the external launch is running.",
+    "Time permitting.",
+    "Deferred",
+    "*** Bug 174199 has been marked as a duplicate of this bug. ***",
+    "reopening",
+    "*** Bug 178990 has been marked as a duplicate of this bug. ***",
+    "Ok I think we have found out what is causing this.\n\nWe open the launch dialog in a runnable (which is done to display the busy cursor while the dialog opens), and does not return from the runnable until the dialog is closed. So even though the operation to save a shared working copy blocks the UI thread waiting for the workspace lock, the dialog can still be closed (this is where the trouble comes in). If you close the dialog before the workspace lock is released it and all of its widgets are disposed, but the save operation is still blocking. Then when the lock is released and the save operation continues, the first thing it does after saving is try to update the launch dialogs\u0027 Apply and Revert buttons (which have been disposed).",
+    "Created an attachment (id\u003d63514)\nwork in proress\n\nThis patch provides the correct blocking to the workspace lock using the progress part in the launch dialog itself. To achieve this, we had to pass a progress monitor in to LaunchConfigurationWorkingCopy#doSave() so that the blocked write operation can report back to the dialog.\n\nTesting this the dialog will now block until the job (with the current workspace lock) is done and then continue with the saving of the shared configuration. While blocking, the controls on the dialog are not usable, nor is the job cancelable; this is because canceling the write job will put the .launch file out of sync with the file system.\n\nTesting needs to be done on Mac and Linux.",
+    "fixed in HEAD\n\nchanges to LaunchConfigurationsDialog, LaunchConfigurationTabGroupViewer, and launchConfigurationWorkingCopy\n",
+    "please verify Darin W",
+    "*** Bug 182557 has been marked as a duplicate of this bug. ***",
+    "Verified.",
+    "*** Bug 183510 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2005-10-10T07:54:46+02:00",
+    "2005-10-24T21:14:37+02:00",
+    "2005-10-25T02:11:41+02:00",
+    "2005-10-26T11:33:09+02:00",
+    "2005-10-26T20:30:57+02:00",
+    "2005-10-26T22:47:46+02:00",
+    "2005-10-26T23:08:00+02:00",
+    "2005-10-27T11:00:34+02:00",
+    "2005-11-29T19:00:35+01:00",
+    "2005-11-29T20:49:10+01:00",
+    "2006-01-03T21:50:18+01:00",
+    "2006-04-04T21:48:16+02:00",
+    "2007-02-14T20:11:38+01:00",
+    "2007-04-09T16:36:03+02:00",
+    "2007-04-09T16:36:30+02:00",
+    "2007-04-09T17:03:33+02:00",
+    "2007-04-11T17:57:52+02:00",
+    "2007-04-12T23:15:15+02:00",
+    "2007-04-12T23:15:59+02:00",
+    "2007-04-20T15:12:08+02:00",
+    "2007-04-23T21:50:36+02:00",
+    "2007-04-25T18:27:05+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Widget is disposed",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3251"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3174"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3145"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:407"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java:310"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.setEnabled",
+          "source": "Control.java:2104"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer.updateButtons",
+          "source": "LaunchConfigurationTabGroupViewer.java:423"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer.handleApplyPressed",
+          "source": "LaunchConfigurationTabGroupViewer.java:1216"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationTabGroupViewer$2.widgetSelected",
+          "source": "LaunchConfigurationTabGroupViewer.java:263"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:90"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:884"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3194"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2823"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:809"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:787"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog.open",
+          "source": "LaunchConfigurationsDialog.java:439"
+        },
+        {
+          "method": "org.eclipse.debug.ui.DebugUITools$1.run",
+          "source": "DebugUITools.java:356"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.debug.ui.DebugUITools.openLaunchConfigurationDialogOnGroup",
+          "source": "DebugUITools.java:360"
+        },
+        {
+          "method": "org.eclipse.debug.ui.DebugUITools.openLaunchConfigurationDialogOnGroup",
+          "source": "DebugUITools.java:302"
+        },
+        {
+          "method": "org.eclipse.debug.ui.actions.OpenLaunchDialogAction.run",
+          "source": "OpenLaunchDialogAction.java:80"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:996"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:538"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:488"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:884"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3194"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2823"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1755"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1719"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:368"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:106"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:226"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:377"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:164"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:338"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:282"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "112081",
+      "date": "2005-10-10T07:54:46+02:00",
+      "product": "Platform",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "112081",
+  "bugId": "112081",
+  "date": "2005-10-10T07:54:46+02:00",
+  "product": "Platform",
+  "component": "Debug",
+  "severity": "normal"
+}

@@ -1,0 +1,110 @@
+{
+  "comments": [
+    "Using AspectJ 1.1.0 on Windows, if I create an aspect that contains a \ndeclaration of an empty interface \"I\" and then supply a default implementation \nof the clone() method for the interface then an internal compiler error occurs \nat build time. \n\nHere is the simplest test case I can make :-\n\npublic aspect MyAspectA\n{\n    protected interface I {}\n    \n    public Object I.clone() throws CloneNotSupportedException {   \n        return super.clone();\n    }\n}\n\nWhen I run ajc against the above class I get the following output ..\n\njava.lang.NullPointerException\nat org.eclipse.jdt.internal.compiler.ast.MessageSend.analyseCode(MessageSend.\njava:40)\nat org.eclipse.jdt.internal.compiler.ast.ReturnStatement.\nanalyseCode(ReturnStatement.java:37)\nat org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.\nanalyseCode(MethodDeclaration.java:70)\nat org.aspectj.ajdt.internal.compiler.ast.InterTypeMethodDeclaration.\nanalyseCode(InterTypeMethodDeclaration.java:58)\nat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.\ninternalAnalyseCode(TypeDeclaration.java:639)\nat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.\nanalyseCode(TypeDeclaration.java:196)\nat org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.\nanalyseCode(CompilationUnitDeclaration.java:78)\nat org.eclipse.jdt.internal.compiler.Compiler.process(Compiler.java:541)\nat org.aspectj.ajdt.internal.compiler.AjCompiler.process(AjCompiler.java:65)\nat org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:338)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.\nperformCompilation(AjBuildManager.java:372)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.\njava:133)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.\nbatchBuild(AjBuildManager.java:78)\nat org.aspectj.ajdt.ajc.AjdtCommand.doCommand(AjdtCommand.java:106)\nat org.aspectj.ajdt.ajc.AjdtCommand.runCommand(AjdtCommand.java:60)\nat org.aspectj.tools.ajc.Main.run(Main.java:217)\nat org.aspectj.tools.ajc.Main.runMain(Main.java:155)\nat org.aspectj.tools.ajc.Main.main(Main.java:72)\n\nPlease note that I have run the same aspect through the 1.0.6 AspectJ compiler \nwithout any problems.",
+    "Forgot to mention in my original report that if the single line of code inside \nthe clone() method (return super.clone()) is replaced with the line \"return \nnull\" then the aspect will compile OK on 1.1.0. ",
+    "General form of the bug is whenever Object methods are called from methods \nintroduced on an interface.\n\n*** This bug has been marked as a duplicate of 39993 ***",
+    "Here are two related patches that add a test for this problem to the AspectJ \ntesting harness. I\u0027ve had to split the patch into two because with all of the .\najesym files that were created in my workspace from running the tests my first \npass at a patch was too big to paste into this note.\n\nPatch 1 of 2\n-----------------\n\nIndex: georgeTests.xml\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\nRCS file: georgeTests.xml\ndiff -N georgeTests.xml\n--- /dev/null\t1 Jan 1970 00:00:00 -0000\n+++ georgeTests.xml\t23 Jul 2003 10:25:54 -0000\n@@ -0,0 +1,9 @@\n+\u003c!DOCTYPE suite SYSTEM \"../tests/ajcTestSuite.dtd\"\u003e\n+\u003csuite\u003e \n+    \u003cajc-test dir\u003d\"bugs\" pr\u003d\"40589\"\n+   \t title\u003d\"Default method impl for interface causes internal exception.\"\u003e\n+        \u003ccompile files\u003d\"CloneMethod.java\"/\u003e\n+        \u003crun class\u003d\"CloneMethod\"/\u003e\n+    \u003c/ajc-test\u003e\n+\n+\u003c/suite\u003e\n\\ No newline at end of file\n\n\nPatch 2 of 2\n-----------------\n\nIndex: CloneMethod.java\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\nRCS file: CloneMethod.java\ndiff -N CloneMethod.java\n--- /dev/null\t1 Jan 1970 00:00:00 -0000\n+++ CloneMethod.java\t23 Jul 2003 10:26:38 -0000\n@@ -0,0 +1,58 @@\n+aspect AspectA {\n+\tprotected interface I {\n+\t}\n+\n+\tdeclare parents : MyString implements I;\n+\n+\tprotected Object createCloneFor(I object) {\n+\t\tif (object instanceof MyString) {\n+\t\t\treturn new MyString(((MyString) object).toString());\n+\t\t} else {\n+\t\t\treturn null;\n+\t\t}\n+\t}\n+\n+\tpublic Object I.clone() throws CloneNotSupportedException {\n+\t\treturn super.clone();\n+//\t\treturn null;\n+\t}\n+\n+\tpublic Object cloneObject(I object) {\n+\t\ttry {\n+\t\t\treturn object.clone();\n+\t\t} catch (CloneNotSupportedException ex) {\n+\t\t\treturn createCloneFor(object);\n+\t\t}\n+\t}\n+}\n+\n+class MyString implements Cloneable {\n+\n+\tprotected String text;\n+\n+\tpublic MyString(String init) {\n+\t\ttext \u003d init;\n+\t}\n+\n+\tpublic void setText(String newText) {\n+\t\ttext \u003d newText;\n+\t}\n+\n+\tpublic String toString() {\n+\t\treturn \"MyString: \" + text;\n+\t}\n+}\n+\n+public class CloneMethod {\n+\n+\tpublic static void main(String[] args) {\n+\t\tMyString orig1;\n+\t\tMyString copy1;\n+\n+\t\torig1 \u003d new MyString(\"  This is I 1\");\n+\t\tcopy1 \u003d (MyString) AspectA.aspectOf().cloneObject(orig1);\n+\t\torig1.setText(\"  This is I 2\");\n+\t\tcopy1.setText(\"  This is Clone 1\");\n+\t\tSystem.out.println(\"... done.\");\n+\t}\n+}\n\n",
+    "Great.  This test has been added to the tree, and it also passes with the \nexisting fix.\n\nThis patch was extremely easy to apply.  Only one comment.  For patches that \nyou submit, you should put the test case in either ajcTests.xml or \najcTestsFailing.xml depending on the status rather than creating a new file.  \njimTests.xml is a convenience file that I use locally for playing around with \nthings.  I\u0027m going to remove it from the tree so that it won\u0027t confuse others \nin the future."
+  ],
+  "commentCreationDates": [
+    "2003-07-22T16:07:44+02:00",
+    "2003-07-22T16:10:07+02:00",
+    "2003-07-22T19:32:00+02:00",
+    "2003-07-23T15:22:56+02:00",
+    "2003-07-23T18:47:43+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MessageSend.analyseCode",
+          "source": "MessageSend. java:40"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.ReturnStatement.analyseCode",
+          "source": "ReturnStatement.java:37"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.analyseCode",
+          "source": "MethodDeclaration.java:70"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.ast.InterTypeMethodDeclaration.analyseCode",
+          "source": "InterTypeMethodDeclaration.java:58"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.internalAnalyseCode",
+          "source": "TypeDeclaration.java:639"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.analyseCode",
+          "source": "TypeDeclaration.java:196"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.analyseCode",
+          "source": "CompilationUnitDeclaration.java:78"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.process",
+          "source": "Compiler.java:541"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompiler.process",
+          "source": "AjCompiler.java:65"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:338"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:372"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager. java:133"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:78"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.doCommand",
+          "source": "AjdtCommand.java:106"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.runCommand",
+          "source": "AjdtCommand.java:60"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.run",
+          "source": "Main.java:217"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.runMain",
+          "source": "Main.java:155"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.main",
+          "source": "Main.java:72"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "40589",
+      "duplicateId": "39993",
+      "date": "2003-07-22T16:07:44+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "major"
+    }
+  ],
+  "groupId": "39993",
+  "bugId": "40589",
+  "duplicateId": "39993",
+  "date": "2003-07-22T16:07:44+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "major"
+}

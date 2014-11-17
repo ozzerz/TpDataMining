@@ -1,0 +1,172 @@
+{
+  "comments": [
+    "20040907\n\nI am not exactly sure how I had got in this state but my types caching got \nexteremely slow (F3 was talking 30 seconds or longer). When I checked my .log \nI saw the following:\n\nRestarting the workbench appears to have cleared this up\n\n!ENTRY org.eclipse.core.runtime 4 2 Sep 10, 2004 10:52:15.192\n!MESSAGE An internal error occurred during: \"Override indicator installation \njob\".\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.jdt.internal.core.JarPackageFragmentRoot.resourceExists\n(JarPackageFragmentRoot.java:280)\n\tat org.eclipse.jdt.internal.core.PackageFragmentRoot.buildStructure\n(PackageFragmentRoot.java:168)\n\tat org.eclipse.jdt.internal.core.Openable.generateInfos\n(Openable.java:202)\n\tat org.eclipse.jdt.internal.core.JavaElement.openWhenClosed\n(JavaElement.java:544)\n\tat org.eclipse.jdt.internal.core.JavaElement.getElementInfo\n(JavaElement.java:291)\n\tat org.eclipse.jdt.internal.core.JavaElement.getElementInfo\n(JavaElement.java:277)\n\tat org.eclipse.jdt.internal.core.JavaElement.getChildren\n(JavaElement.java:232)\n\tat org.eclipse.jdt.internal.core.NameLookup.seekPackageFragments\n(NameLookup.java:500)\n\tat org.eclipse.jdt.internal.core.NameLookup.findType\n(NameLookup.java:348)\n\tat org.eclipse.jdt.internal.core.SearchableEnvironment.find\n(SearchableEnvironment.java:78)\n\tat org.eclipse.jdt.internal.core.SearchableEnvironment.findType\n(SearchableEnvironment.java:160)\n\tat \norg.eclipse.jdt.core.dom.CompilationUnitResolver$CancelableNameEnvironment.find\nType(CompilationUnitResolver.java:70)\n\tat \norg.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.askForType\n(LookupEnvironment.java:107)\n\tat \norg.eclipse.jdt.internal.compiler.lookup.PackageBinding.getTypeOrPackage\n(PackageBinding.java:169)\n\tat org.eclipse.jdt.internal.compiler.lookup.Scope.getTypeOrPackage\n(Scope.java:2014)\n\tat org.eclipse.jdt.internal.compiler.lookup.Scope.getType\n(Scope.java:1785)\n\tat \norg.eclipse.jdt.internal.compiler.ast.SingleTypeReference.getTypeBinding\n(SingleTypeReference.java:39)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeReference.resolveType\n(TypeReference.java:121)\n\tat org.eclipse.jdt.internal.compiler.ast.Argument.resolveForCatch\n(Argument.java:91)\n\tat org.eclipse.jdt.internal.compiler.ast.TryStatement.resolve\n(TryStatement.java:514)\n\tat \norg.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolveStatemen\nts(AbstractMethodDeclaration.java:400)\n\tat \norg.eclipse.jdt.internal.compiler.ast.MethodDeclaration.resolveStatements\n(MethodDeclaration.java:139)\n\tat \norg.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolve\n(AbstractMethodDeclaration.java:378)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve\n(TypeDeclaration.java:938)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve\n(TypeDeclaration.java:987)\n\tat \norg.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.resolve\n(CompilationUnitDeclaration.java:280)\n\tat org.eclipse.jdt.core.dom.CompilationUnitResolver.resolve\n(CompilationUnitResolver.java:436)\n\tat org.eclipse.jdt.core.dom.CompilationUnitResolver.resolve\n(CompilationUnitResolver.java:313)\n\tat org.eclipse.jdt.core.dom.ASTParser.internalCreateAST\n(ASTParser.java:658)\n\tat org.eclipse.jdt.core.dom.ASTParser.createAST(ASTParser.java:574)\n\tat org.eclipse.jdt.internal.ui.javaeditor.ASTProvider.createAST\n(ASTProvider.java:441)\n\tat org.eclipse.jdt.internal.ui.javaeditor.ASTProvider.getAST\n(ASTProvider.java:393)\n\tat org.eclipse.jdt.internal.ui.javaeditor.JavaEditor$8.run\n(JavaEditor.java:3864)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:66)",
+    "According to the code in JarPackageFragmentRoot, ResourcesPlugin.getWorkspace\n() returned null in this case.\n\nMoving to Platform Resources for comment.",
+    "getWorkspace() currently returns null when the resources plugin has been shut\ndown. I will change this to thrown an exception instead (see bug 34069), but the\nroot of this problem is that the background job is still running after the\nplugin owning it has shutdown. Plugins need to either ensure they cancel all\njobs before shutting down, or write jobs in a way that is tolerant of such\nfailures. Since this job seems to come from JavaEditor, I will move this to JDT\nText.",
+    "Tod, is the .log entry timely related to the problem (did you see it before\nshutting down)? The log is about an NPE during AST creation. I agree with\ncomment 1 and comment 2 that this happened during a shutdown but you initially\nreported a problem with the types cache. Since this PR talks more about the AST\ncreation problem I renamed it. Feel free to file another PR with the caching\nproblem.\n\nJohn, the job is tolerant but not against unexpected NPEs. As soon as J Core\nreturns an expected value or an expected exception the job will behave.",
+    "The resources plugin now throws IllegalStateException when its API is called\nafter the resources plugin has shut down."
+  ],
+  "commentCreationDates": [
+    "2004-09-10T17:01:11+02:00",
+    "2004-09-13T13:06:40+02:00",
+    "2004-09-13T17:34:20+02:00",
+    "2004-09-14T10:25:04+02:00",
+    "2004-09-14T15:44:54+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.core.JarPackageFragmentRoot.resourceExists",
+          "source": "JarPackageFragmentRoot.java:280"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.PackageFragmentRoot.buildStructure",
+          "source": "PackageFragmentRoot.java:168"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.Openable.generateInfos",
+          "source": "Openable.java:202"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaElement.openWhenClosed",
+          "source": "JavaElement.java:544"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaElement.getElementInfo",
+          "source": "JavaElement.java:291"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaElement.getElementInfo",
+          "source": "JavaElement.java:277"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaElement.getChildren",
+          "source": "JavaElement.java:232"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.NameLookup.seekPackageFragments",
+          "source": "NameLookup.java:500"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.NameLookup.findType",
+          "source": "NameLookup.java:348"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SearchableEnvironment.find",
+          "source": "SearchableEnvironment.java:78"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SearchableEnvironment.findType",
+          "source": "SearchableEnvironment.java:160"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.CompilationUnitResolver$CancelableNameEnvironment.findType",
+          "source": "CompilationUnitResolver.java:70"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.askForType",
+          "source": "LookupEnvironment.java:107"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.PackageBinding.getTypeOrPackage",
+          "source": "PackageBinding.java:169"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.getTypeOrPackage",
+          "source": "Scope.java:2014"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.getType",
+          "source": "Scope.java:1785"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.SingleTypeReference.getTypeBinding",
+          "source": "SingleTypeReference.java:39"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeReference.resolveType",
+          "source": "TypeReference.java:121"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Argument.resolveForCatch",
+          "source": "Argument.java:91"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TryStatement.resolve",
+          "source": "TryStatement.java:514"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolveStatements",
+          "source": "AbstractMethodDeclaration.java:400"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.resolveStatements",
+          "source": "MethodDeclaration.java:139"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolve",
+          "source": "AbstractMethodDeclaration.java:378"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve",
+          "source": "TypeDeclaration.java:938"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve",
+          "source": "TypeDeclaration.java:987"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.resolve",
+          "source": "CompilationUnitDeclaration.java:280"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.CompilationUnitResolver.resolve",
+          "source": "CompilationUnitResolver.java:436"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.CompilationUnitResolver.resolve",
+          "source": "CompilationUnitResolver.java:313"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTParser.internalCreateAST",
+          "source": "ASTParser.java:658"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTParser.createAST",
+          "source": "ASTParser.java:574"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.ASTProvider.createAST",
+          "source": "ASTProvider.java:441"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.ASTProvider.getAST",
+          "source": "ASTProvider.java:393"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.JavaEditor$8.run",
+          "source": "JavaEditor.java:3864"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:66"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "73672",
+      "date": "2004-09-10T17:01:11+02:00",
+      "product": "JDT",
+      "component": "Text",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "73672",
+  "bugId": "73672",
+  "date": "2004-09-10T17:01:11+02:00",
+  "product": "JDT",
+  "component": "Text",
+  "severity": "normal"
+}

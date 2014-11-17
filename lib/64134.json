@@ -1,0 +1,494 @@
+{
+  "comments": [
+    "M9.\n\nIn my target runtime workbench I have two projects, one with mainly .logic files\nand a .java file, and another project which is a java eclipse plug-in project.\nWhen I edit a .logic file, close the workbench, and choose to save the changes\nto the editor, I get a building workspace pop-up followed by an NPE in my .log file.\n\njava.lang.NullPointerException\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat java.lang.NullPointerException.\u003cinit\u003e(NullPointerException.java:60)\n\tat org.eclipse.jdt.launching.JavaRuntime.getPreferences(JavaRuntime.java:1563)\n\tat\norg.eclipse.jdt.launching.JavaRuntime.initializeVMConfiguration(JavaRuntime.java:1298)\n\tat org.eclipse.jdt.launching.JavaRuntime.initializeVMTypes(JavaRuntime.java:252)\n\tat org.eclipse.jdt.launching.JavaRuntime.getDefaultVMId(JavaRuntime.java:430)\n\tat org.eclipse.jdt.launching.JavaRuntime.getDefaultVMInstall(JavaRuntime.java:377)\n\tat\norg.eclipse.jdt.internal.launching.JREContainerInitializer.resolveVM(JREContainerInitializer.java:72)\n\tat\norg.eclipse.jdt.internal.launching.JREContainerInitializer.initialize(JREContainerInitializer.java:46)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.initializeContainer(JavaModelManager.java:1187)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.initializeAllContainers(JavaModelManager.java:1161)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer(JavaModelManager.java:824)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainer(JavaCore.java:1183)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:1877)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:1788)\n\tat\norg.eclipse.jdt.internal.core.DeltaProcessor.createExternalArchiveDelta(DeltaProcessor.java:788)\n\tat\norg.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged(DeltaProcessor.java:1880)\n\tat\norg.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged(DeltaProcessingState.java:414)\n\tat\norg.eclipse.core.internal.events.NotificationManager$2.run(NotificationManager.java:283)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:608)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:758)\n\tat\norg.eclipse.core.internal.events.NotificationManager.notify(NotificationManager.java:277)\n\tat\norg.eclipse.core.internal.events.NotificationManager.broadcastChanges(NotificationManager.java:188)\n\tat\norg.eclipse.core.internal.resources.SavedState.processResourceChangeEvents(SavedState.java:75)\n\tat org.eclipse.jdt.core.JavaCore$5.run(JavaCore.java:3660)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1672)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1692)\n\tat org.eclipse.jdt.core.JavaCore$4.run(JavaCore.java:3652)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:66)",
+    "Philippe, what should we do here - looks like the Java builder is initializing \na container, after the contributor has been shutdown?",
+    "This is similar to bug 66303, and could be addressed.",
+    "*** Bug 66662 has been marked as a duplicate of this bug. ***",
+    "Ping Philippe for RC3 approval",
+    "+1 for RC3. I find it weird that we are still getting notifications during \nshutdown (it isn\u0027t the builder triggering init).",
+    "This bug has a similar flavour to bug 55242. The problem is that plugin A is \nactivating plugin B after B has been shutdown. A is activating B since B \nprovides an extension for an extension point that A defines (and A is \ninstantiating/calling the extension implementation). A more encompassing fix \nwould be to have plug-in A guard against calling extensions in plug-ins that \nhave been shutdown (which we are investigating in bug 55242).\n\nThis would mean the fix would be in JCORE - avoid calling initializers in \nupstream, shut-down plugins.",
+    "Created an attachment (id\u003d12273)\npatch\n\n(Meanwhile, here\u0027s a localized fix for the JRE container and variable\ninitializers. The patch ensures the plug-in is active before continuing with\ninitialization. However, this feels like the wrong fix).",
+    "Pascal, this is a similar problem to bug 55242. Please advise if there is a \ngeneral solution to the problem of accessing extensions in shutdown plug-ins. \nThis feels like a problem that exists everywhere.",
+    "Exactly, I would expect #createExecutableExtension to throw the CoreException \nin this scenario. Clients are already checking for these and react \nappropriately in general.",
+    "I agree with Philippe, this would fix the problem in general (except for \nclients that re-use previously instantiated delegates - however, the Java \nmodel is creating new delegates each time).",
+    "After thinking about it, throwing the exception is not the answer because when\nthe system is shutting down some people want to createExecutableExtension and it\nwould then break their code.\nOf course they should protect themselves from exceptions but it would still be a\nbig change in the behavior.\n\nWe are looking into the addition of a method to test if the framework is stopping.",
+    "moving to Equinox and assigning to Pascal.  \n\nTom, please attach a patch for the framework stopping flag.\n\nPascal, please attach a patch with behaviour something like...\n\nIn the eclipse adaptor we need to expose something that we can ask the \nquestion \"has bundle X already been shutdown (as the result of a system \nshutdown)\".  If it has, then createExecutableExtension should throw a \nCoreException.  This new mechanism should be controlled by a sytem property (of \ncourse) called \"eclipse.strictShutdown\".  By default this value is true (or not \nset).  if it is set to \"false\" then createExecutableExtension should skip the \nshutdown test and go ahead as normal (i.e., attempt to create the extension)\n\nWhile this is not an API change in anyway (createEE is already spec\u0027d to throw  \nCoreException), it is a change in behaviour.  The new behaviour is much safer \nand more logical.  However, there may be cases where existing plugins have been \nsuccessfully shutting down without receiving any exceptions.",
+    "Created an attachment (id\u003d12311)\nPatch to set System Bundle STOPPING state correctly\n\nPatch to set the System Bundle state to STOPPING at the correct time in the\nshutdown process.  It must be the first thing done in the shutdown process.",
+    "Re: comment#12, doesn\u0027t this mean Jeff that all plugins would then still need \nto protect against calling extensions of shutdown plugins, in case the strict \nmode is off ? ",
+    "Patches reviewed by DJ, Jeff and I.\nReleased in HEAD.\nWill be in \u003e 200406162000.\n\n",
+    "plugins already have to catch CoreException.  If strict mode is ON, this \nexceptoin will be more popular.",
+    "Problems have been discovered.\n",
+    "*** Bug 67613 has been marked as a duplicate of this bug. ***",
+    "*** Bug 67625 has been marked as a duplicate of this bug. ***",
+    "Although not functionnal problems, the problems that occurend were captured in\nthe bugs that have been marked as dup.\n\nAs a result of that and complementary discussions we slightly changed the story.\nA ClassNotFoundException is now being thrown if the class being loaded belongs\nto a plugin that has already been shutdown. This exception is then caught by\ncreateExecutableExtension that wraps it into a CoreException.\n\nNote that this new behavior is more permissive and more correct in regard to\nactivation since plugins can now be activated while shutting down the platform\nOf course we don\u0027t reactivate plugin that have already been shutdown while\nshutting down the platform.\nThis will solve NPE problems on shutdown.",
+    "Created an attachment (id\u003d12421)\nPatch to optimize BundleStopper\n\nSince BundleStopper.isStopped() is getting called for every classloader on\nshutdown performance of shutdown may be slow without this optimization.",
+    "Tom\u0027s patch reviewed and included in 4PM build.",
+    "*** Bug 66662 has been marked as a duplicate of this bug. ***",
+    "When shutting down RC3, I got the following exception related to this change:\n\n!ENTRY org.eclipse.osgi Jun 22, 2004 14:16:23.751\n!MESSAGE The class \"org.eclipse.jdt.internal.launching.JREContainerInitializer\" \ncannot be loaded because the system is shutting down and the plug-\nin \"org.eclipse.jdt.launching\" has already been stopped.\n!STACK 0\njava.lang.ClassNotFoundException: The \nclass \"org.eclipse.jdt.internal.launching.JREContainerInitializer\" cannot be \nloaded because the system is shutting down and the plug-\nin \"org.eclipse.jdt.launching\" has already been stopped.\n\tat org.eclipse.core.runtime.adaptor.EclipseClassLoader.shouldActivateFor\n(EclipseClassLoader.java:147)\n\tat org.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass\n(EclipseClassLoader.java:62)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass\n(BundleLoader.java:371)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass\n(BundleLoader.java:402)\n\tat org.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass\n(AbstractClassLoader.java:93)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:235)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.loadClass\n(BundleLoader.java:307)\n\tat org.eclipse.osgi.framework.internal.core.BundleHost.loadClass\n(BundleHost.java:336)\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.loadClass\n(AbstractBundle.java:1313)\n\tat \norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtensio\nn(ConfigurationElement.java:131)\n\tat \norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtensio\nn(ConfigurationElement.java:124)\n\tat \norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtensio\nn(ConfigurationElement.java:113)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainerInitializer\n(JavaCore.java:1223)\n\tat org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer\n(JavaModelManager.java:1245)\n\tat \norg.eclipse.jdt.internal.core.JavaModelManager.initializeAllContainers\n(JavaModelManager.java:1226)\n\tat org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer\n(JavaModelManager.java:833)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainer\n(JavaCore.java:1184)\n\tat org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath\n(JavaProject.java:1888)\n\tat org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath\n(JavaProject.java:1798)\n\tat \norg.eclipse.jdt.internal.core.DeltaProcessor.createExternalArchiveDelta\n(DeltaProcessor.java:726)\n\tat org.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged\n(DeltaProcessor.java:1881)\n\tat org.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged\n(DeltaProcessingState.java:414)\n\tat org.eclipse.core.internal.events.NotificationManager$2.run\n(NotificationManager.java:283)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run\n(InternalPlatform.java:615)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:758)\n\tat org.eclipse.core.internal.events.NotificationManager.notify\n(NotificationManager.java:277)\n\tat org.eclipse.core.internal.events.NotificationManager.broadcastChanges\n(NotificationManager.java:188)\n\tat \norg.eclipse.core.internal.resources.SavedState.processResourceChangeEvents\n(SavedState.java:75)\n\tat org.eclipse.jdt.core.JavaCore$5.run(JavaCore.java:3666)\n\tat org.eclipse.core.internal.resources.Workspace.run\n(Workspace.java:1673)\n\tat org.eclipse.core.internal.resources.Workspace.run\n(Workspace.java:1693)\n\tat org.eclipse.jdt.core.JavaCore$4.run(JavaCore.java:3658)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:66)\n\n!ENTRY org.eclipse.core.runtime 4 1 Jun 22, 2004 14:16:23.751\n!MESSAGE Plug-in org.eclipse.jdt.launching was unable to load class \norg.eclipse.jdt.internal.launching.JREContainerInitializer.\n!STACK 0\njava.lang.ClassNotFoundException: \norg.eclipse.jdt.internal.launching.JREContainerInitializer\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass\n(BundleLoader.java:404)\n\tat org.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass\n(AbstractClassLoader.java:93)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:235)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.loadClass\n(BundleLoader.java:307)\n\tat org.eclipse.osgi.framework.internal.core.BundleHost.loadClass\n(BundleHost.java:336)\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.loadClass\n(AbstractBundle.java:1313)\n\tat \norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtensio\nn(ConfigurationElement.java:131)\n\tat \norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtensio\nn(ConfigurationElement.java:124)\n\tat \norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtensio\nn(ConfigurationElement.java:113)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainerInitializer\n(JavaCore.java:1223)\n\tat org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer\n(JavaModelManager.java:1245)\n\tat \norg.eclipse.jdt.internal.core.JavaModelManager.initializeAllContainers\n(JavaModelManager.java:1226)\n\tat org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer\n(JavaModelManager.java:833)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainer\n(JavaCore.java:1184)\n\tat org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath\n(JavaProject.java:1888)\n\tat org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath\n(JavaProject.java:1798)\n\tat \norg.eclipse.jdt.internal.core.DeltaProcessor.createExternalArchiveDelta\n(DeltaProcessor.java:726)\n\tat org.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged\n(DeltaProcessor.java:1881)\n\tat org.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged\n(DeltaProcessingState.java:414)\n\tat org.eclipse.core.internal.events.NotificationManager$2.run\n(NotificationManager.java:283)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run\n(InternalPlatform.java:615)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:758)\n\tat org.eclipse.core.internal.events.NotificationManager.notify\n(NotificationManager.java:277)\n\tat org.eclipse.core.internal.events.NotificationManager.broadcastChanges\n(NotificationManager.java:188)\n\tat \norg.eclipse.core.internal.resources.SavedState.processResourceChangeEvents\n(SavedState.java:75)\n\tat org.eclipse.jdt.core.JavaCore$5.run(JavaCore.java:3666)\n\tat org.eclipse.core.internal.resources.Workspace.run\n(Workspace.java:1673)\n\tat org.eclipse.core.internal.resources.Workspace.run\n(Workspace.java:1693)\n\tat org.eclipse.jdt.core.JavaCore$4.run(JavaCore.java:3658)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:66)\n",
+    "JDT is trying to create executable extensions of a plugin that has already been \nstopped:\n\tat \norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtensio\nn(ConfigurationElement.java:113)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainerInitializer\n(JavaCore.java:1223)\n\tat org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer\n(JavaModelManager.java:1245)\n",
+    "My understanding: The class not found exception should be wrapped in a \nCoreException that is handled by JavaCore when it attempts to create an \nexecutable extension. Plug-is already handle core exceptions when attempting \nto instantiate exceptions, but not runtime exceptions.\n\nPascal: Is the runtime creating a CoreException or a ClassNotFoundException?",
+    "This is exactly what happens. The problem is that osgi and runtime always log\nsuch errors which causes entries in the log although nothing bad happens since\nJDT   handles the problem correctly.",
+    "Moving back to platform for disposal, since there is nothing wrong in JDTCore.\nI would argue that the logging should only be occurring in tracing mode. But \nthis is up to platform.",
+    "Moving to Equinox for comment/closure. I am assuming that this is wontfix\nbehaviour as the layer which is logging the messages doesn\u0027t know that it is ok\nto get them at this point in time.",
+    "When we introduced the new exception, we noticed that a lot of things were \nlogged. However, we decided to stick with this behavior (which was the 2.1 \nbehaviour) because if we were not logging and clients of the API relied on us \nto get something in the log, then information would get lost.\n\n\n\n",
+    "So under normal behavior the .log file will grow bigger and bigger?  Are there \nother cases where this happens?",
+    "the log will grow. Unfortunately, it is not possible to turn this logging off \nas it is in a very general spot.  We can eliminate one of the log entries but \nit is actually the one that is the most informative.  Post 3.0 we will review \nthis but the fix/change is unclear",
+    "*** Bug 68374 has been marked as a duplicate of this bug. ***",
+    "*** Bug 68411 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2004-05-26T17:10:01+02:00",
+    "2004-05-28T00:09:48+02:00",
+    "2004-06-11T16:12:21+02:00",
+    "2004-06-11T16:31:13+02:00",
+    "2004-06-15T18:50:30+02:00",
+    "2004-06-16T17:26:16+02:00",
+    "2004-06-16T17:46:34+02:00",
+    "2004-06-16T17:48:53+02:00",
+    "2004-06-16T18:18:50+02:00",
+    "2004-06-16T18:47:38+02:00",
+    "2004-06-16T18:53:19+02:00",
+    "2004-06-16T20:11:42+02:00",
+    "2004-06-16T21:26:36+02:00",
+    "2004-06-16T21:31:05+02:00",
+    "2004-06-16T23:18:47+02:00",
+    "2004-06-17T01:08:46+02:00",
+    "2004-06-17T05:04:47+02:00",
+    "2004-06-17T18:15:59+02:00",
+    "2004-06-17T18:18:31+02:00",
+    "2004-06-17T18:18:53+02:00",
+    "2004-06-17T18:25:24+02:00",
+    "2004-06-17T21:36:27+02:00",
+    "2004-06-17T21:48:24+02:00",
+    "2004-06-22T20:24:46+02:00",
+    "2004-06-22T20:26:09+02:00",
+    "2004-06-22T20:34:24+02:00",
+    "2004-06-22T20:51:23+02:00",
+    "2004-06-22T21:24:50+02:00",
+    "2004-06-23T11:32:01+02:00",
+    "2004-06-23T14:41:18+02:00",
+    "2004-06-23T15:03:06+02:00",
+    "2004-06-23T16:15:23+02:00",
+    "2004-06-23T16:47:38+02:00",
+    "2004-06-23T21:49:28+02:00",
+    "2004-06-23T23:17:49+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.NullPointerException.\u003cinit\u003e",
+          "source": "NullPointerException.java:60"
+        },
+        {
+          "method": "org.eclipse.jdt.launching.JavaRuntime.getPreferences",
+          "source": "JavaRuntime.java:1563"
+        },
+        {
+          "method": "org.eclipse.jdt.launching.JavaRuntime.initializeVMConfiguration",
+          "source": "JavaRuntime.java:1298"
+        },
+        {
+          "method": "org.eclipse.jdt.launching.JavaRuntime.initializeVMTypes",
+          "source": "JavaRuntime.java:252"
+        },
+        {
+          "method": "org.eclipse.jdt.launching.JavaRuntime.getDefaultVMId",
+          "source": "JavaRuntime.java:430"
+        },
+        {
+          "method": "org.eclipse.jdt.launching.JavaRuntime.getDefaultVMInstall",
+          "source": "JavaRuntime.java:377"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.JREContainerInitializer.resolveVM",
+          "source": "JREContainerInitializer.java:72"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.JREContainerInitializer.initialize",
+          "source": "JREContainerInitializer.java:46"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:1187"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeAllContainers",
+          "source": "JavaModelManager.java:1161"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:824"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1183"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1877"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1788"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.createExternalArchiveDelta",
+          "source": "DeltaProcessor.java:788"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged",
+          "source": "DeltaProcessor.java:1880"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged",
+          "source": "DeltaProcessingState.java:414"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager$2.run",
+          "source": "NotificationManager.java:283"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:608"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:758"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.notify",
+          "source": "NotificationManager.java:277"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.broadcastChanges",
+          "source": "NotificationManager.java:188"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.SavedState.processResourceChangeEvents",
+          "source": "SavedState.java:75"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore$5.run",
+          "source": "JavaCore.java:3660"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1672"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1692"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore$4.run",
+          "source": "JavaCore.java:3652"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:66"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "64134",
+      "date": "2004-05-26T17:10:01+02:00",
+      "product": "Equinox",
+      "component": "Incubator",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ClassNotFoundException",
+      "message": "The  class \"org.eclipse.jdt.internal.launching.JREContainerInitializer\" cannot be  loaded because the system is shutting down and the plug- in \"org.eclipse.jdt.launching\" has already been stopped.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseClassLoader.shouldActivateFor",
+          "source": "EclipseClassLoader.java:147"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass",
+          "source": "EclipseClassLoader.java:62"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+          "source": "BundleLoader.java:371"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:402"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass",
+          "source": "AbstractClassLoader.java:93"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:235"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.loadClass",
+          "source": "BundleLoader.java:307"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.loadClass",
+          "source": "BundleHost.java:336"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.loadClass",
+          "source": "AbstractBundle.java:1313"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:131"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:124"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:113"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainerInitializer",
+          "source": "JavaCore.java:1223"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:1245"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeAllContainers",
+          "source": "JavaModelManager.java:1226"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:833"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1184"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1888"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1798"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.createExternalArchiveDelta",
+          "source": "DeltaProcessor.java:726"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged",
+          "source": "DeltaProcessor.java:1881"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged",
+          "source": "DeltaProcessingState.java:414"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager$2.run",
+          "source": "NotificationManager.java:283"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:615"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:758"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.notify",
+          "source": "NotificationManager.java:277"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.broadcastChanges",
+          "source": "NotificationManager.java:188"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.SavedState.processResourceChangeEvents",
+          "source": "SavedState.java:75"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore$5.run",
+          "source": "JavaCore.java:3666"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1673"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1693"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore$4.run",
+          "source": "JavaCore.java:3658"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:66"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 24,
+      "bugId": "64134",
+      "date": "2004-06-22T20:26:09+02:00",
+      "product": "Equinox",
+      "component": "Incubator",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ClassNotFoundException",
+      "message": "org.eclipse.jdt.internal.launching.JREContainerInitializer",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:404"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass",
+          "source": "AbstractClassLoader.java:93"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:235"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.loadClass",
+          "source": "BundleLoader.java:307"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.loadClass",
+          "source": "BundleHost.java:336"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.loadClass",
+          "source": "AbstractBundle.java:1313"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:131"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:124"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:113"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainerInitializer",
+          "source": "JavaCore.java:1223"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:1245"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeAllContainers",
+          "source": "JavaModelManager.java:1226"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:833"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1184"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1888"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1798"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.createExternalArchiveDelta",
+          "source": "DeltaProcessor.java:726"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged",
+          "source": "DeltaProcessor.java:1881"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged",
+          "source": "DeltaProcessingState.java:414"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager$2.run",
+          "source": "NotificationManager.java:283"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:615"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:758"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.notify",
+          "source": "NotificationManager.java:277"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.broadcastChanges",
+          "source": "NotificationManager.java:188"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.SavedState.processResourceChangeEvents",
+          "source": "SavedState.java:75"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore$5.run",
+          "source": "JavaCore.java:3666"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1673"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1693"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore$4.run",
+          "source": "JavaCore.java:3658"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:66"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 24,
+      "bugId": "64134",
+      "date": "2004-06-22T20:26:09+02:00",
+      "product": "Equinox",
+      "component": "Incubator",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "64134",
+  "bugId": "64134",
+  "date": "2004-05-26T17:10:01+02:00",
+  "product": "Equinox",
+  "component": "Incubator",
+  "severity": "normal"
+}

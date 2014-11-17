@@ -1,0 +1,94 @@
+{
+  "comments": [
+    "Our component works only on Java code. But we receive a NullPointerException (\nsee PS below ) from CDT when we try acquire Java document for different\noperations. After inspection, it appears it\u0027s due to the document setup\nextension point. This extension point is used to customize the initialization\nprocess of a document for a text file buffer manager. It allows to specify which\ndocument setup participant should be involved in the initialization process for\na text file buffer created for a certain file content type, file extension, or\nfile name. CDT has an implementation of this extension point as JDT.\nBut at this moment in plugin.xml of org.eclipse.cdt.ui, here\u0027s the\nimplementation of this extension point.\n\n\t\u003cextension\n         id\u003d\"org.eclipse.cdt.ui.CDocumentSetupParticipant\"\n         name\u003d\"%cDocumentSetupParticipant\"\n         point\u003d\"org.eclipse.core.filebuffers.documentSetup\"\u003e\n      \u003cparticipant\n            extensions\u003d\"*\"\n            class\u003d\"org.eclipse.cdt.internal.ui.editor.CDocumentSetupParticipant\"\u003e\n      \u003c/participant\u003e\n   \u003c/extension\u003e\t\n\nWhy does the extension is \"*\" ?\nShouldn\u0027t it be more something like extensions\u003d\"c, cc, cpp, cxx, h, hh, hpp\" ?\nWith this change CDT won\u0027t try to be involved in the initialization process of\nJava file ( or more precisely any text file ).\n\nIs it intentional ? If yes would it be possible to have a description of the\nreason ? If no, and so if it\u0027s an intent to be involved in this setup for any\nkind of text file I assume that CDT should not throw a NullPointerException if\nit\u0027s not the content it expects. \n\nThanks.\n\nPS: Here\u0027s below the end of the exception.\n\njava.lang.NullPointerException\n\tat\norg.eclipse.cdt.internal.ui.text.util.CColorManager.getColor(CColorManager.java:52)\n\tat\norg.eclipse.cdt.internal.ui.text.util.CColorManager.getColor(CColorManager.java:84)\n\tat\norg.eclipse.cdt.internal.ui.text.AbstractCScanner.addToken(AbstractCScanner.java:98)\n\tat\norg.eclipse.cdt.internal.ui.text.AbstractCScanner.initialize(AbstractCScanner.java:83)\n\tat org.eclipse.cdt.internal.ui.text.CCodeScanner.\u003cinit\u003e(CCodeScanner.java:47)\n\tat org.eclipse.cdt.internal.ui.text.CTextTools.\u003cinit\u003e(CTextTools.java:87)\n\tat org.eclipse.cdt.ui.CUIPlugin.getTextTools(CUIPlugin.java:330)\n\tat\norg.eclipse.cdt.internal.ui.editor.CDocumentSetupParticipant.setup(CDocumentSetupParticipant.java:33)\n\tat\norg.eclipse.core.internal.filebuffers.TextFileBufferManager.createEmptyDocument(TextFileBufferManager.java:156)\n\tat\norg.eclipse.core.internal.filebuffers.ResourceTextFileBuffer.initializeFileBufferContent(ResourceTextFileBuffer.java:260)\n\tat\norg.eclipse.core.internal.filebuffers.ResourceFileBuffer.create(ResourceFileBuffer.java:228)\n\tat\norg.eclipse.core.internal.filebuffers.TextFileBufferManager.connect(TextFileBufferManager.java:70)\n...",
+    "The main reason we need to respond to * is to handle C++ files that do not have\nan extension. I suppose there should be a mechanism to become associated with\nfiles that have no extension. I\u0027m not sure if such a thing exists or not. At any\nrate, if the file is a file we don\u0027t care about, we do leave it alone. Even\nthough our document setup code runs anyway.\n\nThe reason you are running into your problem and others do not, however, is that\nyou are calling this stuff from a non-UI thread. The CDT currently assumes that\nthe document setup gets called from the UI thread. Thus the NPE. I took at the\nJava equivalent of the CodeScanner initializer and they actually manage the case\nwhen they are called on the non-UI thread.\n\nIn the end, I\u0027m not sure what the correct solution to this. Hopefully, the QNX\nguys can shed some wisdom.",
+    "\u003e In the end, I\u0027m not sure what the correct solution to this.\n\nThere is a solution and hopefully it will be delivered with\nEclipse-3.1.\n\nThe problem as Doug was stating is .. What is a C++ file ?\nUnfortunately in Eclipse extension mechanism you can only\ndefine the type with extension .. this is good for *.cpp\nnot so good for \"cstdio\", \"iostream\", \"map\" etc ...\nAnd defining all possible filenames in the extension point\n .. is not and option.\n\nFortunately coming with Eclipse-3.1 we can define a contentType\nextension point  instead of extensions or filenames attribute.\nSo the editor will contact the IContentTypeManager to decide\nwhat is the type of the file.\n\nFor more details, see the Eclipse-3.1.",
+    "Thanks, Alain. Any thoughts on whether we should do lazy initialization of the\ncolors in the CodeScanner as the JDT people do with theirs? This would allow us\nto address this problem in the 2.0 and 2.1 streams which will need to support\nEclipse 3.0.",
+    "\u003e Any thoughts on whether we should do lazy initialization of the\n\u003e colors in the CodeScanner as the JDT people do with theirs?\n\nWell ... we are doing the same as the JDT, where\nthe original code was ... \"inspired\" 8-).\n\nWhat is bothering me here is that according to the stacktrace\nDisplay.getCurrent() \u003d\u003d null\n\nMeaning that this code was not initialize in the UI thread.\n\nCan we have more information on how to reproduce this ?",
+    "Actually, this is another case of where the JDT code has changed since we were\n\"inspired\" by it. They now check if the current display is null and set up some\nkind of lazy evaluation of the colors. I didn\u0027t get a chance to figure out how\nthey do that.\n\nWhat I\u0027m seeing is people openning documents from worker threads which then\nkicks off the initialization when we respond via the wildcard. None of this is\nopen source, though, so you\u0027ll have to believe me :-)",
+    "*** Bug 85766 has been marked as a duplicate of this bug. ***",
+    "Remove the \"*\" wildcard for the CDocumentParticipant\nThis is now possible with 31m5\n",
+    "Fix in the head, should be in the latest build.\n\nPlease verify when you have a chance.",
+    "Verified and it\u0027s ok.\nThank you."
+  ],
+  "commentCreationDates": [
+    "2004-11-10T20:02:25+01:00",
+    "2004-11-10T23:46:21+01:00",
+    "2004-11-11T04:04:18+01:00",
+    "2004-11-11T14:21:26+01:00",
+    "2004-11-12T17:38:47+01:00",
+    "2004-11-12T18:25:43+01:00",
+    "2005-02-17T22:41:15+01:00",
+    "2005-02-22T02:43:09+01:00",
+    "2005-02-22T02:46:10+01:00",
+    "2005-03-03T17:07:35+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.cdt.internal.ui.text.util.CColorManager.getColor",
+          "source": "CColorManager.java:52"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.ui.text.util.CColorManager.getColor",
+          "source": "CColorManager.java:84"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.ui.text.AbstractCScanner.addToken",
+          "source": "AbstractCScanner.java:98"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.ui.text.AbstractCScanner.initialize",
+          "source": "AbstractCScanner.java:83"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.ui.text.CCodeScanner.\u003cinit\u003e",
+          "source": "CCodeScanner.java:47"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.ui.text.CTextTools.\u003cinit\u003e",
+          "source": "CTextTools.java:87"
+        },
+        {
+          "method": "org.eclipse.cdt.ui.CUIPlugin.getTextTools",
+          "source": "CUIPlugin.java:330"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.ui.editor.CDocumentSetupParticipant.setup",
+          "source": "CDocumentSetupParticipant.java:33"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.TextFileBufferManager.createEmptyDocument",
+          "source": "TextFileBufferManager.java:156"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceTextFileBuffer.initializeFileBufferContent",
+          "source": "ResourceTextFileBuffer.java:260"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceFileBuffer.create",
+          "source": "ResourceFileBuffer.java:228"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.TextFileBufferManager.connect",
+          "source": "TextFileBufferManager.java:70"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "78330",
+      "date": "2004-11-10T20:02:25+01:00",
+      "product": "CDT",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "78330",
+  "bugId": "78330",
+  "date": "2004-11-10T20:02:25+01:00",
+  "product": "CDT",
+  "component": "UI",
+  "severity": "normal"
+}

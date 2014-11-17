@@ -1,0 +1,115 @@
+{
+  "comments": [
+    "I20050413-0910 + JDT/Core patch (from I20050419)\n\nWhen starting full-source self hosting workspace, with multi-window workbench, I\nsee the following error logged into console.\n\nStarting application: 781\njava.lang.ClassCircularityError: org/eclipse/pde/internal/core/WorkspaceModelManager\n        at org.eclipse.pde.internal.core.PDECore.initializeModels(PDECore.java:376)\n        at org.eclipse.pde.internal.core.PDECore.getModelManager(PDECore.java:301)\n        at\norg.eclipse.pde.internal.core.RequiredPluginsInitializer.initialize(RequiredPluginsInitializer.java:36)\n        at\norg.eclipse.jdt.internal.core.JavaModelManager.initializeContainer(JavaModelManager.java:1416)\n        at\norg.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer(JavaModelManager.java:971)\n        at org.eclipse.jdt.core.JavaCore.getClasspathContainer(JavaCore.java:1304)\n        at\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:2066)\n        at\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:1974)\n        at\norg.eclipse.jdt.internal.core.JavaProject.isOnClasspath(JavaProject.java:2252)\n        at\norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitDocumentProvider$CompilationUnitAnnotationModel.internalBeginReporting(CompilationUnitDocumentP\nrovider.java:467)\n        at\norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitDocumentProvider$CompilationUnitAnnotationModel.beginReportingSequence(CompilationUnitDocumentP\nrovider.java:457)\n        at\norg.eclipse.jdt.internal.ui.text.JavaCompositeReconcilingStrategy.initialReconcile(JavaCompositeReconcilingStrategy.java:119)\n        at\norg.eclipse.jface.text.reconciler.MonoReconciler.initialProcess(MonoReconciler.java:103)\n        at\norg.eclipse.jdt.internal.ui.text.JavaReconciler.initialProcess(JavaReconciler.java:307)\n        at\norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread.run(AbstractReconciler.java:170)",
+    "Note that latest JDT/Core has significant performance enhancement near startup,\nwhich may expose some latent issues.",
+    "were you able to function after that?",
+    "It did seem to function somewhat normally; but I did not challenge it too hard.",
+    "Jeff, any idea what would cause this?",
+    "Not really.  Circularities happen when  you load A and A is already in the \nprocess of being loaded.  From the information I have here it is hard to tell.",
+    "Tom, would bug 5875 comment 22 be the cause of this problem?",
+    "It is hard to tell from the stacktrace if this is the same issue as in bug \n5875.\n\nIt looks more like two threads are trying to load the same class at the same \ntime.  If that is the case it is more likely to be a side effect of the fix to \nbug 86713.  What VM and version was this reproduced on?  Some VM\u0027s really do \nnot like it when you giveup a classloader lock while loading a class.  Because \nof this we may have to backout the fix to bug 86713.\n",
+    "I was using:\njava version \"1.4.2_08\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.2_08-b03)\nJava HotSpot(TM) Client VM (build 1.4.2_08-b03, mixed mode)",
+    "There is a long story behind this, so I will try to summarize very briefly. The\nroot of the problem is that two threads (call them t1 and t2) are trying to load\na class at the same time, and one of those threads (t1) is in the middle of\nstarting the plugin owning that class.  This is usually caused by a problematic\ncoding pattern in a plugin\u0027s startup method, such as forking a thread during\nstart(), and letting both threads load classes in the same plugin while the\nstart() method is still running.  Is it possible such a pattern was introduced\nrecently in either PDE or JDT core plugins? If not, it might be a timing issue\nthat is only rarely reproducible.\n\nAt the runtime level, we are working on a way to make this situation less\npainful. Our pre-3.0 solution caused this ClassCircularityError. Our 3.0\nsolution did not cause errors but could cause serious performance problems (bug\n86713). Our attempted 3.1 solution removed the performance problem but added\nback the ClassCircularityError (which is actually Sun VM bug 4699981). We are\nworking on figuring out the best thing to do for 3.1.",
+    "No forking in startup code of PDE/Core.  However, we do indirectly register a \nlistener (JavaElementChangeListener) upon startup of the plugin:\nJavaCore.addElementChangedListener(this, ElementChangedEvent.POST_CHANGE);\n\nThis allows us to keep track of addition/removal of packages to eliminate the \nneed for launching with -clean.\n\nThis listener addition has been in there unchanged since December.  I\u0027m not \nsure if it\u0027s related to anything, but I thought I\u0027d come clean.\n",
+    "\u0027Hi, my name is Wassim, and I attached a listener\u0027.\n\u0027Hi, Wassim\u0027. :-)\n",
+    "We backed out the fix to bug 86713.  That should help prevent this \nClassCircularityError.",
+    "resolving as worksforme, since the runtime backed out the fix for bug 86713."
+  ],
+  "commentCreationDates": [
+    "2005-04-19T13:04:02+02:00",
+    "2005-04-19T13:05:20+02:00",
+    "2005-04-19T14:37:18+02:00",
+    "2005-04-19T15:13:23+02:00",
+    "2005-04-20T05:50:47+02:00",
+    "2005-04-20T16:17:43+02:00",
+    "2005-04-29T00:20:54+02:00",
+    "2005-04-29T00:44:10+02:00",
+    "2005-04-29T11:03:50+02:00",
+    "2005-04-29T17:07:01+02:00",
+    "2005-04-29T17:17:08+02:00",
+    "2005-04-29T17:25:27+02:00",
+    "2005-04-29T21:18:54+02:00",
+    "2005-05-17T03:45:18+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCircularityError",
+      "message": "org/eclipse/pde/internal/core/WorkspaceModelManager",
+      "elements": [
+        {
+          "method": "org.eclipse.pde.internal.core.PDECore.initializeModels",
+          "source": "PDECore.java:376"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.PDECore.getModelManager",
+          "source": "PDECore.java:301"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsInitializer.initialize",
+          "source": "RequiredPluginsInitializer.java:36"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:1416"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:971"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1304"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:2066"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1974"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.isOnClasspath",
+          "source": "JavaProject.java:2252"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitDocumentProvider$CompilationUnitAnnotationModel.internalBeginReporting",
+          "source": "CompilationUnitDocumentP rovider.java:467"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitDocumentProvider$CompilationUnitAnnotationModel.beginReportingSequence",
+          "source": "CompilationUnitDocumentP rovider.java:457"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.JavaCompositeReconcilingStrategy.initialReconcile",
+          "source": "JavaCompositeReconcilingStrategy.java:119"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.MonoReconciler.initialProcess",
+          "source": "MonoReconciler.java:103"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.JavaReconciler.initialProcess",
+          "source": "JavaReconciler.java:307"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread.run",
+          "source": "AbstractReconciler.java:170"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "91865",
+      "date": "2005-04-19T13:04:02+02:00",
+      "product": "PDE",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "91865",
+  "bugId": "91865",
+  "date": "2005-04-19T13:04:02+02:00",
+  "product": "PDE",
+  "component": "UI",
+  "severity": "normal"
+}

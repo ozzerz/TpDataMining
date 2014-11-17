@@ -1,0 +1,136 @@
+{
+  "comments": [
+    "With build 20020416, when I\u0027m importing a project from Windows version of\nEclipse, I get a stack overflow error.\nI have 100% reproducability.\n\nTo reproduce I do:\n1. Enter File-\u003eImport...\n2. Choose \"External Project\" and click \"Next\u003e\"\n3. Click the \"Browse...\" button and select the directory containing the project.\nI then receive an error message saying \"A stack overflow error has occured. It\nis recommended to exit the workbench. Subsequent errors may happen and may\nterminate the workbench without warning. See error log for more details. Exit\nworkspace?\"\n\nWhen I click on \"Details\u003e\u003e\" I can see a stack trace with those function calls at\nthe top:\n\njava.lang.StackOverflowError\n\tat org.eclipse.swt.widgets.Control.getDisplay(Control.java:1224)\n\tat org.eclipse.swt.widgets.Widget.isValidThread(Widget.java:489)\n\tat org.eclipse.swt.widgets.Widget.checkWidget(Widget.java:228)\n\tat org.eclipse.swt.widgets.Text.getText(Text.java:590)\n\tat\norg.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.getProjectNameFieldValue(WizardExternalProjectImportPage.java:245)\n\tat\norg.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.validatePage(WizardExternalProjectImportPage.java:291)\n\tat\norg.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.access$0(WizardExternalProjectImportPage.java:287)\n\tat\norg.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage$2.handleEvent(WizardExternalProjectImportPage.java:73)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:75)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:787)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:781)\n\tat org.eclipse.swt.widgets.Text.processModify(Text.java:754)\n\tat org.eclipse.swt.widgets.Widget.processEvent(Widget.java:567)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:1510)\n\tat org.eclipse.swt.internal.gtk.OS.gtk_editable_delete_text(Native Method)\n\tat org.eclipse.swt.widgets.Text.setText(Text.java:1091)\n\tat\norg.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.setProjectName(WizardExternalProjectImportPage.java:372)\n\tat\norg.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.validatePage(WizardExternalProjectImportPage.java:292)\n\tat\norg.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.access$0(WizardExternalProjectImportPage.java:287)\n\tat\norg.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage$2.handleEvent(WizardExternalProjectImportPage.java:73)\n\n\n\nI\u0027ll attach full stacktrace, a screenshot and a testcase soon.",
+    "Created an attachment (id\u003d894)\nzipped testcase, a single directory with a .project file in it. In Unix LF format, but that doesn\u0027t matter (bug reproducable both with CS/LF and LF)\n",
+    "Created an attachment (id\u003d896)\nFull stacktrace\n",
+    "Created an attachment (id\u003d897)\nScreenshot\n",
+    "Comments to attachments:\n1. I meant CR/LF of course, it\u0027s a typo. This is a minimal testcase, it only\ncontains the .project file inside a directory, because I narrowed the problem\ndown to this file. Of course initially I was crashing on a fully functional\nproject dir from Windows version of Eclipse.\n2. Notice the pattern of infinite recursion in the stacktrace.",
+    "BTW, my setup:\nMandrake Linux 8.2\nGTK 1.2.10\nEclipse unzipped from eclipse-SDK into /ust/opt/eclipse by root, and run by an\nunprivileged user.",
+    "I\u0027ve almost forgotten the most important part of info on my environment:\nI\u0027m using Sun j2sdk-1.4.0, installed from RPMs supplied by Mandrake.",
+    "This importer is contributed by Platform UI. ",
+    "Looks like a GTK issue.\nWhen we call Text.setText, we are not expecting any modify callbacks.\n",
+    "Oops, that was my omission.\nIn all programmatic (as opposed to user) operations like setSelection, setText,\netc., the native GTK platform gives you free callbacks, and SWT does not,\ntherefore all such places are surrounded by gtk_signal_block_by_data /\ngtk_signal_unblock_by_data.  This one somehow slipped from my attention when I\nwas doing them all.\n\nFIXED.",
+    "The fix caused other PRs.\nWe are taking the block/unblock code out.  We thought the problem would come \nback, but we are unable to recreate the problem.\n\nOlo: Can you reteset this in anything after 20020528?",
+    "The reporter indicated that they were using GTK1.2, which is no longer \nsupported.\n\nDespite that, what Boris states in a comment above is correct: You should \nnot be be giving callbacks as a result of programmatic interactions. Best \ncase behavior is that it would flash more than it should, worse case \nwould be an infinit loop like the one contained in this PR.\n\nWhat are we doing to prevent *that* problem?",
+    "In this case we are supposed to be sending the callback.  The modify and verify \nbehavior on all platforms is based on the native behavior of the XmText widget.",
+    "The SWT developers all agree this is behaving as expected.",
+    "I cannot test it since I only have GTK 1... So if you mark the bug as invalid, I\nassume you know better. Marking verified."
+  ],
+  "commentCreationDates": [
+    "2002-05-20T20:59:19+02:00",
+    "2002-05-20T21:02:01+02:00",
+    "2002-05-20T21:05:09+02:00",
+    "2002-05-20T21:05:43+02:00",
+    "2002-05-20T21:09:13+02:00",
+    "2002-05-20T21:23:21+02:00",
+    "2002-05-20T21:44:07+02:00",
+    "2002-05-21T01:05:48+02:00",
+    "2002-05-21T03:22:24+02:00",
+    "2002-05-21T08:01:55+02:00",
+    "2002-05-28T18:55:14+02:00",
+    "2002-05-28T20:35:33+02:00",
+    "2002-05-28T22:10:40+02:00",
+    "2002-06-14T20:30:44+02:00",
+    "2002-06-15T17:29:16+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StackOverflowError",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.widgets.Control.getDisplay",
+          "source": "Control.java:1224"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.isValidThread",
+          "source": "Widget.java:489"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java:228"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.getText",
+          "source": "Text.java:590"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.getProjectNameFieldValue",
+          "source": "WizardExternalProjectImportPage.java:245"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.validatePage",
+          "source": "WizardExternalProjectImportPage.java:291"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.access$0",
+          "source": "WizardExternalProjectImportPage.java:287"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage$2.handleEvent",
+          "source": "WizardExternalProjectImportPage.java:73"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:75"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:787"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:781"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.processModify",
+          "source": "Text.java:754"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.processEvent",
+          "source": "Widget.java:567"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:1510"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.gtk_editable_delete_text",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.setText",
+          "source": "Text.java:1091"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.setProjectName",
+          "source": "WizardExternalProjectImportPage.java:372"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.validatePage",
+          "source": "WizardExternalProjectImportPage.java:292"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.access$0",
+          "source": "WizardExternalProjectImportPage.java:287"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage$2.handleEvent",
+          "source": "WizardExternalProjectImportPage.java:73"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "16465",
+      "date": "2002-05-20T20:59:19+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    }
+  ],
+  "groupId": "16465",
+  "bugId": "16465",
+  "date": "2002-05-20T20:59:19+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "major"
+}

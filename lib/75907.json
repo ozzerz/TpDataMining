@@ -1,0 +1,251 @@
+{
+  "comments": [
+    "I know you don\u0027t support CVSNT but I do not have another alternative right now\nso here I am.\nJust downloaded the latest CVSNT server release to have a look at it, and found\nout that in the CVS view, eclipse doesn\u0027t list the modules at all (in the head\nnor in the versions) with this version (worked fine with version 2.0.51).\nYou\u0027ll find the trace of the CVS commands in version 2.0.58a (which has the\nproblem) and in older versions (2.0.51 and 2.0.14) which work well. The trace is\nreally different indeed so I can understand that eclipse cannot find the data\nit\u0027s looking for, but I\u0027m not a CVS specialist and I can\u0027t tell who\u0027s wrong and\nright here.\nI\u0027m using pserver authentication since I\u0027m on a secure network here.\n\nI\u0027ve posted the same bug report in the CVS bug tracking system so they can have\na look as well, see http://www.cvsnt.org/mantis/bug_view_page.php?bug_id\u003d0000109",
+    "Created an attachment (id\u003d15067)\nCVS trace from eclipse in verbose mode\n\nThe traces are very different depending on the CVS version.",
+    "Thanks for the trace. From the trace, I can see that the problem is that CVSNT \nis now giving much more informaton when running \"cvs -n update -d .\". The *nix \nCVS behavior (and the previous CVSNT behavior) is just to provide a list of \nthe folders and files at the next level in E messages with the \nformat \"Updating folder/path\". CVSNT 2.0.58 appears to be providing a list of \nall files and folders in the repository. This is giving a large volume of \ninformation when only a small amount was expected.\n\nI did notice that the E messages are still provided so the repositories view \nstill should have been populated, it just would have taken much longer. \nPerhaps the existance of the other messages has caused an error somewhere. Is \nthere anything in the error log (either in he Error Log view or the in \nthe .metadata/.log file inside your workspace directory)?\n\nThe Eclipe CVS position is that we can only guarantee to support the basic CVS \nfuntionality (e.g. checkout, commit update, tag, etc.) across CVS server \nupgrades as the more advanced features (repositories view, syncing) rely on \ntext messages which the CVS server developers often feel is not part of the \nserver API (this is a problem with all CVS server types and not just CVSNT).\n\nAs for the respolution of this problem, as I said above, the E messages are \nincluded in the trace so the repositories view should still be populated. \nThere must be an error occuring that is due to the addition information that \nis being communicated. Knowing if there were any errors in your log file will \nhelp.\n\nHowever, even if this is fixed, there is still the problem of the \ncommunication of the entire repository contents being communicated. This could \nend up being extremely long running depending on the repository size. \nPersonnally, I would prefer it if the behavior of \"cvs -n update .\" was kept \nconsistent accross all CVS server types and divergent funtionality was \nprovided using new commands or new command options. If this is not possible \nfrom a CVSNT standpoint then other possibilities may need to be investigated.",
+    "The \u0027new\u0027 -n update (and checkout) behaviour is really the way it should always\nhave worked - it provides exactly the same output as a standard update but\nwithout actually modifying the sandbox.\n\ncvs 1.12 and cvsnt will accept the rls (called ls in the cvsnt client) command\nwhich is designed for this purpose (not sure how compatible they are... the cvs\n1.12 version seems to be based loosely on the same code but they\u0027ve created two\ncommands, hence the \u0027r\u0027..).\n\nIf I could work out a way of finding out that the client was in fact eclipse\nthen I could introduce bug-compatibility for things like this (putting the buggy\nbehaviour back is probably a lot easier than fixing it was, so I should be able\nto make it a toggle).  This needs some thought though (the simple way is for\neclipse to send \u0027eclipse\u0027 as part of its supported responses, but that\u0027s not\nvery scalable... probably needs something similar to a referer giving client\nname, version etc).\n",
+    "Are you saying that CVS 1.12 is also changing the behavior \"cvs -n update\"? If \nso, that is an issue we will need to deal with in time. However, our position \non this is that we support the basic funtionality in the feature release \n(checkout, update, commit, etc) but not the more advanced features \n(repositories view, syncing) for the reasons I stated above.\n\nAs for your proposed solution, I don\u0027t think that Eclipse communicating custom \ninformation to the server is appropriate since it is not part of the general \nCVS specification (such as it is). Wouldn\u0027t it be possible to tie this \nbehavior to the \"act as a *nix server\" preference that you already have for \nCVSNT?",
+    "No, but cvs 1.12 has the rls/ls which is designed for listing the repository\n(cvsnt has had this for a long time).\n\nThe old -n behaviour was buggy at best...  no idea why it wasn\u0027t fixed earlier.\n\nI\u0027d rather get rid of the \"act as a unix cvs\" option - it breaks things like the\nmergepoint graphing in WinCVS.  Eclipse is currently the only client that has\nissues with cvsnt, so really is the only thing that needs special handling - I\u0027m\nprepared to do that as it\u0027s a reasonably popular frontend, but need something to\nhook it on to.\n\nAs far as the \u0027general cvs spec\u0027 goes it\u0027s a changing thing, and options can be\nadded.  The core stays the same of course.  Being able to drop down to a legacy\nmode when a specific client is seen is quite useful in cases like this.\n",
+    "Perhaps we differ in what we view as appropriate changes to a specification \n(or API). From my standpoint, additions can be made to an API as long as they \ndo not break backwards compatibility. Adding an ls and rls command is good in \nthat it adds new funtionality without breaking exisiting clients. Changing the \nbehavior of an existing command is bad as it can potentially break any client \nthat made use of that command, even if the behavior of the command was flawed. \nThere are several cases in Eclipse were we ended up with flawed API. Would we \nlike to change it? Yes. Do we change it? No, because it would break our \nclients and that is unacceptable to us. However, we often provide alternate \nAPI that fixes the problems and gives the clients the choice of staying with \nthe old API or moving to the new API. Perhaps \"cvs -n\" wasn\u0027t fixed but a new \ncommand provided in the *nix CVS for the same reason.\n\nAs for the the statement that changes to CVSNT break Eclipse but do not break \nother clients, I would would put to you that this is because Eclipse makes use \nof commands in a slightly different way then other clients (i.e. parses text \nmessages) to give some more advanced behavior (repo view, syncing, etc). As \nI\u0027ve said before, Eclipse supports the basic funtionality for all CVS servers. \nIt is just the advanced funtionality that is affected. \n\nIt seems to me that CVSNT has one development stream and it is equivalent to \nthe feature stream of the *nix CVS server. Without a stable stream for CVSNT, \nthe best Eclipse can do is say that the basic CVS funtionality is supported \nfor CVSNT (as we say for 1.12). In order to make a stronger statement about \nCVSNT support, we would need a stable CVS version to test against \nand \"certify\" as supported.",
+    "There are stable releases and they don\u0027t change, beyond minor fixes for the\nservice releases.  They\u0027re out about every 3 months.. certifying everything\nworks shouldn\u0027t take someone more than a couple of hours if they know what\nthey\u0027re looking for.\n\nWinCVS and TortoiseCVS for example are generally a stable version behind - they\nwait for a release then implement all the new features.  Thee\u0027s no reason why\nthe very latest version needs to be the one that \u0027works\u0027.\n\nYou should avoid parsing text messages, and where it\u0027s absolutely necessary (eg.\ncvs status and cvs log) only look for what you need and ignore anything else. \nThe client/server protocol is actually quite rich in the data it passes around\nand there\u0027s no need to parse text in the general case.\n\nWhen cvshome added ls they broke all the existing cvsnt clients (which have had\nls for more than a year before that, and comprise the vast majority of Windows\nbased clients) and created an incompatible ls command... I had to work around\nthat.  It\u0027s just life.  Even Microsoft do it sometimes...\n",
+    "I\u0027m just downloading the latest eclipse to test against cvs.cvsnt.org (which as\nwell as being the main source repository is a good test server, as it\u0027s kept up\nto date).\n\nIs there a test script that I can use to check the funcitonality, just in case\nthere are any more issues lurking? (I\u0027d like to get 58b so it works out of the\nbox with eclipse if possible, or at the very least fails in a verbose enough way\nthat people know how to remedy it).\n",
+    "I started writting before your second post. The following is a response to \nboth posts.\n\nI had a look at the CVSNT website and there is no mention of a stable release. \nWhat is the last stable release of CVSNT? The *nix CVS site mentions both the \nstable and feature stream which makes it easy for us to know what to test \nagainst. The instructions for running the automated tests are accessible from \nthe download page of Eclipse. You can scroll down to the \"JUnit Plugin Tests \nand Automated Testing Framework \" section to see the download links. The \ninstructions for running the tests are included in the download.\n\nAs for your suggestion that we shouldn\u0027t parse text messages, I agree that it \nis undesirable. However, much of the advanced funtionality we provide is not \npossible without it so there\u0027s not much we can do about it. I don\u0027t know if \nyou\u0027ve ever used the Synchronize view in Eclipse but this is one of the main \ndrawing cards for a lot of users. I haven\u0027t seen any part of the CVS protocol \nthat would make this possible (in a reasonable number of connections to the \nserver) without parsing text messages.\n\nIn regards to your final comment about needing to work around changes, I think \nI should clearify what the current mandate of the Team/CVS component is in \nEclipse (at least as I understand it). This may help you understand my \nposition on this subject. \n\nOur first priority is to provide facilities to allow repository providers to \nachieve a rich level of integration into Eclipse and to use the CVS plugin as \nour reference implementation for these facilities. Our second priority is to \nsupport the development of Eclipse by intergrating repository support into \nEclipse. Since the Eclipse repository is on a *nix CVS server, that is the \nplatform we focus on. Our third priority has been to ensure that our CVS \nclient is rich enough to support other open source repositories such as Source \nForge, for example. We may, if time permits, decide to adapt to new changes \nintroduced by CVS 1.12 but this is currently not planned.\n\nWe would be happy to say that we support CVSNT. We have a lot of users who use \nit. However, it is not part of our mandate to adapt to changes made in CVSNT \nthat deviate from the behavior of the 1.11 *nix CVS server. If there is a \nstable CVSNT version that has the same behavior as the *nix 1.11 CVS server \nfrom the standpoint of a CVS cient (including text messages), then we could \nsupport that version. However, we have no current plan to support addition \nfeatures available in CVSNT (or 1.12 for that matter) that are not available \nin 1.11.",
+    "www.cvsnt.com always lists the current stable release, which at the moment is\n2.0.58a (2.0.58 + first service release.  I anticipate a 2.0.58b but that\u0027s only\nto fix minor post-release problems).\n\nAfter that there isn\u0027t another planned stable release until January.\n\nA cvsnt server running with the compatibility switches on is pretty close to a\ncvs 1.11.2 server (at one point I even got sanity.sh to run on it but I haven\u0027t\ntried with that for a while).  I\u0027m breaking down the switches a bit for the 58b\nrelease so that non-cvsnt clients get one view and cvsnt clients get another -\ncvs.cvsnt.org is currently configured like that and seems to be OK (I\u0027ve started\nup eclipse, browsed for the tag, browsed for a repository and it seems I can\nedit files).  The repository explorer view works well too.\n\nHowever I switched to the \u0027synchronise view\u0027 and all my files disappeared, so\nmaybe there\u0027s some work to do there (more likely I haven\u0027t got a clue how to use\nit..)\n\n\n",
+    "A test with junit against 58b(pre) running \u0027runtests teamcvs\u0027\n\n34 tests\n0 failures\n0 errors\ntime 15.454\n\nHowever it wasn\u0027t a successful run, becuase junit fell over with an access\nviolation...  Do you need a specific JRE for it to work?\n\n\n",
+    "Created an attachment (id\u003d15083)\nResults of junit test of teamcvs with cvsnt 2.0.38b(pre)\n",
+    "A second test didn\u0027t crash, and ran through.  I got 7 failures from 148 tests.\n\ntestKeywordSubsBinToText - expected this to fail.  cvsnt version controls the\nexpansion options, so \u0027admin -k\u0027 is meaningless (there\u0027s no way of emulating its\nbehaviour either).  I don\u0027t think this will stop anyone using the product\nthough... changing -k options isn\u0027t that common.\nThe others may be problems or just differences in interpretation - difficult to\ntell.\n\nIt would be nice to get more info about these errors - is there a verbose log\nanywhere?  I reckon most of these are so minor they\u0027re either one-line changes\nor ignorable.\n",
+    "Before I give my interpretation of the errors, I have to say that, \nunfortunately, our test suites are not setup to pinpoint incompatibilities \nbetween the client and server. I will try and add support to the suites so \nthat we can get more detailed information from the tests that fail, such as \nthe complete exception dumps and the client/communication trace. This should \nmake incompatibilities easier to trace down.\n\nHere is my interpretation of the errors. \n\n  testKeywordSubstitution - due to CVSNT custom handling of keyword modes?\n  testKeywordSubsBinToText - ditto\n  test33984CannotCommitAfterConflictsMergedLocally - failure occurs \n     right after setting the keword substitution mode so probably \n     related to above\n  testEditMergeUnedit - appears to be a simple update but with the \n     global -r (read-only) flag set.\n  testUpdate - appears to be updating with an unmergable conflict. Could be\n     a case where the format of a text message has changed\n  testIncomingChanges - The results of a non-conflicting auto-merge update\n     were not what was expected when using two -j options.\n  test46007 - same as above\n  testMergableConflicts - probably the same as above. We were expecting a \n     non-conflicting automerge to occur but it appears that it did not.\n  testFileConflict - similar to above but with no -j. A non-conflicting\n     automerge appears to have failed.\n  testCompareWithLatest - appears to have failed executing a \"cvs rdiff\n     -s -r HEAD -r v1\".\n\nMany of the failures appear to be related to auto-merging. We have code that \nwill skip true conflicts on an update an allow the user to manually merge them \nin the syncronize view. Most of the failed tests involve cases that should \nhave been auto-merged by the server but were not for some reason. This is not \nideal but is not a show stopper as the user can still manually merge the files.",
+    "The keyword stuff is expected to fail.  CVSNT versions controls the expansion\nmodes, whereas cvs 1.11 has a single expansion mode per file (the admin -k\noption).  I don\u0027t consider this major as most users don\u0027t do this kind of thing\nanyway...  Expansion modes are automatically mapped to the cvs 1.11-capable list\nwhen a 1.11 client is in use (-kB becomes -kb for example) so I don\u0027t forsee any\nincompatibiliy with existing repositories.\n\nAs far as I know the merging in cvsnt is identical to cvs 1.11, except we always\nmerge branches using -ko to avoid conflits on things like $Id$.  I tried to\nreplicate the merge stuff on the command line based on what the comments were\nsaying and it seemed to be working OK (merged correctly without a conflict), so\nthat probably needs following up.\n\nThe rdiff command seems to be just plain broke... I\u0027ll take a look at it and fix it.\n",
+    "OK fixing the rdiff problem got the error count down by 1 :)\n\nIs there a way to run a single test?  I could see what\u0027s going on with the\nmerging then...\n",
+    "Yes there is but it involves a bit of work. Here are the steps.\n\n1) Run the tests to get the Eclipse install that includes the test plugins \n(this you\u0027ve already done).\n\n2) In the eclipse/plugins/org.eclipse.team.tests.cvs.core_\u003cVERSION\u003e/text.xml \nANT script, there are two tests in the suit target. You can remove one and \nedit the other in the following way (I\u0027ve created an example test that should \nrun one of the failed merge tests\n\n    \u003c!-- Session Test ** CVS Provider ** --\u003e\n    \u003cant target\u003d\"ui-test\" antfile\u003d\"${library-file}\" dir\u003d\"${eclipse-home}\"\u003e\n      \u003cproperty name\u003d\"vmargs\" value\u003d\"-Declipse.cvs.properties\u003d${team-\nhome}/repository.properties -Declipse.cvs.testName\u003dtestIncomingChanges\"/\u003e\n      \u003cproperty name\u003d\"data-dir\" value\u003d\"${location}\"/\u003e\n      \u003cproperty name\u003d\"plugin-name\" value\u003d\"org.eclipse.team.tests.cvs.core\"/\u003e\n      \u003cproperty name\u003d\"classname\" \nvalue\u003d\"org.eclipse.team.tests.ccvs.core.subscriber.CVSMergeSubscriberTest\"/\u003e\n    \u003c/ant\u003e\n\nNote that the above test has changed the class name to the one from the \nfailure trace and has added a VM property for selecting a single test.\n\n3) Create a file named \".options\" in your eclipse directory (the directory \nthat contains the executable) that contains the following 2 lines that enable \nCVS debugging. \n   org.eclipse.team.cvs.core/debug\u003dtrue\n   org.eclipse.team.cvs.core/cvsprotocol\u003dtrue\n\n4) Run the tests with the -noclean option so that the existing Eclipse install \nis used.\n\nThis should work. If you have any problems, let me know.\n",
+    "It didn\u0027t work... I\u0027ve probably done something wrong though.\n\nThe test appeared to run, but produced no output.  The only log file I could\nfind is in test-eclipse/eclipse/cvs_sniff_folder/.metadata/.log - is that the\nright one??  It contains:\n\n!SESSION Oct 12, 2004 20:21:25.99 ----------------------------------------------\neclipse.buildId\u003dM200409161125\njava.version\u003d1.4.2_05\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_GB\nCommand-line arguments: -application org.eclipse.test.uitestapplication\nformatter\u003dorg.apache.tools.ant.taskdefs.optional.junit.XMLJUnitResultFormatter,org.eclipse.team.tests.ccvs.core.subscriber.CVSMergeSubscriberTest.xml\n-testPluginName org.eclipse.team.tests.cvs.core -className\norg.eclipse.team.tests.ccvs.core.subscriber.CVSMergeSubscriberTest\n\n!ENTRY org.eclipse.core.runtime 4 0 Oct 12, 2004 20:21:25.99\n!MESSAGE Content type org.eclipse.core.tests.runtime.invalid-missing-name has no\nname. Content type has been disabled.\n\n!ENTRY org.eclipse.core.runtime 4 0 Oct 12, 2004 20:21:25.99\n!MESSAGE Content type org.eclipse.core.tests.runtime.null has no identifier.\nContent type has been disabled.\n\n!ENTRY org.eclipse.core.runtime 4 2 Oct 12, 2004 20:21:26.224\n!MESSAGE Problems occurred when invoking code from plug-in:\n\"org.eclipse.core.runtime\".\n!STACK 0\njava.lang.RuntimeException: The workbench should handle hostile pulldown delegates.\n\tat\norg.eclipse.ui.tests.menus.BrokenWorkbenchWindowPulldownDelegate.getMenu(BrokenWorkbenchWindowPulldownDelegate.java:44)\n\tat\norg.eclipse.ui.internal.WWinPluginPulldown$MenuProxy$MenuLoader.run(WWinPluginPulldown.java:125)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:616)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:747)\n\tat\norg.eclipse.ui.internal.WWinPluginPulldown$MenuProxy.getMenu(WWinPluginPulldown.java:153)\n\tat\norg.eclipse.jface.action.ActionContributionItem.fill(ActionContributionItem.java:627)\n\tat org.eclipse.jface.action.SubContributionItem.fill(SubContributionItem.java:58)\n\tat org.eclipse.jface.action.MenuManager.update(MenuManager.java:603)\n\tat org.eclipse.jface.action.MenuManager.updateAll(MenuManager.java:697)\n\tat org.eclipse.jface.action.MenuManager.update(MenuManager.java:622)\n\tat org.eclipse.jface.action.MenuManager.updateAll(MenuManager.java:697)\n\tat\norg.eclipse.ui.internal.WorkbenchWindow.updateActionBars(WorkbenchWindow.java:1979)\n\tat\norg.eclipse.ui.internal.WorkbenchWindow.updateActionSets(WorkbenchWindow.java:2001)\n\tat org.eclipse.ui.internal.WorkbenchWindow$4.run(WorkbenchWindow.java:1870)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\n\tat org.eclipse.ui.internal.WorkbenchWindow.setActivePage(WorkbenchWindow.java:1845)\n\tat org.eclipse.ui.internal.WorkbenchWindow.busyOpenPage(WorkbenchWindow.java:498)\n\tat org.eclipse.ui.internal.WorkbenchWindow$3.run(WorkbenchWindow.java:1076)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\n\tat org.eclipse.ui.internal.WorkbenchWindow.openPage(WorkbenchWindow.java:1073)\n\tat org.eclipse.ui.internal.Workbench.openFirstTimeWindow(Workbench.java:992)\n\tat\norg.eclipse.ui.internal.WorkbenchConfigurer.openFirstTimeWindow(WorkbenchConfigurer.java:174)\n\tat\norg.eclipse.ui.application.WorkbenchAdvisor.openWindows(WorkbenchAdvisor.java:658)\n\tat org.eclipse.ui.internal.Workbench.init(Workbench.java:819)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1325)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:254)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:96)\n\tat org.eclipse.test.UITestApplication.runApplication(UITestApplication.java:123)\n\tat org.eclipse.test.UITestApplication.run(UITestApplication.java:55)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:335)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:273)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:129)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n\tat java.lang.reflect.Method.invoke(Unknown Source)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n\tat org.eclipse.core.launcher.Main.run(Main.java:704)\n\tat org.eclipse.core.launcher.Main.main(Main.java:688",
+    "I was able to get it to work but I noticed some things differed slightly from \nwhat I described previously.\n\n1) There were two Eclipse directories. You need to make the changs to \nthe .options file and the test.xml script in the eclipse install found in the \ntest-eclipse directory.\n\n2) The output is found in an xml file in the eclipse install directory. It has \n\u003cclassname\u003e.xml as the title.\n\nApart from these differences, I was able to run a single test. Does this help \nyou out or is the problem elsewhere?",
+    "Sorry, I\u0027m probably missing something really obvious... I\u0027m doing exactly as\nyou\u0027ve described but it\u0027s still not giving anything useful (definately nothing\nlike a CVS trace).  I\u0027ve attached the XML output file + the test.xml file.\n\n\n",
+    "Created an attachment (id\u003d15126)\nOutput of single test\n",
+    "Created an attachment (id\u003d15127)\nxml input file for test\n",
+    "From the first attachment it looks like the test ran. I didn\u0027t notice at first \nbut my test run didn\u0027t include the trace either. Sorry about that. I\u0027ll have \nto dig into why the debug options are not being picked up and get back to you.",
+    "Created an attachment (id\u003d15136)\nModified library.xml file\n\nI found were to add the option to trigger the debug tracing. You will need to\nreplace the file found at the following path with the one I\u0027ve attached.\n\n\u003ctest-install-dir\u003e/test-eclipse/eclipse/plugins/org.eclipse.test/library.xml\n\nAgain, my appologies. My excuse is that developers typically run the test from\nwithin Eclipse which is done using an integrated JUnit launcher.",
+    "Don\u0027t worry - I understand these test were never meant to be used the way I\u0027m\nusing them... they\u0027re still very useful though.\n\nI just noticed the XML says this test is succeeding...  that\u0027s odd, since it\nfails when part of the main testsuite.\n\nI\u0027ll try a few others to see what\u0027s happening.\n",
+    "I\u0027ve confirmed that all the test succeed when run standalone, except the ones\nrelated to admin -k (which I\u0027m not sure can be fixed, since the handling is so\ndifferent I can\u0027t even think of a way of emulating it).\n\nI\u0027m not sure what could cause that - it looks like each operation is on a\nseparate connection, so there shouldn\u0027t be any interaction between the tests.\n",
+    "That\u0027s good news. I\u0027m not sure why running the test one at a time makes a \ndifference either. Each test is run independantly with unique project (module)\nnames.\n\nAnyway, what remains on my end is to publich the testing procedure that we\u0027ve \ncaptured in this bug report (with modifications due to some enhancements I\u0027ve \nmade to the test plugins to avoid the ned to use the debug options) and to \nremove the warning about CVSNT.",
+    "I tried a couple of things but couldn\u0027t affect the result of the bulk tests...\nthere\u0027s nothing in the server logs to indicate any problem either.  Maybe\nsomeone will work out what it is sometime.  I doubt anyone would trigger it\noutside a testsuite as normal usage tends to be to do single operations.\n",
+    "Sorry to interupt the discussion but in need of a solution for the not listing\nfolders with CVSNT, I tried to find the message it failed on.  It has something\nto do with the \"New directory\" Error message that\u0027s not send by the new CVSNT\nversion.\n\nI modified the RemoteFolderMemberFetcher.directoryInformation so it also accepts\nnon new directories as long it\u0027s not this directory (\u0027.\u0027).  It works for CVSNT\nand another CVS (not sure what version but this one runs on Linux/Debian).  \n...\n\tpublic void directoryInformation(ICVSFolder commandRoot, String stringPath,\nboolean newDirectory) {\n\t\ttry {\n\t\t\tIPath path \u003d\nthis.parentFolder.getRelativePathFromRootRelativePath(commandRoot, new\nPath(stringPath));\n\t\t\tif (path.segmentCount() \u003d\u003d 1) {\n\t\t\t\tString pathName \u003d path.lastSegment();\n\t\t\t\tif (!pathName.equals(\".\")) {\n\t\t\t\t\trecordFolder(path.lastSegment());\n\t\t\t\t}\n\t\t\t}\n\t\t} catch (CVSException e) {\n\t\t\texceptions.add(e);\n\t\t}\n\t}\n...\nthis is of course a quick fix and I know that it doesn\u0027t solve the real problem.\n But maybe you guys can use this to solve the real issue\n\nOne Remark for the CVSNT team pleas provide links to older version so I\u0027m not\nforced to install the latest stable version (or if they are available provide a\nmore obviouse link).\n\nPs this is the first time I reply/help on a bug if there are things that\u0027s not\ndone don\u0027t go ballistic on me :-)",
+    "The fix makes sense. I\u0027ve released it to HEAD and it will be in next weeks \nbuild. Just for you information, we prefer to have code changes attached as \npatches that have been generated by the Team\u003eCreate Patch operation. This \nsimplifies the application of the patch to the code.",
+    "The older versions are in http://www.cvsnt.org/archive.\n\ncvsnt has a workaround for this also in the next release - it can be set to\nbehave as an old server if a non-CVSNT client connects.  There is scope for\nincreasing the granularity on this, if a method of identifying eclipse is found.\n",
+    "*** Bug 76289 has been marked as a duplicate of this bug. ***",
+    "Here\u0027s the link to the server compatibility document\n\nhttp://dev.eclipse.org/viewcvs/index.cgi/%7Echeckout%7E/platform-vcm-\nhome/docs/online/html-cvs/cvs-compatibility.html"
+  ],
+  "commentCreationDates": [
+    "2004-10-08T17:05:52+02:00",
+    "2004-10-08T17:07:50+02:00",
+    "2004-10-08T17:42:15+02:00",
+    "2004-10-08T18:28:51+02:00",
+    "2004-10-08T19:33:13+02:00",
+    "2004-10-08T20:04:52+02:00",
+    "2004-10-08T20:36:50+02:00",
+    "2004-10-08T21:56:46+02:00",
+    "2004-10-08T22:35:44+02:00",
+    "2004-10-08T23:06:20+02:00",
+    "2004-10-08T23:28:09+02:00",
+    "2004-10-09T00:20:44+02:00",
+    "2004-10-09T00:47:11+02:00",
+    "2004-10-09T00:59:00+02:00",
+    "2004-10-12T16:53:49+02:00",
+    "2004-10-12T19:17:20+02:00",
+    "2004-10-12T20:03:45+02:00",
+    "2004-10-12T20:25:28+02:00",
+    "2004-10-12T21:39:37+02:00",
+    "2004-10-12T23:00:56+02:00",
+    "2004-10-12T23:49:40+02:00",
+    "2004-10-12T23:51:05+02:00",
+    "2004-10-12T23:52:25+02:00",
+    "2004-10-13T15:30:35+02:00",
+    "2004-10-13T15:52:09+02:00",
+    "2004-10-13T16:15:45+02:00",
+    "2004-10-13T16:40:43+02:00",
+    "2004-10-13T18:42:13+02:00",
+    "2004-10-13T18:56:30+02:00",
+    "2004-10-14T16:15:48+02:00",
+    "2004-10-14T19:30:15+02:00",
+    "2004-10-14T19:31:26+02:00",
+    "2004-10-14T21:41:21+02:00",
+    "2004-11-05T18:29:06+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "message": "The workbench should handle hostile pulldown delegates.",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.tests.menus.BrokenWorkbenchWindowPulldownDelegate.getMenu",
+          "source": "BrokenWorkbenchWindowPulldownDelegate.java:44"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WWinPluginPulldown$MenuProxy$MenuLoader.run",
+          "source": "WWinPluginPulldown.java:125"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:616"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:747"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WWinPluginPulldown$MenuProxy.getMenu",
+          "source": "WWinPluginPulldown.java:153"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.fill",
+          "source": "ActionContributionItem.java:627"
+        },
+        {
+          "method": "org.eclipse.jface.action.SubContributionItem.fill",
+          "source": "SubContributionItem.java:58"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.update",
+          "source": "MenuManager.java:603"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.updateAll",
+          "source": "MenuManager.java:697"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.update",
+          "source": "MenuManager.java:622"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.updateAll",
+          "source": "MenuManager.java:697"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.updateActionBars",
+          "source": "WorkbenchWindow.java:1979"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.updateActionSets",
+          "source": "WorkbenchWindow.java:2001"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow$4.run",
+          "source": "WorkbenchWindow.java:1870"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.setActivePage",
+          "source": "WorkbenchWindow.java:1845"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.busyOpenPage",
+          "source": "WorkbenchWindow.java:498"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow$3.run",
+          "source": "WorkbenchWindow.java:1076"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.openPage",
+          "source": "WorkbenchWindow.java:1073"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.openFirstTimeWindow",
+          "source": "Workbench.java:992"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchConfigurer.openFirstTimeWindow",
+          "source": "WorkbenchConfigurer.java:174"
+        },
+        {
+          "method": "org.eclipse.ui.application.WorkbenchAdvisor.openWindows",
+          "source": "WorkbenchAdvisor.java:658"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.init",
+          "source": "Workbench.java:819"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1325"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:254"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:96"
+        },
+        {
+          "method": "org.eclipse.test.UITestApplication.runApplication",
+          "source": "UITestApplication.java:123"
+        },
+        {
+          "method": "org.eclipse.test.UITestApplication.run",
+          "source": "UITestApplication.java:55"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:335"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:129"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:704"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 18,
+      "bugId": "75907",
+      "date": "2004-10-12T21:39:37+02:00",
+      "product": "Platform",
+      "component": "CVS",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "75907",
+  "bugId": "75907",
+  "date": "2004-10-08T17:05:52+02:00",
+  "product": "Platform",
+  "component": "CVS",
+  "severity": "critical"
+}

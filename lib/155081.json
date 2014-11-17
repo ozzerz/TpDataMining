@@ -1,0 +1,117 @@
+{
+  "comments": [
+    "M20060823-1200\n\norg.eclipse.jdt.text.tests, org.eclipse.jdt.ui.tests.refactoring, and org.eclipse.jdt.ui.tests produce failures in this build when run with the automated testing framework. The same tests are running fine when they are executed locally.\n\nUnfortunately, the cause of the failure is not visible in the test results, since our test code swallows the original exception. I have a fix for that and I\u0027ll release the improved code to R3_2_maintenance of org.eclipse.jdt.ui.tests in a minute. With the improvement in JavaTestPlugin#getFileInPlugin(..), the exception below is logged.\n\nMy fix also adds a fallback that replaces the deprecated...\n    URL installURL\u003d new URL(getDescriptor().getInstallURL(), path.toString());\n    URL localURL\u003d Platform.asLocalURL(installURL);\n    return new File(localURL.getFile());\n... by a non-deprecated version.\n\nI think my fallback should make our tests work again, but the original problem with the deprecated core.runtime code needs to be investigated.\n\nA possible cause for the exception could be that we\u0027ve branched org.eclipse.jdt.ui.tests and used the tag r321_v20060816, which includes an \u0027_\u0027. Note that the (deprecated) code used to work fine for years before.\n\n\n!SESSION 2006-08-24 19:07:28.501 -----------------------------------------------\neclipse.buildId\u003dM20060823-1200\njava.version\u003d1.5.0_07\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003dde_CH\nFramework arguments:  -application org.eclipse.test.uitestapplication formatter\u003dorg.apache.tools.ant.taskdefs.optional.junit.XMLJUnitResultFormatter,org.eclipse.jdt.text.tests.JdtTextTestSuite.xml -testPluginName org.eclipse.jdt.text.tests -className org.eclipse.jdt.text.tests.JdtTextTestSuite\nCommand-line arguments:  -application org.eclipse.test.uitestapplication -dev bin -data C:\\e\\i\\test\\eclipse-testing/test-eclipse/eclipse/jdt_text_folder formatter\u003dorg.apache.tools.ant.taskdefs.optional.junit.XMLJUnitResultFormatter,org.eclipse.jdt.text.tests.JdtTextTestSuite.xml -testPluginName org.eclipse.jdt.text.tests -className org.eclipse.jdt.text.tests.JdtTextTestSuite -os win32 -ws win32 -arch x86 -consolelog\n\n!ENTRY org.eclipse.jdt.ui.tests 4 4 2006-08-24 19:07:49.476\n!MESSAGE Unable to resolve plug-in \"platform:/plugin/org.eclipse.jdt.ui.tests_3.2.1.r321_v20060816/testresources/rtstubs15.jar\".\n!STACK 0\njava.io.IOException: Unable to resolve plug-in \"platform:/plugin/org.eclipse.jdt.ui.tests_3.2.1.r321_v20060816/testresources/rtstubs15.jar\".\n\tat org.eclipse.core.internal.runtime.PlatformURLPluginConnection.resolve(PlatformURLPluginConnection.java:61)\n\tat org.eclipse.core.internal.boot.PlatformURLHandler.openConnection(PlatformURLHandler.java:67)\n\tat org.eclipse.osgi.framework.internal.protocol.URLStreamHandlerProxy.openConnection(URLStreamHandlerProxy.java:109)\n\tat java.net.URL.openConnection(URL.java:943)\n\tat org.eclipse.core.internal.runtime.PlatformURLConverter.toFileURL(PlatformURLConverter.java:33)\n\tat org.eclipse.core.runtime.FileLocator.toFileURL(FileLocator.java:126)\n\tat org.eclipse.core.runtime.Platform.asLocalURL(Platform.java:525)\n\tat org.eclipse.jdt.testplugin.JavaTestPlugin.getFileInPlugin(JavaTestPlugin.java:59)\n\tat org.eclipse.jdt.testplugin.JavaProjectHelper.findRtJar(JavaProjectHelper.java:674)\n\tat org.eclipse.jdt.testplugin.JavaProjectHelper.addVariableRTJar(JavaProjectHelper.java:596)\n\tat org.eclipse.jdt.testplugin.JavaProjectHelper.addVariableRTJar(JavaProjectHelper.java:579)\n\tat org.eclipse.jdt.testplugin.JavaProjectHelper.createJavaProjectWithJUnitSource(JavaProjectHelper.java:162)\n\tat org.eclipse.jdt.text.tests.JUnitProjectTestSetup.setUp(JUnitProjectTestSetup.java:50)\n\tat junit.extensions.TestSetup$1.protect(TestSetup.java:18)\n\tat junit.framework.TestResult.runProtected(TestResult.java:124)\n\tat junit.extensions.TestSetup.run(TestSetup.java:23)\n\tat junit.framework.TestSuite.runTest(TestSuite.java:208)\n\tat junit.framework.TestSuite.run(TestSuite.java:203)\n..",
+    "Some additional comments that might help:\n1) it started to happen with M20060816-0800\n2) M20060816-0800 is the first build containing branched JDT UI test projects. The\n   projects are tagged with \"r321_v20060816\" (and \"r321_v20060824\").\n3) the JDT test projects do not have a MANIFEST.MF (i.e. still old style)",
+    "I could reproduce it in the debugger:\n- Extract the binary test plugins from eclipse-Automated-Tests-M20060823-1200.zip into the plugin folder of the M20060823 install.\n- Run with this install on an empty workspace\n- PDE will use the own install as target platform (default setting).\n- create a plugin \u0027test\u0027 that requires org.eclipse.jdt.ui.tests, org.junit, org.eclipse.jdt.core\n- create a test in \u0027test\u0027 that calls\nJavaTestPlugin.getDefault().getFileInPlugin(new Path(\"testresources/rtstubs15.jar\"));\n\nProblem is in\n  PlatformURLPluginConnection(PlatformURLConnection).getId(String) line: 324\nTo compute the plugin id from \u0027org.eclipse.jdt.ui.tests_3.2.1.r321_v20060816\u0027\nspec.lastIndexOf(\u0027_\u0027); is used.\n-\u003e id evaluated as \u0027org.eclipse.jdt.ui.tests_3.2.1.r321\u0027\n\nPlatformURLPluginConnection(PlatformURLConnection).getId(String) line: 324\t\nPlatformURLPluginConnection.resolve() line: 55\t\nPlatformURLHandler.openConnection(URL) line: 67\t\nURLStreamHandlerProxy.openConnection(URL) line: 109\t\nURL.openConnection() line: 943 [local variables unavailable]\t\nPlatformURLConverter.toFileURL(URL) line: 33\t\nFileLocator.toFileURL(URL) line: 126\t\nPlatform.asLocalURL(URL) line: 525\t\nJavaTestPlugin.getFileInPlugin(IPath) line: 58\t\n\n\n",
+    "The problematic URL is the result of plugin.getDescriptor().getInstallURL(). If works with \u0027plugin.getBundle().getEntry(\"/\")\u0027 ",
+    "Tom and I looked into this and its similar to the problems we were having in bug 135180. \n\nBug 135180 comment #24 contains an interesting algorithm that we should consider adopting in PlatformURLPluginConnection.\n\nI have written a test case for this and verified that it fails not only in 3.2, but in previous releases including 3.0.2. \n\nMarkus, we would like to fix this in 3.3 unless you really want to push for 3.2.1. \n\nThoughts?\n",
+    "We changed all our tests to use plugin.getBundle().getEntry(\"/\")\nIn 3.2.1 and 3.3.\n",
+    "Markus is away this week. JDT Text an JDT UI released a workaround for this problem into 3.2.1 and a rebuild is currently taking place.\n\nWhether to put this into 3.2.1 should depend on whether other clients are affected by this.",
+    "Since this has been a problem for a couple of years now and you guys are the first client to come across this, I\u0027m going to mark it as 3.3. Thanks.\n",
+    "Fixed in HEAD.\n"
+  ],
+  "commentCreationDates": [
+    "2006-08-24T20:10:41+02:00",
+    "2006-08-28T10:42:09+02:00",
+    "2006-08-28T12:15:07+02:00",
+    "2006-08-28T12:31:05+02:00",
+    "2006-08-28T17:40:34+02:00",
+    "2006-08-28T17:46:57+02:00",
+    "2006-08-28T17:50:03+02:00",
+    "2006-08-28T19:15:58+02:00",
+    "2007-04-10T20:19:17+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.IOException",
+      "message": "Unable to resolve plug-in \"platform:/plugin/org.eclipse.jdt.ui.tests_3.2.1.r321_v20060816/testresources/rtstubs15.jar\".",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformURLPluginConnection.resolve",
+          "source": "PlatformURLPluginConnection.java:61"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.PlatformURLHandler.openConnection",
+          "source": "PlatformURLHandler.java:67"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.protocol.URLStreamHandlerProxy.openConnection",
+          "source": "URLStreamHandlerProxy.java:109"
+        },
+        {
+          "method": "java.net.URL.openConnection",
+          "source": "URL.java:943"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformURLConverter.toFileURL",
+          "source": "PlatformURLConverter.java:33"
+        },
+        {
+          "method": "org.eclipse.core.runtime.FileLocator.toFileURL",
+          "source": "FileLocator.java:126"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.asLocalURL",
+          "source": "Platform.java:525"
+        },
+        {
+          "method": "org.eclipse.jdt.testplugin.JavaTestPlugin.getFileInPlugin",
+          "source": "JavaTestPlugin.java:59"
+        },
+        {
+          "method": "org.eclipse.jdt.testplugin.JavaProjectHelper.findRtJar",
+          "source": "JavaProjectHelper.java:674"
+        },
+        {
+          "method": "org.eclipse.jdt.testplugin.JavaProjectHelper.addVariableRTJar",
+          "source": "JavaProjectHelper.java:596"
+        },
+        {
+          "method": "org.eclipse.jdt.testplugin.JavaProjectHelper.addVariableRTJar",
+          "source": "JavaProjectHelper.java:579"
+        },
+        {
+          "method": "org.eclipse.jdt.testplugin.JavaProjectHelper.createJavaProjectWithJUnitSource",
+          "source": "JavaProjectHelper.java:162"
+        },
+        {
+          "method": "org.eclipse.jdt.text.tests.JUnitProjectTestSetup.setUp",
+          "source": "JUnitProjectTestSetup.java:50"
+        },
+        {
+          "method": "junit.extensions.TestSetup$1.protect",
+          "source": "TestSetup.java:18"
+        },
+        {
+          "method": "junit.framework.TestResult.runProtected",
+          "source": "TestResult.java:124"
+        },
+        {
+          "method": "junit.extensions.TestSetup.run",
+          "source": "TestSetup.java:23"
+        },
+        {
+          "method": "junit.framework.TestSuite.runTest",
+          "source": "TestSuite.java:208"
+        },
+        {
+          "method": "junit.framework.TestSuite.run",
+          "source": "TestSuite.java:203"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "155081",
+      "date": "2006-08-24T20:10:41+02:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "155081",
+  "bugId": "155081",
+  "date": "2006-08-24T20:10:41+02:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "critical"
+}

@@ -1,0 +1,88 @@
+{
+  "comments": [
+    "2.0RC0\n\nThe following exception was logged to the console but not to the Eclipse log file.\n\nUnhandled event loop exception during blocked modal context.\norg.eclipse.swt.SWTException: Failed to execute runnable (java.lang.NullPointerException)\n\t...\nCaused by: java.lang.NullPointerException\n\tat org.eclipse.jst.j2ee.internal.JARDependencyPropertiesPage.refresh(JARDependencyPropertiesPage.java:502)\n\tat org.eclipse.jst.j2ee.internal.JARDependencyPropertiesPage.handleClasspathChange(JARDependencyPropertiesPage.java:223)\n\tat org.eclipse.jst.j2ee.internal.JARDependencyPropertiesPage$1.run(JARDependencyPropertiesPage.java:212)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\t... 53 more",
+    "Gunnar - we need some information to know how this happened.  What did you do to get that exception?  Without that information, I will have to close this bug as invalid.",
+    "I\u0027m not sure. I think I just opened the properties dialog of a dynamic web project, switched between the module dependencies page and the JDT build path page  and clicked OK to leave the dialog without making any change.\n\nAnyway, an NPE should be handled in any case, no matter what I was doing. Something is null which is not expected to be null. This could be the result of either a problem in some underlying framework, a timing issue with some listeners or anything else.\n\nAs from looking at the stack trace is seems that something was executed using Display#asyncExec(Runnable). In this case, it could be timing issue. The runnable is executed asynchronous which means that it must do some checks if it still needs to be executed (like null and disposed checks).",
+    "I\u0027ll take it",
+    "Created an attachment (id\u003d68490)\nPatch that adds disposed and null check\n\n",
+    "looks like this may be too late now for RC1 and not a high priority item (I targeted to RC1 since it was simple and low risk rather than because of priority).",
+    "I can\u0027t seem to get this patch to apply, and seems to me the head version of JARDependencyPropertiesPage looks much different?\n\n",
+    "(In reply to comment #6)\n\u003e I can\u0027t seem to get this patch to apply, and seems to me the head version of\n\u003e JARDependencyPropertiesPage looks much different?\n\u003e \n\nOoh, I should take this opportunity to test the \"-1\" review :) \n\nJust let me know what\u0027s up. \n",
+    "hmmm, I don\u0027t see any issue with unsync\u0027d changes with the HEAD version (patch is created against 1.57 and that\u0027s what I see as well...\n\nI created the patch with the project as the root - perhaps that\u0027s what is causing you the problem?",
+    "Created an attachment (id\u003d68569)\nNew patch for project\n\nodd - I see the patch application problems locally as well - creating the patch for the project works (on the initial patch I had selected the file then picked the project as the root in the wizard)",
+    "Created an attachment (id\u003d68587)\na possible alternative patch\n\nYes, I found too if I selected the file, then the patch would apply. Gee, hope there\u0027s not an Eclipse bug! :) \n\nOne of the reasons this caught my eye, though, is that it did not seem the Display.async(Runnable) was following the recommended pattern of checking before invoking if it was \u0027disposed\u0027, and then also checking again once executing if it as disposed. I am not sure if that\u0027s relevant to the original problem reported here, but, is important enough, IMHO, that if we are going to bullet proof code, we just as well bullet proof it all the way. \n\nI\u0027ve left in your flag for disposing, but renamed it to \u0027isBeingDisposed\u0027 so it is less confusing with the Display\u0027s meaning of \u0027isDisposed\u0027. \n\nI am not sure, though, if it is still needed ... if, exactly, it was solving a slightly different timing problem than the Display.isDisposed issue. \n\nAlso, I\u0027m not sure of the exact context of the \"elementChanged\" being called, so maybe this is not a big concern, but normally in places where we put things on the Display\u0027s queue of deffered runables, we want to make sure we do so only once ... that is, at least, until that one runnable actually runs. Extra ones would be redundant and can cause many other problems, not the least of which is performance problems.\n\nSo, I offer all this feedback only for your consideration and will go with your judgment on best approach for the particular scope of this bug. \n\nThanks, \n\n\n",
+    "Checking Display.isDisposed does not make sense. The display is only disposed if the workbench is closed. If I look at the stack trace, we might have another cause. tableManager is the thing that is null. tableManager can only be null if it hasn\u0027t been created yet. This maybe if the case if a #refresh is triggered too early. Can this happen?",
+    "(In reply to comment #11)\n\u003e Can this happen?\n\nYes it can. JARDependencyPropertiesPage.createContents(Composite) calls #initialize() before it creates and sets tableManager. An event between these calls can trigger a call to #refresh too early.\n\n\n",
+    "thanks for the detailed review, David \n\nYour patch fails to run with an \"Invalid thread access\" exception (the UI calls you added within elementChanged() before display.asyncExec() are the problem)\n\nGunnar, you are exactly right: the NPE you hit is because of that scenario: the null check on tableManager should catch that.\n\nOne also needs to check if the UI widgets that will be accessed have been disposed when asyncExec() is used (so I added that flag)\n",
+    "Created an attachment (id\u003d68604)\nalternate patch\n\nHere is yet another patch alternative. ;)",
+    "thanks for the alternate patch, Gunnar - for this case, I don\u0027t that the additional null check in modelChanged is needed.\n\nWhat I\u0027d actually like to do is just move the element change listener registration to the end of createContents() (for both JARDependencyPropertiesPage and WebLibDependencyPropertiesPage) so that no events can be recieved until tableManger (and the other UI components have been created).\n\nI\u0027ll put up a new patch in a moment. ",
+    "Created an attachment (id\u003d68611)\nPatch that moves element change listener registration\n\n",
+    "an RC1 respin is not needed for this",
+    "Just out of curiosity, why is handleClasspathChange done later? as a deferred runable? \n\n\nAs for \" ... The display is only disposed if the workbench is closed. ... \" \nI think that\u0027s the reason they spec that you should normally always check inside the runnable (the point I was trying to make). It may not be the reason for this particular bug, and may be rare in this case, but it is usually recommend ... but, I see perhaps if you are not doing anything UI related in the runnable then it may not be required in that case and you are just using the Display as a work queue. (which ... is what lead me to wonder why that\u0027s done that way at all). Perhaps just ancient history. \n\n[But, guess I should tell you it\u0027s a long standing pet peeve of mine to see developers use deffered runnables as quick and easy work arounds for other, usually thread related, problems so they always catch my attention :)  ]\n\n\n\n\n\n",
+    "(In reply to comment #18)\n\u003e Just out of curiosity, why is handleClasspathChange done later? as a deferred\n\u003e runable? \n\nIt needs to be done via either Display.asyncExec() or Display.syncExec() since the refresh() call is updating UI widgets but the event is not delivered on the UI thread (the cause of the issues with your patch).\n\nAlthough this certainly could be done via syncExec() the same concerns with disposed Widgets apply to that (they are called out in the Javadocs for both methods) and, since this call is being triggered from a JDT ElementChangeEvent and immediate updating is not required, async processing seemed like a better design.\n\n\u003e \n\u003e \n\u003e As for \" ... The display is only disposed if the workbench is closed. ... \" \n\u003e I think that\u0027s the reason they spec that you should normally always check\n\u003e inside the runnable (the point I was trying to make). It may not be the reason\n\u003e for this particular bug, and may be rare in this case, but it is usually\n\u003e recommend ... but, I see perhaps if you are not doing anything UI related in\n\u003e the runnable then it may not be required in that case and you are just using\n\u003e the Display as a work queue. (which ... is what lead me to wonder why that\u0027s\n\u003e done that way at all). Perhaps just ancient history. \n\nThe runnable is definitely doing UI related things but my assumption was that the logic which catches the dispose() call on the DialogPage is sufficient to cover the workbench closed case (disposed widgets are the issue called out in the Javadocs for syncExec()/asyncExec()).\n\n\u003e [But, guess I should tell you it\u0027s a long standing pet peeve of mine to see\n\u003e developers use deffered runnables as quick and easy work arounds for other,\n\u003e usually thread related, problems so they always catch my attention :)  ]\n\u003e \n\nThe runnable is needed in this case due to the source of the events\n",
+    "changes released"
+  ],
+  "commentCreationDates": [
+    "2007-05-22T08:07:43+02:00",
+    "2007-05-22T14:17:10+02:00",
+    "2007-05-22T14:25:50+02:00",
+    "2007-05-22T18:13:47+02:00",
+    "2007-05-24T03:52:59+02:00",
+    "2007-05-24T03:58:55+02:00",
+    "2007-05-24T07:56:12+02:00",
+    "2007-05-24T07:57:50+02:00",
+    "2007-05-24T15:20:58+02:00",
+    "2007-05-24T15:48:13+02:00",
+    "2007-05-24T17:00:42+02:00",
+    "2007-05-24T17:45:15+02:00",
+    "2007-05-24T17:51:27+02:00",
+    "2007-05-24T17:55:36+02:00",
+    "2007-05-24T17:57:44+02:00",
+    "2007-05-24T18:19:53+02:00",
+    "2007-05-24T18:35:44+02:00",
+    "2007-05-25T00:54:27+02:00",
+    "2007-05-25T01:21:13+02:00",
+    "2007-05-25T03:21:14+02:00",
+    "2007-05-30T15:35:55+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.j2ee.internal.JARDependencyPropertiesPage.refresh",
+          "source": "JARDependencyPropertiesPage.java:502"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.JARDependencyPropertiesPage.handleClasspathChange",
+          "source": "JARDependencyPropertiesPage.java:223"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.JARDependencyPropertiesPage$1.run",
+          "source": "JARDependencyPropertiesPage.java:212"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "188221",
+      "date": "2007-05-22T08:07:43+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "188221",
+  "bugId": "188221",
+  "date": "2007-05-22T08:07:43+02:00",
+  "product": "Web Tools",
+  "component": "jst.j2ee",
+  "severity": "normal"
+}

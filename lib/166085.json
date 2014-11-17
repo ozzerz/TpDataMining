@@ -1,0 +1,97 @@
+{
+  "comments": [
+    "Have seen a problem when EMF is under load in a app server environment.\nSee the following stack trace (cut down):\njava.util.ConcurrentModificationException: concurrent access to HashMap\nattempted by Thread[Thread-5,5,main]\n        at java.util.HashMap.onEntry(HashMap.java:211)\n        at java.util.HashMap.transfer(HashMap.java:554)\n        at java.util.HashMap.resize(HashMap.java(Inlined Compiled Code))\n        at java.util.HashMap.addEntry(HashMap.java(Compiled Code))\n        at java.util.HashMap.put(HashMap.java(Compiled Code))\n        at\norg.eclipse.emf.ecore.util.BasicExtendedMetaData$EPackageExtendedMetaDataImpl.getType(BasicExtendedMetaData.java:2064)\n        at\norg.eclipse.emf.ecore.util.BasicExtendedMetaData.getType(BasicExtendedMetaData.java:115)\n        at\norg.eclipse.emf.ecore.util.BasicExtendedMetaData.getDocumentRoot(BasicExtendedMetaData.java:137)\n        at\norg.eclipse.emf.ecore.util.FeatureMapUtil$BasicValidator.\u003cinit\u003e(FeatureMapUtil.java:1392)\n        at\norg.eclipse.emf.ecore.util.FeatureMapUtil.getValidator(FeatureMapUtil.java:1529)\n        at\norg.eclipse.emf.ecore.util.BasicFeatureMap.\u003cinit\u003e(BasicFeatureMap.java:48)\n        at\norg.eclipse.emf.ecore.impl.EStructuralFeatureImpl$InternalSettingDelegateMany.createDynamicSetting(EStructuralFeatureImpl.java:1603)\n        at\norg.apache.tuscany.sdo.impl.AttributeImpl$InternalSettingDelegateSequence.createDynamicSetting(AttributeImpl.java:157)\n        at\norg.eclipse.emf.ecore.impl.EStructuralFeatureImpl$InternalSettingDelegateMany.dynamicGet(EStructuralFeatureImpl.java:1628)\n        at\norg.eclipse.emf.ecore.impl.BasicEObjectImpl.eGet(BasicEObjectImpl.java:599)\n\nThis stack trace was actually taken from the R221 RC5 stream, but looking at the code in R221 the problem still seems to exist (and is easy to fix)\n\nChange:\npublic EClassifier getType(String name)\n    {\n      if (nameToClassifierMap \u003d\u003d null)\n      {\n        nameToClassifierMap \u003d new HashMap();\n      }\n      \n      // For demand created created packages we allow the list of classifiers to grow \n      // so this should handle those additional instances.\n      //\n      List eClassifiers \u003d ePackage.getEClassifiers();\n      for (int i \u003d nameToClassifierMap.size(), size \u003d eClassifiers.size(); i \u003c size; ++i)\n      {\n        EClassifier eClassifier \u003d (EClassifier)eClassifiers.get(i);\n        String eClassifierName \u003d getName(eClassifier);\n        Object conflictingEClassifier \u003d nameToClassifierMap.put(eClassifierName, eClassifier);\n        if (conflictingEClassifier !\u003d null \u0026\u0026 conflictingEClassifier !\u003d eClassifier)\n        {\n          nameToClassifierMap.put(eClassifierName, conflictingEClassifier);\n        }\n        else if (name.equals(eClassifierName))\n        {\n          return eClassifier;\n        }\n      }\n      \n      if (nameToClassifierMap.size() !\u003d eClassifiers.size())\n      {\n        for (int i \u003d 0, size \u003d eClassifiers.size(); i \u003c size; ++i)\n        {\n          EClassifier eClassifier \u003d (EClassifier)eClassifiers.get(i);\n          String eClassifierName \u003d getName(eClassifier);\n          Object conflictingEClassifier \u003d nameToClassifierMap.put(eClassifierName, eClassifier);\n          if (conflictingEClassifier !\u003d null \u0026\u0026 conflictingEClassifier !\u003d eClassifier)\n          {\n            nameToClassifierMap.put(eClassifierName, conflictingEClassifier);\n          }\n        }\n      }\n\n      return (EClassifier)nameToClassifierMap.get(name);\n    }\n\nTo:\n\npublic EClassifier getType(String name)\n    {\n      if (nameToClassifierMap \u003d\u003d null)\n      {\n        nameToClassifierMap \u003d new HashMap();\n      }\n      \n      // For demand created created packages we allow the list of classifiers to grow \n      // so this should handle those additional instances.\n      //\n      List eClassifiers \u003d ePackage.getEClassifiers();\n      for (int i \u003d nameToClassifierMap.size(), size \u003d eClassifiers.size(); i \u003c size; ++i)\n      {\n        EClassifier eClassifier \u003d (EClassifier)eClassifiers.get(i);\n        String eClassifierName \u003d getName(eClassifier);\n\n        Object conflictingEClassifier \u003d null;\n        synchronized (nameToClassifierMap) {   // DM BUG 687 : synchronise access to nameToMapClassifier updates\n        \tconflictingEClassifier \u003d nameToClassifierMap.put(eClassifierName, eClassifier);\n\t\t}\n         \n        if (conflictingEClassifier !\u003d null \u0026\u0026 conflictingEClassifier !\u003d eClassifier)\n        {\n          synchronized (nameToClassifierMap) {  // DM BUG 687 : synchronise access to nameToMapClassifier updates\n        \t  nameToClassifierMap.put(eClassifierName, conflictingEClassifier);\n          }\n        }\n        else if (name.equals(eClassifierName))\n        {\n          return eClassifier;\n        }\n      }\n      \n      if (nameToClassifierMap.size() !\u003d eClassifiers.size())\n      {\n        for (int i \u003d 0, size \u003d eClassifiers.size(); i \u003c size; ++i)\n        {\n          EClassifier eClassifier \u003d (EClassifier)eClassifiers.get(i);\n          String eClassifierName \u003d getName(eClassifier);\n          Object conflictingEClassifier \u003d null;\n          synchronized (nameToClassifierMap) {   // DM BUG 687 : synchronise access to nameToMapClassifier updates\n        \t  conflictingEClassifier \u003d nameToClassifierMap.put(eClassifierName, eClassifier);\n\t\t}\n          if (conflictingEClassifier !\u003d null \u0026\u0026 conflictingEClassifier !\u003d eClassifier)\n          {\n        \t  synchronized (nameToClassifierMap) {   // DM BUG 687 : synchronise access to nameToMapClassifier updates\n               nameToClassifierMap.put(eClassifierName, conflictingEClassifier);\n        \t  }\n          }\n        }\n      }\n\n      return (EClassifier)nameToClassifierMap.get(name);\n    }",
+    "Dan,\n\nI\u0027d still be concerned that the get at the end might be acting on a map that\u0027s being modified  Perhaps the approach below is safer in that the map being used across multiple threads will never be modified but will instead be replaced by a new one.  This approach requires no synchronization, and although there might be races, it won\u0027t matter who wins.  (I\u0027ve changed the first loop slightly so that it doesn\u0027t terminate after match, thereby ensuring that a complete map is populated the first time.)  Could you please verify that this also fixes the problem?  If this does the trick we would commit it today in time for tomorrow\u0027s 2.2.2 build.\n\n    public EClassifier getType(String name)\n    {\n      EClassifier result \u003d null;\n      if (nameToClassifierMap !\u003d null)\n      {\n        result \u003d (EClassifier)nameToClassifierMap.get(name);\n      }\n      if (result \u003d\u003d null)\n      {\n        Map nameToClassifierMap \u003d new HashMap();\n        if (this.nameToClassifierMap !\u003d null)\n        {\n          nameToClassifierMap.putAll(this.nameToClassifierMap);\n        }\n        \n        // For demand created created packages we allow the list of classifiers to grow \n        // so this should handle those additional instances.\n        //\n        List eClassifiers \u003d ePackage.getEClassifiers();\n        for (int i \u003d nameToClassifierMap.size(), size \u003d eClassifiers.size(); i \u003c size; ++i)\n        {\n          EClassifier eClassifier \u003d (EClassifier)eClassifiers.get(i);\n          String eClassifierName \u003d getName(eClassifier);\n          Object conflictingEClassifier \u003d nameToClassifierMap.put(eClassifierName, eClassifier);\n          if (conflictingEClassifier !\u003d null \u0026\u0026 conflictingEClassifier !\u003d eClassifier)\n          {\n            nameToClassifierMap.put(eClassifierName, conflictingEClassifier);\n          }\n        }\n        \n        if (nameToClassifierMap.size() !\u003d eClassifiers.size())\n        {\n          for (int i \u003d 0, size \u003d eClassifiers.size(); i \u003c size; ++i)\n          {\n            EClassifier eClassifier \u003d (EClassifier)eClassifiers.get(i);\n            String eClassifierName \u003d getName(eClassifier);\n            Object conflictingEClassifier \u003d nameToClassifierMap.put(eClassifierName, eClassifier);\n            if (conflictingEClassifier !\u003d null \u0026\u0026 conflictingEClassifier !\u003d eClassifier)\n            {\n              nameToClassifierMap.put(eClassifierName, conflictingEClassifier);\n            }\n          }\n        }\n        result \u003d (EClassifier)nameToClassifierMap.get(name);\n        this.nameToClassifierMap \u003d nameToClassifierMap;\n      }\n\n      return result;\n    }\n",
+    "Hi, I\u0027ll try to get this tested asap, but I\u0027m out of the office next week and I don\u0027t think we will get a chance to test it before the end of this week. I\u0027ll have a chat to the chap who found the bug and try our best to test asap (never know we might get a chance before Friday)\n\nI agree, my \"fix\" was really just to stop the actual exception, your\u0027s does look like a better solution.\n\nCheers,\nDan",
+    "The fix has been committed to both the 2.2.2 and HEAD streams.",
+    "Fixed in M200612140300."
+  ],
+  "commentCreationDates": [
+    "2006-11-28T17:23:50+01:00",
+    "2006-11-29T11:57:43+01:00",
+    "2006-11-30T14:47:40+01:00",
+    "2006-12-09T18:45:40+01:00",
+    "2006-12-14T22:20:28+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.util.ConcurrentModificationException",
+      "message": "concurrent access to HashMap attempted by Thread[Thread-5,5,main]",
+      "elements": [
+        {
+          "method": "java.util.HashMap.onEntry",
+          "source": "HashMap.java:211"
+        },
+        {
+          "method": "java.util.HashMap.transfer",
+          "source": "HashMap.java:554"
+        },
+        {
+          "method": "java.util.HashMap.resize",
+          "source": "HashMap.java(Inlined Compiled Code)"
+        },
+        {
+          "method": "java.util.HashMap.addEntry",
+          "source": "HashMap.java(Compiled Code)"
+        },
+        {
+          "method": "java.util.HashMap.put",
+          "source": "HashMap.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.util.BasicExtendedMetaData$EPackageExtendedMetaDataImpl.getType",
+          "source": "BasicExtendedMetaData.java:2064"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.util.BasicExtendedMetaData.getType",
+          "source": "BasicExtendedMetaData.java:115"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.util.BasicExtendedMetaData.getDocumentRoot",
+          "source": "BasicExtendedMetaData.java:137"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.util.FeatureMapUtil$BasicValidator.\u003cinit\u003e",
+          "source": "FeatureMapUtil.java:1392"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.util.FeatureMapUtil.getValidator",
+          "source": "FeatureMapUtil.java:1529"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.util.BasicFeatureMap.\u003cinit\u003e",
+          "source": "BasicFeatureMap.java:48"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.EStructuralFeatureImpl$InternalSettingDelegateMany.createDynamicSetting",
+          "source": "EStructuralFeatureImpl.java:1603"
+        },
+        {
+          "method": "org.apache.tuscany.sdo.impl.AttributeImpl$InternalSettingDelegateSequence.createDynamicSetting",
+          "source": "AttributeImpl.java:157"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.EStructuralFeatureImpl$InternalSettingDelegateMany.dynamicGet",
+          "source": "EStructuralFeatureImpl.java:1628"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eGet",
+          "source": "BasicEObjectImpl.java:599"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "166085",
+      "date": "2006-11-28T17:23:50+01:00",
+      "product": "EMF",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "166085",
+  "bugId": "166085",
+  "date": "2006-11-28T17:23:50+01:00",
+  "product": "EMF",
+  "component": "Core",
+  "severity": "normal"
+}

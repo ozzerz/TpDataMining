@@ -1,0 +1,75 @@
+{
+  "comments": [
+    "Using the latest code from HEAD, most of the agents that we run fail to populate\nthe statistical models. For example, the Perfmon agent fails to populate the\nstatistical model at all. It would appear that the data is coming back from the\nRAC. \n\nDebugging XMLTraceDataProcessor with a printout of the incoming agent data stream:\n\npublic void incommingData(byte[] buffer, int offset, int length,\n\t\t\tjava.net.InetAddress peer) {\n\n        System.err.println(\"--\"+new String(buffer,offset,length));\n\non approximately line 383 showed descriptor framgments being returned correctly,\nbut the models remained empty.\n\nThis issue *appears* to occur when multiple fragments are returned in a single\nbuffer. \n\nWe\u0027ve noticed this for a number of agents, for both the Crimson and Xerces parsers.",
+    "I wasn\u0027t able to reproduce this problem with a perfmon windows agent.  Here is\nmy environment details:\n\n- java sun 1.4.2_08 (crimson parser)\n- the latest build from cvs\n- windows xp\n\nMarius will further investigate the problem.",
+    "Fix in CVS.",
+    "Please verify if it works on your enviroment, I\u0027ve tested on single and\nhyper-theraded CPUs",
+    "The problem is still there. There seems to be some serious buffer flushing\nissues going on. I have tried switching the socket timeout fix on and off, and\nthe behaviour is still the same. Data is returned by the agent, but is not\nplaced into the model. Here is my exact usecase:\n\n1) Start a windows perfmon agent - the agent sends back the root descriptors,\nthey are received into the XMLDataProcessor int he incommingData method\ncorrectly. There are multiple fragments in a single packet.\n\n2) The data is never placed into the model. The views show no data under the\nagent. Even with the 1 second socket timeout, nothing happens.\n\n3) I pause monitoring on the agent, and then resume. The agent resends back the\nroot descriptors and they are received identically as before in the\nXMLDataProcessor.\n\n4) The views get populated with the information of the original agent tree. The\nagent resending its data has forced the buffers to get flushed.\n\n5) I request the children of a counter. Again, the XMLDataProcessor receives the\ndata but the views display nothing. If I terminate the agent the view updates to\nshow the children before clearing due to the agent being inactive. This would\nsuggest that the buffers are getting flushed when the data server terminates.\n\nCould this be an issue with the current buffer index or something like that?\nMaybe the thread processing data from the buffer cannot correctly tell whether\nthe buffer is empty or not?\n\nHere is my test system\nWindows 2000\nEclipse RC1\nLatest TPTP client code from head\nRAC from the 8th, although the data is received in the data server so this\nshould not be an issue.\n\nAlso, if written correctly, I can\u0027t see a reason to be timing out on the\nincomming socket just to flush a buffer. Call me a purist, but a second wait for\nno good reason does not seem ideal in such a core TPTP component.",
+    "At this stage, change should be being peer reviewed before being checked in.\nWaiting longer is not the way to fix time outs. I would like Hendra to review \nthe proposed changes and surrounding code.",
+    "After some further testing it would appear that this code does work with the\nXerces parser but does not work with the Crimson parser.\n\nIt seems we have returned to the old bug of the Crimson parser\u0027s buffering\ncausing fragments not to be loaded unless they are pushed out of the buffer by\nother fragments.\n\nThe statistical agents cannot send back a constant stream of fragments so the\ninitial fragments they send back are left indefinitely in the Crimson parser\u0027s\nbuffer.\n\nMarius - this rewrite was supposed to include a fix for this bug (originally\nmentioned in bug 85431).  What do you do to deal with this Crimson parser\nbuffering problem in the new code?\n\n",
+    "*** Bug 99192 has been marked as a duplicate of this bug. ***",
+    "When attempting to reproduce this problem the following misleading behaviour\nmust be taken into account.\n\nWhen running the perfmon agent, depending on how many Windows Perfmon counters\nthe monitored machine has, the agent may appear to get a populated statistical\nmodel or not.\n\nIn the case of the Xerces parser the agent seems to work fine and the entire\ntree is returned.  \n\nIn the case of the Crimson parser a partial tree may be returned, but counters\nwill almost always be left off the bottom of the tree.\n\nWhat is probably happening here is that when the agent returns the entire tree,\nif the tree is large enough, the crimson parser processes a chunk of the buffer\n(so the first chunk of the tree turns up OK),  but the remaining counters will\nstay indefinitely in the crimson buffer.\n\n",
+    "I\u0027m looking into this problem now.\n\nWhen I expand nodes, the tree is expanded and refreshed, do you see the same\nbehavior (try also to refresh manualy the view) ?\n",
+    "Do you have a bug opened for the other problem ? when the monitoring is started\nimmediately after the agent is attached we don\u0027t get any data from the Agent\ncontroller when we monitor a PerfmonAgent.\n\nTo see the data flow you can use the following debug flags:\norg.eclipse.hyades.execution/debug/messageValue \u003d true\norg.eclipse.tptp.platform.models/debug/eventsFlow \u003d true\n\nThe first one will log the data received from the agent controller into two\nfiles in the root folder of drive where you started the runtime workbench.\n\n",
+    "Yes, this is a known issue, and probably a misuse of the remote ac apis. We\u0027re\ntrying to find an acceptable fix to that problem now.",
+    "Created an attachment (id\u003d22876)\nNew Fragment Handler\n\nAttached is a new fragment handler that handles incoming XML fragments\ndifferently than the existing handler.\tIt reacts to incoming fragments in\n?real-time? as opposed to waiting for the parser to invoke its respective\nmethods.  It?s not constraint by time and it doesn?t need to force a buffer\nflush.\tI have tested it a number of times with a crimson parser (using a win\nperfmon agent) but I still need to test it using a xerces parser (it should\nalso handle the xerces parser).  It?s perhaps not safe to check this into\n4.0i4, but we should save it for 4.1.\n\nI will speak to Marius about the implications that this may have and whether it\nmakes any wrong assumptions.  For those who are interested in giving it a shot,\nfollow the instructions below:\n\t1) Check-out org.eclipse.tptp.platform.models from CVS\n\t2) Place the attached file in \n\t   src-hierarchy/org.eclipse.hyades.models.hierarchy.util.internal\n\t3) Change the ?scanner \u003d new CrimsonFragmentHandler();? under \n\t   org.eclipse.hyades.loaders.util. XMLLoader. makeScanner() to\n?scanner \n\t   \u003d new RealTimeFragmentHandler();?\n",
+    "I checked in another fix, this seems to work in all cases, I\u0027ll test it today on\nhyper-threaded CPU when I\u0027ll get in the office.\n\nAntony please let me know if you still have problems. I also disabled the\ntimeout on the socket.\n\nSeems that now we will have another problem (this time is the Crimson parser\nitself) when large documents are parsed, see this document for more details\n(although you may not be affected):\n\nhttp://www.macromedia.com/cfusion/knowledgebase/index.cfm?id\u003dtn_19125\n\nAli, I tried your class and it doesn\u0027t work with my simple testcase (search\nCrimsonFragmentHandler in SimpleFragmentHandler), also we should avoid using\nCrimson specific classes.",
+    "Marius, your fix seems to work well for me. I\u0027ve just done a smoke test and it\nseems to get all the counters correctly. We will be running extended tests over\nthe next few days to verify this.\n\nI do get this console output though, which I suspect is debug info?\n\nEnd of entity not allowed; an end tag is missing.\nat line: 40\nat column: -1\n\nThread[xmlParserThread,6,main] - org.xml.sax.SAXParseException: End of entity\nnot allowed; an end tag is missing.\n\tat\norg.eclipse.hyades.models.hierarchy.util.internal.CrimsonFragmentHandler.log(CrimsonFragmentHandler.java:737)\n\tat\norg.eclipse.hyades.models.hierarchy.util.internal.CrimsonFragmentHandler.parse(CrimsonFragmentHandler.java:399)\n\tat\norg.eclipse.hyades.models.hierarchy.util.internal.CrimsonFragmentHandler$1.run(CrimsonFragmentHandler.java:92)\n",
+    "I removed that debug info.\n\nI tested on my hyper-threading machine and seems to work fine, although the\nAgent Control and Statistical Graph view refresh is extremely slow (even when\nmonitoring just a few observations).\n\nI marked this defect as fixed, please reopen if you find any problem.",
+    "Created an attachment (id\u003d22945)\nUpdated RealTimeFragmentHandler\n\nThis is a new version of the fragment handler.\tThis handler doesn\u0027t do any\nbuffering and it is thus slower than the existing handler.\nI\u0027m just attaching it to this bug in case it becomes useful in the future. \nWith buffering, the performance of this handler can significantly be improved. \nI will proceed to improve it, if we adopt this class.\n",
+    "Ali, initially (a few years ago) when I implemented the SAXFragmentHandler using\nJAXP, I tried something similar with what you propose, to parse each fragment\nindependently then I realized that the performance is really bad and that\u0027s why\nI developed the specialized input stream that allows me to use one parser\ninstance to parse a continuous stream of data with much improved performance."
+  ],
+  "commentCreationDates": [
+    "2005-06-09T17:36:25+02:00",
+    "2005-06-09T20:27:14+02:00",
+    "2005-06-10T05:21:28+02:00",
+    "2005-06-10T05:25:34+02:00",
+    "2005-06-10T13:08:07+02:00",
+    "2005-06-10T13:45:35+02:00",
+    "2005-06-10T14:30:41+02:00",
+    "2005-06-10T17:24:37+02:00",
+    "2005-06-10T18:31:20+02:00",
+    "2005-06-10T18:55:05+02:00",
+    "2005-06-10T19:04:02+02:00",
+    "2005-06-10T19:05:52+02:00",
+    "2005-06-13T02:38:02+02:00",
+    "2005-06-13T08:52:49+02:00",
+    "2005-06-13T11:23:35+02:00",
+    "2005-06-13T17:36:28+02:00",
+    "2005-06-13T19:12:58+02:00",
+    "2005-06-13T20:54:10+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.xml.sax.SAXParseException",
+      "message": "End of entity not allowed; an end tag is missing.",
+      "elements": [
+        {
+          "method": "org.eclipse.hyades.models.hierarchy.util.internal.CrimsonFragmentHandler.log",
+          "source": "CrimsonFragmentHandler.java:737"
+        },
+        {
+          "method": "org.eclipse.hyades.models.hierarchy.util.internal.CrimsonFragmentHandler.parse",
+          "source": "CrimsonFragmentHandler.java:399"
+        },
+        {
+          "method": "org.eclipse.hyades.models.hierarchy.util.internal.CrimsonFragmentHandler$1.run",
+          "source": "CrimsonFragmentHandler.java:92"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 14,
+      "bugId": "99173",
+      "date": "2005-06-13T11:23:35+02:00",
+      "product": "TPTP Profiling",
+      "component": "Platform.Model",
+      "severity": "blocker"
+    }
+  ],
+  "groupId": "99173",
+  "bugId": "99173",
+  "date": "2005-06-09T17:36:25+02:00",
+  "product": "TPTP Profiling",
+  "component": "Platform.Model",
+  "severity": "blocker"
+}

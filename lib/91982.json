@@ -1,0 +1,207 @@
+{
+  "comments": [
+    "I20050419-1200\n\nI got this exception in my log today:\n\norg.eclipse.ui.PartInitException: Warning: Detected recursive attempt by part\norg.eclipse.jdt.ui.JavadocView to create itself (this is probably, but not\nnecessarily, a bug)\nat\norg.eclipse.ui.internal.WorkbenchPartReference.getPart(WorkbenchPartReference.java:483)\nat org.eclipse.ui.internal.ViewReference.getView(ViewReference.java:154)\nat org.eclipse.ui.internal.WorkbenchPage.getViewStack(WorkbenchPage.java:3745)\nat org.eclipse.ui.internal.console.ConsoleManager$1.run(ConsoleManager.java:289)\nat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:118)\nat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2755)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2475)\nat org.eclipse.jface.window.Window.runEventLoop(Window.java:803)\nat org.eclipse.jface.window.Window.open(Window.java:781)\nat\norg.eclipse.jface.dialogs.MessageDialogWithToggle.openError(MessageDialogWithToggle.java:106)\nat\norg.eclipse.jdt.internal.ui.infoviews.JavadocView.internalCreatePartControl(JavadocView.java:268)\nat\norg.eclipse.jdt.internal.ui.infoviews.AbstractInfoView.createPartControl(AbstractInfoView.java:163)\nat org.eclipse.ui.internal.ViewReference.createPartHelper(ViewReference.java:305)\nat org.eclipse.ui.internal.ViewReference.createPart(ViewReference.java:182)\nat\norg.eclipse.ui.internal.WorkbenchPartReference.getPart(WorkbenchPartReference.java:492)\nat org.eclipse.ui.internal.ViewReference.getView(ViewReference.java:154)\nat org.eclipse.ui.internal.WorkbenchPage.getViewStack(WorkbenchPage.java:3745)\nat org.eclipse.ui.internal.console.ConsoleManager$1.run(ConsoleManager.java:289)\nat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:118)\nat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2755)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2475)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1570)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1534)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:306)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\nat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:103)\nat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:228)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:344)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:156)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\nat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\nat java.lang.reflect.Method.invoke(Method.java:324)\nat org.eclipse.core.launcher.Main.invokeFramework(Main.java:319)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:272)\nat org.eclipse.core.launcher.Main.run(Main.java:951)\nat org.eclipse.core.launcher.Main.main(Main.java:935)",
+    "The following call is made:\n\nMessageDialogWithToggle dialog\u003d\nMessageDialogWithToggle.openError(parent.getShell(), title, message,\ntoggleMessage, false, null, null); //$NON-NLS-1$\n\nNot sure why the ConsoleManager comes into play here. Moving to Platform UI for\ncomment.",
+    "Weird...",
+    "Here\u0027s what happened:\n\n1. The JavadocView was in the same stack as the console view\n2. JavadocView opened a modal error dialog inside its internalCreatePartControl\nmethod.\n3. While the error dialog was open, some background thread called\nConsoleManager.showConsoleView, which posted an asyncExec to the UI thread.\n4. Since the modal dialog was spinning an event loop, it picked up the asyncExec\nand ran it.\n5. The console\u0027s asyncExec asked the workbench for a list of all views in the\nsame stack as the console view. Since it\u0027s asking for concrete views, the\nworkbench needs to construct all the views in the stack.\n6. One such view is the JavaDoc view, but it\u0027s still in the process of being\nconstructed, so the workbench can\u0027t return it from getViewStack. It logs the\nexception to record the fact that getViewStack didn\u0027t return the expected result.\n\n\nThere\u0027s several problematic patterns here:\n\nPROBLEM 1: JavaDoc view\n\nIn 2, the JavaDoc view should not be spinning an event loop while its controls\nare being created. No good can come of this. Possible alternatives:\n\n- If the view is still functional with an HTMLTextPresenter, just fall back to\nthat widget without the warning dialog.\n\n- If the user really needs a warning, use nonmodal means (for example, rather\nthan displaying the nobrowser warning in a modal dialog, display it in a control\nthat covers the view. When the user clicks OK, dispose the warning message and\nshow the regular view contents. This would fix the bug and avoid annoying the\nuser with another modal dialog).\n\n- If the view simply won\u0027t work without the browser widget, don\u0027t bother\ncatching the SWTError and just let the workbench substitute the error part.\n\n\nPROBLEM 2: ConsoleManager\n\n- It is generally not polite to force views in front from a background thread.\n\n- page.getViewStack is a very expensive way to determine if another console view\nis visible, since it activates everything in the stack. The intention of the\nmethod seems to be to locate a console view and to prefer a console that is\nalready visible. ConsoleManager could determine this directly from the\nviewReferences array without any extra activation. It\u0027s possible to test if a\nviewReference is a visible console view like this:\n\nIViewPart part \u003d viewRef.getPart(false)\n\nif (part !\u003d null \u0026\u0026 page.isVisible(part) \u0026\u0026 part instanceof IConsoleView) {\n  // ...then viewRef is a currently-visible console view\n}\n\nI notice that the algorithm just picks the first console view it finds in the\narray, so it shouldn\u0027t matter that two console views are in the same stack as\nlong as it prefers a visible one.\n\n\nPROBLEM 3: WorkbenchPage.getViewStack()\n\nThis method is too eager to activate views. Not every tab has a real IViewPart,\nso this can\u0027t actually return the full set of tabs in the stack. To do so, it\nwould need to return an array of IWorkbenchPartReference. The best it can do is\nreturn the tabs that already have IViewParts, but this shouldn\u0027t require\ncreating new parts.\n\n\nConclusion:\n\nIn this case, everything worked correctly. The workbench detected that there\nwere some dangerous patterns happening and logged the warning, but besides some\nredundant part activation, everything worked as intended.\n",
+    "Problem 1 is related to bug 87645.  Maybe your comments could be added there as\nwell.",
+    "I\u0027ve filed bug 92171 for issue 3.\n\nMoving to JDT UI for issue 1.",
+    "Neither the Javadoc view nor the dialog we create spins any event loop - at\nleast not actively in our code. This is done by Platform UI (or SWT) code and\nhence a general problem that can happen with any dialog that needs to be shown\nto the user while the view gets created.",
+    "Punting back to Stefan for the next volly.  :)",
+    "\"This is done by Platform UI (or SWT) code and hence a general problem that can\nhappen with any dialog that needs to be shown\nto the user while the view gets created.\"\n\nYes, every modal dialog spins an event loop... and yes, this is a general\nproblem with any view that tries to open a modal dialog while it\u0027s being\ncreated. That\u0027s why views shouldn\u0027t open modal dialogs while they\u0027re being\ncreated. It doesn\u0027t matter if you\u0027re running the event loop yourself or using\ncalling someone else\u0027s code that runs the event loop. It\u0027s the use of a modal\nevent loop inside part creation code that\u0027s bad. No part should ever do this,\nfor any reason (besides, perhaps, a critical failure that is about to terminate\nthe app).\n\nImagine if every view in the java perspective opened a dialog on creation: you\u0027d\nneed to click \"ok\" six times every time you opened Eclipse.\n\nBesides being bad UI design, it interferes with all sorts of workbench APIs. Let\nme give you an example: someone calls hideView to hide the console view. The\nconsole gets hidden, revealing the JavaDoc view which opens its modal dialog.\nWhile the dialog is open, the debugger writes some output to the console,\nauto-opening the console again. Is your view prepared to handle being hidden (or\ndisposed) inside its createPartControls method? Even if it is, it\u0027s likely that\nthe code that just tried to hide the console view is going to be confused by the\nfact that the console is still open when hideView returns.\n",
+    "The Javadoc view problem is bug 87645 and is acknowledged, otherwise I would\nhave closed it already.\n\nThe other problem is dialogs spinning the event loop: it\u0027s not just upon\nopening. There are other scenarios where dialogs appear, e.g. when an editor is\ndirty and you click the [x] to close it. Or another example is bug 91431.\n\nSo, if you think this is nothing that can be improved then simply close this bug\nas wontfix or worksforme.",
+    "I\u0027m not saying \"never open a modal dialog\". I\u0027m saying \"never open a modal\ndialog inside any public method of IWorkbenchPart, IEditorPart, or IViewPart\".\nBasically, as long as you\u0027re certain there\u0027s no other client code beteween you\nand the event loop, opening a modal dialog is fine. If there is any chance of\nthere being other client code below you, it\u0027s a really bad idea.\n\nIt\u0027s safe to open a dialog from:\n- An SWT event listener\n- A *syncExec (although this will amost always be unexpected and annoying)\n- Any method whose javadoc says that it might open modal dialogs\n\nYou should not open a modal dialog from:\n- Any inherited method of any class or interface that doesn\u0027t explicitly state\nthat it may open a modal dialog, or where opening dialogs isn\u0027t an obvious part\nof the function of the method.\n\nOpening a modal dialog is like returning NULL from a method. Callers of your\nmethod need to know that it might happen and be prepared to deal with it.\n",
+    "asdf"
+  ],
+  "commentCreationDates": [
+    "2005-04-19T22:12:02+02:00",
+    "2005-04-20T11:10:19+02:00",
+    "2005-04-20T14:16:15+02:00",
+    "2005-04-21T02:17:50+02:00",
+    "2005-04-21T02:20:56+02:00",
+    "2005-04-21T02:45:12+02:00",
+    "2005-04-21T08:08:16+02:00",
+    "2005-04-21T14:41:25+02:00",
+    "2005-04-22T04:35:46+02:00",
+    "2005-04-22T08:42:55+02:00",
+    "2005-04-23T01:32:12+02:00",
+    "2005-04-23T01:40:11+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.ui.PartInitException",
+      "message": "Warning: Detected recursive attempt by part org.eclipse.jdt.ui.JavadocView to create itself (this is probably, but not necessarily, a bug)",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.getPart",
+          "source": "WorkbenchPartReference.java:483"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.getView",
+          "source": "ViewReference.java:154"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.getViewStack",
+          "source": "WorkbenchPage.java:3745"
+        },
+        {
+          "method": "org.eclipse.ui.internal.console.ConsoleManager$1.run",
+          "source": "ConsoleManager.java:289"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:118"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2755"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2475"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:803"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:781"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.MessageDialogWithToggle.openError",
+          "source": "MessageDialogWithToggle.java:106"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.infoviews.JavadocView.internalCreatePartControl",
+          "source": "JavadocView.java:268"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.infoviews.AbstractInfoView.createPartControl",
+          "source": "AbstractInfoView.java:163"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPartHelper",
+          "source": "ViewReference.java:305"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPart",
+          "source": "ViewReference.java:182"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.getPart",
+          "source": "WorkbenchPartReference.java:492"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.getView",
+          "source": "ViewReference.java:154"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.getViewStack",
+          "source": "WorkbenchPage.java:3745"
+        },
+        {
+          "method": "org.eclipse.ui.internal.console.ConsoleManager$1.run",
+          "source": "ConsoleManager.java:289"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:118"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2755"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2475"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1570"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1534"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:306"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:103"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:228"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:344"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:156"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:319"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:272"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:951"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:935"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "91982",
+      "date": "2005-04-19T22:12:02+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "91982",
+  "bugId": "91982",
+  "date": "2005-04-19T22:12:02+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

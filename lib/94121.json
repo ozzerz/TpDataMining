@@ -1,0 +1,67 @@
+{
+  "comments": [
+    "During long runs we often experience the following exception which causes the\nstream to die (so no more data is sent back to the loaders):\n\njava.lang.ArrayIndexOutOfBoundsException: 10301\n\tat \norg.eclipse.hyades.internal.execution.local.common.TCPDataServer$BufferFlusher.p\nrocessData(TCPDataServer.java:341)\n\tat \norg.eclipse.hyades.internal.execution.local.common.TCPDataServer$BufferFlusher.r\nun(TCPDataServer.java:411)\n\n\nMonitoring large numbers of statistical agent counters (e.g. Perfmon) for an\nextended period of time can reproduce this problem.",
+    "Please investigate the root cause in org.eclipse.hyades.execution plugin. The \nfix should be applied to both plugings org.eclipse.hyades.execution and \norg.eclipse.tptp.platform.execution.\n\n",
+    "The problem here seems to be a boundary case.\n\nIn the processData method if all the calls which pass the array pass a clone\nthen the problem seems to go away:\n\ne.g. \n\n    inside the call\n\n    ...\n    /** Recursively process a buffer of raw data.\n     */\n    protected int processData(byte[] data, int offset, int limit, InetAddress addr)\n    ...\n\n    pass in a cloned array to\n\n    ...\n    return processData((byte[])data.clone(), offset+1, limit, addr);\n    ...\n\n    and\n\n    ...\n    _processor.incommingData((byte[])_binaryForwardBuffer.clone(),\n_bytesWritten, addr);\n    ...\n\n    (in all cases)\n\n\nIt would appear that the problem is occuring as a result of the array being\nmodified inside either a recursive method call or another method call.  I think\nthe problem is occuring because of the modification of the array during\nrecursion (possibly as a result of array reallocation?)",
+    "Mike and I have been looking at this bug further to try and get a solution\nsometime soon. \n\nThe purpose of the processData method in the BufferFlusher is to parse a fixed\nsize buffer byte array for messages (of variable length) and to forward these\nmessages onto the data processor. It is possible for message headers to be\ncontained anywhere within the buffer arrays. We believe that the exception is\ngetting thrown when the message header is contained at the end of the buffer in\nits entirity. \n\nThe length of the _binaryForwardBuffer is set once the entire message header has\nbeen read. This is correct behaviour, as you cannot parse an incomplete header\nto determine its length. The condition\n\n       \t/* Is this a new message? */\n\tif(_currentHeaderOffset\u003cMESSAGE_HEADER_LENGTH) \n\nis true if we have not read the entire message header. In this case we attempt\nto read the header from the byte array buffer, starting from the current index\nposition.\n\n\tcurrent\u003dthis.loadMessageHeader(data, current, limit);\n\nWe then must return if we do not get the entire header\n\n\t/* Did we get the entire header, if not return */\n\tif(current\u003d\u003dlimit) {\n            return current;\n        }\n\n        ..... proceed to set binaryForwardBuffer size now...\n\nThe condition current\u003d\u003dlimit is incorrect, and will be true if the entire header\nhas been read at the end of the buffer. This will result in the\nbinaryForwardBuffer size not being reset correctly. If the new message is of a\nlarger length to the previous then we will exceed the binaryForwardBuffer length\n(as this has not been sent).\n\nWe think the problem is related to this, and that the \"current\u003d\u003dlimit\" condition\nshould be replaced with\n\"_currentHeaderOffset \u003c MESSAGE_HEADER_LENGTH\".",
+    "Another inefficiency we have noted - the byte forward array is always getting\nreallocated for buffers of length \u003e MAX_MESSAGE_LENGTH.\n\nThe condition \nif(getMessageLength() \u003e\u003d _currentBufferSize) \n{\n  // Reallocate in here\n  // Copy array contents in here\n}\n\nseems bizarre. Surely the byte array should only be resized if it is not long\nenough already? ",
+    "George thanks a lot for your help.\nI\u0027m looking into refactoring that code and also I will try to streamline the\nwhole interaction (Agent Controler client -\u003e Workbench), I hope to fix the\nCrimson parser also through this operation.",
+    "Antony if you use Zone Labs please could you confirm that this problem\ndisappears if the firewall is off ?\n\nI\u0027ve added some recovery mechanism althoug as I mention bellow it might fail in\nsome cases.\n\nIf you want to try the old TCPDataServer code set\norg.eclipse.hyades.execution/debug/useOldDataServer \u003d true\n\nDetails about the findings:\n---------------------------\nIn the past few weeks I tried to figure out what could cause the problem\ndescribed in this bug report.\n\nI rewrote the workbench side of agent controller data channel client and also I\nsimplified the whole data flow from socket listener to model loaders to be sure\nthat the problem is not there, but the problem was still happening. \n\nYesterday I finally realized what caused it and this will affect all the\ncomponents that uses the agent controller data channel (also the command channel\ncould be affected). \n\nThe firewall is the culprit (I have this problem with Zone Labs firewall\nalthough it might happen also with other firewalls). \n\nI have Zone Labs Integrity Client 3.5 up all the time and all the other\napplications seems to work fine. \n\nOn my hyper-threading machine I had visible problems only in Eclipse the\ndebugger and also our data communication layer were affected. \n\nI always though that this is a hyper-threading problem because on my other\n(single-threading single-cpu machine) I haven\u0027t seen such problems (I couldn\u0027t\neven reproduce the defect). \nThe problem seems to be amplified on hyper-threading machines where can be\nreproduced in some situations (on long runs, when lots of data is transferred). \n\nYesterday I tried to FTP a large file to my hyper-threading machine and I always\ngot a corrupted one with no errors and this problem made me think about the\nfirewall, then I asked Robert Danek to build an agent controller that will dump\nthe data to a file before it sends it over the wire (this should become a debug\noption on the agent controller) so I could compare what was send with what was\nreceived so I found that some messages were truncated during transfer. \n\nToday I ran several tests with the firewall on and always received truncated\nmessages, then I disabled the firewall and tried again with the old code and my\nnew implementation and both worked fine - the problem disappeared. \n\nIn most situations we cannot recover gracefully so we probably need to add a\nreadme entry about this behavior and also when we debug code which uses the\ncommunication layer make sure we are not affected by this behavior when Zone\nLabs firewall is on. \n",
+    "The machine(s) we have used to reproduce this bug don\u0027t have Zone Labs firewall\nand the main machine we used to reproduce the problem regularly didn\u0027t have any\nfirewall at all.  It also wasn\u0027t hyperthreaded.  Given that we don\u0027t use a\nfirewall and in particular we don\u0027t use Zone Labs, this couldn\u0027t be the source\nof our problem.",
+    "Antony although you don\u0027t use a firewall or a hyper-threading machine I still\nthink you receive bad messages (that\u0027s the root cause of the problem).\nI sent you by e-mail a test scenario, please run it and let me know how it goes.",
+    "Created an attachment (id\u003d22606)\nModified DLL to log messages in a file before they are sent of the wire\n",
+    "Created an attachment (id\u003d22607)\nDebug flags for the execution plugin\n",
+    "Created an attachment (id\u003d22608)\nDebug flags for the models plugin\n",
+    "Created an attachment (id\u003d22609)\nExecution time analysis options\n",
+    "I post the scenario here also:\n\n1. Use https://bugs.eclipse.org/bugs/attachment.cgi?id\u003d22606 DLL with a recent\nAgentController (in AgentController\\bin folder)\n2. Run the workbench with the following debug flags enabled see\nhttps://bugs.eclipse.org/bugs/attachment.cgi?id\u003d22607 and\nhttps://bugs.eclipse.org/bugs/attachment.cgi?id\u003d22608\n3. from this instance profile the workbench to a file with just execution\ndetails: see https://bugs.eclipse.org/bugs/attachment.cgi?id\u003d22609 for options\nand a filter that has one line which includes everything (*\t *\tinclude).\n\nYou can also run you scenario, but the profile scenario might get you there faster.\n\nYou should get several log files, one in the AgentController bin folder and\nanother two in the \\ folder of the disk drive where you started the runtime\nworkbench (not the development one).\n\nAt some point you should see some errors on the console and then if you compare\nthe AgentController \\bin log with \\messageValue... log you should see some\nmissing data in the second one.\n\nPlease let me know if you see this problem there.",
+    "Please test with the latest code from CVS it should fix the problem.\nIt seems that lot\u0027s of time out error were triggered by the firewall and somehow\nwe didn\u0027t handle correctly those cases.\n",
+    "Also the time out probably happend on your scenario because you might send\nevents at a rate less then 1 per second which is the timeout seting on our\ncommunication socket."
+  ],
+  "commentCreationDates": [
+    "2005-05-09T16:19:38+02:00",
+    "2005-05-09T16:29:34+02:00",
+    "2005-05-09T16:34:30+02:00",
+    "2005-05-20T17:09:28+02:00",
+    "2005-05-20T17:32:30+02:00",
+    "2005-05-20T17:39:38+02:00",
+    "2005-06-08T06:51:09+02:00",
+    "2005-06-08T11:53:13+02:00",
+    "2005-06-08T16:07:53+02:00",
+    "2005-06-08T16:27:15+02:00",
+    "2005-06-08T16:34:04+02:00",
+    "2005-06-08T16:34:28+02:00",
+    "2005-06-08T16:34:58+02:00",
+    "2005-06-08T16:38:42+02:00",
+    "2005-06-08T18:09:15+02:00",
+    "2005-06-08T18:12:11+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "message": "10301",
+      "elements": [
+        {
+          "method": "org.eclipse.hyades.internal.execution.local.common.TCPDataServer$BufferFlusher.processData",
+          "source": "TCPDataServer.java:341"
+        },
+        {
+          "method": "org.eclipse.hyades.internal.execution.local.common.TCPDataServer$BufferFlusher.run",
+          "source": "TCPDataServer.java:411"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "94121",
+      "date": "2005-05-09T16:19:38+02:00",
+      "product": "TPTP Agent Controller",
+      "component": "Platform.Collection",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "94121",
+  "bugId": "94121",
+  "date": "2005-05-09T16:19:38+02:00",
+  "product": "TPTP Agent Controller",
+  "component": "Platform.Collection",
+  "severity": "critical"
+}

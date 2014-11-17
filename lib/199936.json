@@ -1,0 +1,213 @@
+{
+  "comments": [
+    "Build ID: M20070212-1330\n\nSteps To Reproduce:\nThe main problem here is that the browser can be partially disposed (ie: the children are disposed, including the \u0027auto\u0027 object), but the Browser itself is not yet disposed.\n\nThe call to setText is done like this:\nDisplay.getDefault ().asyncExec (new Runnable ()\n{\n    public void run ()\n    {\n        if (!browser.isDisposed ())\n            browser.setText (html);\n    }\n}\n\n(where html is non-null).\n\nBased on the stack trace below, I\u0027ve determined how this is possible:\n1. The above asyncExec call is done while the display thread is active doing something\n\n2. The display thread continues, and eventually makes a call to dispose the widgets consisting of our view page.\n\n3. The children of our view page are disposed (note that \u0027Widget.release\u0027 releases children before parents).\n\n4. The \u0027auto\u0027 object belonging to the Browser is disposed\n\n5. Its parent, the OleAutoControlSite is disposed\n\n6. While the OleAutoControlSite is being disposed, it executes this portion of the stack trace:\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3325)\n\tat org.eclipse.swt.widgets.Display.foregroundIdleProc(Display.java:1072)\n\tat org.eclipse.swt.internal.win32.OS.VtblCall(Native Method)\n\tat org.eclipse.swt.internal.ole.win32.IOleInPlaceObject.InPlaceDeactivate(IOleInPlaceObject.java:21)\n\tat org.eclipse.swt.ole.win32.OleClientSite.deactivateInPlaceClient(OleClientSite.java:524)\n\tat org.eclipse.swt.ole.win32.OleClientSite.onDispose(OleClientSite.java:825)\n\tat org.eclipse.swt.ole.win32.OleClientSite.access$1(OleClientSite.java:821)\n\tat org.eclipse.swt.ole.win32.OleClientSite$1.handleEvent(OleClientSite.java:125)\n-- this causes the messages in the async queue to be executed.\n\n7. Our async runnable is executed.  The browser is not disposed of yet, although some of its children are. The NPE happens when it tries to use \u0027auto\u0027.\n\n\nMore information:\norg.eclipse.swt.SWTException: Failed to execute runnable (java.lang.NullPointerException)\n\tat org.eclipse.swt.SWT.error(SWT.java:3374)\n\tat org.eclipse.swt.SWT.error(SWT.java:3297)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:126)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3325)\n\tat org.eclipse.swt.widgets.Display.foregroundIdleProc(Display.java:1072)\n\tat org.eclipse.swt.internal.win32.OS.VtblCall(Native Method)\n\tat org.eclipse.swt.internal.ole.win32.IOleInPlaceObject.InPlaceDeactivate(IOleInPlaceObject.java:21)\n\tat org.eclipse.swt.ole.win32.OleClientSite.deactivateInPlaceClient(OleClientSite.java:524)\n\tat org.eclipse.swt.ole.win32.OleClientSite.onDispose(OleClientSite.java:825)\n\tat org.eclipse.swt.ole.win32.OleClientSite.access$1(OleClientSite.java:821)\n\tat org.eclipse.swt.ole.win32.OleClientSite$1.handleEvent(OleClientSite.java:125)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:928)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:952)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:933)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:743)\n\tat org.eclipse.swt.widgets.Composite.releaseChildren(Composite.java:636)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:746)\n\tat org.eclipse.swt.widgets.Composite.releaseChildren(Composite.java:636)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:746)\n\tat org.eclipse.swt.widgets.Composite.releaseChildren(Composite.java:636)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:746)\n\tat org.eclipse.swt.widgets.Composite.releaseChildren(Composite.java:636)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:746)\n\tat org.eclipse.swt.widgets.Composite.releaseChildren(Composite.java:636)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:746)\n\tat org.eclipse.swt.widgets.Composite.releaseChildren(Composite.java:636)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:746)\n\tat org.eclipse.swt.widgets.Widget.dispose(Widget.java:415)\n\tat org.eclipse.ui.internal.PartPane.dispose(PartPane.java:167)\n\tat org.eclipse.ui.internal.ViewPane.dispose(ViewPane.java:193)\n\tat org.eclipse.ui.internal.WorkbenchPartReference.dispose(WorkbenchPartReference.java:639)\n\tat org.eclipse.ui.internal.WorkbenchPage.disposePart(WorkbenchPage.java:1548)\n\tat org.eclipse.ui.internal.WorkbenchPage.partRemoved(WorkbenchPage.java:1540)\n\tat org.eclipse.ui.internal.ViewFactory.releaseView(ViewFactory.java:252)\n\tat org.eclipse.ui.internal.Perspective.hideView(Perspective.java:494)\n\tat org.eclipse.ui.internal.WorkbenchPage.hideView(WorkbenchPage.java:2208)\n\tat org.eclipse.ui.internal.WorkbenchPage.hideView(WorkbenchPage.java:2222)\n...\n\nCaused By:\njava.lang.NullPointerException\n\tat org.eclipse.swt.browser.Browser.setText(Browser.java:1354)\n\tat com.bobj.MyBrowserPage$2.run(MyBrowserPage.java:225)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\t...",
+    "I can\u0027t make a snippet that reproduces this, and just fixing the symptom (adding an auto !\u003d null check) may be ignoring a bigger issue.  Can you see if this still happens for you with eclipse 3.3 (there were big changes in this area)?\n",
+    "I\u0027ll look into whether it\u0027s reproducible in 3.3; it\u0027ll likely be a few weeks until I have time to do it though."
+  ],
+  "commentCreationDates": [
+    "2007-08-14T20:47:21+02:00",
+    "2007-08-20T17:55:11+02:00",
+    "2007-08-22T19:05:46+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Failed to execute runnable (java.lang.NullPointerException)",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3374"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3297"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:126"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3325"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.foregroundIdleProc",
+          "source": "Display.java:1072"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.VtblCall",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.ole.win32.IOleInPlaceObject.InPlaceDeactivate",
+          "source": "IOleInPlaceObject.java:21"
+        },
+        {
+          "method": "org.eclipse.swt.ole.win32.OleClientSite.deactivateInPlaceClient",
+          "source": "OleClientSite.java:524"
+        },
+        {
+          "method": "org.eclipse.swt.ole.win32.OleClientSite.onDispose",
+          "source": "OleClientSite.java:825"
+        },
+        {
+          "method": "org.eclipse.swt.ole.win32.OleClientSite.access$1",
+          "source": "OleClientSite.java:821"
+        },
+        {
+          "method": "org.eclipse.swt.ole.win32.OleClientSite$1.handleEvent",
+          "source": "OleClientSite.java:125"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:928"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:952"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:933"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:743"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.releaseChildren",
+          "source": "Composite.java:636"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:746"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.releaseChildren",
+          "source": "Composite.java:636"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:746"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.releaseChildren",
+          "source": "Composite.java:636"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:746"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.releaseChildren",
+          "source": "Composite.java:636"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:746"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.releaseChildren",
+          "source": "Composite.java:636"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:746"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.releaseChildren",
+          "source": "Composite.java:636"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:746"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.dispose",
+          "source": "Widget.java:415"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.dispose",
+          "source": "PartPane.java:167"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewPane.dispose",
+          "source": "ViewPane.java:193"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.dispose",
+          "source": "WorkbenchPartReference.java:639"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.disposePart",
+          "source": "WorkbenchPage.java:1548"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.partRemoved",
+          "source": "WorkbenchPage.java:1540"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewFactory.releaseView",
+          "source": "ViewFactory.java:252"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Perspective.hideView",
+          "source": "Perspective.java:494"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.hideView",
+          "source": "WorkbenchPage.java:2208"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.hideView",
+          "source": "WorkbenchPage.java:2222"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "199936",
+      "date": "2007-08-14T20:47:21+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.browser.Browser.setText",
+          "source": "Browser.java:1354"
+        },
+        {
+          "method": "com.bobj.MyBrowserPage$2.run",
+          "source": "MyBrowserPage.java:225"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "199936",
+      "date": "2007-08-14T20:47:21+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "199936",
+  "bugId": "199936",
+  "date": "2007-08-14T20:47:21+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

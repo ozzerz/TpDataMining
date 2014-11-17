@@ -1,0 +1,115 @@
+{
+  "comments": [
+    "Copying using Ctrl+C seems to retrieve remote files in multiple threads. It seems to cause errors in the remote FTP server, causing disconnection and not copy the files\nTo reproduce it, create a ftp connection, I used ftp.ibiblio.org, select a folder containing multiple files and press Ctrl+C. No files are copied (Ctrl+V or paste has no effect) and a sequence of muitple queries in worng order and possibly coming from multiple threads. Check the console log attached. The error is at the end.\n\n220 ProFTPD Server (Bring it on...)\n\nUSER anonymous\n331 Anonymous login ok, send your complete email address as your password.\n\nPASS ******\n230-\n   Welcome to ftp.ibiblio.org, the public ftp server of ibiblio.org.  We\n   hope you find what you\u0027re looking for.\n \n   If you have any problems or questions, please send email to\n \n   ftpkeeper@ibiblio.org\n \n   Thanks! \n \n230 Anonymous access granted, restrictions apply.\n\nSYST\n215 UNIX Type: L8\n\nPWD\n257 \"/\" is current directory.\n\nNOOP\n200 NOOP command successful\n\nCWD /\n250-\n\n   Welcome to ftp.ibiblio.org, the public ftp server of ibiblio.org.  We\n\n   hope you find what you\u0027re looking for.\n\n \n\n   If you have any problems or questions, please send email to\n\n \n\n   ftpkeeper@ibiblio.org\n\n \n\n   Thanks! \n\n \n\n250 CWD command successful\n\nPORT 192,168,1,3,12,180\n200 PORT command successful\n\nLIST\n150 Opening ASCII mode data connection for file list\n\n226 Transfer complete.\n\nNOOP\n200 NOOP command successful\n\nCWD /unc\n250 CWD command successful\n\nPORT 192,168,1,3,12,181\n200 PORT command successful\n\nLIST\n150 Opening ASCII mode data connection for file list\n\n226 Transfer complete.\n\nNOOP\n200 NOOP command successful\n\nCWD /unc/ifc\n250 CWD command successful\n\nPORT 192,168,1,3,12,182\n200 PORT command successful\n\nLIST\n150 Opening ASCII mode data connection for file list\n\n226 Transfer complete.\n\nNOOP\n200 NOOP command successful\n\nCWD /unc/ifc/testclient\n250 CWD command successful\n\nPORT 192,168,1,3,12,183\n200 PORT command successful\n\nLIST\n150 Opening ASCII mode data connection for file list\n\n226 Transfer complete.\n\nNOOP\n200 NOOP command successful\n\nCWD /unc/ifc/testclient/testproject1\n250 CWD command successful\n\nPORT 192,168,1,3,12,184\n200 PORT command successful\n\nLIST\n150 Opening ASCII mode data connection for file list\n\n226 Transfer complete.\n\n\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c  Ctrl+C\n\nNOOP\nNOOP\nNOOP\nNOOP\n200 NOOP command successful\n\nCWD /unc/ifc/testclient/testproject1\n200 NOOP command successful\n\n200 NOOP command successful\n\nCWD /unc/ifc/testclient/testproject1\nPORT 192,168,1,3,12,187\n200 NOOP command successful\n\n220 ProFTPD Server (Bring it on...)\n\n530 Please login with USER and PASS\n\nUSER anonymous\nNOOP\n220 ProFTPD Server (Bring it on...)\n\nUSER anonymous\n331 Anonymous login ok, send your complete email address as your password.\n\nPASS ******\n\n-----------Enter bugs above this line-----------\nRSE 2.0M6 Testing\ninstallation : eclipse-platform-3.3M6\nRSE install  : update-site RSE-runtime-all \njava.runtime : Sun 1.5.0_11\nos.name:     : Windows XP 5.1, Service Pack 2\n------------------------------------------------\nsystemtype   : ftp \ntargetos     :  Linux-Unix (ftp.ibiblio.org)\ntargetuname  : NA\ntargetvm     : NA\n------------------------------------------------",
+    "Debugging with the latest version of the CVS, the following thread access issue appears when copying:\n\n\norg.eclipse.swt.SWTException: Invalid thread access\n\tat org.eclipse.swt.SWT.error(SWT.java:3499)\n\tat org.eclipse.swt.SWT.error(SWT.java:3422)\n\tat org.eclipse.swt.SWT.error(SWT.java:3393)\n\tat org.eclipse.swt.widgets.Widget.error(Widget.java:432)\n\tat org.eclipse.swt.widgets.Shell.\u003cinit\u003e(Shell.java:274)\n\tat org.eclipse.swt.widgets.Shell.\u003cinit\u003e(Shell.java:363)\n\tat org.eclipse.jface.window.Window.createShell(Window.java:482)\n\tat org.eclipse.jface.window.Window.create(Window.java:425)\n\tat org.eclipse.jface.dialogs.Dialog.create(Dialog.java:1081)\n\tat org.eclipse.jface.window.Window.open(Window.java:785)\n\tat org.eclipse.jface.dialogs.ErrorDialog.open(ErrorDialog.java:333)\n\tat org.eclipse.rse.ui.messages.SystemMessageDialog.open(SystemMessageDialog.java:406)\n\tat org.eclipse.rse.subsystems.files.core.servicesubsystem.FileServiceSubSystem.download(FileServiceSubSystem.java:467)\n\tat org.eclipse.rse.files.ui.resources.SystemEditableRemoteFile.doDownload(SystemEditableRemoteFile.java:601)\n\tat org.eclipse.rse.files.ui.resources.SystemEditableRemoteFile.download(SystemEditableRemoteFile.java:582)\n\tat org.eclipse.rse.ui.actions.SystemCopyToClipboardAction$LazyDownloadJob.run(SystemCopyToClipboardAction.java:75)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)",
+    "I think I\u0027ve seen this before... apparently, the \"InvalidThreadAccess\" happens because some error happens during download and RSE tries to bring up an error message dialog. \nBut it tries doing so from the background thread.\n\nLooks for me like in \n   FileServiceSubSystem.download(FileServiceSubSystem.java:467)\nthere should be\n\n   Display.asyncExec(new Runnable() {\n      public void run() { MessageDialog.open(...) }\n   });\n\nsince the operation failed with an error already, it should be OK to open the message dialog asynchronously.\n\nThe other question is, what error happens during download. Javier, can you set a Java Exception brakepoint on InvalidThreadAccess, and then step down the stack frames to see what kind of message RSE tried to bring up?",
+    "Javier can you try to check if the same happens with SSH?\n\nIf not, then FTP needs to be guarded with a Mutex just like SSH to fix.\nSee SftpFileService.fDirChannelMutex",
+    "Adding \"synchronized\" to org.eclipse.rse.internal.services.files.ftp.FTPService.download() solves it.\nIdeally, the download should be concurrent as it\u0027s possible, but it could be moved to M7 and add \"synchronized\" for M6",
+    "(In reply to comment #4)\nSo, the bug is quite obviously in FTPService and not the way how the subsystems drive it.\n\n\u003e Adding \"synchronized\" to\n\nI would like to avoid adding \"synchronized\" since this can lead to deadlocks. As a rule of thumb \"synchronized\" should NEVER be used on a method that calls out to other components you cannot control. \nIn this case, your method contains progress reporting through IProgressMonitor. Depending on what progress monitor you get, this method will most typically make a thread switch to the UI thread. If this UI thread then comes back to your download method or any other synchronized method on FTPService, you have a deadlock (thread cannot enter FTPService, and FTPService cannot continue because it is waiting for the progress reporting method). We have seen things like this in our commercial product.\n\nPlease use a Mutex class instead. It is almost as easy to use as the \"synchronized\" keyword, but has two big advantages:\n  * It shows a cancelable progress while waiting for the lock to open\n  * It cancels itself when not obtaining the lock after a given time\nSo the deadlock is avoided, or at least ends after some time.\nYour code should look approximately like this:\n\nclass FTPService {\n   private Mutex fDownloadMutex;\n   private static int fDLMutexTimeout \u003d 30000; //30 seconds\n   public void download(IProgressMonitor monitor) {\n      if (fDownloadMutex.waitForLock(monitor, fDLMutexTimeout)) {\n         try {\n            //do the original download code\n         } finally {\n            fDownloadMutex.release();\n         }\n      }\n   }\n}\n",
+    "PS At any rate, in addition to implementing the workaround in FTP, you should also file a bug \"FTP does not allow multiple simultaneous downloads\".\n\nAnd you should test what happens when trying to upload or list folders while a download is ongoing.",
+    " (In reply to comment #5)\n\u003e private static int fDLMutexTimeout \u003d 30000; //30 seconds\nDoes it mean that after 30 seconds the dowload gets cancelled ?\nIt could be a problem, as when multiple files are downloaded at the same time (let\u0027s say 1000 files), files might need to wait for an unknown time, possibly \u003e\u003e30sec, and might report a timeout, failing the download operation. \n\n\n",
+    "This was just an example. Of course you don\u0027t need to take advantage of the timeout feature by passing in a ridiculously large number, e.g. Long.MAX_VALUE\n\nThis will wait 9223372036854775807 milliseconds, equivalent to \n106751991167 days o\n291672107 years.\n\nWould that be sufficient?",
+    "It has been fixed after adding a mutex to the concurrently accessed download method"
+  ],
+  "commentCreationDates": [
+    "2007-04-03T15:33:10+02:00",
+    "2007-04-03T17:44:52+02:00",
+    "2007-04-03T18:20:11+02:00",
+    "2007-04-03T18:57:13+02:00",
+    "2007-04-04T11:51:41+02:00",
+    "2007-04-04T13:03:38+02:00",
+    "2007-04-04T13:05:17+02:00",
+    "2007-04-04T14:03:14+02:00",
+    "2007-04-04T14:22:17+02:00",
+    "2007-04-04T18:59:11+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Invalid thread access",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3499"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3422"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3393"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:432"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.\u003cinit\u003e",
+          "source": "Shell.java:274"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.\u003cinit\u003e",
+          "source": "Shell.java:363"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.createShell",
+          "source": "Window.java:482"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.create",
+          "source": "Window.java:425"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.Dialog.create",
+          "source": "Dialog.java:1081"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:785"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.ErrorDialog.open",
+          "source": "ErrorDialog.java:333"
+        },
+        {
+          "method": "org.eclipse.rse.ui.messages.SystemMessageDialog.open",
+          "source": "SystemMessageDialog.java:406"
+        },
+        {
+          "method": "org.eclipse.rse.subsystems.files.core.servicesubsystem.FileServiceSubSystem.download",
+          "source": "FileServiceSubSystem.java:467"
+        },
+        {
+          "method": "org.eclipse.rse.files.ui.resources.SystemEditableRemoteFile.doDownload",
+          "source": "SystemEditableRemoteFile.java:601"
+        },
+        {
+          "method": "org.eclipse.rse.files.ui.resources.SystemEditableRemoteFile.download",
+          "source": "SystemEditableRemoteFile.java:582"
+        },
+        {
+          "method": "org.eclipse.rse.ui.actions.SystemCopyToClipboardAction$LazyDownloadJob.run",
+          "source": "SystemCopyToClipboardAction.java:75"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "180711",
+      "date": "2007-04-03T17:44:52+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "major"
+    }
+  ],
+  "groupId": "180711",
+  "bugId": "180711",
+  "date": "2007-04-03T15:33:10+02:00",
+  "product": "Target Management",
+  "component": "RSE",
+  "severity": "major"
+}

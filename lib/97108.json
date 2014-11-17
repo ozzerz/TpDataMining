@@ -1,0 +1,226 @@
+{
+  "comments": [
+    "One of my sourcecode files in a Java 5.0 project causes the eclipse compiler to\nstop compiling with an \"internal compiler error\" - but only if that file is\nchanged and compiled alone. If I recompile the whole project afterwards (or\nchange the file again which causes eclipse to do a full build in this case) it\ncompiles without problems. Unfortunately I cannot extract a single sourcecode\nexample to reproduce the problem because it seems that it is caused by the\noverall project and/or class structure. Below you\u0027ll find the stack trace from\nthe error log.\n\njava.lang.NullPointerException\nat\norg.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding.enclosingType(ParameterizedTypeBinding.java:256)\nat\norg.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.createRawType(LookupEnvironment.java:497)\nat\norg.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding.swapUnresolved(ParameterizedTypeBinding.java:873)\nat\norg.eclipse.jdt.internal.compiler.lookup.UnresolvedReferenceBinding.setResolvedType(UnresolvedReferenceBinding.java:75)\nat\norg.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.createBinaryTypeFrom(LookupEnvironment.java:405)\nat\norg.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.createBinaryTypeFrom(LookupEnvironment.java:393)\nat org.eclipse.jdt.internal.compiler.Compiler.accept(Compiler.java:190)\nat\norg.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.askForType(LookupEnvironment.java:99)\nat\norg.eclipse.jdt.internal.compiler.lookup.UnresolvedReferenceBinding.resolve(UnresolvedReferenceBinding.java:43)\nat\norg.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.resolveUnresolvedType(BinaryTypeBinding.java:92)\nat\norg.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.memberTypes(BinaryTypeBinding.java:722)\nat\norg.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding.memberTypes(ParameterizedTypeBinding.java:671)\nat\norg.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding.getMemberType(ParameterizedTypeBinding.java:457)\nat org.eclipse.jdt.internal.compiler.lookup.Scope.findMemberType(Scope.java:998)\nat org.eclipse.jdt.internal.compiler.lookup.Scope.getTypeOrPackage(Scope.java:2393)\nat org.eclipse.jdt.internal.compiler.lookup.Scope.getType(Scope.java:2237)\nat\norg.eclipse.jdt.internal.compiler.ast.SingleTypeReference.getTypeBinding(SingleTypeReference.java:39)\nat\norg.eclipse.jdt.internal.compiler.ast.TypeReference.resolveType(TypeReference.java:124)\nat\norg.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.resolveTypeFor(SourceTypeBinding.java:1176)\nat\norg.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.fields(SourceTypeBinding.java:630)\nat\norg.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.faultInTypesForFieldsAndMethods(SourceTypeBinding.java:616)\nat\norg.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope.faultInTypes(CompilationUnitScope.java:393)\nat org.eclipse.jdt.internal.compiler.Compiler.process(Compiler.java:497)\nat org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:329)\nat\norg.eclipse.jdt.internal.core.builder.AbstractImageBuilder.compile(AbstractImageBuilder.java:240)\nat\norg.eclipse.jdt.internal.core.builder.AbstractImageBuilder.compile(AbstractImageBuilder.java:190)\nat\norg.eclipse.jdt.internal.core.builder.IncrementalImageBuilder.build(IncrementalImageBuilder.java:114)\nat\norg.eclipse.jdt.internal.core.builder.JavaBuilder.buildDeltas(JavaBuilder.java:227)\nat org.eclipse.jdt.internal.core.builder.JavaBuilder.build(JavaBuilder.java:155)\nat org.eclipse.core.internal.events.BuildManager$2.run(BuildManager.java:593)\nat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1038)\nat org.eclipse.core.runtime.Platform.run(Platform.java:775)\nat org.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:168)\nat org.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:202)\nat org.eclipse.core.internal.events.BuildManager$1.run(BuildManager.java:231)\nat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1038)\nat org.eclipse.core.runtime.Platform.run(Platform.java:775)\nat org.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:234)\nat\norg.eclipse.core.internal.events.BuildManager.basicBuildLoop(BuildManager.java:253)\nat org.eclipse.core.internal.events.BuildManager.build(BuildManager.java:282)\nat org.eclipse.core.internal.events.AutoBuildJob.doBuild(AutoBuildJob.java:139)\nat org.eclipse.core.internal.events.AutoBuildJob.run(AutoBuildJob.java:200)\nat org.eclipse.core.internal.jobs.Worker.run(Worker.java:67)",
+    "ps: Tested with 3.1RC1",
+    "Please provide steps to reproduce, then reopen.",
+    "A parameterized member type cannot have a type not associated with an enclosing\ntype. Suspecting the type of param type to not be a generic type, but rather\nanother parameterized type. Would need a testcase to find offending scenario.",
+    "Created an attachment (id\u003d21934)\nZIP containing Eclipse 3.1RC1 project to reproduce the problem\n",
+    "Ok, I took the code apart and isolated the problem. The attachment contains a\nstripped down Eclipse project that should allow you to reproduce the problem.\nChanging and then recompiling the \"RecordStringTransform.java\" sourcecode (or\nthat of a base class) causes the mentioned compiler error on my system on each\nsecond compilation.\n\nWhile digging into this I also found a way to prevent the compiler error. You\u0027ll\nfind the necessary change in the \"StringTransform.java\" sourcecode, preceded\nwith a comment containing \"FIX:\". It is a declaration that misses a generic type\ndeclaration (the project had been converted to JDK 5.0). But as far as I can see\nthe code is not wrong without the declaration but just using the raw type.",
+    "Thank you much.",
+    "Created an attachment (id\u003d22182)\nBatch compiler test case that reproduces the problem\n\n_test34 shows that the suggested workaround works\n_test35 reproduces the problem on a small code base\n_test36 shows that simplistic attempts to simplify _test35 fail to reproduce\nthe problem",
+    "Problem came from lazy enclosing type resolution. When needing the enclosing\ntype (during UnresolvedReferenceBinding.setResolvedType(...)), the binary type\ndidn\u0027t yet know it had any. \n\nMoved enclosingType init in BinaryTypeBinding constructor, and ensured all\ncreator of ParameterizedTypeBinding specify an enclosing type if any (it is no\nlonger ok to pass null, and rely on resolution later on, since the enclosingType\nis a criteria for reusing the binding in the cache).\n\nAdded GenericTypeTest#test711-712 (adapted from proposed batch test 34\u002635).",
+    "forgot to reassign",
+    "fixed",
+    "*** Bug 98232 has been marked as a duplicate of this bug. ***",
+    "Verified for 3.1 RC2 using build N20050607-0010 + JDT/Core HEAD",
+    "Verified with I20050610-0010"
+  ],
+  "commentCreationDates": [
+    "2005-05-28T11:04:29+02:00",
+    "2005-05-28T11:08:08+02:00",
+    "2005-05-28T14:56:02+02:00",
+    "2005-05-29T00:41:30+02:00",
+    "2005-05-29T11:37:27+02:00",
+    "2005-05-29T11:47:44+02:00",
+    "2005-05-29T21:15:18+02:00",
+    "2005-06-01T19:38:18+02:00",
+    "2005-06-04T14:59:47+02:00",
+    "2005-06-04T15:00:56+02:00",
+    "2005-06-04T15:01:25+02:00",
+    "2005-06-05T17:01:43+02:00",
+    "2005-06-07T16:16:47+02:00",
+    "2005-06-10T17:14:35+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding.enclosingType",
+          "source": "ParameterizedTypeBinding.java:256"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.createRawType",
+          "source": "LookupEnvironment.java:497"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding.swapUnresolved",
+          "source": "ParameterizedTypeBinding.java:873"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.UnresolvedReferenceBinding.setResolvedType",
+          "source": "UnresolvedReferenceBinding.java:75"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.createBinaryTypeFrom",
+          "source": "LookupEnvironment.java:405"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.createBinaryTypeFrom",
+          "source": "LookupEnvironment.java:393"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.accept",
+          "source": "Compiler.java:190"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.askForType",
+          "source": "LookupEnvironment.java:99"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.UnresolvedReferenceBinding.resolve",
+          "source": "UnresolvedReferenceBinding.java:43"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.resolveUnresolvedType",
+          "source": "BinaryTypeBinding.java:92"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.memberTypes",
+          "source": "BinaryTypeBinding.java:722"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding.memberTypes",
+          "source": "ParameterizedTypeBinding.java:671"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding.getMemberType",
+          "source": "ParameterizedTypeBinding.java:457"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.findMemberType",
+          "source": "Scope.java:998"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.getTypeOrPackage",
+          "source": "Scope.java:2393"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.getType",
+          "source": "Scope.java:2237"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.SingleTypeReference.getTypeBinding",
+          "source": "SingleTypeReference.java:39"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeReference.resolveType",
+          "source": "TypeReference.java:124"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.resolveTypeFor",
+          "source": "SourceTypeBinding.java:1176"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.fields",
+          "source": "SourceTypeBinding.java:630"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.faultInTypesForFieldsAndMethods",
+          "source": "SourceTypeBinding.java:616"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope.faultInTypes",
+          "source": "CompilationUnitScope.java:393"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.process",
+          "source": "Compiler.java:497"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:329"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.builder.AbstractImageBuilder.compile",
+          "source": "AbstractImageBuilder.java:240"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.builder.AbstractImageBuilder.compile",
+          "source": "AbstractImageBuilder.java:190"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.builder.IncrementalImageBuilder.build",
+          "source": "IncrementalImageBuilder.java:114"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.builder.JavaBuilder.buildDeltas",
+          "source": "JavaBuilder.java:227"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.builder.JavaBuilder.build",
+          "source": "JavaBuilder.java:155"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager$2.run",
+          "source": "BuildManager.java:593"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:1038"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:775"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:168"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:202"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager$1.run",
+          "source": "BuildManager.java:231"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:1038"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:775"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:234"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuildLoop",
+          "source": "BuildManager.java:253"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.build",
+          "source": "BuildManager.java:282"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.doBuild",
+          "source": "AutoBuildJob.java:139"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.run",
+          "source": "AutoBuildJob.java:200"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:67"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "97108",
+      "date": "2005-05-28T11:04:29+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "97108",
+  "bugId": "97108",
+  "date": "2005-05-28T11:04:29+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

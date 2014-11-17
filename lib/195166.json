@@ -1,0 +1,105 @@
+{
+  "comments": [
+    "Opening a bug for a problematic scenario reported on the newsgroup (\"Duplicate entry error when publishing webapps to Tomcat); here is Larry\u0027s description of the problematic scenario:\n\n1. In a new workspace, create a server runtime (I used Tomcat 5.5).\n2. Create a Java utility project.\n3. Create a Dynamic Web Project.\n4. Make the Java utility project a dependency of the web project.\n5. In the META-INF folder of the utility project create a file (I used \nan empty test.txt file)\n6. Add the web project to the server and publish. No problems so far.\n7. Add external jar to utility project and export the jar.\n8. Use Quick Fix to \"publish/export\" the jar and republish the server. \nThe \"duplicate entry\" error now appears for the test.txt file.",
+    "I was able to trace through this.  It appears to be a typo in J2EEFlexProjDeployable.  Attaching a patch that appears to fix the problem.",
+    "Created an attachment (id\u003d72889)\nPatch to correct typo in array index found in J2EEFlexProjDeployable\n\n",
+    "thanks, Larry\n\nyeah - that\u0027s the problem\n\nas expected, it appears on multiple server adapters\n\nhere\u0027s the stack for Tomcat:\n\n!ENTRY org.eclipse.wst.server.core 4 0 2007-07-02 14:28:37.273\n!MESSAGE Error creating zip file DepUtil.jar: duplicate entry: META-INF/test.txt\n!STACK 0\njava.util.zip.ZipException: duplicate entry: META-INF/test.txt\n\tat java.util.zip.ZipOutputStream.putNextEntry(ZipOutputStream.java:163)\n\tat org.eclipse.wst.server.core.util.PublishUtil.addZipEntries(PublishUtil.java:593)\n\tat org.eclipse.wst.server.core.util.PublishUtil.addZipEntries(PublishUtil.java:569)\n\tat org.eclipse.wst.server.core.util.PublishUtil.publishZip(PublishUtil.java:525)\n\tat org.eclipse.jst.server.core.PublishUtil.publishZip(PublishUtil.java:235)\n\tat org.eclipse.jst.server.tomcat.core.internal.PublishOperation2.publishJar(PublishOperation2.java:136)\n\tat org.eclipse.jst.server.tomcat.core.internal.PublishOperation2.execute(PublishOperation2.java:70)\n\tat org.eclipse.wst.server.core.model.ServerBehaviourDelegate.performTasks(ServerBehaviourDelegate.java:885)\n\tat org.eclipse.wst.server.core.model.ServerBehaviourDelegate.publish(ServerBehaviourDelegate.java:649)\n\tat org.eclipse.wst.server.core.internal.Server.doPublish(Server.java:887)\n\tat org.eclipse.wst.server.core.internal.Server.publish(Server.java:874)\n\tat org.eclipse.wst.server.core.internal.PublishServerJob.run(PublishServerJob.java:72)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)",
+    "note: this also only applies to projects for which J2EEFlexProjDeployable.isSingleRootStructure() returns true\n\nFixing that typo fixes the problem.",
+    "Has this fix landed in a branch?",
+    "Fix is released to the 3.0 stream; was first in a build with tag v200707031430",
+    "sorry, it\u0027s in both the 2.0.1 and 3.0 streams",
+    "(In reply to comment #7)\n\u003e sorry, it\u0027s in both the 2.0.1 and 3.0 streams\n\u003e \n3.0 streams does that mean that this is also fixed in 3.3? I do have this issue with 3.3 as well!\n",
+    "(In reply to comment #8)\n\u003e (In reply to comment #7)\n\u003e \u003e sorry, it\u0027s in both the 2.0.1 and 3.0 streams\n\u003e \u003e \n\u003e 3.0 streams does that mean that this is also fixed in 3.3? I do have this issue\n\u003e with 3.3 as well!\nJust tried to get a little bit more of information for my case. The issue does not seem to be isolated to the META-INF folder. I do have multiple source folders some of them (src/test/resources and src/main/resources - yes I\u0027m using maven) containing xml files. Publishing reports a duplicate entry error for one of the xml files in src/test/resources exactly as described in the stacktrace above.\n",
+    "Multiple src folders would be unrelated to the exported/published(In reply to comment #8)\n\u003e (In reply to comment #7)\n\u003e \u003e sorry, it\u0027s in both the 2.0.1 and 3.0 streams\n\u003e \u003e \n\u003e 3.0 streams does that mean that this is also fixed in 3.3? I do have this issue\n\u003e with 3.3 as well!\n\u003e \nThe problem with the classpath entry publish/export feature was fixed in WTP 2.0.1/3.0; sounds like you are using 2.0/3.3, however, because this is related to multiple Java src folders it would appear to be a general problem with WTP publish framework and/or your application structure rather than something specifically related to the classpath entry publish/export support.\n\nCould you describe your application structure?\n\n",
+    "(In reply to comment #10)\n\u003e Multiple src folders would be unrelated to the exported/published(In reply to\n\u003e comment #8)\n\u003e \u003e (In reply to comment #7)\n\u003e \u003e \u003e sorry, it\u0027s in both the 2.0.1 and 3.0 streams\n\u003e \u003e \u003e \n\u003e \u003e 3.0 streams does that mean that this is also fixed in 3.3? I do have this issue\n\u003e \u003e with 3.3 as well!\n\u003e \u003e \n\u003e The problem with the classpath entry publish/export feature was fixed in WTP\n\u003e 2.0.1/3.0; sounds like you are using 2.0/3.3, however, because this is related\n\u003e to multiple Java src folders it would appear to be a general problem with WTP\n\u003e publish framework and/or your application structure rather than something\n\u003e specifically related to the classpath entry publish/export support.\n\u003e \n\u003e Could you describe your application structure?\n\u003e \nOk, seems that I had mixed up version numbers of WTP and eclipse!\n\nSo my application structure is like\n\nProjA (Utility facet) with source folders\n+src/main/java (output folder target/classes)\n+src/main/resources (output folder target/classes)\n+src/test/java (output folder target/test-classes)\n+src/test/resources (output folder target/classes)\n\nProjB (Web facet) with source folders\n+src/main/java (output folder target/classes)\n+src/main/resources (output folder target/classes)\n+src/test/java (output folder target/test-classes)\n\nProjB has a JEE dependency to ProjA\n\nduring the publish phase it would typically complain about a xml file in folder src/test/resource of ProjA. Then I would typically temporarily remove this folder and publish again with success.\n\n",
+    "thanks for describing the project structure, Martin\n\nThe problem you are seeing looks completely distinct from what is covered in this bugzilla. Please go ahead and open a new bugzilla assigned to the jst.j2ee component (Q: is the same XML file contained in src/main/resources as well?)"
+  ],
+  "commentCreationDates": [
+    "2007-07-02T20:10:09+02:00",
+    "2007-07-02T20:29:45+02:00",
+    "2007-07-02T20:31:33+02:00",
+    "2007-07-02T21:04:30+02:00",
+    "2007-07-02T21:19:35+02:00",
+    "2007-07-10T20:46:49+02:00",
+    "2007-07-12T18:12:08+02:00",
+    "2007-07-12T19:01:36+02:00",
+    "2007-08-07T08:19:46+02:00",
+    "2007-08-07T08:34:57+02:00",
+    "2007-08-07T14:58:26+02:00",
+    "2007-08-07T15:56:14+02:00",
+    "2007-08-07T16:23:11+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.util.zip.ZipException",
+      "message": "duplicate entry: META-INF/test.txt",
+      "elements": [
+        {
+          "method": "java.util.zip.ZipOutputStream.putNextEntry",
+          "source": "ZipOutputStream.java:163"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.util.PublishUtil.addZipEntries",
+          "source": "PublishUtil.java:593"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.util.PublishUtil.addZipEntries",
+          "source": "PublishUtil.java:569"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.util.PublishUtil.publishZip",
+          "source": "PublishUtil.java:525"
+        },
+        {
+          "method": "org.eclipse.jst.server.core.PublishUtil.publishZip",
+          "source": "PublishUtil.java:235"
+        },
+        {
+          "method": "org.eclipse.jst.server.tomcat.core.internal.PublishOperation2.publishJar",
+          "source": "PublishOperation2.java:136"
+        },
+        {
+          "method": "org.eclipse.jst.server.tomcat.core.internal.PublishOperation2.execute",
+          "source": "PublishOperation2.java:70"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.model.ServerBehaviourDelegate.performTasks",
+          "source": "ServerBehaviourDelegate.java:885"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.model.ServerBehaviourDelegate.publish",
+          "source": "ServerBehaviourDelegate.java:649"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.doPublish",
+          "source": "Server.java:887"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.publish",
+          "source": "Server.java:874"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.PublishServerJob.run",
+          "source": "PublishServerJob.java:72"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 3,
+      "bugId": "195166",
+      "date": "2007-07-02T21:04:30+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "major"
+    }
+  ],
+  "groupId": "195166",
+  "bugId": "195166",
+  "date": "2007-07-02T20:10:09+02:00",
+  "product": "Web Tools",
+  "component": "jst.j2ee",
+  "severity": "major"
+}

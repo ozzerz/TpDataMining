@@ -1,0 +1,84 @@
+{
+  "comments": [
+    "If you have project1 and project2 (where project2 uses project1),\nit used to be you could create a conditonal breakpoint in project1 where you \nrefferred to classes in project2.\n\nThis is still possible, but you get a \"Cannot resolve \u003cproject2 classname\u003e\" \nerror.\n\nThis is not very logical since the debugger has no problem inspect, evaluate or \nnavigate the project2 class at a breakpoint inside project1.\n\nSo, it should be possible (it was before) to add conditional breakpoints with \ninstanceof checks that uses classes from other projects - as long as the classes \nare available at runtime.",
+    "I\u0027m not sure that was working before, but we should be able to improve the\nevaluation in this case.\nThe specifique problem here, is that the compilation for the evaluation is done\nin the project of the declaring type instead of the project of the recieving type.",
+    "deferred to RC2",
+    "Implemented.\n\nThe evaluation for the condition is now done in the context of the project of\nthe receiving type. The classes, static methods and static fields visible in the\nproject of the receiving type can be used in the evaluation.\n\nNote that if the instance where the breakpoint is stopped is from project 1, the\nsame error will be displayed when trying to evaluate a condition referencing a\ntype in project 2.\n\nJDIReferenceType - added method getSourcePath() to get the source path for the\ndefault stratum.\nJavaSourceLookupParticipant - modified to be able to do source lookup on\nreference type.\nJavaLineBreakpoint - modified getJavaProject() to return the project of the\nrecieving type if possible.",
+    "Created an attachment (id\u003d11819)\npatch for JavaSourceLookupParticipant\n\nLooks like I don\u0027t have commit right on jdt.launching ... ?",
+    "Please verify, Darin W.",
+    "There\u0027s an NPE in JavaLineBreakpoint:\n\njava.lang.NullPointerException\n\tat \norg.eclipse.jdt.internal.debug.core.breakpoints.JavaLineBreakpoint.getJavaProje\nct(JavaLineBreakpoint.java:482)\n\tat \norg.eclipse.jdt.internal.debug.core.breakpoints.JavaLineBreakpoint.handleCondit\nionalBreakpointEvent(JavaLineBreakpoint.java:443)\n\tat \norg.eclipse.jdt.internal.debug.core.breakpoints.JavaLineBreakpoint.handleBreakp\nointEvent(JavaLineBreakpoint.java:368)\n\tat \norg.eclipse.jdt.internal.debug.core.breakpoints.JavaBreakpoint.handleEvent\n(JavaBreakpoint.java:263)\n\tat org.eclipse.jdt.internal.debug.core.EventDispatcher.dispatch\n(EventDispatcher.java:172)\n\tat org.eclipse.jdt.internal.debug.core.EventDispatcher.run\n(EventDispatcher.java:221)\n\tat java.lang.Thread.run(Thread.java:534)\n",
+    "I think the NPE is in static methods? You should have update rights to \nlaunching. I fell back these changes since this breaks the test suite (NPEs).",
+    "(as well, the API reference from launching to JDIReferenceType is illegal - \ni.e. plug-in acccessing internal type from another plug-in. Is there anyway we \ncan make it work without adding API?)",
+    "Luc, we can like get an API addition to IJavaReferenceType if we need it (i.e. \ngetSourceName/getSourcePath for a specified stratum). Would that be helpful?",
+    "If we add a String[] getSourcePath(String stratum) to IJavaReferenceType, we\ndon\u0027t need to reference an internal class. I thought that the API were frozen\n(it\u0027s not a breaking change, but ...).",
+    "We\u0027d still need PMC approval to add the method.\n\nThis is a better idea - just pass in the string to the source locator - it \nhandles them as file names. You\u0027re already in the java debug model, so you can \nadd the \"private API\" method and access it from JavaLineBreakpoint, where you \nneed it. Then we don\u0027t need the API method.",
+    "That works too.\nThe NPE was in the context of static methods, getThis() return nulls. Added a\ntest to check for the receiving type only in non-static context. I reworked\ngetSourcePath() to something that looks more like what we need in the API.\n\nJavaLineBreakpoint - modified getJavaProject() to return the project of the\nrecieving type if possible.\nJDIReferenceType - added method getSourcePaths(String stratum) to get the source\npaths for the given stratum.",
+    "Please verify, Darin W.",
+    "Verified: We can only reference types the receiving type\u0027s build path \nincludes. We base visibility on the receiving type, and if the receiving type \ncannot see the upstream type, we cannot compile the expression."
+  ],
+  "commentCreationDates": [
+    "2003-10-13T16:36:47+02:00",
+    "2003-10-13T22:19:56+02:00",
+    "2004-05-28T16:58:47+02:00",
+    "2004-06-09T20:41:41+02:00",
+    "2004-06-09T20:46:02+02:00",
+    "2004-06-09T20:47:10+02:00",
+    "2004-06-09T21:07:25+02:00",
+    "2004-06-09T21:15:23+02:00",
+    "2004-06-09T21:16:25+02:00",
+    "2004-06-09T21:24:49+02:00",
+    "2004-06-09T22:30:08+02:00",
+    "2004-06-09T22:41:48+02:00",
+    "2004-06-09T23:20:21+02:00",
+    "2004-06-09T23:20:44+02:00",
+    "2004-06-10T17:03:18+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.breakpoints.JavaLineBreakpoint.getJavaProject",
+          "source": "JavaLineBreakpoint.java:482"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.breakpoints.JavaLineBreakpoint.handleConditionalBreakpointEvent",
+          "source": "JavaLineBreakpoint.java:443"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.breakpoints.JavaLineBreakpoint.handleBreakpointEvent",
+          "source": "JavaLineBreakpoint.java:368"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.breakpoints.JavaBreakpoint.handleEvent",
+          "source": "JavaBreakpoint.java:263"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.EventDispatcher.dispatch",
+          "source": "EventDispatcher.java:172"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.EventDispatcher.run",
+          "source": "EventDispatcher.java:221"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:534"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 6,
+      "bugId": "44758",
+      "date": "2004-06-09T21:07:25+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "44758",
+  "bugId": "44758",
+  "date": "2003-10-13T16:36:47+02:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

@@ -1,0 +1,90 @@
+{
+  "comments": [
+    "I\u0027m fairly new to AspectJ, so this is probably not going to be well explained. I\u0027ve started working on a project that was working fine. Then I added methods to classes that take a 2-dimensional string array parameter and suddenly I\u0027m getting a VerifyError exception.\n\njava.lang.VerifyError: (class: com/drkw/cpds/obligor/facades/version_1_00/ObligorDetailFacade_1_00, method: searchForObligorSummariesByGroup_aroundBody24 signature: (Lcom/drkw/cpds/obligor/facades/version_1_00/ObligorDetailFacade_1_00;[[[Ljava/lang/String;Ljava/lang/String;Ljava?(\u0026#130;\n\tat com.drkw.cpds.obligor.facades.version_1_00.obligor.ObligorManager.\u003cclinit\u003e(ObligorManager.java:48)\n\tat com.drkw.cpds.obligor.integration.version_1_00.obligor.GetObligorDetailsGroupingTest.testGetObligorDetailsUsingGroups(GetObligorDetailsGroupingTest.java:45)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)",
+    "Are you able to attach any of the code that leads to this problem?  perhaps at least the ITD statements you are using?\n\nAre you working with Java5 constructs (generics?) or just regular 1.4 java?\n\nWhat level of the compiler are you on, the latest?",
+    "\nI\u0027m using:\nJava 1.4.2_07\nEclipse 3.1.1\nAspectJ dev tools 1.3.0 build 20051130095036\n\nSorry - dont know what you mean by ITD.\n\nI think the method I\u0027ve added that\u0027s causing the problem is \npublic ObligorDetail[] searchForObligorDetailsByGroup(String[][] mistralId, String name, String country, String legalEntity, Integer startPosition, Integer pageSize, SortKey[] sortKeys) throws BusinessException;\n\nWe have a similar method that takes a single-dimension array as the first parameter instead of this 2-dimension array but is the same otherwise. That\u0027s been working fine for ages.\n\n",
+    "Oh, I see from the code, you have advised the method with around advice.  I initially assumed when you said \u0027added a method to a class\u0027 that you had made an inter-type declaration ITD, something like:\n\npublic void SomeClass.newMethod() {}\n\nCan you tell me the signature for the around advice (and the pointcut) that you are using to match this?\n\npublic ObligorDetail[] searchForObligorDetailsByGroup(String[][] mistralId,\nString name, String country, String legalEntity, Integer startPosition, Integer\npageSize, SortKey[] sortKeys) throws BusinessException;\n\nIn the meantime, I\u0027ll try a similar method with two dimensional params.",
+    "I said I wouldnt explain it well, didnt I ;-)\nHope this makes sense. I\u0027m also trying to start with a simplest case of a class and an aspect to try to isolate this, but at the moment I\u0027m getting other exceptions.\n\n\nThe java method is:\npublic ObligorSummary[] searchForObligorSummariesByGroup(String[][] mistralId, String name, String country, String legalEntity, Integer startPosition, Integer pageSize, SortKey[] keys) throws BusinessException;\n\nThe classname is ObligorDetailFacade_1_00 which extends abstract class ObligorManager\n\nThere are 2 around advices:\n\na) \nObject around() throws AspectException : no_transaction_required_calls()\nwith pointcut\npointcut no_transaction_required_calls(): all_1_00_Calls() \u0026\u0026 !transaction_required_calls();\n\nb) Object around() throws AspectException, SystemException : all_1_00_Calls();\n\npointcut all_1_00_Calls is defined as:\npointcut all_1_00_Calls(): !callGetInstance() \u0026\u0026 (callXref_1_00() || callObligor_1_00() || callVerify_1_00());\n\nwhere the callObligor_1_00 is the one that matches here...\npointcut callObligor_1_00(): execution(public * com.drkw.cpds.obligor.facades.version_1_00.obligor.ObligorManager+.*(..));\n\n\n",
+    "I\u0027ve now reproduced this with a simple class...\n\n--- Class ---\npackage blah;\n\nimport java.util.Random;\n\npublic class MyClass {\n\tpublic Integer[] getRandomInt(String[][] param)\n\t{\n\t\tfor (int i \u003d 0; i \u003c param.length; i++)\n\t\t{\n\t\t\tSystem.out.print(\"[\" + i + \"] \u003d [\");\n\t\t\tfor (int j \u003d 0; j \u003c param[i].length; j++)\n\t\t\t{\n\t\t\t\tSystem.out.print(param[i][j]);\n\t\t\t\tif (j !\u003d param[i].length-1)\n\t\t\t\t\tSystem.out.print(\u0027,\u0027);\n\t\t\t}\n\t\t\tSystem.out.println(\u0027]\u0027);\n\t\t}\n\t\treturn new Integer[] { new Integer(new Random().nextInt())};\n\t}\n}\n\n\n--- Aspect ---\npackage blah;\n\npublic aspect MyAspect {\n\n\tpointcut callPointCut(): call(public * blah.MyClass+.*(..));\n\t\n\tObject around() : callPointCut() {\n\t\tSystem.out.println(\"start of around\");\n\t\tObject result \u003d proceed();\n\t\tSystem.out.println(\"end of around\");\n\t\treturn result;\n\t}\n}\n\n--- Main class ---\npackage blah;\n\n/** */\npublic class MyMain {\n\n\t/**\n\t * @param args\n\t */\n\tpublic static void main(String[] args)\n\t{\n\t\tMyClass mc \u003d new MyClass();\n\t\tmc.getRandomInt(new String[][]{{ \"a\", \"b\", \"c\"},{\"x\",\"y\",\"z\"}});\n\t}\n}\n\n\n--- Exception --- \njava.lang.VerifyError: (class: blah/MyMain$AjcClosure3, method: run signature: ([Ljava/lang/Object;)Ljava/lang/Object;) Incompatible argument to function\n\tat blah.MyMain.main(MyMain.java:15)\nException in thread \"main\" \n",
+    "thanks for the simple testcase Ian ... but ... I still can\u0027t get it to fail for me :(\n\nI\u0027ve tried in AJDT and from the command line, I\u0027ve switched to a 1.4.2 vm from my usual 1.5 (although I\u0027m on an earlier version of 1.4.2 than you).  Do you have any   options configured in the AspectJ pages for the project?  I\u0027m just trying to work out the difference between your environment and mine...\n\nmy ajdt is a little older than yours - i\u0027ll try updating that now to see if it makes a difference.",
+    "Progress - sort of.\n\nI have Advanced/No Inline switched on. As soon as I turn it off and recompile, my simple case works.\n\nHowever it appears to make no difference to my main project. I\u0027m still investigating.\n",
+    "thats it!!  I can recreate it with -XnoInline turned on :)",
+    "Good, that\u0027s pinpointed it. \n\nHowever I\u0027m still not able to get past it in my real application, so all I\u0027ve done is invalidate my simple test case.\nAny other suggestions welcome!\n",
+    "Fix checked in ... we incorrectly handled multi-dimensional array signatures.  In fact String[][] was turning into String[][][] !!\n\nFix will be in next aspectj dev build and in AJDT in a couple of days.",
+    "fix available in latest AspectJ dev build - will probably be in AJDT on Monday.",
+    "*** Bug 119408 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2005-12-01T08:43:53+01:00",
+    "2005-12-01T08:52:23+01:00",
+    "2005-12-01T09:03:45+01:00",
+    "2005-12-01T09:26:03+01:00",
+    "2005-12-01T10:17:44+01:00",
+    "2005-12-01T11:09:51+01:00",
+    "2005-12-01T11:46:35+01:00",
+    "2005-12-01T11:59:08+01:00",
+    "2005-12-01T12:11:27+01:00",
+    "2005-12-01T12:21:22+01:00",
+    "2005-12-01T15:06:04+01:00",
+    "2005-12-01T16:49:42+01:00",
+    "2006-05-10T16:54:44+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.VerifyError",
+      "message": "(class: com/drkw/cpds/obligor/facades/version_1_00/ObligorDetailFacade_1_00, method: searchForObligorSummariesByGroup_aroundBody24 signature: (Lcom/drkw/cpds/obligor/facades/version_1_00/ObligorDetailFacade_1_00;[[[Ljava/lang/String;Ljava/lang/String;Ljava?(\u0026#130;",
+      "elements": [
+        {
+          "method": "com.drkw.cpds.obligor.facades.version_1_00.obligor.ObligorManager.\u003cclinit\u003e",
+          "source": "ObligorManager.java:48"
+        },
+        {
+          "method": "com.drkw.cpds.obligor.integration.version_1_00.obligor.GetObligorDetailsGroupingTest.testGetObligorDetailsUsingGroups",
+          "source": "GetObligorDetailsGroupingTest.java:45"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "118781",
+      "date": "2005-12-01T08:43:53+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.VerifyError",
+      "message": "(class: blah/MyMain$AjcClosure3, method: run signature: ([Ljava/lang/Object;)Ljava/lang/Object;) Incompatible argument to function",
+      "elements": [
+        {
+          "method": "blah.MyMain.main",
+          "source": "MyMain.java:15"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 5,
+      "bugId": "118781",
+      "date": "2005-12-01T11:09:51+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "118781",
+  "bugId": "118781",
+  "date": "2005-12-01T08:43:53+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

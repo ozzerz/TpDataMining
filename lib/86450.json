@@ -1,0 +1,140 @@
+{
+  "comments": [
+    "!SESSION 2005-02-24 11:26:59.509 -----------------------------------------------\neclipse.buildId\u003dN20050224-0010\njava.version\u003d1.4.2_06\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dlinux, ARCH\u003dx86, WS\u003dgtk, NL\u003den_US\nFramework arguments:  -showlocation\nCommand-line arguments:  -os linux -ws gtk -arch x86 -showlocation -consolelog\n-console -data /home/buildmeister/users/mkl/wrk\n\n!ENTRY org.eclipse.osgi 2005-02-24 11:26:59.512\n!MESSAGE While loading class \"org.eclipse.ui.PlatformUI\", thread \"Framework\nEvent Dispatcher\" timed out waiting (5000ms) for thread \"main\" to finish\nstarting bundle \"org.eclipse.ui.workbench\". To avoid deadlock, thread \"Framework\nEvent Dispatcher\" is proceeding but \"org.eclipse.ui.PlatformUI\" may not be fully\ninitialized.\n!STACK 0\njava.lang.Exception: Generated exception.\n\tat\norg.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass(EclipseClassLoader.java:103)\n\tat\norg.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass(BundleLoader.java:333)\n\tat\norg.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:359)\n\tat\norg.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass(AbstractClassLoader.java:94)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:235)\n\tat java.lang.ClassLoader.loadClassInternal(ClassLoader.java:302)\n\tat\norg.eclipse.ui.plugin.AbstractUIPlugin.refreshPluginActions(AbstractUIPlugin.java:472)\n\tat\norg.eclipse.ui.plugin.AbstractUIPlugin$2.bundleChanged(AbstractUIPlugin.java:594)\n\tat\norg.eclipse.osgi.framework.internal.core.BundleContextImpl.dispatchEvent(BundleContextImpl.java:1205)\n\tat\norg.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent(EventManager.java:186)\n\tat org.eclipse.osgi.framework.eventmgr.EventThread.run(EventThread.java:104)\n\n!ENTRY org.eclipse.osgi 2005-02-24 11:27:04.517\n!MESSAGE While loading class \"org.eclipse.ui.testing.TestableObject\", thread\n\"Framework Event Dispatcher\" timed out waiting (5000ms) for thread \"main\" to\nfinish starting bundle \"org.eclipse.ui.workbench\". To avoid deadlock, thread\n\"Framework Event Dispatcher\" is proceeding but\n\"org.eclipse.ui.testing.TestableObject\" may not be fully initialized.\n!STACK 0\njava.lang.Exception: Generated exception.\n\tat\norg.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass(EclipseClassLoader.java:103)\n\tat\norg.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass(BundleLoader.java:333)\n\tat\norg.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:359)\n\tat\norg.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass(AbstractClassLoader.java:94)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:235)\n\tat java.lang.ClassLoader.loadClassInternal(ClassLoader.java:302)\n\tat\norg.eclipse.ui.plugin.AbstractUIPlugin.refreshPluginActions(AbstractUIPlugin.java:472)\n\tat\norg.eclipse.ui.plugin.AbstractUIPlugin$2.bundleChanged(AbstractUIPlugin.java:594)\n\tat\norg.eclipse.osgi.framework.internal.core.BundleContextImpl.dispatchEvent(BundleContextImpl.java:1205)\n\tat\norg.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent(EventManager.java:186)\n\tat org.eclipse.osgi.framework.eventmgr.EventThread.run(EventThread.java:104)",
+    "I\u0027m seeing these as well.  This can be a rather severe problem, as it can mean\nthat access if given to some classes before the plug-in has finished loading.",
+    "Pascal says this can be debugged using the core tools to find out what triggered\nthe activation of the other bundle:\n\n\"http://dev.eclipse.org/viewcvs/index.cgi/%7Echeckout%7E/platform-core-home/downloads.html\"",
+    "This problem happens with the UI code from HEAD, and the core and OSGi plug-ins\nfrom the integration build.  It does not happen with all plug-ins taken from the\nintegration build.",
+    "It turned out to be the change that Tod made, rather than Stefan.  The problem\nis as follows:\n+ On the UI thread, the WorkbenchPlugin starts.\n+ On the UI thread, the WorkbenchPlugin adds a bundle listener.\n+ On the UI thread, WorkbenchPlugin starts the UI bundle.\n+ On the framework thread, a bundle event gets sent to the WorkbenchPlugin.\n+ On the UI thread, WorkbenchPlugin tries to load a class, but is blocked\nwaiting for the framework thread.\n\nThough I\u0027m a little foggy on the details, at this point we have a deadlock for\nthe class loader lock.\n\nThe fix is to avoid calling any code after we start the UI bundle.  This avoids\nthe problem of potentially calling out to class loader code.\n",
+    "Officially, it\u0027s not a deadlock, but you have two threads that are loading\nclasses belonging to the workbench plugin while the workbench plugin is being\nstarted. This is generally bad because it means the other thread (in this case\nthe event dispatcher), is loading classes in a plugin that has not fully\nstarted.  At the very least, you\u0027re likely to run into thread-safety holes in\nyour code.\n\nShort answer: the UI startup should avoid doing things in other threads during\nits bundle start.  Or, cause the other thread to fork as the very last line in\nthe plugin\u0027s start() method.  I have entered bug 86713 against platform runtime\nto determine if the Eclipse class loader is acting appropriately here.\n\nQuestion for Kim: should the bundle listener be added by default for all\ninstances of AbstractUIPlugin?  It looks like if I have ten plugins installed\nthat subclass AbstractUIPlugin, WWinPluginAction.refreshActionList(); will get\ncalled ten times for every bundle change event..."
+  ],
+  "commentCreationDates": [
+    "2005-02-24T10:51:35+01:00",
+    "2005-02-24T18:12:35+01:00",
+    "2005-02-24T18:48:39+01:00",
+    "2005-02-25T19:11:24+01:00",
+    "2005-02-25T20:46:36+01:00",
+    "2005-02-25T22:31:20+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.Exception",
+      "message": "Generated exception.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass",
+          "source": "EclipseClassLoader.java:103"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+          "source": "BundleLoader.java:333"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:359"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass",
+          "source": "AbstractClassLoader.java:94"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:235"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClassInternal",
+          "source": "ClassLoader.java:302"
+        },
+        {
+          "method": "org.eclipse.ui.plugin.AbstractUIPlugin.refreshPluginActions",
+          "source": "AbstractUIPlugin.java:472"
+        },
+        {
+          "method": "org.eclipse.ui.plugin.AbstractUIPlugin$2.bundleChanged",
+          "source": "AbstractUIPlugin.java:594"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.dispatchEvent",
+          "source": "BundleContextImpl.java:1205"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent",
+          "source": "EventManager.java:186"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventThread.run",
+          "source": "EventThread.java:104"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "86450",
+      "date": "2005-02-24T10:51:35+01:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.Exception",
+      "message": "Generated exception.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass",
+          "source": "EclipseClassLoader.java:103"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+          "source": "BundleLoader.java:333"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:359"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass",
+          "source": "AbstractClassLoader.java:94"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:235"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClassInternal",
+          "source": "ClassLoader.java:302"
+        },
+        {
+          "method": "org.eclipse.ui.plugin.AbstractUIPlugin.refreshPluginActions",
+          "source": "AbstractUIPlugin.java:472"
+        },
+        {
+          "method": "org.eclipse.ui.plugin.AbstractUIPlugin$2.bundleChanged",
+          "source": "AbstractUIPlugin.java:594"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.dispatchEvent",
+          "source": "BundleContextImpl.java:1205"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent",
+          "source": "EventManager.java:186"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventThread.run",
+          "source": "EventThread.java:104"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "86450",
+      "date": "2005-02-24T10:51:35+01:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "major"
+    }
+  ],
+  "groupId": "86450",
+  "bugId": "86450",
+  "date": "2005-02-24T10:51:35+01:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "major"
+}

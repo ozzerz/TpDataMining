@@ -1,0 +1,384 @@
+{
+  "comments": [
+    "In various launching scenarios the new startup code is adding -install and -\nconfiguration arguments to the command line.  Unfortunately, they are added to \nthe end of the command line and things like the AntRunner get confused because \nthey expect to consume the arguments found there.  The result is errors such as\n\nD:\\eclipse-testing\\eclipse\u003ejava -cp startup.jar org.eclipse.core.launcher.Main -\napplication org.eclipse.ant.core.antRunner -f d:\\eclipse-testing\\build.xml test\n\nThis gets printed to the console:\nUnknown argument: -application org.eclipse.ant.core.antRunner test -\nconfiguration file:d:\\eclipse-testing\\eclipse/.config -install file:d:/eclipse-\ntesting/eclipse/\n\n\nThis is a hold over from the old startup sequence where this information wsa \napparently needed somehow by downstream components like PDE and Update.  We are \nworking with those teams to see if they still need these args and thus whether \nor not this special handling can be removed.\n\nThis issue has pretty much always been there.  For example, if you ran with -\ndev (or was it -debug) AntRunner would get those args and get confused.  The \ncontention here is between args destine for Eclipse vs those destine for the \napplication.  We attempt to remove the Eclipse args but some need to flow \nthrough.  \n\nMore work is needed to fully solve this problem but for now we will insert the -\nconfgiuration and -install args at the beginning of the command line rather \nthan at the end. This should eliminate the immediate issue.",
+    "fixed",
+    "Adding Veronika to cc since eclipse executable may need to remove some now \nunsupported arguments to Main (ie. -os, -ws).  The antRunner application does \nnot process command line arguments properly when launched through the eclipse \nexecutable.",
+    "Jeff, can you please clarify.  Are -os and -ws no longer supported arguments?  \nIf so, how do we distinguish between gtk and motif on linux?\n\nThe tests results from the nightly builds show:\n\nUnknown argument: -noupdate -ws gtk -os linux -arch x86\nBuildfile: test.xml\n\ne.g. see:\n\nhttp://download.eclipse.org/downloads/drops/N-N20040105-\n200401050010/testresults/consolelogs/linux.gtk_consolelog.txt",
+    "There are no changes to the -ws/-os/-arch/-nl planned.  They are still \nprocessed by the startup sequence.  The key here is whether or not that \nprocessing strips the args from the command line that is later passed to the \napplication (in this case the AntRunner).\n\nI\u0027m going to reopen this bug as we had to do some last minute backout at the \nend of M6 and we should ensure that it the current state is what we really want.\n\nsidenote/question: is SWT relying on looking at the command line?  How does \nthis work?\n",
+    "org.eclipse.swt does not depend on the scanning the command line arguments - \nit relies on core to find the jar and dlls and do the right thing.\n\nHwoever, SWT also owns platform-launcher so if there are changes to be made to \nhow the eclipse.exe operates, we need to know.",
+    "For headless use of the antRunner in the builds, replaced -ws, -os, -arch \nparameters to Main with vm args -Dosgi.ws\u003d$ws -Dosgi.os\u003d$os -Dosgi.arch\u003d$arch \nas workaround.",
+    "Believed to be fixed now.  Needs verification.",
+    "Does not appear to be fixed in I20040322(0800).  Will verify in the M8 test \ncandidate builds tomorrow.",
+    "Ok, so I think I have now actually gotten my act together and done this right.  \nTomorrow\u0027s integration build input should be good.  I may have missed an arg or \ntwo in the filtering.  It is proving very hard to track them all down",
+    "In the I20040323 (0010) build, I am able to execute specified targets in an \nAnt script using the following command:\n\n ~/jdk1.4.2_03/jre/bin/java -cp startup.jar org.eclipse.core.launcher.Main -os \nlinux -ws gtk -application org.eclipse.ant.core.antRunner test\n\nHowever, I also get the following stack trace:\n\norg.osgi.framework.BundleException: Exception in \norg.eclipse.core.internal.compatibility.PluginActivator.start()\n        at \norg.eclipse.osgi.framework.internal.core.BundleContext.startActivator\n(BundleContext.java:1009)\n        at org.eclipse.osgi.framework.internal.core.BundleContext.start\n(BundleContext.java:971)\n        at org.eclipse.osgi.framework.internal.core.BundleHost.startWorker\n(BundleHost.java:404)\n        at org.eclipse.osgi.framework.internal.core.Bundle.start\n(Bundle.java:304)\n        at org.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass\n(EclipseClassLoader.java:89)\n        at org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass\n(BundleLoader.java:315)\n        at org.eclipse.osgi.framework.internal.core.BundleLoader.findClass\n(BundleLoader.java:346)\n        at \norg.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass\n(AbstractClassLoader.java:116)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:235)\n        at org.eclipse.osgi.framework.internal.core.BundleLoader.loadClass\n(BundleLoader.java:251)\n        at org.eclipse.osgi.framework.internal.core.BundleHost.loadClass\n(BundleHost.java:332)\n        at org.eclipse.osgi.framework.internal.core.Bundle.loadClass\n(Bundle.java:1294)\n        at org.eclipse.core.internal.plugins.PluginClassLoader.findClass\n(PluginClassLoader.java:85)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:289)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:235)\n        at org.eclipse.ant.internal.core.AntClassLoader.loadClassPlugins\n(AntClassLoader.java:59)\n        at org.eclipse.ant.internal.core.AntClassLoader.findClass\n(AntClassLoader.java:33)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:289)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:235)\n        at org.eclipse.ant.core.AntRunner.run(AntRunner.java:476)\n        at org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:288)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:214)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:115)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n        at java.lang.reflect.Method.invoke(Method.java:324)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:315)\n        at org.eclipse.core.launcher.Main.run(Main.java:740)\n        at org.eclipse.core.launcher.Main.main(Main.java:724)\norg.eclipse.swt.SWTError: No more handles\n        at org.eclipse.swt.SWT.error(SWT.java:2651)\n        at org.eclipse.swt.SWT.error(SWT.java:2555)\n        at org.eclipse.swt.widgets.Display.createDisplay(Display.java:580)\n        at org.eclipse.swt.widgets.Display.create(Display.java:565)\n        at org.eclipse.swt.graphics.Device.\u003cinit\u003e(Device.java:113)\n        at org.eclipse.swt.widgets.Display.\u003cinit\u003e(Display.java:379)\n        at org.eclipse.swt.widgets.Display.\u003cinit\u003e(Display.java:375)\n        at org.eclipse.swt.widgets.Display.getDefault(Display.java:965)\n        at org.eclipse.swt.widgets.Display$1.run(Display.java:341)\n        at org.eclipse.swt.graphics.Device.getDevice(Device.java:86)\n        at org.eclipse.swt.graphics.Image.\u003cinit\u003e(Image.java:419)\n        at org.eclipse.jface.resource.ImageDescriptor.createImage\n(ImageDescriptor.java:169)\n        at org.eclipse.jface.resource.ImageDescriptor.createImage\n(ImageDescriptor.java:115)\n        at org.eclipse.jface.resource.ImageDescriptor.createImage\n(ImageDescriptor.java:97)\n        at \norg.eclipse.pde.internal.ui.editor.feature.FeatureAdapterFactory.\u003cinit\u003e\n(FeatureAdapterFactory.java:23)\n        at org.eclipse.pde.internal.ui.PDEPlugin.startup(PDEPlugin.java:193)\n        at org.eclipse.core.internal.compatibility.PluginActivator.start\n(PluginActivator.java:49)\n        at org.eclipse.osgi.framework.internal.core.BundleContext$1.run\n(BundleContext.java:992)\n        at java.security.AccessController.doPrivileged(Native Method)\n        at \norg.eclipse.osgi.framework.internal.core.BundleContext.startActivator\n(BundleContext.java:988)\n        at org.eclipse.osgi.framework.internal.core.BundleContext.start\n(BundleContext.java:971)\n        at org.eclipse.osgi.framework.internal.core.BundleHost.startWorker\n(BundleHost.java:404)\n        at org.eclipse.osgi.framework.internal.core.Bundle.start\n(Bundle.java:304)\n        at org.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass\n(EclipseClassLoader.java:89)\n        at org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass\n(BundleLoader.java:315)\n        at org.eclipse.osgi.framework.internal.core.BundleLoader.findClass\n(BundleLoader.java:346)\n        at \norg.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass\n(AbstractClassLoader.java:116)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:235)\n        at org.eclipse.osgi.framework.internal.core.BundleLoader.loadClass\n(BundleLoader.java:251)\n        at org.eclipse.osgi.framework.internal.core.BundleHost.loadClass\n(BundleHost.java:332)\n        at org.eclipse.osgi.framework.internal.core.Bundle.loadClass\n(Bundle.java:1294)\n        at org.eclipse.core.internal.plugins.PluginClassLoader.findClass\n(PluginClassLoader.java:85)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:289)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:235)\n        at org.eclipse.ant.internal.core.AntClassLoader.loadClassPlugins\n(AntClassLoader.java:59)\n        at org.eclipse.ant.internal.core.AntClassLoader.findClass\n(AntClassLoader.java:33)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:289)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:235)\n        at org.eclipse.ant.core.AntRunner.run(AntRunner.java:476)\n        at org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:288)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:214)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:115)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n        at java.lang.reflect.Method.invoke(Method.java:324)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:315)\n        at org.eclipse.core.launcher.Main.run(Main.java:740)\n        at org.eclipse.core.launcher.Main.main(Main.java:724)\n",
+    "I don\u0027t think the trace in comment 10 is not related to this issue.\n\nClosing.",
+    "Shouldn\u0027t that be M8?",
+    "I am marking all of the command line ones as M9 as the final changes just got \nreleased to HEAD and are not going in M8.  Much of this work is in M8 however."
+  ],
+  "commentCreationDates": [
+    "2003-12-17T02:47:09+01:00",
+    "2003-12-17T22:02:32+01:00",
+    "2004-01-06T15:28:34+01:00",
+    "2004-01-06T16:09:36+01:00",
+    "2004-01-06T16:29:58+01:00",
+    "2004-01-06T20:02:07+01:00",
+    "2004-02-13T20:10:28+01:00",
+    "2004-03-22T21:25:15+01:00",
+    "2004-03-22T23:36:47+01:00",
+    "2004-03-23T02:25:49+01:00",
+    "2004-03-23T14:54:01+01:00",
+    "2004-03-24T21:57:00+01:00",
+    "2004-03-24T21:58:16+01:00",
+    "2004-03-24T22:21:07+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.osgi.framework.BundleException",
+      "message": "Exception in  org.eclipse.core.internal.compatibility.PluginActivator.start()",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContext.startActivator",
+          "source": "BundleContext.java:1009"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContext.start",
+          "source": "BundleContext.java:971"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "BundleHost.java:404"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Bundle.start",
+          "source": "Bundle.java:304"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass",
+          "source": "EclipseClassLoader.java:89"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+          "source": "BundleLoader.java:315"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:346"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass",
+          "source": "AbstractClassLoader.java:116"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:235"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.loadClass",
+          "source": "BundleLoader.java:251"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.loadClass",
+          "source": "BundleHost.java:332"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Bundle.loadClass",
+          "source": "Bundle.java:1294"
+        },
+        {
+          "method": "org.eclipse.core.internal.plugins.PluginClassLoader.findClass",
+          "source": "PluginClassLoader.java:85"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:289"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:235"
+        },
+        {
+          "method": "org.eclipse.ant.internal.core.AntClassLoader.loadClassPlugins",
+          "source": "AntClassLoader.java:59"
+        },
+        {
+          "method": "org.eclipse.ant.internal.core.AntClassLoader.findClass",
+          "source": "AntClassLoader.java:33"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:289"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:235"
+        },
+        {
+          "method": "org.eclipse.ant.core.AntRunner.run",
+          "source": "AntRunner.java:476"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:288"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:214"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:115"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:315"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:740"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:724"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 10,
+      "bugId": "48937",
+      "date": "2004-03-23T14:54:01+01:00",
+      "product": "Equinox",
+      "component": "Incubator",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "No more handles",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2651"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2555"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.createDisplay",
+          "source": "Display.java:580"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.create",
+          "source": "Display.java:565"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Device.\u003cinit\u003e",
+          "source": "Device.java:113"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.\u003cinit\u003e",
+          "source": "Display.java:379"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.\u003cinit\u003e",
+          "source": "Display.java:375"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.getDefault",
+          "source": "Display.java:965"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display$1.run",
+          "source": "Display.java:341"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Device.getDevice",
+          "source": "Device.java:86"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.\u003cinit\u003e",
+          "source": "Image.java:419"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageDescriptor.createImage",
+          "source": "ImageDescriptor.java:169"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageDescriptor.createImage",
+          "source": "ImageDescriptor.java:115"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageDescriptor.createImage",
+          "source": "ImageDescriptor.java:97"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.editor.feature.FeatureAdapterFactory.\u003cinit\u003e",
+          "source": "FeatureAdapterFactory.java:23"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.PDEPlugin.startup",
+          "source": "PDEPlugin.java:193"
+        },
+        {
+          "method": "org.eclipse.core.internal.compatibility.PluginActivator.start",
+          "source": "PluginActivator.java:49"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContext$1.run",
+          "source": "BundleContext.java:992"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContext.startActivator",
+          "source": "BundleContext.java:988"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContext.start",
+          "source": "BundleContext.java:971"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "BundleHost.java:404"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Bundle.start",
+          "source": "Bundle.java:304"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass",
+          "source": "EclipseClassLoader.java:89"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+          "source": "BundleLoader.java:315"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:346"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass",
+          "source": "AbstractClassLoader.java:116"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:235"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.loadClass",
+          "source": "BundleLoader.java:251"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.loadClass",
+          "source": "BundleHost.java:332"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Bundle.loadClass",
+          "source": "Bundle.java:1294"
+        },
+        {
+          "method": "org.eclipse.core.internal.plugins.PluginClassLoader.findClass",
+          "source": "PluginClassLoader.java:85"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:289"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:235"
+        },
+        {
+          "method": "org.eclipse.ant.internal.core.AntClassLoader.loadClassPlugins",
+          "source": "AntClassLoader.java:59"
+        },
+        {
+          "method": "org.eclipse.ant.internal.core.AntClassLoader.findClass",
+          "source": "AntClassLoader.java:33"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:289"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:235"
+        },
+        {
+          "method": "org.eclipse.ant.core.AntRunner.run",
+          "source": "AntRunner.java:476"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:288"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:214"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:115"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:315"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:740"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:724"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 10,
+      "bugId": "48937",
+      "date": "2004-03-23T14:54:01+01:00",
+      "product": "Equinox",
+      "component": "Incubator",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "48937",
+  "bugId": "48937",
+  "date": "2003-12-17T02:47:09+01:00",
+  "product": "Equinox",
+  "component": "Incubator",
+  "severity": "normal"
+}

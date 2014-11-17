@@ -1,0 +1,88 @@
+{
+  "comments": [
+    "Hi,\n\nwe have a class with this code:\n\n-----------\nprotected javax.swing.tree.TreeCellEditor createTreeCellEditor() {\n\tjavax.swing.border.Border oBorder \u003d\n\t\t\tjavax.swing.UIManager.getBorder(\"Tree.editorBorder\");\n\tZFavoriteTree.CellEditor oEditor \u003d ZFavoriteTree.this.new CellEditor(\n\t\t\tTreeCellEditor.this.new DefaultTextField(oBorder)\n\t) {\n\t\tpublic boolean shouldSelectCell(java.util.EventObject oEvent) {\n\t\t\tboolean retValue \u003d super.shouldSelectCell(oEvent);\n\t\t\tgetComponent().requestFocus();\n\t\t\treturn retValue;\n\t\t}\n\t};\n\treturn oEditor;\n};\n-----------\n\nThe method is part of an inner protected class \u0027TreeCellEditor\u0027 of the class\n\u0027ZFavoriteTree\u0027. The class \u0027CellEditor\u0027 is an inner protected class of the\n\u0027ZFavoriteTree\u0027, too.\n\nIf we compile this with the sun jdk 1.3.1_03 it works. But compiled with the\neclipse compiler we get a NullPointerException in the line where the CellEditor\nis being created. If we change the code to\n\n-----------\nprotected javax.swing.tree.TreeCellEditor createTreeCellEditor() {\n\tjavax.swing.border.Border oBorder \u003d\n\t\t\tjavax.swing.UIManager.getBorder(\"Tree.editorBorder\");\n\tZFavoriteTree.CellEditor oEditor \u003d new CellEditor(\n\t\t\tnew DefaultTextField(oBorder)\n\t) {\n\t\tpublic boolean shouldSelectCell(java.util.EventObject oEvent) {\n\t\t\tboolean retValue \u003d super.shouldSelectCell(oEvent);\n\t\t\tgetComponent().requestFocus();\n\t\t\treturn retValue;\n\t\t}\n\t};\n\treturn oEditor;\n};\n-----------\n\nand compile it then with the eclipse compiler, it works. It seems to be a\nproblem with the code generation of the eclipse compiler.\n\nBTW: The bug is in build M2 too.\n\nBest,\n\nMichael",
+    "Could you provide a complete test case with all sources for types involved \nhere ? Trying to reproduce I actually found another defect (bug 25229), but \ncould not reproduce yours.",
+    "I am guessing this has to do with the fact that the offending code is run \ndynamically through a constructor invocation.\n\nThe enclosing instance (ZFavoriteTree.this) isn\u0027t bound yet (remember it is \naccessible through synthetic instance slot this$N). \n\nOur codegen is ensuring a null check is performed on the enclosing instance \nwhen it is passed to an allocation expression.\n\nCan you for instance print the value of ZFavoriteTree.this prior to perform the \ncall and see whether it is null at that stage ?\n\nWe ensure the enclosing instance is non null, as expected by the spec (javac \n1.4 also checks for this). However, once 1.4 compliance is enabled, our \ncompiler will ensure the enclosing instance is non null at that point (since \n1.4 VMs are no longer blocking us from doing the right thing - initialize \nsynthetic slots before super constructor invocation; 1.3 VMs were incorrectly \nreporting a verification error).\n\nNow, we might want to be a little more resilient for backward compatibility \nreason... \n\n",
+    "If my guess is right, then this small test case should reproduce what you are \nseeing:\n\npublic class X {\n\tpublic static void main(String[] arguments) {\n\t\tnew X().new X2();\n\t}\n\tclass X1 {\n\t\tX1(){\n\t\t\tthis.baz();\n\t\t}\n\t\tvoid baz() {\n\t\t\tSystem.out.println(\"X1.baz()\");\n\t\t}\n\t}\n\tclass X2 extends X1 {\n\t\tvoid baz() {\n\t\t\tSystem.out.println(\"X.this\u003d\"+X.this);\n\t\t\tX1 x1 \u003d X.this.new X1(){\n\t\t\t\tvoid baz(){\n\t\t\t\t\tSystem.out.println(\"X$1.baz()\");\n\t\t\t\t}\n\t\t\t};\n\t\t}\t\t\n\t}\n}\n\n- using Eclipse compiler in 1.3 compliant mode\nX.this\u003dnull\nException in thread \"main\" java.lang.NullPointerException\n        at X$X2.baz(Unknown Source)\n        at X$X1.\u003cinit\u003e(Unknown Source)\n        at X$X2.\u003cinit\u003e(Unknown Source)\n        at X.main(Unknown Source)\n   --\u003e non-initialized, ensure enclosing instance is non-null as spec\u0027ed.\n\n- using Javac 1.3.1\nX.this\u003dnull\nX$1.baz()\n   --\u003e non-initialized, but no NPE until actually used\n\n- using Javac 1.4.1b18\nX.this\u003dnull\nException in thread \"main\" java.lang.NullPointerException\n        at X$1.\u003cinit\u003e(X.java:19)\n        at X$X2.baz(X.java:18)\n        at X$X1.\u003cinit\u003e(X.java:8)\n        at X$X2.\u003cinit\u003e(X.java:15)\n        at X.main(X.java:4)\n   --\u003e they added the null check, but did not fix the codegen to initialize\n       correctly synthetics yet (same behavior as our 1.3 mode)\n\n- using Eclipse compiler in 1.3 compliant mode\nX.this\u003dX@17182c1\nX$1.baz()\n\n   --\u003e synthetic is correctly initialized, null check is in, but now it is fine.\n       (could verify null check is in by using a null enclosing instance \ninstead).\n\n\nWill ensure our 1.3 mode is compliant with javac 1.3. Indeed, this behavior is \nsound given the VM constraint can make this happen legitimately.\n\nPlease confirm this is what you are experiencing.",
+    "Last test case should have read \"using Eclipse compiler in 1.4 compliant mode\"",
+    "Posted patch did solve the reporter\u0027s problem.\n\nFixed (by no longer doing the null check in 1.3 compliant mode).",
+    "Verified."
+  ],
+  "commentCreationDates": [
+    "2002-10-22T14:02:32+02:00",
+    "2002-10-23T11:08:24+02:00",
+    "2002-10-23T12:11:14+02:00",
+    "2002-10-23T12:31:58+02:00",
+    "2002-10-23T13:27:09+02:00",
+    "2002-10-25T11:25:10+02:00",
+    "2002-11-14T12:08:07+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "X$X2.baz",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "X$X1.\u003cinit\u003e",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "X$X2.\u003cinit\u003e",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "X.main",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 3,
+      "bugId": "25174",
+      "date": "2002-10-23T12:31:58+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "X$1.\u003cinit\u003e",
+          "source": "X.java:19"
+        },
+        {
+          "method": "X$X2.baz",
+          "source": "X.java:18"
+        },
+        {
+          "method": "X$X1.\u003cinit\u003e",
+          "source": "X.java:8"
+        },
+        {
+          "method": "X$X2.\u003cinit\u003e",
+          "source": "X.java:15"
+        },
+        {
+          "method": "X.main",
+          "source": "X.java:4"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 3,
+      "bugId": "25174",
+      "date": "2002-10-23T12:31:58+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "major"
+    }
+  ],
+  "groupId": "25174",
+  "bugId": "25174",
+  "date": "2002-10-22T14:02:32+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "major"
+}

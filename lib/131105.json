@@ -1,0 +1,334 @@
+{
+  "comments": [
+    "Stumbled on this problem when copying/moving resources between local and remote filesystems. Copying or moving a file from a project on a remote filesystem to a project on a local filesystem results in a source does not exist error; vice-versa produces a destination does not exist; nonlocal to nonlocal produces a destination does not exist.\n\nPartial stacktrace:\nMoveFilesAndFoldersOperation(CopyFilesAndFoldersOperation).validateDestinationLocation(IContainer) line: 1428\nMoveFilesAndFoldersOperation(CopyFilesAndFoldersOperation).validateDestination(IContainer, IResource[]) line: 1357\nMoveFilesAndFoldersOperation.validateDestination(IContainer, IResource[]) line: 217\nResourceNavigatorMoveAction(CopyResourceAction).isValid(Object) line: 166\n...\n\nRemark that all destination validation in these UI classes use IResource.getLocation() which is only usable for resources on the local filesystem. Because of this, it is impossible to seamlessly integrate local and nonlocal resources.\n\nI am using org.eclipse.ui.ide_3.2.0.I20060216-1200.jar but according to public CVS nothing has yet changed in the use of getLocation().",
+    "Also see Bug 130398",
+    "Bert would you mind checking in a build \u003e20060317 (or with HEAD). I think Bug 130398 may have addressed this for you.\n\nThanks in advance",
+    "Verified with org.eclipse.ui.ide_3.2.0.N20060319-0010.jar\nThe problem is not solved: org.eclipse.ui.actions.MoveFilesAndFoldersOperation#validateDestination(IContainer, IResource[]) still uses IContainer#getLocation().\n",
+    "Created an attachment (id\u003d36630)\nProposed patch\n\nHere is a proposed patch. I\u0027ll need a remote file system to verify this with before I release it - in the meantime if you could try it out Bert and let me know if I missed anything I would be most appreciative.",
+    "Adding John for some insight in verifying this.",
+    "The problem is now shifted towards CopyFilesAndFoldersOperation#validateDestination(IContainer, IResource[]): this method calls validateDestinationLocation(IContainer) which in turn uses IResource#getLocation().\n\nAnother problem is the approach to construct a Path from the destination URI: this URI can (and in my case does) contain queries which are returned in the .toString() method. Hence, when appending the source filename to the destination Path, I get results similar to \"http://host/sub1/sub2?option\u003dvalue/filename.ext\".\n\nNote that using .getPath() instead of .toString() will not suffice: source and destination comparison must include scheme, host and port as well, as it must be possible to copy/move resources between hosts, even when source and destination path are the same; or between services running on the same host, using different ports; I cannot think of a usecase for the scheme part at the moment.",
+    "Tod: I have released a writable file system example to org.eclipse.ui.examples.filesystem - it is a file system that is stored completely in memory",
+    "John I am still having the following problem with the zip example on validation\n\n\nA URI from zip:/D:/temp/3.2M6-news.zip\n\ngenerates \n\n!ENTRY org.eclipse.ui 4 0 2006-03-31 10:14:13.312\n!MESSAGE java.lang.NullPointerException\n!STACK 0\njava.lang.NullPointerException\n\tat java.net.URI$Parser.parse(URI.java:2946)\n\tat java.net.URI.\u003cinit\u003e(URI.java:574)\n\tat org.eclipse.core.internal.filesystem.zip.ZipFileSystem.getStore(ZipFileSystem.java:33)\n\tat org.eclipse.core.internal.filesystem.InternalFileSystemCore.getStore(InternalFileSystemCore.java:107)\n\tat org.eclipse.core.filesystem.EFS.getStore(EFS.java:296)\n\tat org.eclipse.core.filesystem.URIUtil.equals(URIUtil.java:42)\n\tat org.eclipse.core.internal.resources.LocationValidator.validateProjectLocationURI(LocationValidator.java:361)\n\tat org.eclipse.core.internal.resources.Workspace.validateProjectLocationURI(Workspace.java:2007)\n\tat org.eclipse.ui.dialogs.WizardNewProjectCreationPage.validatePage(WizardNewProjectCreationPage.java:307)\n\tat org.eclipse.ui.dialogs.WizardNewProjectCreationPage$2.reportError(WizardNewProjectCreationPage.java:128)\n\tat org.eclipse.ui.internal.ide.dialogs.ProjectContentsLocationArea$3.modifyText(ProjectContentsLocationArea.java:229)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:196)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:925)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:949)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:930)\n\tat org.eclipse.swt.widgets.Text.wmCommandChild(Text.java:2143)\n\tat org.eclipse.swt.widgets.Control.WM_COMMAND(Control.java:3375)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:3249)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:4023)\n\tat org.eclipse.swt.internal.win32.OS.CallWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.CallWindowProc(OS.java:1803)\n\tat org.eclipse.swt.widgets.Text.callWindowProc(Text.java:131)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:3334)\n\tat org.eclipse.swt.widgets.Text.windowProc(Text.java:1841)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:4023)\n\tat org.eclipse.swt.internal.win32.OS.SetWindowTextW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.SetWindowText(OS.java:2583)\n\tat org.eclipse.swt.widgets.Text.setText(Text.java:1657)\n\tat org.eclipse.ui.internal.ide.dialogs.ProjectContentsLocationArea.updateLocationField(ProjectContentsLocationArea.java:321)\n\tat org.eclipse.ui.internal.ide.dialogs.ProjectContentsLocationArea.handleLocationBrowseButtonPressed(ProjectContentsLocationArea.java:311)\n\tat org.eclipse.ui.internal.ide.dialogs.ProjectContentsLocationArea.access$6(ProjectContentsLocationArea.java:301)\n\tat org.eclipse.ui.internal.ide.dialogs.ProjectContentsLocationArea$2.widgetSelected(ProjectContentsLocationArea.java:204)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:90)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:925)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3346)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2966)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:820)\n\tat org.eclipse.jface.window.Window.open(Window.java:796)\n\tat org.eclipse.ui.actions.NewProjectAction.run(NewProjectAction.java:116)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:499)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:539)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:488)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:400)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:925)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3346)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2966)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1914)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1878)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:169)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)\n",
+    "Sorry should have been in Bug 133867",
+    "Bert\n\nJohn has written an in memory example and I am having no trouble with it in M6. The validation is done if there is no location only so it should be no problem for you.\n\nHere is the code from MoveFilesAndFoldersOperation\n\nif (destinationLocation !\u003d null) {\n                IPath sourceLocation \u003d sourceResource.getLocation();\n                IPath destinationResource \u003d destinationLocation\n                        .append(sourceResource.getName());\n                if (sourceLocation !\u003d null\n                        \u0026\u0026 sourceLocation.isPrefixOf(destinationResource)) {\n                    return NLS.bind(IDEWorkbenchMessages.MoveFilesAndFoldersOperation_sameSourceAndDest, sourceResource.getName());\n                }\n            }\n\nI will attach a team project set with Johns example.",
+    "Marking as FIXED",
+    "I\u0027m sorry for it taking a while to get back to you, but it seems there is still an error.\nNow I can copy/move any resource to a local location, but I can\u0027t copy/move anything to a remote location.\n\nCopyFilesAndFoldersOperation#validateDestinationLocation(IContainer) still uses getLocation(), which returns null for a remote destination. As a result, an IDEWorkbenchMessages.CopyFilesAndFoldersOperation_resourceDeleted message is returned (\u0027destination does not exist\u0027). This is the problem from Comment #6.\n\nI have used a recently checked out version of org.eclipse.ui.ide (using CopyFilesAndFoldersOperation.java v1.22).",
+    "I can replicate Berts situation by doing the following\n\n1) Create a regular project and a remote one (I used the in memory example - I\u0027ll attach a team project set here).\n\n2) Copy something in the regular project and paste it into the in memory one.\n\nI will attach a patch that I would like you to try Bert - basically I removed the calls to the method that checks for a null destination. I would feel better if you verified that this covers your case as well.\n\nAs this was (incompletely) fixed in RC1 I\u0027ll mark it RC2 and release the patch for tomorrows test pass.",
+    "Created an attachment (id\u003d39315)\nUpdated patch\n\n",
+    "Marking FIXED",
+    "Seems to be solved indeed.\nremote-\u003eremote works\nremote-\u003elocal works\nlocal-\u003eremote works",
+    "Cheers Bert.",
+    "Created an attachment (id\u003d39416)\nTeam project set for the example\n\n",
+    "Verified in 20060426"
+  ],
+  "commentCreationDates": [
+    "2006-03-09T15:38:30+01:00",
+    "2006-03-10T14:20:20+01:00",
+    "2006-03-17T20:07:02+01:00",
+    "2006-03-20T10:29:47+01:00",
+    "2006-03-20T21:09:55+01:00",
+    "2006-03-20T21:10:22+01:00",
+    "2006-03-21T09:33:09+01:00",
+    "2006-03-29T16:53:10+02:00",
+    "2006-03-31T16:17:17+02:00",
+    "2006-03-31T16:18:04+02:00",
+    "2006-04-06T19:48:20+02:00",
+    "2006-04-07T22:50:31+02:00",
+    "2006-04-24T17:37:33+02:00",
+    "2006-04-24T20:08:35+02:00",
+    "2006-04-24T20:09:19+02:00",
+    "2006-04-24T20:34:31+02:00",
+    "2006-04-25T11:57:18+02:00",
+    "2006-04-25T15:16:30+02:00",
+    "2006-04-25T17:20:58+02:00",
+    "2006-04-26T19:31:27+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "java.net.URI$Parser.parse",
+          "source": "URI.java:2946"
+        },
+        {
+          "method": "java.net.URI.\u003cinit\u003e",
+          "source": "URI.java:574"
+        },
+        {
+          "method": "org.eclipse.core.internal.filesystem.zip.ZipFileSystem.getStore",
+          "source": "ZipFileSystem.java:33"
+        },
+        {
+          "method": "org.eclipse.core.internal.filesystem.InternalFileSystemCore.getStore",
+          "source": "InternalFileSystemCore.java:107"
+        },
+        {
+          "method": "org.eclipse.core.filesystem.EFS.getStore",
+          "source": "EFS.java:296"
+        },
+        {
+          "method": "org.eclipse.core.filesystem.URIUtil.equals",
+          "source": "URIUtil.java:42"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.LocationValidator.validateProjectLocationURI",
+          "source": "LocationValidator.java:361"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.validateProjectLocationURI",
+          "source": "Workspace.java:2007"
+        },
+        {
+          "method": "org.eclipse.ui.dialogs.WizardNewProjectCreationPage.validatePage",
+          "source": "WizardNewProjectCreationPage.java:307"
+        },
+        {
+          "method": "org.eclipse.ui.dialogs.WizardNewProjectCreationPage$2.reportError",
+          "source": "WizardNewProjectCreationPage.java:128"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.dialogs.ProjectContentsLocationArea$3.modifyText",
+          "source": "ProjectContentsLocationArea.java:229"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:196"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:925"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:949"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:930"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.wmCommandChild",
+          "source": "Text.java:2143"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_COMMAND",
+          "source": "Control.java:3375"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3249"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:4023"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.CallWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.CallWindowProc",
+          "source": "OS.java:1803"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.callWindowProc",
+          "source": "Text.java:131"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3334"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.windowProc",
+          "source": "Text.java:1841"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:4023"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.SetWindowTextW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.SetWindowText",
+          "source": "OS.java:2583"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.setText",
+          "source": "Text.java:1657"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.dialogs.ProjectContentsLocationArea.updateLocationField",
+          "source": "ProjectContentsLocationArea.java:321"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.dialogs.ProjectContentsLocationArea.handleLocationBrowseButtonPressed",
+          "source": "ProjectContentsLocationArea.java:311"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.dialogs.ProjectContentsLocationArea.access$6",
+          "source": "ProjectContentsLocationArea.java:301"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.dialogs.ProjectContentsLocationArea$2.widgetSelected",
+          "source": "ProjectContentsLocationArea.java:204"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:90"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:925"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3346"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2966"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:820"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:796"
+        },
+        {
+          "method": "org.eclipse.ui.actions.NewProjectAction.run",
+          "source": "NewProjectAction.java:116"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:499"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:539"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:488"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:925"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3346"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2966"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1914"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1878"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:169"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 8,
+      "bugId": "131105",
+      "date": "2006-03-31T16:17:17+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "131105",
+  "bugId": "131105",
+  "date": "2006-03-09T15:38:30+01:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

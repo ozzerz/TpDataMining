@@ -1,0 +1,53 @@
+{
+  "comments": [
+    "I\u0027m using Tomcat 5.5.15, which uses JDT 3.1 (if I\u0027m correctly informed).\n\nI\u0027ve got the following awfully simple JSP:\n---------------------------------------------\n\u003c%@ page import\u003d\"java.util.Arrays,java.util.Comparator\" %\u003e\n\u003c%\n  MyClass[] list \u003d new MyClass[2];\n  list[0] \u003d new MyClass();\n  list[1] \u003d new MyClass();\n  Arrays.sort(list,new Comparator\u003cMyClass\u003e()\n            {\n              public int compare(MyClass mo1, MyClass mo2)\n              {\n                return -1; // whatever\n              }\n            });\n%\u003e\n\u003c%!\n  public class MyClass\n  {\n    String text \u003d \"blah\";\n    public String getText() { return text; }\n  }\n%\u003e\n---------------------------------------------\nIt compiles fine, but when executed it crashes like this:\n\njava.lang.AbstractMethodError: org.apache.jsp.error_jsp$1.compare\n(Ljava/lang/Object;Ljava/lang/Object;)I\n\tat java.util.Arrays.mergeSort(Arrays.java:1284)\n\tat java.util.Arrays.sort(Arrays.java:1223)\n\tat org.apache.jsp.error_jsp._jspService(org.apache.jsp.error_jsp:64)\n        ...more...\n\nAt first I thought it\u0027s a JDK error, but when I replace Tomcat\u0027s jasper-\ncompiler-jdt.jar by an Ant-compiler jar, the code runs fine !!\n\nThe above code also runs fine when I replace \"MyClass\" by \"Object\" in the \nComparator definition, but this is ofcourse not what Java 5 is about :-)\n\nI\u0027ve already updated to Suns latest JDK 1.5.0_06, but that didn\u0027t change anything.\n\nOf course I\u0027ve correctly instructed Tomcat to support Java 1.5 code. All my other JSPs are stuffed with Java 1.5 specific code and compile/run fine.\n\nI first reported this bug to the Tomcat people, but they told me to file the bug here as it appears to be a JDT bug.\nSee: http://issues.apache.org/bugzilla/show_bug.cgi?id\u003d38389\n\nThis bug already existed in Tomcat 5.5.12, but I don\u0027t know which JDT-version it used.\n\nAny clues? Tanx!",
+    "Could you please provide steps to debug the code within Tomcat?\nI tried to reproduce inside a compilation unit and I could not.\n\nThanks.",
+    "The problem comes from the fact that the bridge method is missing in the anonymous class corresponding to the new Comparator\u003cMyClass\u003e { ... }.\nI tried to reproduce outside of Tomcat unsuccessfully.\nI will continue to investigate to understand the cause of the failure.",
+    "The problem comes from the way the org.apache.jasper.compiler.JDTCompiler is defined.\nIt sets the compiler options, but it forgot to set the compliance.\nI patched the org/apache/jasper/compiler/JDTCompiler.class in jasper-compiler.jar by adding the following line:\n\n        settings.put(CompilerOptions.OPTION_Compliance,\n                CompilerOptions.VERSION_1_5);\n\nAfter the target and the source options have been set. If you consider that Tomcat is always running as a 1.5 compiler with 1.5 libraries, you might always want to set the compliance value to 1.5. If you want to compile 1.4 code using 1.4 libraries, then you might want to set the compliance according to the values of the source and the target platform.\n\nWith this patch, I could run the jsp that you provided. So the problem is not directly coming from the jdt compiler. It comes from the way the compiler is called in org.apache.jasper.compiler.JDTCompiler. The options passed to the compiler are incomplete.",
+    "I have fix it,\n\nMany thanks to find this\nPeter\n",
+    "I wonder if we shouldn\u0027t be smarter, and notice incompatible compliance (1.4) and source level (1.5); like we do in batch mode.",
+    "Closing as INVALID.\nFix was done in Tomcat source code to set the compliance."
+  ],
+  "commentCreationDates": [
+    "2006-01-25T21:21:18+01:00",
+    "2006-01-25T21:33:30+01:00",
+    "2006-01-26T03:19:03+01:00",
+    "2006-01-26T04:22:41+01:00",
+    "2006-01-26T07:08:22+01:00",
+    "2006-01-26T13:55:44+01:00",
+    "2006-01-26T15:54:03+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.AbstractMethodError",
+      "message": "org.apache.jsp.error_jsp$1.compare (Ljava/lang/Object;Ljava/lang/Object;)I",
+      "elements": [
+        {
+          "method": "java.util.Arrays.mergeSort",
+          "source": "Arrays.java:1284"
+        },
+        {
+          "method": "java.util.Arrays.sort",
+          "source": "Arrays.java:1223"
+        },
+        {
+          "method": "org.apache.jsp.error_jsp._jspService",
+          "source": "org.apache.jsp.error_jsp:64"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "125254",
+      "date": "2006-01-25T21:21:18+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "125254",
+  "bugId": "125254",
+  "date": "2006-01-25T21:21:18+01:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

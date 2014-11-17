@@ -1,0 +1,85 @@
+{
+  "comments": [
+    "The following code demonstrates two problems with mapped positions:\n\n  1) position at end of source gets mapped to 0\n  2) positions are not mapped correctly if the source contains\n     multi-line comments.\n\nFor 2), it seems that the wrong offset of a position is equal to the number of \nline delimiters in the multi-line comment. I will workaround this by escaping \nmulti-line comments with single-line comments, but it would be nice to have \nthis fixed.\n\n---8\u003c--- source ---8\u003c---\n\nimport org.eclipse.jdt.internal.formatter.CodeFormatter;\n\npublic class CodeFormatterBug {\n\n\tprivate static void print(String string, int[] positions) {\n\t\tfor (int i\u003d 0; i \u003c positions.length; i++)\n\t\t\tSystem.out.print(positions[i] + \" \");\t\t\t\n\t\tSystem.out.println(\"\");\n\n\t\tfor (int i\u003d 0; i \u003c positions.length - 1; i++) {\n\t\t\tSystem.out.print(\"#\"); // mark position\t\t\t\n\t\t\t\n\t\t\tSystem.out.print(string.substring(positions[i], \npositions[i + 1]));\n\t\t}\n\t}\n\n\tpublic static void main(String arguments[]) {\n\t\tString string\u003d\n\t\t\t\"/**\\n\" +\n\t\t\t\" * foo\\n\" +\n\t\t\t\" */\\n\" +\n\t\t\t\"Foo Bar\\n\" +\n\t\t\t\"blah blah\\n\";\n\t\t\n\t\tint[] positions\u003d {\n\t\t\t0,\n\t\t\tstring.indexOf(\"foo\"),\t\n\t\t\tstring.indexOf(\"Foo\"),\t\n\t\t\tstring.indexOf(\"Bar\"),\n\t\t\tstring.length()\n\t\t};\n\t\n\t\tCodeFormatter formatter\u003d new CodeFormatter();\n\t\t\n\t\tSystem.out.println(\"before:\");\n\t\tprint(string, positions);\n\t\t\t\t\n\t\tformatter.setPositionsToMap(positions);\n\t\tstring\u003d formatter.formatSourceString(string);\t\t\n\t\tpositions\u003d formatter.getMappedPositions();\n\n\t\tSystem.out.println(\"after:\");\n\t\tprint(string, positions);\t\t\n\t}\n}\n\n---8\u003c--- output ---8\u003c---\n\nbefore:\n0 7 15 19 33 \n#/**\n * #foo\n */\n#Foo #Bar\nblah blah\nafter:\n0 12 20 24 0 \n#/**\n * foo\n#\n */\nFo#o Ba#java.lang.StringIndexOutOfBoundsException: String index out of range: -\n24\n\tat java.lang.String.substring(String.java:1504)\n\tat CodeFormatterBug.print(CodeFormatterBug.java:12)\n\tat CodeFormatterBug.main(CodeFormatterBug.java:42)\nException in thread \"main\"",
+    "Additional information:\n\nI need this feature to support multi-line comments in templates. I\u0027d like\nto create templates for e.g. public methods:\n\n/**\n *\n */\npublic ${return_type} ${name}(${arguments}) {\n    ${cursor}\n}\n\nRight now, I have no good way to catch this situation.",
+    "Fix done in the CodeFormatter class. Several problems were found with the \nmultiple lines comments.\nAll code formatter tests passed.",
+    "I was wrong with my verification. The bug is not fixed. I run the program above \nagain and got the same result.",
+    "The fix is done only in HEAD. It hasn\u0027t been integrated in any build yet. If you \nwant me to set it up on your machine let me know. You simply need to replace the \nCodeFormatter file.",
+    "Oh, I see. Can you send me the file, or would it be already in the build\n20011114?",
+    "Unfortunately it seems that this fix is not included in the 20011115 build \naccording to the release note. I will send you the file. It is only one class to \nchange. You need to patch  your jdtcore.jar file in your install.",
+    "I have problems testing because of another bug. It seems the fixed \nCodeFormatter is still not in the repository. When is it going to be released?\n",
+    "Ok, I can verify that the CodeFormatter is fixed for the test case. Still \nwaiting for it to be checked into the repository... :)",
+    "According to the build notes provided for the next integration build (20011120), \nit should be included in this build. It should be available this afternoon \n(Ottawa\u0027s time).\n",
+    "Unfortunately, I found another test case, where positions are not mapped \ncorrectly. The position in front of comment gets mapped into the comment.\nNote that if you remove the last line, the mapped position is correct.\n\n---8\u003c---\n\npackage foo;\n\nimport org.eclipse.jdt.internal.formatter.CodeFormatter;\n\npublic class CodeFormatterBug2 {\n\n\tprivate static void print(String string, int[] positions) {\n\t\tfor (int i\u003d 0; i \u003c positions.length; i++)\n\t\t\tSystem.out.print(positions[i] + \" \");\t\t\t\n\t\tSystem.out.println(\"\");\n\n\t\tfor (int i\u003d 0; i \u003c positions.length - 1; i++) {\n\t\t\tSystem.out.print(\"#\"); // mark position\t\t\t\n\t\t\t\n\t\t\tSystem.out.print(string.substring(positions[i], \npositions[i + 1]));\n\t\t}\n\t}\n\n\tpublic static void main(String arguments[]) {\n\t\tString string\u003d\n\t\t\t\"foo\\n\" +\n\t\t\t\"/*${cursor}*/\\n\" +\n\t\t\t\"Foo\\n\"; // bug doesn\u0027t occur if you remove this line\n\t\t\n\t\tint[] positions\u003d {\n\t\t\t0,\n\t\t\tstring.indexOf(\"/\"),\t\n\t\t\tstring.length()\n\t\t};\n\t\n\t\tCodeFormatter formatter\u003d new CodeFormatter();\n\t\t\n\t\tSystem.out.println(\"before:\");\n\t\tprint(string, positions);\n\t\t\t\t\n\t\tformatter.setPositionsToMap(positions);\n\t\tstring\u003d formatter.formatSourceString(string);\t\t\n\t\tpositions\u003d formatter.getMappedPositions();\n\n\t\tSystem.out.println(\"after:\");\n\t\tprint(string, positions);\n\t\t\n\t\twhile(true);\n\t}\n}\n\n---8\u003c--- output ---\nbefore:\n0 4 22 \n#foo\n#/*${cursor}*/\nFoo\nafter:\n0 6 23 \n#foo\n/#*${cursor}*/\nFoo",
+    "This is a issue with the line separator. When the line separator (\\n) is \nconsumed after the foo token it is replaced by \\r\\n which contains an extra \ncharacter. The offset is actually one and not two. Right now I take two instead \nof one and this explain the offset of one.\nI am looking at a way to set properly the offset between formatted source and \noriginal source. If you change your test case to set the line separator of the \ncode formatter to be \\n, then the positions are right even if you keep the last \nline.\n",
+    "This problem did not occure befor the other bug fix. Was it some coincidence \nthat it happened to work?\n\nI\u0027ll use the workaround of specifying the same line delimiter used in the \nstring for now.",
+    "Yes, this was a side-effect. But before the formatter could never map properly \nif the line delimiter has 2 characters and the string you want to format \ncontained only one character line delimiter and the string contained a multiple \nline comment and it was a coincidence that this code was formatted properly. \nThat change had to be done.\nI found the problem. I simply forgot to map the positions inside the comment in \ncase there is not line delimiters in the comment. I fixed it, but I have trouble \nto run the tests inside my 20011116 workspace. As soon as I can do it and I \ndon\u0027t find any regression, I release it.\n",
+    "The fix is released in HEAD. I don\u0027t know when it will be integrated in a build.\n",
+    "It\u0027s me again :-)\n\nI have a case where the position before a multi-byte line-break ends up\nbeing inside a multi-byte line-break. This has severe consequences when\nused as a selection in a StyledText. Although I think StyledText should\nnot choke on selection inside multi-byte line-breaks, the CodeFormatter\nshould not produce these off-by-one positions... So far, this only\nhappened within a multi-line comment.\n\n---8\u003e---\n\npackage foo;\n\nimport org.eclipse.jdt.internal.formatter.CodeFormatter;\n\npublic class CodeFormatterBug3 {\n\n\tprivate static void print(String string, int[] positions) {\n\t\tfor (int i\u003d 0; i \u003c positions.length; i++)\n\t\t\tSystem.out.print(positions[i] + \" \");\t\t\t\n\t\tSystem.out.println(\"\");\n\n\t\tfor (int i\u003d 0; i \u003c positions.length - 1; i++) {\n\t\t\tSystem.out.print(\"#\"); // mark position\t\t\t\n\t\t\t\n\t\t\tSystem.out.print(string.substring(positions[i], \npositions[i + 1]));\n\t\t}\n\t}\n\n\tpublic static void main(String arguments[]) {\n\t\tString string\u003d\n\t\t\t\"foo\\r\\n\" +\n\t\t\t\"/**X\\r\\n\" +\n\t\t\t\" * foo\\r\\n\" +\n\t\t\t\" */\\r\\n\" +\n\t\t\t\"bar\";\n\t\t\n\t\tint[] positions\u003d {\n\t\t\t0,\n\t\t\tstring.indexOf(\"X\") + 1,\t\n\t\t\tstring.length()\n\t\t};\n\t\n\t\tCodeFormatter formatter\u003d new CodeFormatter();\n\t\t\n\t\tSystem.out.println(\"before:\");\n\t\tprint(string, positions);\n\t\t\t\t\n\t\tformatter.setPositionsToMap(positions);\n\t\tstring\u003d formatter.formatSourceString(string);\t\t\n\t\tpositions\u003d formatter.getMappedPositions();\n\n\t\tSystem.out.println(\"after:\");\n\t\tprint(string, positions);\n\t}\n}\n\n---8\u003c---output---\n\nbefore:\n0 9 27 \n#foo\n/**X#\n * foo\n */\nbarafter:\n0 10 27 \n#foo\n/**X\n#\n * foo\n */\nbar",
+    "Why is it possible to select a position inside a line break?\nOf course there is no protection against this. The line breaks are written in an \natomic manner. This explains the offset by one after it.\nI will try to find a solution for that, but I think such a position doesn\u0027t make \nsense to me.\nDid you find another bug except this position inside a line break?\n",
+    "I have a fix for it and I added tests in the formatter tests suite. I simply \ndidn\u0027t handle this case, because I thought it was not possible to put a marker \ninside a line break. Now it is handled and let me know if you have other \nproblems with the mapping positions.\nRelease in HEAD.",
+    "My position is before mapping is the *beginning* of the line-break, while\nafter the format, the mapped position happens to be *inside* the line-break. \nThe correct behaviour would be for the position to stay at the beginning of\nthe line-break. My positionsToMap are valid, but not the mappedPositions.",
+    "ignore my last comment, I didn\u0027t see your second comment. I\u0027ll check the jar \nand tell you if it works.",
+    "According to your test case, it should work. I map to a position that makes \nsense. The \u0027#\u0027 is at the same place using your test class. Let me know if it \ndoesn\u0027t work for you.\n",
+    "I verified that this bug is fixed. Go ahead and release it.\nHowever, I have seen other positions which didn\u0027t map correctly either... I \nthink I\u0027m going to write a small position map test for the code formatter...",
+    "Sure, I\u0027d like to know when the positions are not mapped properly.\n"
+  ],
+  "commentCreationDates": [
+    "2001-11-02T16:09:36+01:00",
+    "2001-11-09T10:47:18+01:00",
+    "2001-11-13T19:40:22+01:00",
+    "2001-11-14T16:19:34+01:00",
+    "2001-11-14T19:11:42+01:00",
+    "2001-11-15T08:47:09+01:00",
+    "2001-11-16T14:45:56+01:00",
+    "2001-11-20T15:25:17+01:00",
+    "2001-11-20T15:40:07+01:00",
+    "2001-11-20T15:55:51+01:00",
+    "2001-11-21T17:36:56+01:00",
+    "2001-11-21T19:49:48+01:00",
+    "2001-11-22T08:44:20+01:00",
+    "2001-11-22T15:41:08+01:00",
+    "2001-11-22T16:22:33+01:00",
+    "2001-11-29T17:51:20+01:00",
+    "2001-11-29T17:57:45+01:00",
+    "2001-11-29T19:07:14+01:00",
+    "2001-11-30T10:40:12+01:00",
+    "2001-11-30T11:01:34+01:00",
+    "2001-11-30T14:49:50+01:00",
+    "2001-11-30T17:14:21+01:00",
+    "2001-11-30T18:11:33+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StringIndexOutOfBoundsException",
+      "message": "String index out of range: - 24",
+      "elements": [
+        {
+          "method": "java.lang.String.substring",
+          "source": "String.java:1504"
+        },
+        {
+          "method": "CodeFormatterBug.print",
+          "source": "CodeFormatterBug.java:12"
+        },
+        {
+          "method": "CodeFormatterBug.main",
+          "source": "CodeFormatterBug.java:42"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "5471",
+      "date": "2001-11-02T16:09:36+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "5471",
+  "bugId": "5471",
+  "date": "2001-11-02T16:09:36+01:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

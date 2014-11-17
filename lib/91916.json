@@ -1,0 +1,86 @@
+{
+  "comments": [
+    "Running 3.1 M6.  Attached is a zip of my .log with a number of exceptions\nrelating to local history and its ability to read the index file.  Also in the\nattached zip is the .index file in case it\u0027s useful.\n\nAlso, is there something I should do to fix this (and not lose all my local\nhistory), or just wait for the bug to be fixed?",
+    "Created an attachment (id\u003d20061)\n.log and local history .index file\n",
+    "I have logged the NPE in the log file as bug 91920.\n\nWhat build were you upgrading from?  The error occurs during migration of the\nhistory from a workspace created by an older version of Eclipse.  Knowing the\nexact build you upgraded from to reveal this error would be useful.",
+    "I upgrade every time a new milestone comes out.  I was on 3.1 M5 before M6.",
+    "Is it your main workspace? Are you sure you opened that specific workspace with\nM5? Or was it a previous milestone?",
+    "Also, the .index file seems rather small, so it does not seem to have any\nhistory information in it anyway. And the date is 2004-10-10. It seems indeed\nthat this workspace has been created by an older Eclipse build (before M5) and\nnot been touched for a while.",
+    "Yes, this is my primary workspace and it was definitely opened with M5a.\n\nLocal history has been a problem for me for a while (see bug 49213 and bug\n66304).  I know you guys did a bunch of work on it recently, which is why I was\nsurprised to see that I was still having problems.\n\nI backup my metadata directory before I upgrade to each milestone.  I looked\nthrough them and found that my current index file is identical to the one in my\nbackups for before upgrading to M6, M5a, and M4.  I have to go to my \"before M2\"\nbackup before I get a different file (I have no \"before M3\" backup, not sure\nwhat happened there).  It looks like Eclipse has just been refusing to read or\nwrite the .index file since then.\n\nBTW, my .history directory has 862 KB in 190 files and the files have various\ndates over the last few months.  Also, at least some of my local history is\naccessible in Eclipse when I do a compare with local history.\n\nIf I can view local history in Eclipse, what\u0027s the index file for?  If deleted\nwill it be recreated or will I lose history?\n",
+    "No. That file was used before M5 (or M4?). We then migrated to a different\nimplementation that uses a completely different layout in the file system. When\nmigration occurs, the .index file is renamed to something else called\n.index.\u003ctimestamp\u003e (don\u0027t you have one?), never to be read again. The new index\nis now stored as several \"history.index\" files under\n\u003cworkspace\u003e/.metadata/.plugins/org.eclipse.core.resources/.projects/\u003cproj\nname\u003e/.indexes/\n\nThis should have happened once and that was about it. I don\u0027t understand what\ncaused the small (and old, and corrupted) .index file to be created again. You\ndefinitely don\u0027t need it.",
+    "To answer your question, I don\u0027t have a .index.\u003ctimestamp\u003e file.\n\nLet me take a stab at what\u0027s going on:\n1) My history became corrupted at some point before the new history format.\n2) The new history format came, and Eclipse tried to convert my history.  It\ncouldn\u0027t since the index file was corrupt and the index file was left alone. \nSince the .index file is always there, Eclipse tries and fails to convert every\ntime I start Eclipse.\n3) History added since the new format is being created correctly under each\nproject\u0027s metadata directory.\n4) All of the history under org.eclipse.core.resources\\.history is lost since\nthe .index file is hosed.  I should just delete the .history directory and move on.\n\nDoes that sound right?\n",
+    "Ron\u0027s assessment sounds reasonable.  From looking at HistoryStoreConverter, it\nappears that the file is not renamed in the failure case.  I think we should\nalways rename the file. If it failed once, it\u0027s not likely to succeed next time\naround.\n\nRon, I agree the best answer for you is to delete the .index file and move on.\nThanks for logging this and taking the time to follow up.",
+    "Wait... not the .history directory, only the .index file!!!",
+    "Clarifying...\n\nBoth old and new history implementations keep the *contents* of local history\nunder .history. The index location/format has changed. \n\nYour .history directory contains local history contents from both before and\nafter you migrated to the new format. Since the index for the old data is\ncorrupted, the new index does not allow you to retrieve the old history\ncontents, but they are still there along with the new history states.\nUnfortunately there is no (reasonable) way to tell them apart, so you will have\nto live with those unaccessible files in your file system.\n\nSo, Ron, you have seen these log errors during *every* startup on that workspace\nsince you migrated to the new format? This was not clear from your original\ncomments.",
+    "Re: comment 8 and comment 9 - errors while reading the existing history store\nare logged but do not prevent the convwersion to finish. The log actually\nindicates that the conversion finished properly. What is happening here is that\nthe the error in the legacy index is causing the file to be left opened, thus\nrenaming it fails. The problem seems to be in IndexedStoreWrapper. The converter\nnever knows about the problem. I will investigate.",
+    "I just checked my log file (which I have back to 2004-08-24) and I\u0027ve been\ngetting errors regarding the index file at the start of every session from\n2004-10-08 to today.  This is what the first one looked like:\n\n-----\n!ENTRY org.eclipse.core.resources 4 272 Oct 08, 2004 15:53:04.260\n!MESSAGE Could not close indexed store:\nO:\\Users\\RBaldwin\\Eclipse\\workspace\\.metadata\\.plugins\\org.eclipse.core.resources\\.history\\.index.\n!STACK 0\nIndexedStoreException:Error committing the indexed store.\norg.eclipse.core.internal.indexing.ObjectStoreException: Cannot store page in\npage store.\n... (snip stack trace)\norg.eclipse.core.internal.indexing.ObjectStoreException: Cannot store page in\npage store.\n... (snip stack trace)\norg.eclipse.core.internal.indexing.PageStoreException: Error occurred writing\npage store file.\n... (snip stack trace)\n\n!ENTRY org.eclipse.core.resources 4 566 Oct 08, 2004 15:53:29.134\n!MESSAGE The history store got corrupted. Local history is lost. A new store is\nbeing created.\n\n... (snip whole slew of errors trying to add history for various things and\nread/write the index file)\n-----\n\nOn 2004-12-17, the errors kept coming on every session start but changed to ones\nthat appear to always conclude with a \"successful history conversion\" message:\n\n-----\n!ENTRY org.eclipse.core.resources 4 272 2004-12-17 21:11:35.391\n!MESSAGE Could not open indexed store:\nO:\\Users\\RBaldwin\\Eclipse\\workspace\\.metadata\\.plugins\\org.eclipse.core.resources\\.history\\.index.\n!STACK 0\nIndexedStoreException:An error occurred during an indexed store operation.\njava.lang.ClassCastException\n    at org.eclipse.core.internal.indexing.IndexedStore.open(IndexedStore.java:391)\n... (snip stack trace)\njava.lang.ClassCastException\n    at\norg.eclipse.core.internal.indexing.IndexedStore.acquireContext(IndexedStore.java:53)\n... (snip stack trace)\n\n!ENTRY org.eclipse.core.resources 4 271 2004-12-17 21:11:35.422\n!MESSAGE Problems accessing history store.\n!STACK 1\norg.eclipse.core.internal.resources.ResourceException(O:/Users/RBaldwin/Eclipse/workspace/.metadata/.plugins/org.eclipse.core.resources/.history/.index)[271]:\norg.eclipse.core.internal.resources.ResourceException: Could not create indexed\nstore:\nO:\\Users\\RBaldwin\\Eclipse\\workspace\\.metadata\\.plugins\\org.eclipse.core.resources\\.history\\.index.\n... (snip stack trace)\n!SUBENTRY 1 org.eclipse.core.resources 4 271 2004-12-17 21:11:35.422\n!MESSAGE Could not create indexed cursor:\nO:\\Users\\RBaldwin\\Eclipse\\workspace\\.metadata\\.plugins\\org.eclipse.core.resources\\.history\\.index.\n!STACK 1\norg.eclipse.core.internal.resources.ResourceException: Could not create indexed\nstore:\nO:\\Users\\RBaldwin\\Eclipse\\workspace\\.metadata\\.plugins\\org.eclipse.core.resources\\.history\\.index.\n... (snip stack trace)\n!SUBENTRY 2 org.eclipse.core.resources 4 272 2004-12-17 21:11:35.422\n!MESSAGE Could not create indexed store:\nO:\\Users\\RBaldwin\\Eclipse\\workspace\\.metadata\\.plugins\\org.eclipse.core.resources\\.history\\.index.\n\n!ENTRY org.eclipse.core.resources 1 0 2004-12-17 21:11:35.438\n!MESSAGE Conversion of local history completed successfully.\n-----\n\nLet me know if you want the full stack traces for any of this.\n\nRegarding orphaned history files: should all history entries created since the\nnew format (which looks like it was around 2004-12-17) be ok?  Except for the\nindex file, all files under my .history directory are dated on or after 2004-12-22.\n",
+    "I will not need the stack traces, thanks, I could reproduce the problem by just\nusing the .index file you provided. As a side note, in recent builds, the\nproblem should actually happen later on (when saving a file, reading local\nhistory or shutting down), not during startup (the local history manager is\ninstantiated lazily now).\n\nRe: orphaned history states - I do not understand why you don\u0027t have older\nhistory, but I would say unless the timestamps were tampered with, all history\nstates should be visible in the new local history index.\n\nI will be releasing a fix to the old implementation shortly.",
+    "Old summary: \u0027\"Could not open indexed store\" error\u0027\n\nFixed. Released to HEAD.\n\nProblem was in IndexedStore#open. It uses the fact that the name is null to\nshort circuit the #close operation as a no-op (normal behavior closes the file\nand then sets the file name to null). But the name is only set after the failing\noperation here, #acquireContext, is called. This way, the name was not being set\ndue to the exception, and the call to #close was innefective. \n\nFix was to set the name immediately after the underlying file has been opened.\n\n(never thought I would have to fix a bug in the legacy code)",
+    "(In reply to comment #14)\n\u003e As a side note, in recent builds, the\n\u003e problem should actually happen later on (when saving a file, reading local\n\u003e history or shutting down), not during startup (the local history manager is\n\u003e instantiated lazily now).\n\nIt looks like this could be true, but its hard to tell because the !SESSION\nheader doesn\u0027t get written until something gets logged.  So if the first thing\nlogged is the history error (which tends to be the case) the timestamps make it\nlook like it happened immediately on startup.  Should I log this as a bug? \nSeems like the !SESSION headers should be written immediately on startup.\n\n\u003e I will be releasing a fix to the old implementation shortly.\n(In reply to comment #15)\n\u003e Fix was to set the name immediately after the underlying file has been opened.\n\nWould it be helpful to *not* delete my index file and verify that a new version\nof Eclipse correctly handles it?\n",
+    "We don\u0027t want anything written to the log unless an actual entry is logged. One\nthing that could be done (feel free to open a PR for that) is that the session\nheader contained the startup time of the current session instead of the current\ntime (which is useless, since the next entry will have the current time as well).\n\n\u003e Would it be helpful to *not* delete my index file and \n\u003e verify that a new version of Eclipse correctly handles it?\n\nI have tested that myself, but you are welcome to verify. It should be in next\nweek\u0027s i-build.",
+    "(In reply to comment #17)\n\u003e We don\u0027t want anything written to the log unless an actual entry is logged. One\n\u003e thing that could be done (feel free to open a PR for that) is that the session\n\u003e header contained the startup time of the current session instead of the current\n\u003e time (which is useless, since the next entry will have the current time as well).\n\nBug 92283.\n \n\u003e \u003e Would it be helpful to *not* delete my index file and \n\u003e \u003e verify that a new version of Eclipse correctly handles it?\n\u003e \n\u003e I have tested that myself, but you are welcome to verify. It should be in next\n\u003e week\u0027s i-build.\n\nWill do.\n",
+    "--\u003e VERIFIED, using an I-build a week or two after the fix (don\u0027t remember the\nexact one).\n"
+  ],
+  "commentCreationDates": [
+    "2005-04-19T17:42:45+02:00",
+    "2005-04-19T17:43:31+02:00",
+    "2005-04-19T17:53:28+02:00",
+    "2005-04-19T18:33:03+02:00",
+    "2005-04-19T18:35:22+02:00",
+    "2005-04-19T19:48:12+02:00",
+    "2005-04-20T03:29:38+02:00",
+    "2005-04-20T17:27:45+02:00",
+    "2005-04-20T22:21:32+02:00",
+    "2005-04-21T16:23:50+02:00",
+    "2005-04-21T17:03:51+02:00",
+    "2005-04-21T17:15:50+02:00",
+    "2005-04-21T18:09:03+02:00",
+    "2005-04-21T18:17:51+02:00",
+    "2005-04-21T19:24:26+02:00",
+    "2005-04-21T19:42:37+02:00",
+    "2005-04-21T21:20:19+02:00",
+    "2005-04-21T21:34:55+02:00",
+    "2005-04-21T21:59:03+02:00",
+    "2005-05-26T02:33:17+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.indexing.IndexedStore.open",
+          "source": "IndexedStore.java:391"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 13,
+      "bugId": "91916",
+      "date": "2005-04-21T18:17:51+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.indexing.IndexedStore.acquireContext",
+          "source": "IndexedStore.java:53"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 13,
+      "bugId": "91916",
+      "date": "2005-04-21T18:17:51+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "91916",
+  "bugId": "91916",
+  "date": "2005-04-19T17:42:45+02:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "normal"
+}

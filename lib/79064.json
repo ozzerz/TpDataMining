@@ -1,0 +1,126 @@
+{
+  "comments": [
+    "Hi,\n\nfrom my users I am sometimes getting logs about a crash that I am not able to\nreproduce or interpret. The stack looks like:\n\njava.lang.NullPointerException\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:809)\n\tat org.eclipse.swt.widgets.Widget.postEvent(Widget.java:621)\n\tat org.eclipse.swt.widgets.Control.sendMouseEvent(Control.java:1801)\n\tat org.eclipse.swt.widgets.Control.sendMouseEvent(Control.java:1797)\n\tat org.eclipse.swt.widgets.Table.sendMouseDownEvent(Table.java:2010)\n\tat org.eclipse.swt.widgets.Table.WM_LBUTTONDOWN(Table.java:2869)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:3007)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:3349)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessageW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessage(OS.java:1479)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2440)\n\tat net.sourceforge.rssowl.controller.GUI.runEventLoop(Unknown Source)\n\tat net.sourceforge.rssowl.controller.GUI.showGui(Unknown Source)\n\tat net.sourceforge.rssowl.controller.RSSOwlLoader$2.run(Unknown Source)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:106)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2760)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2445)\n\tat net.sourceforge.rssowl.controller.RSSOwlLoader.\u003cinit\u003e(Unknown Source)\n\tat net.sourceforge.rssowl.controller.RSSOwlLoader.main(Unknown Source)\n\nI browsed into the Widget.java to line 809 and the only part that could result\nin a NullPE is \"display.filters (eventType)\". But that would mean that display\nis NULL at that time, which is not clear to me. \n\nUsers told me they clicked into the Newstable (a simple Table widget) with the\nleft-mouse button. They are using WindowsXP.\n\nAny explanation why display could be NULL after that action?\n\nThanks,\nBen",
+    "The only time that the display becomes null is when a widget is disposed.  \nLooking at the stack, it shouldn\u0027t be able to happen between the time the \nWM_LBUTTONDOWN comes in for the table and when the SWT event is sent.  I have \nseen this before in bug #53390.",
+    "Well there are some situations where the Table is disposed in my application,\nfrom another Thread using asyncExec. Could it be that the Table was disposed\nafter WM_LBUTTONDOWN?\n\nThinking about it, I guess not, since the GUI Thread is a single Thread, such as\nDispos of the Table wont be possible after WM_LBUTTONDOWN.\n\nAny ideas what the problem could be?",
+    "The only think I can think of is that a cross thread (or process) WM_ was sent \ncausing application code to run.  Cross thread/process messages are processed \nat clean point in the Windows API, normally PeekMessage() and GetMessage().  \nFor 3.0, we made sure to disallow cross thread/process messages whenever we \ncalled either of these API\u0027s.\n\nFeel free to trundle through the MSDN and look into it.  Is this happening all \nthe time.  If someone could get a repeatable case, we\u0027d be home free.",
+    "Ok, I got a small Snippet that reproduces the Stack:\n\npublic class Main {\n\tstatic CTabFolder tabFolder;\n\tstatic Display display;\n\tstatic Random rand1 \u003d new Random();\n\n\tpublic static void main(String[] args) {\n\t\tdisplay \u003d new Display();\n\t\tShell shell \u003d new Shell(display);\n\t\tshell.setLayout(new FillLayout());\n\n\t\ttabFolder \u003d new CTabFolder(shell, SWT.NONE);\n\n\t\tdisposeThread();\n\n\t\tshell.open();\n\t\twhile (!shell.isDisposed()) {\n\t\t\tif (!display.readAndDispatch()) {\n\t\t\t\tdisplay.sleep();\n\t\t\t}\n\t\t}\n\t}\n\n\tprivate static void disposeThread() {\n\t\tThread thread \u003d new Thread() {\n\t\t\tpublic void run() {\n\t\t\t\twhile (true) {\n\t\t\t\t\ttry {\n\t\t\t\t\t\tsleep(rand1.nextInt(200));\n\t\t\t\t\t\tdisplay.asyncExec(new Runnable() {\n\t\t\t\t\t\t\tpublic void run() {\n\t\t\t\t\t\t\t\tcreateTable(tabFolder);\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t});\n\t\t\t\t\t} catch (InterruptedException e) {\n\t\t\t\t\t\tinterrupt();\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t};\n\t\tthread.start();\n\t}\n\n\tstatic void createTable(CTabFolder tabFolder) {\n\t\tif (tabFolder.getItemCount() \u003e 0) {\n\t\t\ttabFolder.getItem(0).getControl().dispose();\n\t\t\ttabFolder.getItem(0).dispose();\n\t\t}\n\n\t\tCTabItem item \u003d new CTabItem(tabFolder, SWT.NONE);\n\t\titem.setText(\"Hello World\");\n\n\t\tfinal Table table \u003d new Table(tabFolder, SWT.NONE);\n\t\ttable.setLinesVisible(true);\n\t\ttable.setHeaderVisible(true);\n\t\tfor (int a \u003d 0; a \u003c 20; a++) {\n\t\t\tTableItem tableItem \u003d new TableItem(table, SWT.NONE);\n\t\t\ttableItem.setText(\"Hello World Hello World Hello World Hello World\");\n\t\t}\n\t\titem.setControl(table);\n\t\ttabFolder.setSelection(item);\n\t}\n}\n\nJust start the application and click some times into the table with the mouse.\nAfter a few clicks the exception should be thrown.\n\nNow that is what happens in my application, another Thread uses asyncExec to\ndispose the Table. The exception is also thrown when using syncExec.\n\nBen",
+    "The interesting thing here is the stack trace at the moment when the table\nis disposed in your snippet, just before the NPE occurs. It looks like this:\n\n\tat org.eclipse.swt.widgets.Widget.dispose(Widget.java:368)\n\tat Main.createTable(Main.java:52)\n\tat Main$2.run(Main.java:38)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:118)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2780)\n\tat org.eclipse.swt.widgets.Display.msgFilterProc(Display.java:2255)\n\tat org.eclipse.swt.internal.win32.OS.CallWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.CallWindowProc(OS.java:1444)\n\tat org.eclipse.swt.widgets.Table.callWindowProc(Table.java:137)\n-\u003e\tat org.eclipse.swt.widgets.Table.sendMouseDownEvent(Table.java:1997)\n\tat org.eclipse.swt.widgets.Table.WM_LBUTTONDOWN(Table.java:2941)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2981)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:3370)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessageW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessage(OS.java:1520)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2446)\n\nNote that the asyncExec\u0027d code that is disposing the table is executed while\non a higher level in the stack, the method Table.sendMouseDownEvent has not\nyet returned. After Display.runAsyncMessages has finished, the execution of\nsendMouseDownEvent continues although the table is now disposed and its\ndisplay variable is null, leading to a NullPointerException a few lines later.",
+    "This problem turns out to be a real big one for my application. Is there\nanything that I could do as workaround to get rid of this problem? Maybe working\nwith synchronized blocks to avoid that the table is disposed by another Thread\nwhile currently used?\n\nBen",
+    "Benjamin!  You are awesome!!  I have been searching for this thing for a \nwhile.  The msgFilterProc should not be running at this time.  Let me have a \ncrack at finding out why this is happening.",
+    "Fixed \u003e 20041122\n\nActually, upon further reading, it was Florian that found the stack trace.  \nHow ever did you find it?  Excellent work.",
+    "Yeah, nice Steve, really happy to see this bug fixed :))))\n\nBen"
+  ],
+  "commentCreationDates": [
+    "2004-11-19T12:18:21+01:00",
+    "2004-11-19T22:48:28+01:00",
+    "2004-11-19T23:25:30+01:00",
+    "2004-11-19T23:34:38+01:00",
+    "2004-11-20T00:10:50+01:00",
+    "2004-11-20T05:30:53+01:00",
+    "2004-11-22T07:41:05+01:00",
+    "2004-11-22T16:57:22+01:00",
+    "2004-11-22T18:01:08+01:00",
+    "2004-11-22T18:38:23+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:809"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.postEvent",
+          "source": "Widget.java:621"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.sendMouseEvent",
+          "source": "Control.java:1801"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.sendMouseEvent",
+          "source": "Control.java:1797"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Table.sendMouseDownEvent",
+          "source": "Table.java:2010"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Table.WM_LBUTTONDOWN",
+          "source": "Table.java:2869"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3007"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:3349"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessage",
+          "source": "OS.java:1479"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2440"
+        },
+        {
+          "method": "net.sourceforge.rssowl.controller.GUI.runEventLoop",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "net.sourceforge.rssowl.controller.GUI.showGui",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "net.sourceforge.rssowl.controller.RSSOwlLoader$2.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2760"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2445"
+        },
+        {
+          "method": "net.sourceforge.rssowl.controller.RSSOwlLoader.\u003cinit\u003e",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "net.sourceforge.rssowl.controller.RSSOwlLoader.main",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "79064",
+      "date": "2004-11-19T12:18:21+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "79064",
+  "bugId": "79064",
+  "date": "2004-11-19T12:18:21+01:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

@@ -1,0 +1,158 @@
+{
+  "comments": [
+    "Steps to reproduce: fresh workspace, disable validation, create Tomcat 5.5 runtime and server config, disable autopublish (otherwise bug 121603), import \"war\" attached to bug 119146, fix \"war\" project build path problem ;-) and add the project to the tomcat server. Create \"test.txt\" file in war/WebContent directory. Problem: UI completely frezzes for about a minute on my T42 with CPU 100%. Same freeze happens if when I edit/save test.txt file.\n\nWTP 1.0RC5, WinXP SP2, IBM JDK 1.4.2.\n\nI did not have much time to look at this problem tonight, but J2EEFlexProjDeployable#members invoked during ServerPublishInfo#hasDelta seems to be causing the delay.\n\nRC4 did not have this problem and I can\u0027t think of a workaround even from my server plugin, hence \"Blocker\"",
+    "I am experiencing this problem with RC5 also. With the target server as Tomcat (4.1 and 5.0) my PC hangs with javaw.exe taking 100% of CPU. This occurs after tomcat server has been started and any code is changed. The build process hangs on the Invoking Validation task.\n\nMy environment is WTP 1.0RC5, Win XP SP2 and sun JDK 1.4.2_10.\n\nI would regard this as a show stopper as development is impossible with tomcat as the target server. Note I did not see the problem with OC4J as my target server.",
+    "Moving bug since this appears to be a performance regression in J2EEFlexProjDeployable.members()",
+    "Added to Hot List at the request of Tim deBoer and set priority to P2. Targetting to 1.0.1.",
+    "The problem is caused by O^2 algorithm in ...common.componentcore...VirtualContainer#members, so I guess there are more scenarios that are broken for large workspaces.",
+    "Looked some more. I am now 99% sure that the problem was triggered by the fix for bug 120562 which added IVirtualFolder#members() call to J2EEFlexProjDeployable#members(). IVirtualFolder#members has few (i.e. more than two) places with extremely inefficient nested iterations over list of files in a folder. Will try to speed it up.",
+    "Created an attachment (id\u003d32156)\nsuggested improvement for J2EEFlexProjDeployable\n\nVery expensive J2EEProjectUtilities.getSourceContainers(IProject) was called for every file in J2EEFlexProjDeployable during execution of J2EEFlexProjDeployable#members(). Fix is to cache java source folder paths for duration of J2EEFlexProjDeployable#members().",
+    "Created an attachment (id\u003d32157)\nsuggested improvement for ComponentDeployable\n\nReplaced nested loops with HashSet when adding ModuleResources to ModuleFolder",
+    "Created an attachment (id\u003d32158)\nsuggested improvements for VirtualContainer and VirtualFile\n\nReworked VirtualContainer#members(int) to avoid use of nested loops for filtering of non-unique children. Note that new implementation may behave somewhat different for \"fuzzily\" matching components (i.e. component with /a/b/c/d runtimePath in /a virtual folder) as I did not completely understand intent of original code.\n\nChanged VirtualFile to cache underlying IFile.",
+    "(From update of attachment 32156)\nRemoving this patch - this caching is not needed with my new patch.",
+    "Created an attachment (id\u003d32160)\nPerformance improvements\n\nThis patch in addition to patch https://bugs.eclipse.org/bugs/attachment.cgi?id\u003d32157\u0026action\u003dedit\n\nWill greatly improve this scenario - these patches will be dropped to R101 stream soon after more testing",
+    "Created an attachment (id\u003d32162)\nRevised patch for ComponentDeployable\n\nOriginal patch did not always set ModuleFolder members, which resulted in this exception later on\n\n!ENTRY org.eclipse.wst.server.core 4 0 2005-12-22 16:27:35.030\n!MESSAGE Could not publish to the server.\n!STACK 0\njava.lang.NullPointerException\n\tat java.util.Arrays$ArrayList.\u003cinit\u003e(Arrays.java:2356)\n\tat java.util.Arrays.asList(Arrays.java:2342)\n\tat org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource(ComponentDeployable.java:187)\n\tat org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource(ComponentDeployable.java:187)\n\tat org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource(ComponentDeployable.java:187)\n\tat org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource(ComponentDeployable.java:187)\n\tat org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource(ComponentDeployable.java:187)\n\tat org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource(ComponentDeployable.java:187)\n\tat org.eclipse.wst.web.internal.deployables.ComponentDeployable.getMembers(ComponentDeployable.java:129)\n\tat org.eclipse.jst.j2ee.internal.deployables.J2EEFlexProjDeployable.members(J2EEFlexProjDeployable.java:135)\n\tat org.eclipse.wst.server.core.internal.ServerPublishInfo.fill(ServerPublishInfo.java:232)\n\tat org.eclipse.wst.server.core.internal.Server$5.visit(Server.java:805)\n\tat org.eclipse.wst.server.core.internal.Server.visitModule(Server.java:2173)\n\tat org.eclipse.wst.server.core.internal.Server.visitModule(Server.java:2184)\n\tat org.eclipse.wst.server.core.internal.Server.visit(Server.java:2157)\n\tat org.eclipse.wst.server.core.internal.Server.doPublish(Server.java:802)\n\tat org.eclipse.wst.server.core.internal.Server.publish(Server.java:788)\n\tat org.eclipse.wst.server.core.internal.PublishServerJob.run(PublishServerJob.java:145)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n",
+    "I ran few tests to measure time spent filling ServerPublishInfo in Server#doPublish (I have special tomcat plugin that deploys webapps by reference, nothing is ever copied anywhere so filling server publish info is the only operation that takes noticable time. I verified that these results generally apply to regular tomcat plugin as well but obviously I was getting much bigger numbers).\n\n(In reply to comment #9)\n\u003e (From update of attachment 32156 [edit])\n\u003e Removing this patch - this caching is not needed with my new patch.\n\u003e \nThis patch is important for my real workspace. Fill ServerPublishInfo in Server#doPublish takes ~15 seconds with this patch and ~45 seconds without it.\n\n\n(In reply to comment #10)\n\u003e Created an attachment (id\u003d32160) [edit]\n\u003e Performance improvements\nWith this patch, performance degrades grately with each publish. On my real workspace, it takes ~15 seconds to fill ServerPublishInfo for the first time, ~45 for the second time and I did not have enough patience to wait for the third execution to finish. This patch negates all performance gains for regular tomcat plugin -- second publish never completes.\n\nHaving all this said, ~15 seconds to fill ServerPublishInfo is way too much. I will try to create sample project(s) that better reflect performance problems that I see in my workspace. I will also try to see how to fix these problems.\n",
+    "Created an attachment (id\u003d32256)\nsample projects\n\nThis set of projects has structure similar to my real workspace and shows same performance problems. Things to note: \n\n1) util0/src/.../pkg0 has 5000 classes.\n2) .../src and .../gen have same packages (this triggers performance degradation I mention in comment #12)\n3) many dependent \"utiliy jar\" projects\n\n",
+    "Created an attachment (id\u003d32257)\nRevised patch for ResourceTreeNode\n\nThis is revised version of attachement #32160 (Performance improvements) which plugs ComponentResource leaks for projects that have multiple component resources with same runtimePath but different srcPath (multiple java source folders, for example).\n\nThere are however other problems with original patch that I could not solve so far:\n\nCached \"transient\" ComponentResources get persisted in .settings/.component. To\nreproduce: publish \"war\" to tomcat, change java build path of util12 project and\nremove \"gen\" java source folder. This has to be fixed 1.0.1 in my opinion.\n\n\nI saw some weird behaviour that could be explained by stale ComponentResource. \nHow does the cache get refreshed when new folders get added/removed? In any case, this has simple workaround -- restart WTP.\n\nVirtualFile#getUnderlyingResource can return wrong IFile if two component \nresources have same runtimePath but different srcPath. One of my 0.7 migrated util jar projects has the following layout\n\tutil/\n\t  src/ (java source folder, runtimePath: /)\n\t     foo.properties\n\t  test/ (NOT a java source folder, runtimePath: /)\nFor this project, J2EEFlexProjDeployable#members() sometimes return\n/util/test/foo.properties. Note however, that this project layout is migration error and I do not know if there are legitimate layouts that will have the same problem.\n",
+    "Created an attachment (id\u003d32258)\nSuggested improvements for ServerPublishInfo#save()\n\nServerPublishInfo#save() was called several times during Server#doPublish (once for each published module). This was taking noticable time for publishing 12k files in 23 modules.",
+    "Is there any workaround for 1.0 users, other than downgrading to RC3? For now, WTP is rather unusable because of this bug. There should be a way to work around this bug before 1.01, which is more than a month away.\n",
+    "Hi Andreas,\n\nYou have two choices here.  One is to downgrade to RC3 as you suggest, the other is to apply Igor and Chuck\u0027s patches.\n\nI\u0027d suggest RC3 is the least risky option, as we do know that it passes the existing unit test suite.\n\nThe other option is to apply the patches.  Igor sent me the compiled JARs, which I\u0027ve tried on RC3 briefly, but did get resource deployment failures.  I haven\u0027t tried those JARs on a 1.0 build yet.\n\nIf you want the JARs, do email me, and I\u0027ll forward them on.",
+    "*** Bug 121603 has been marked as a duplicate of this bug. ***",
+    "Ok, I have investigated the patchs provided here and made sure the obsolete ones were obsoleted in the defect.  From J2EE tooling, there are three patchs now attached to this defect.  After applying these patchs and running through functional tests, the members method on the deploy still functions properly.  Also, after running through profiling tools, the performance is exponentially better.  Thanks to Igor for the help in driving this defect towards resolution.  \n\nThe J2EE parts of this defect are released and will be committed for the next committers 1.0.1 WTP driver tonight on 1/04/06.\n\nTim, I will reassign to you for investigation into the ServerPublishInfo piece.\n\nOnce Tim\u0027s work is complete, for clarity sake, I propose any additional nuances or problems be opened as a new defect.",
+    "Patch to ServerPublishInfo is technically unrelated to this performance regression and just a smart optimization to improve on the previous performance. Igor\u0027s patch is good and I\u0027ve checked it into HEAD. Will tag for 1.0.1 shortly.",
+    "Released for next 1.0.1 build.",
+    "Thanks and Thanks,\n\nI have been very patient with the this slow performance of Eclipse where I have to wait \u0027Publishing to Tomcat\u0027 takes much longer than 0.7.1.\n\nMy machine is AMD 64 3500+ with 1GB RAM, fedora core 4 x86_64. Every time I open Eclipse, it takes more than 1 minute to finish publishing.\n\nI almost change to Netbeans since I can\u0027t stand with this slow performance. But I still like Eclipse.",
+    "Hi Jerry,\n\njust to make sure - have you confirmed this issue is fixed with a recent M driver?\n\nhttp://download.eclipse.org/webtools/committers/drops/M-M200601102004-200601102004/ \n\nIf you are still seeing issues let us know.",
+    "*** Bug 121484 has been marked as a duplicate of this bug. ***",
+    "Does this fix also speed up ear exports such as those targeting Weblogic 8.1?",
+    "verified",
+    "Closing."
+  ],
+  "commentCreationDates": [
+    "2005-12-21T07:00:05+01:00",
+    "2005-12-21T10:00:29+01:00",
+    "2005-12-21T14:12:30+01:00",
+    "2005-12-21T19:36:27+01:00",
+    "2005-12-21T21:20:57+01:00",
+    "2005-12-22T17:23:32+01:00",
+    "2005-12-22T20:14:50+01:00",
+    "2005-12-22T20:20:11+01:00",
+    "2005-12-22T20:43:03+01:00",
+    "2005-12-22T20:54:57+01:00",
+    "2005-12-22T20:58:31+01:00",
+    "2005-12-22T21:33:23+01:00",
+    "2005-12-22T22:52:34+01:00",
+    "2005-12-27T09:47:23+01:00",
+    "2005-12-27T09:58:08+01:00",
+    "2005-12-27T10:08:56+01:00",
+    "2006-01-03T09:56:58+01:00",
+    "2006-01-03T14:44:50+01:00",
+    "2006-01-03T15:31:50+01:00",
+    "2006-01-04T16:46:24+01:00",
+    "2006-01-04T20:26:07+01:00",
+    "2006-01-04T23:08:23+01:00",
+    "2006-01-11T02:25:10+01:00",
+    "2006-01-11T14:15:24+01:00",
+    "2006-01-11T14:26:19+01:00",
+    "2006-02-13T16:40:08+01:00",
+    "2006-06-27T04:55:09+02:00",
+    "2006-06-27T22:58:48+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "java.util.Arrays$ArrayList.\u003cinit\u003e",
+          "source": "Arrays.java:2356"
+        },
+        {
+          "method": "java.util.Arrays.asList",
+          "source": "Arrays.java:2342"
+        },
+        {
+          "method": "org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource",
+          "source": "ComponentDeployable.java:187"
+        },
+        {
+          "method": "org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource",
+          "source": "ComponentDeployable.java:187"
+        },
+        {
+          "method": "org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource",
+          "source": "ComponentDeployable.java:187"
+        },
+        {
+          "method": "org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource",
+          "source": "ComponentDeployable.java:187"
+        },
+        {
+          "method": "org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource",
+          "source": "ComponentDeployable.java:187"
+        },
+        {
+          "method": "org.eclipse.wst.web.internal.deployables.ComponentDeployable.getExistingModuleResource",
+          "source": "ComponentDeployable.java:187"
+        },
+        {
+          "method": "org.eclipse.wst.web.internal.deployables.ComponentDeployable.getMembers",
+          "source": "ComponentDeployable.java:129"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deployables.J2EEFlexProjDeployable.members",
+          "source": "J2EEFlexProjDeployable.java:135"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ServerPublishInfo.fill",
+          "source": "ServerPublishInfo.java:232"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server$5.visit",
+          "source": "Server.java:805"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.visitModule",
+          "source": "Server.java:2173"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.visitModule",
+          "source": "Server.java:2184"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.visit",
+          "source": "Server.java:2157"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.doPublish",
+          "source": "Server.java:802"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.publish",
+          "source": "Server.java:788"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.PublishServerJob.run",
+          "source": "PublishServerJob.java:145"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 11,
+      "bugId": "121692",
+      "date": "2005-12-22T21:33:23+01:00",
+      "product": "Web Tools",
+      "component": "jst.server",
+      "severity": "blocker"
+    }
+  ],
+  "groupId": "121692",
+  "bugId": "121692",
+  "date": "2005-12-21T07:00:05+01:00",
+  "product": "Web Tools",
+  "component": "jst.server",
+  "severity": "blocker"
+}

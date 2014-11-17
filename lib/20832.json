@@ -1,0 +1,66 @@
+{
+  "comments": [
+    "I suddenly started having a problem with the rename method refactoring, getting \nan Internal Error with the following unhelpful root cause:\n\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\njava.lang.reflect.InvocationTargetException\nat org.eclipse.jface.operation.ModalContext.run(ModalContext.java:280)\n[...rest of stack trace omitted]\nCaused by: java.lang.NullPointerException\nat \norg.eclipse.jdt.internal.corext.refactoring.rename.RenameMethodRefactoring.analy\nzeRenameChanges(RenameMethodRefactoring.java:360)\n[...rest of stack trace omitted]\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\nExamining the source of RenameMethodRefactoring, I discovered the NPE is caused \nby an unsafe call in a finally block:\n\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\t\t// ... omitted\n\t\t} catch(CoreException e) {\n\t\t\tthrow new JavaModelException(e);\n\t\t} finally{\n\t\t\tpm.done();\n\t\t\tfor (int i\u003d 0; i \u003c fNewWorkingCopies.length; i++) { // \n\u003c-- line 360\n\t\t\t\tfNewWorkingCopies[i].destroy();\t\t\n\t\t\t}\n\t\t}\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\nThe following change fixed this problem and let me see the real problem (the\nCoreException I was getting that also kept fNewWorkingCopies from being \nassigned to anything):\n\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\t\t// ... omitted\n\t\t} catch(CoreException e) {\n\t\t\tthrow new JavaModelException(e);\n\t\t} finally{\n\t\t\tpm.done();\n\t\t\tif (fNewWorkingCopies !\u003d null) { // \u003c-- added this check\n\t\t\t\tfor (int i\u003d 0; i \u003c fNewWorkingCopies.length; \ni++) {\n\t\t\t\t\tfNewWorkingCopies[i].destroy();\t\t\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\nHere was the real problem:\n\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\njava.lang.reflect.InvocationTargetException\n\tat org.eclipse.jdt.internal.ui.refactoring.CheckConditionsOperation.run\n(CheckConditionsOperation.java:60)\n[...rest of stack trace omitted]\nCaused by: Java Model Exception: Core Exception [code 274] Resource is out of \nsync with the file system: /NMEAJava/src/gps/event/SentenceMulticaster.java.\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.RenameMethodRefactoring.check\nInput(RenameMethodRefactoring.java:237)\n[...rest of stack trace omitted]\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\n(I thing the \"out of sync\" exception had to do with running another IDE at\nthe same time as Eclipse and was easily corrected by re-saving the source file\nit was complaining about.  I suspect this CoreException should be handled in a \nmore user-friendly way, but this bug report isn\u0027t concerned with that.)\n\n\nPlease make my or an equivalent fix to RenameMethodRefactoring.  You might also \nwant to search globally for similar dangerous code in finally blocks at some \npoint.",
+    "fixed"
+  ],
+  "commentCreationDates": [
+    "2002-06-21T21:30:22+02:00",
+    "2002-08-21T13:03:23+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.reflect.InvocationTargetException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.run",
+          "source": "ModalContext.java:280"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "20832",
+      "date": "2002-06-21T21:30:22+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.rename.RenameMethodRefactoring.analyzeRenameChanges",
+          "source": "RenameMethodRefactoring.java:360"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "20832",
+      "date": "2002-06-21T21:30:22+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.reflect.InvocationTargetException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.CheckConditionsOperation.run",
+          "source": "CheckConditionsOperation.java:60"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 0,
+      "bugId": "20832",
+      "date": "2002-06-21T21:30:22+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "20832",
+  "bugId": "20832",
+  "date": "2002-06-21T21:30:22+02:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "normal"
+}

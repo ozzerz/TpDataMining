@@ -1,0 +1,260 @@
+{
+  "comments": [
+    "i20050308\n\n(talked to Tom about this)\n\nIf the osgi.bundles line has regular URLs with trailing slashes, we fail\ninstalling them. When trying to extract what is supposed to be the bundle\nsymbolic name off the URL (last path segment), we end up with the empty string\nif the URL has a trailing slash. When we try create a file with that name, we\nfail, because the file object actually will represent the parent directory.\n\nAbstractFrameworkAdaptor#mapLocationToName is the culprit. Tom mentioned that\nthere may be other problems in that method as well. The error log follows.\n\n!ENTRY org.eclipse.osgi 2005-03-15 11:14:16.127\n!MESSAGE Error installing bundle: file:/d:/dev/head/org.eclipse.core.runtime/\n!STACK 0\norg.osgi.framework.BundleException: An error occured trying to read the bundle\n\tat\norg.eclipse.osgi.framework.adaptor.core.AbstractFrameworkAdaptor$1.begin(AbstractFrameworkAdaptor.java:747)\n\tat\norg.eclipse.osgi.framework.internal.core.Framework.installWorkerPrivileged(Framework.java:778)\n\tat org.eclipse.osgi.framework.internal.core.Framework$2.run(Framework.java:694)\n\tat java.security.AccessController.doPrivileged1(Native Method)\n\tat java.security.AccessController.doPrivileged(AccessController.java:351)\n\tat\norg.eclipse.osgi.framework.internal.core.Framework.installWorker(Framework.java:745)\n\tat\norg.eclipse.osgi.framework.internal.core.Framework.installBundle(Framework.java:689)\n\tat\norg.eclipse.osgi.framework.internal.core.BundleContextImpl.installBundle(BundleContextImpl.java:221)\n\tat\norg.eclipse.core.runtime.adaptor.EclipseStarter.installBundles(EclipseStarter.java:876)\n\tat\norg.eclipse.core.runtime.adaptor.EclipseStarter.loadBasicBundles(EclipseStarter.java:505)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.startup(EclipseStarter.java:275)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:149)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:85)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:58)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:60)\n\tat java.lang.reflect.Method.invoke(Method.java:391)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:268)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:260)\n\tat org.eclipse.core.launcher.Main.run(Main.java:887)\n\tat org.eclipse.core.launcher.Main.main(Main.java:871)\nCaused by: java.io.FileNotFoundException:\nC:\\DOCUME~1\\rchaves\\LOCALS~1\\Temp\\7096659180\\org.eclipse.osgi\\bundles\\116\\1\n(Access is denied)\n\tat java.io.FileOutputStream.open(Native Method)\n\tat java.io.FileOutputStream.\u003cinit\u003e(FileOutputStream.java:201)\n\tat java.io.FileOutputStream.\u003cinit\u003e(FileOutputStream.java:153)\n\tat\norg.eclipse.osgi.framework.adaptor.core.AbstractFrameworkAdaptor.readFile(AbstractFrameworkAdaptor.java:481)\n\tat\norg.eclipse.osgi.framework.adaptor.core.AbstractFrameworkAdaptor$1.begin(AbstractFrameworkAdaptor.java:734)\n\t... 20 more\nRoot exception:\njava.io.FileNotFoundException:\nC:\\DOCUME~1\\rchaves\\LOCALS~1\\Temp\\7096659180\\org.eclipse.osgi\\bundles\\116\\1\n(Access is denied)\n\tat java.io.FileOutputStream.open(Native Method)\n\tat java.io.FileOutputStream.\u003cinit\u003e(FileOutputStream.java:201)\n\tat java.io.FileOutputStream.\u003cinit\u003e(FileOutputStream.java:153)\n\tat\norg.eclipse.osgi.framework.adaptor.core.AbstractFrameworkAdaptor.readFile(AbstractFrameworkAdaptor.java:481)\n\tat\norg.eclipse.osgi.framework.adaptor.core.AbstractFrameworkAdaptor$1.begin(AbstractFrameworkAdaptor.java:734)\n\tat\norg.eclipse.osgi.framework.internal.core.Framework.installWorkerPrivileged(Framework.java:778)\n\tat org.eclipse.osgi.framework.internal.core.Framework$2.run(Framework.java:694)\n\tat java.security.AccessController.doPrivileged1(Native Method)\n\tat java.security.AccessController.doPrivileged(AccessController.java:351)\n\tat\norg.eclipse.osgi.framework.internal.core.Framework.installWorker(Framework.java:745)\n\tat\norg.eclipse.osgi.framework.internal.core.Framework.installBundle(Framework.java:689)\n\tat\norg.eclipse.osgi.framework.internal.core.BundleContextImpl.installBundle(BundleContextImpl.java:221)\n\tat\norg.eclipse.core.runtime.adaptor.EclipseStarter.installBundles(EclipseStarter.java:876)\n\tat\norg.eclipse.core.runtime.adaptor.EclipseStarter.loadBasicBundles(EclipseStarter.java:505)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.startup(EclipseStarter.java:275)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:149)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:85)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:58)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:60)\n\tat java.lang.reflect.Method.invoke(Method.java:391)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:268)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:260)\n\tat org.eclipse.core.launcher.Main.run(Main.java:887)\n\tat org.eclipse.core.launcher.Main.main(Main.java:871)",
+    "The AbstractFrameworkAdaptor#mapLocationToName method is not really needed.  \nWe just try to map the location to a nice name which we can use when saving \nthe data from the inputstream to the file system.  Given that the location \nstring can be anything the installer wants it to be makes it hard to parse out \nwhat the filename should be called.\n\nI have removed the call the mapLocationToName.  We now use \"bundlefile\" as the \nname for all bundle files which we save to disk.\n\nThis still does not help in cases where we install from a directory and using \nan inputstream.  For example:\n\nBundleContext context;\nURL url \u003d new URL(\"/mybundles/mybundledir/\");\ncontext.installBundle(\"@mybundledir_location@\", url.openStream());\n\nIn these cases I think we will have to only support reference: URLs for \ndirectories.  We should probably update EclipseStarter to force a reference \nURL to be used when the bundle we are installing is a directory (not a jar).",
+    "Not critical for 3.1.",
+    "The demand to fix this is very low.  It is considered a configuration error if this scenario is used and this \"bug\" is hit."
+  ],
+  "commentCreationDates": [
+    "2005-03-15T16:22:06+01:00",
+    "2005-03-15T22:29:12+01:00",
+    "2005-05-11T20:40:42+02:00",
+    "2007-04-02T16:20:44+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.osgi.framework.BundleException",
+      "message": "An error occured trying to read the bundle",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.AbstractFrameworkAdaptor$1.begin",
+          "source": "AbstractFrameworkAdaptor.java:747"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.installWorkerPrivileged",
+          "source": "Framework.java:778"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework$2.run",
+          "source": "Framework.java:694"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged1",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "AccessController.java:351"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.installWorker",
+          "source": "Framework.java:745"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.installBundle",
+          "source": "Framework.java:689"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.installBundle",
+          "source": "BundleContextImpl.java:221"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.installBundles",
+          "source": "EclipseStarter.java:876"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.loadBasicBundles",
+          "source": "EclipseStarter.java:505"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.startup",
+          "source": "EclipseStarter.java:275"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:149"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:85"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:58"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:60"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:391"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:268"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:260"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:887"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:871"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.io.FileNotFoundException",
+        "message": "C:\\DOCUME~1\\rchaves\\LOCALS~1\\Temp\\7096659180\\org.eclipse.osgi\\bundles\\116\\1 (Access is denied)",
+        "elements": [
+          {
+            "method": "java.io.FileOutputStream.open",
+            "source": "Native Method"
+          },
+          {
+            "method": "java.io.FileOutputStream.\u003cinit\u003e",
+            "source": "FileOutputStream.java:201"
+          },
+          {
+            "method": "java.io.FileOutputStream.\u003cinit\u003e",
+            "source": "FileOutputStream.java:153"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.adaptor.core.AbstractFrameworkAdaptor.readFile",
+            "source": "AbstractFrameworkAdaptor.java:481"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.adaptor.core.AbstractFrameworkAdaptor$1.begin",
+            "source": "AbstractFrameworkAdaptor.java:734"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "88070",
+      "date": "2005-03-15T16:22:06+01:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.io.FileNotFoundException",
+      "message": "C:\\DOCUME~1\\rchaves\\LOCALS~1\\Temp\\7096659180\\org.eclipse.osgi\\bundles\\116\\1 (Access is denied)",
+      "elements": [
+        {
+          "method": "java.io.FileOutputStream.open",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.io.FileOutputStream.\u003cinit\u003e",
+          "source": "FileOutputStream.java:201"
+        },
+        {
+          "method": "java.io.FileOutputStream.\u003cinit\u003e",
+          "source": "FileOutputStream.java:153"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.AbstractFrameworkAdaptor.readFile",
+          "source": "AbstractFrameworkAdaptor.java:481"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.AbstractFrameworkAdaptor$1.begin",
+          "source": "AbstractFrameworkAdaptor.java:734"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.installWorkerPrivileged",
+          "source": "Framework.java:778"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework$2.run",
+          "source": "Framework.java:694"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged1",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "AccessController.java:351"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.installWorker",
+          "source": "Framework.java:745"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.installBundle",
+          "source": "Framework.java:689"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.installBundle",
+          "source": "BundleContextImpl.java:221"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.installBundles",
+          "source": "EclipseStarter.java:876"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.loadBasicBundles",
+          "source": "EclipseStarter.java:505"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.startup",
+          "source": "EclipseStarter.java:275"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:149"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:85"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:58"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:60"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:391"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:268"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:260"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:887"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:871"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "88070",
+      "date": "2005-03-15T16:22:06+01:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "88070",
+  "bugId": "88070",
+  "date": "2005-03-15T16:22:06+01:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "normal"
+}

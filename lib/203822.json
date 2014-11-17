@@ -1,0 +1,190 @@
+{
+  "comments": [
+    "When running the provisioning admin UI via the ProvAdminUI launch config, I ran into a problem when attempting to add a metadata repository location (I generated the metadata yesterday).  I get the following stack trace whether or not I use \u003cfull path\u003e/content.xml or not:\n\n!ENTRY org.eclipse.equinox.prov.ui 4 0 2007-09-18 12:00:08.690\n!MESSAGE \n!STACK 0\njava.lang.IllegalArgumentException: null source\n\tat java.util.EventObject.\u003cinit\u003e(EventObject.java:38)\n\tat org.eclipse.jface.util.PropertyChangeEvent.\u003cinit\u003e(PropertyChangeEvent.java:68)\n\tat org.eclipse.equinox.prov.ui.ProvisioningUtil.addMetadataRepository(ProvisioningUtil.java:49)\n\tat org.eclipse.equinox.prov.ui.operations.AddMetadataRepositoryOperation.doExecute(AddMetadataRepositoryOperation.java:34)\n\tat org.eclipse.equinox.prov.ui.operations.ProvisioningOperation.execute(ProvisioningOperation.java:47)\n\tat org.eclipse.core.commands.operations.DefaultOperationHistory.execute(DefaultOperationHistory.java:511)\n\tat org.eclipse.equinox.prov.ui.dialogs.AddRepositoryDialog$2.run(AddRepositoryDialog.java:90)\n\tat org.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)\n\nI\u0027m going to look into the metadata repository manager and see if the problem is there.  Also, we should probably add a null check in ProvisioningUtil around a null repo before firing the PropertyChangeEvent.",
+    "Hmm, tracing things down to MetadataRepositoryIO.read and adding a dumping of a stack trace from stream.fromXML indicates a problem with my metadata or with the xml parser or something:\n\ncom.thoughtworks.xstream.io.StreamException:  : input contained no data\n\tat com.thoughtworks.xstream.io.xml.XppReader.pullNextEvent(XppReader.java:69)\n\tat com.thoughtworks.xstream.io.xml.AbstractPullReader.readRealEvent(AbstractPullReader.java:126)\n\tat com.thoughtworks.xstream.io.xml.AbstractPullReader.readEvent(AbstractPullReader.java:119)\n\tat com.thoughtworks.xstream.io.xml.AbstractPullReader.move(AbstractPullReader.java:98)\n\tat com.thoughtworks.xstream.io.xml.AbstractPullReader.moveDown(AbstractPullReader.java:83)\n\tat com.thoughtworks.xstream.io.xml.XppReader.\u003cinit\u003e(XppReader.java:37)\n\tat com.thoughtworks.xstream.io.xml.XppDriver.createReader(XppDriver.java:30)\n\tat com.thoughtworks.xstream.io.xml.XppDriver.createReader(XppDriver.java:34)\n\tat com.thoughtworks.xstream.XStream.fromXML(XStream.java:775)\n\tat org.eclipse.equinox.internal.prov.metadata.repository.MetadataRepositoryIO.read(MetadataRepositoryIO.java:36)\n\tat org.eclipse.equinox.internal.prov.metadata.repository.SimpleMetadataRepositoryFactory.load(SimpleMetadataRepositoryFactory.java:18)\n\tat org.eclipse.equinox.internal.prov.metadata.repository.MetadataRepositoryManager.loadRepository(MetadataRepositoryManager.java:182)\n\tat org.eclipse.equinox.internal.prov.metadata.repository.MetadataRepositoryManager.loadRepository(MetadataRepositoryManager.java:126)\n\tat org.eclipse.equinox.prov.ui.ProvisioningUtil.addMetadataRepository(ProvisioningUtil.java:48)\n\tat org.eclipse.equinox.prov.ui.operations.AddMetadataRepositoryOperation.doExecute(AddMetadataRepositoryOperation.java:34)\n\tat org.eclipse.equinox.prov.ui.operations.ProvisioningOperation.execute(ProvisioningOperation.java:47)\n\tat org.eclipse.core.commands.operations.DefaultOperationHistory.execute(DefaultOperationHistory.java:511)\n\tat org.eclipse.equinox.prov.ui.dialogs.AddRepositoryDialog$2.run(AddRepositoryDialog.java:90)\n\tat org.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)\nCaused by: java.io.EOFException: input contained no data\n\tat org.xmlpull.mxp1.MXParser.fillBuf(MXParser.java:2983)\n\tat org.xmlpull.mxp1.MXParser.more(MXParser.java:3026)\n\tat org.xmlpull.mxp1.MXParser.parseProlog(MXParser.java:1410)\n\tat org.xmlpull.mxp1.MXParser.nextImpl(MXParser.java:1395)\n\tat org.xmlpull.mxp1.MXParser.next(MXParser.java:1093)\n\tat com.thoughtworks.xstream.io.xml.XppReader.pullNextEvent(XppReader.java:52)\n\t... 18 more",
+    "I added a null check in HEAD. The reading error is weird.",
+    "It\u0027s a path problem, meaning the path the user specified didn\u0027t point to a good repository.  I ran into this by accident when I pointed to the servers directory rather than servers/metadataRepository.\n\nIn the end user UI, you point to the servers directory (and it works fine).\nIn the admin UI, you have to point to servers/metadataRepository (and it works fine for me).  But if you point to a bogus path, such as servers, then it fails with this obscure issue.  My code needs to raise a more specific exception.",
+    "Fixed in HEAD to report the failure (repository not found).  The similar code in addArtifactRepository was already doing the right thing.\n\nAndrew, please reopen if you don\u0027t think you got this due to a bogus path."
+  ],
+  "commentCreationDates": [
+    "2007-09-18T18:12:21+02:00",
+    "2007-09-18T18:31:26+02:00",
+    "2007-09-18T19:47:31+02:00",
+    "2007-09-18T20:01:23+02:00",
+    "2007-09-18T20:07:56+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "null source",
+      "elements": [
+        {
+          "method": "java.util.EventObject.\u003cinit\u003e",
+          "source": "EventObject.java:38"
+        },
+        {
+          "method": "org.eclipse.jface.util.PropertyChangeEvent.\u003cinit\u003e",
+          "source": "PropertyChangeEvent.java:68"
+        },
+        {
+          "method": "org.eclipse.equinox.prov.ui.ProvisioningUtil.addMetadataRepository",
+          "source": "ProvisioningUtil.java:49"
+        },
+        {
+          "method": "org.eclipse.equinox.prov.ui.operations.AddMetadataRepositoryOperation.doExecute",
+          "source": "AddMetadataRepositoryOperation.java:34"
+        },
+        {
+          "method": "org.eclipse.equinox.prov.ui.operations.ProvisioningOperation.execute",
+          "source": "ProvisioningOperation.java:47"
+        },
+        {
+          "method": "org.eclipse.core.commands.operations.DefaultOperationHistory.execute",
+          "source": "DefaultOperationHistory.java:511"
+        },
+        {
+          "method": "org.eclipse.equinox.prov.ui.dialogs.AddRepositoryDialog$2.run",
+          "source": "AddRepositoryDialog.java:90"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:113"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "203822",
+      "date": "2007-09-18T18:12:21+02:00",
+      "product": "Equinox",
+      "component": "Incubator",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "com.thoughtworks.xstream.io.StreamException",
+      "message": ": input contained no data",
+      "elements": [
+        {
+          "method": "com.thoughtworks.xstream.io.xml.XppReader.pullNextEvent",
+          "source": "XppReader.java:69"
+        },
+        {
+          "method": "com.thoughtworks.xstream.io.xml.AbstractPullReader.readRealEvent",
+          "source": "AbstractPullReader.java:126"
+        },
+        {
+          "method": "com.thoughtworks.xstream.io.xml.AbstractPullReader.readEvent",
+          "source": "AbstractPullReader.java:119"
+        },
+        {
+          "method": "com.thoughtworks.xstream.io.xml.AbstractPullReader.move",
+          "source": "AbstractPullReader.java:98"
+        },
+        {
+          "method": "com.thoughtworks.xstream.io.xml.AbstractPullReader.moveDown",
+          "source": "AbstractPullReader.java:83"
+        },
+        {
+          "method": "com.thoughtworks.xstream.io.xml.XppReader.\u003cinit\u003e",
+          "source": "XppReader.java:37"
+        },
+        {
+          "method": "com.thoughtworks.xstream.io.xml.XppDriver.createReader",
+          "source": "XppDriver.java:30"
+        },
+        {
+          "method": "com.thoughtworks.xstream.io.xml.XppDriver.createReader",
+          "source": "XppDriver.java:34"
+        },
+        {
+          "method": "com.thoughtworks.xstream.XStream.fromXML",
+          "source": "XStream.java:775"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.prov.metadata.repository.MetadataRepositoryIO.read",
+          "source": "MetadataRepositoryIO.java:36"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.prov.metadata.repository.SimpleMetadataRepositoryFactory.load",
+          "source": "SimpleMetadataRepositoryFactory.java:18"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.prov.metadata.repository.MetadataRepositoryManager.loadRepository",
+          "source": "MetadataRepositoryManager.java:182"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.prov.metadata.repository.MetadataRepositoryManager.loadRepository",
+          "source": "MetadataRepositoryManager.java:126"
+        },
+        {
+          "method": "org.eclipse.equinox.prov.ui.ProvisioningUtil.addMetadataRepository",
+          "source": "ProvisioningUtil.java:48"
+        },
+        {
+          "method": "org.eclipse.equinox.prov.ui.operations.AddMetadataRepositoryOperation.doExecute",
+          "source": "AddMetadataRepositoryOperation.java:34"
+        },
+        {
+          "method": "org.eclipse.equinox.prov.ui.operations.ProvisioningOperation.execute",
+          "source": "ProvisioningOperation.java:47"
+        },
+        {
+          "method": "org.eclipse.core.commands.operations.DefaultOperationHistory.execute",
+          "source": "DefaultOperationHistory.java:511"
+        },
+        {
+          "method": "org.eclipse.equinox.prov.ui.dialogs.AddRepositoryDialog$2.run",
+          "source": "AddRepositoryDialog.java:90"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:113"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.io.EOFException",
+        "message": "input contained no data",
+        "elements": [
+          {
+            "method": "org.xmlpull.mxp1.MXParser.fillBuf",
+            "source": "MXParser.java:2983"
+          },
+          {
+            "method": "org.xmlpull.mxp1.MXParser.more",
+            "source": "MXParser.java:3026"
+          },
+          {
+            "method": "org.xmlpull.mxp1.MXParser.parseProlog",
+            "source": "MXParser.java:1410"
+          },
+          {
+            "method": "org.xmlpull.mxp1.MXParser.nextImpl",
+            "source": "MXParser.java:1395"
+          },
+          {
+            "method": "org.xmlpull.mxp1.MXParser.next",
+            "source": "MXParser.java:1093"
+          },
+          {
+            "method": "com.thoughtworks.xstream.io.xml.XppReader.pullNextEvent",
+            "source": "XppReader.java:52"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 1,
+      "commentIndex": 1,
+      "bugId": "203822",
+      "date": "2007-09-18T18:31:26+02:00",
+      "product": "Equinox",
+      "component": "Incubator",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "203822",
+  "bugId": "203822",
+  "date": "2007-09-18T18:12:21+02:00",
+  "product": "Equinox",
+  "component": "Incubator",
+  "severity": "normal"
+}

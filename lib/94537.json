@@ -1,0 +1,130 @@
+{
+  "comments": [
+    "build N20050509\n\nNoticed the following in the console output for this build.\n\n     [java] !ENTRY org.eclipse.osgi 2005-05-09 04:31:45.859\n     [java] !MESSAGE The class\n\"org.eclipse.update.internal.scheduler.SchedulerStartup\" cannot be loaded\nbecause the system is shutting down and the plug-in\n\"org.eclipse.update.scheduler\" has already been stopped.\n     [java] !STACK 0\n     [java] java.lang.ClassNotFoundException: The class\n\"org.eclipse.update.internal.scheduler.SchedulerStartup\" cannot be loaded\nbecause the system is shutting down and the plug-in\n\"org.eclipse.update.scheduler\" has already been stopped.\n     [java] \tat\norg.eclipse.core.runtime.adaptor.EclipseClassLoader.shouldActivateFor(EclipseClassLoader.java:148)\n     [java] \tat\norg.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass(EclipseClassLoader.java:66)\n     [java] \tat\norg.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass(BundleLoader.java:321)\n     [java] \tat\norg.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:369)\n     [java] \tat\norg.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:334)\n     [java] \tat\norg.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass(AbstractClassLoader.java:74)\n     [java] \tat java.lang.ClassLoader.loadClass(ClassLoader.java:235)\n     [java] \tat\norg.eclipse.osgi.framework.internal.core.BundleLoader.loadClass(BundleLoader.java:259)\n     [java] \tat\norg.eclipse.osgi.framework.internal.core.BundleHost.loadClass(BundleHost.java:227)\n     [java] \tat\norg.eclipse.osgi.framework.internal.core.AbstractBundle.loadClass(AbstractBundle.java:1259)\n     [java] \tat\norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension(ConfigurationElement.java:162)\n     [java] \tat\norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension(ConfigurationElement.java:152)\n     [java] \tat\norg.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension(ConfigurationElement.java:139)\n     [java] \tat\norg.eclipse.core.internal.registry.ConfigurationElementHandle.createExecutableExtension(ConfigurationElementHandle.java:48)\n     [java] \tat\norg.eclipse.ui.internal.WorkbenchPlugin$1.run(WorkbenchPlugin.java:233)\n     [java] \tat\norg.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:51)\n     [java] \tat\norg.eclipse.ui.internal.WorkbenchPlugin.createExtension(WorkbenchPlugin.java:229)\n     [java] \tat\norg.eclipse.ui.internal.EarlyStartupRunnable.getExecutableExtension(EarlyStartupRunnable.java:115)\n     [java] \tat\norg.eclipse.ui.internal.EarlyStartupRunnable.run(EarlyStartupRunnable.java:66)\n     [java] \tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1029)\n     [java] \tat org.eclipse.core.runtime.Platform.run(Platform.java:775)\n     [java] \tat org.eclipse.ui.internal.Workbench$16.run(Workbench.java:1493)\n     [java] \tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:67)\n\n\nThe early startup code should check if the workbench is still running before\nstarting each extension.",
+    "John, I cc\u0027ed you just FYI.  The early startup code runs as a job.  If there\u0027s a\ncleaner way of doing this than an explicit check to\nPlatformUI.isWorkbenchRunning(), please let me know.\nAre jobs canceled on shutdown?\n\nOne option would be to wait for all early startups to complete before shutting\ndown, but it\u0027s probably acceptable just to short-circuit it.\n",
+    "Jobs are canceled by runtime when the runtime plugin shuts down, and a warning\nis added to the log saying that a job was still running.  However, this is\ngenerally too late to avoid ClassNotFoundExceptions. The two options are:\n\n1) Cancel the early startup job during shutdown, and modify the early startup\njob to check for cancelation before calling each extension (should probably\ncheck for cancelation anyway to be a good citizen).\n\n2) Within the early startup job, check PlatformUI.isRunning(), and/or\nIWorkbench.isClosing() and bail out if shutting down.",
+    "John, I don\u0027t currently hang onto the early startup job.  What would be the best\nway to look it up in order to cancel it?\n",
+    "Also, is it recommended to return a cancel status if the job is canceled?\ne.g.\n\nif (monitor.isCanceled()) {\n  return Status.CANCEL_STATUS;\n}\n\nThe Javodoc for Job.run isn\u0027t too clear on this.\n",
+    "Also, it seems like we should wait until the early startup job completes (or is\ncanceled) before proceeding with workbench shutdown.  But IJobManager.join from\nWorkbench.shutdown() seems prone to deadlock (it gets called in the UI thread).\n",
+    "I\u0027m not going to put the join in for now, since otherwise we\u0027ll hang if one of\nthe early startup extensions does a syncExec.\n",
+    "To cancel a job, you need either the job object, or it needs to belong to a job\nfamily.  If the job has a distinct family, it can be canceled using\nIJobManager#cancel(family).  \n\nYes, returning CANCEL status from the job is the correct thing to do. In\npractice this only really matters if there are job listeners that check the\njob\u0027s result status.  The result is not interpreted in any special way by the\nplatform.  I have updated the javadoc of Job#run to reflect this.  (Note:\nthrowing OperationCanceledException will have the same effect as returning\nStatus.CANCEL_STATUS).",
+    "Ah, using cancel(family) is nicer than what I had:\n\nJob[] jobs \u003d Platform.getJobManager().find(EARLY_STARTUP_FAMILY);\n// There should be at most one.  If more than one, it should -definitely- be\ncanceled!\nfor (int i \u003d 0; i \u003c jobs.length; i++) {\n\tjobs[i].cancel();\n}\n",
+    "Fixed.",
+    "The ClassNotFoundExceptions can still occur, since even though we check\nisCanceled before running each startup extension, the workbench can still\nshutdown in the middle of starting a single extension.\n\nNeed to block for the current extension to finish before shutting down.\n",
+    "The test in WOrkbench.startPlugins for PlatformUI.isWorkbenchRunning() should\njust call this.isRunning(), or it could be get a false positive if another\nworkbench has started.\n",
+    "EarlyStartupRunnable should not do its own logging in handleException either, or\nthis can result in the following.  Should leave the logging up to Platform.run.\n\norg.eclipse.core.internal.runtime.AssertionFailedException: assertion failed:\nThe application has not been initialized.\n\tat org.eclipse.core.internal.runtime.Assert.isTrue(Assert.java:107)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.assertInitialized(InternalPlatform.java:218)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.log(InternalPlatform.java:834)\n\tat org.eclipse.core.internal.runtime.Log.log(Log.java:56)\n\tat org.eclipse.ui.internal.WorkbenchPlugin.log(WorkbenchPlugin.java:664)\n\tat\norg.eclipse.ui.internal.EarlyStartupRunnable.handleException(EarlyStartupRunnable.java:80)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.handleException(InternalPlatform.java:709)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1042)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:775)\n\tat org.eclipse.ui.internal.Workbench$19.run(Workbench.java:1584)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java)\n",
+    "\u003e Need to block for the current extension to finish before shutting down.\n\nI wouldn\u0027t suggest joining the early startup job on shutdown because of the\ndeadlock risk, at least for 3.1.  There may be unexpected deadlocks if the early\nstartup thread is trying to access something in the UI thread while the UI\nthread is waiting for it to complete, for example.  It\u0027s the kind of change that\nshould run for a month or two to flush out unexpected side-effects. A\nClassNotFoundException in the log file isn\u0027t as bad as a deadlock that prevents\nsave and shutdown from running...",
+    "My short term memory seems to be shot.  I said the same thing in comment 5.\n",
+    "John, what do you think of the idea of polling for 10 seconds or so to let the\nlast early startup extension finish.\n\nE.g. in Workbench.cancelEarlyStartup(), replace:\n\tPlatform.getJobManager().cancel(EARLY_STARTUP_FAMILY);\n\nwith:\n\n\tPlatform.getJobManager().cancel(EARLY_STARTUP_FAMILY);\n\tlong giveUpTime \u003d System.currentTimeMillis() + 10000; // wait 10 seconds max\n\twhile (Platform.getJobManager().find(EARLY_STARTUP_FAMILY).length \u003e 0 \u0026\u0026\nSystem.currentTimeMillis() \u003c giveUpTime) {\n\t\ttry {\n\t\t\tThread.sleep(100);\n\t\t} catch (InterruptedException e) {\n\t\t\tbreak;\n\t\t}\n\t}\n\nThis way, even if an early startup item is blocked on the UI, it won\u0027t deadlock.\n(Even before this change, it would not have been able to make progress because\nat this point we\u0027re not spinning the event loop anymore).\n\nWe could also make the delay a hidden preference, in case an app needs to tailor\nthe value.\n",
+    "Is this still causing problems for the tests?  It seems like a complex solution\nfor what seems to be a rare corner case...  An exception in the log file for\nthis case doesn\u0027t seem much worse than a ten second delay, if it is likely to be\nrare.  \n\nI suppose if it\u0027s still causing problems for automated tests a short delay would\nbe ok, perhaps followed by an explicit warning in the log that an early startup\nextension was still running at the time of shutdown.",
+    "It\u0027s not just the tests I\u0027m concerned about.  I\u0027m more concerned about a real\nstartup extension that is long-running, and may leave the world in an\ninconsistent state if the workbench and runtime shut down before it has finished.\n\nThere is a concern here that waiting will affect the performance tests though.",
+    "defering to 3.2 as this is not fully fixed yet.",
+    "Nothing planned for 3.2.  It hasn\u0027t been an issue in 3.1 or 3.2, AFAIK.\n\n",
+    "Actually, I\u0027m going to mark this as fixed in 3.1.\nPlease reopen or file new bug reports if you see this reoccur.\n"
+  ],
+  "commentCreationDates": [
+    "2005-05-10T23:23:27+02:00",
+    "2005-05-10T23:30:20+02:00",
+    "2005-05-10T23:42:16+02:00",
+    "2005-05-18T17:32:47+02:00",
+    "2005-05-18T17:36:19+02:00",
+    "2005-05-18T17:53:05+02:00",
+    "2005-05-18T17:54:02+02:00",
+    "2005-05-18T17:55:27+02:00",
+    "2005-05-18T18:25:44+02:00",
+    "2005-05-18T20:41:21+02:00",
+    "2005-05-27T21:50:02+02:00",
+    "2005-05-27T21:56:06+02:00",
+    "2005-05-27T22:09:47+02:00",
+    "2005-06-01T17:58:49+02:00",
+    "2005-06-01T19:16:20+02:00",
+    "2005-06-07T04:22:19+02:00",
+    "2005-06-07T23:08:35+02:00",
+    "2005-06-08T03:33:44+02:00",
+    "2005-06-14T21:57:05+02:00",
+    "2006-01-11T16:48:27+01:00",
+    "2006-01-11T16:49:03+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassNotFoundException",
+      "message": "The class \"org.eclipse.update.internal.scheduler.SchedulerStartup\" cannot be loaded because the system is shutting down and the plug-in \"org.eclipse.update.scheduler\" has already been stopped.      [java]",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseClassLoader.shouldActivateFor",
+          "source": "EclipseClassLoader.java:148"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "94537",
+      "date": "2005-05-10T23:23:27+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.core.internal.runtime.AssertionFailedException",
+      "message": "assertion failed: The application has not been initialized.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.Assert.isTrue",
+          "source": "Assert.java:107"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.assertInitialized",
+          "source": "InternalPlatform.java:218"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.log",
+          "source": "InternalPlatform.java:834"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.Log.log",
+          "source": "Log.java:56"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPlugin.log",
+          "source": "WorkbenchPlugin.java:664"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EarlyStartupRunnable.handleException",
+          "source": "EarlyStartupRunnable.java:80"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.handleException",
+          "source": "InternalPlatform.java:709"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:1042"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:775"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$19.run",
+          "source": "Workbench.java:1584"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 12,
+      "bugId": "94537",
+      "date": "2005-05-27T22:09:47+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "94537",
+  "bugId": "94537",
+  "date": "2005-05-10T23:23:27+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

@@ -1,0 +1,735 @@
+{
+  "comments": [
+    "I\u0027m going to really struggle to give you a reliable test case here, but here \ngoes...\n\nIn M8 (and not in any other 3.0 I or M build that I\u0027ve tried), I have found \nthat Eclipse stops building files. I have yet to determine whether this is due \nto length of use, multiple projects, or just some internal state failure.\n\nNothing obvious is reported in the .log file, although I do have multiple \nentries like this:\n\n!ENTRY org.eclipse.ui.ide 4 4 Apr 04, 2004 23:03:08.109\n!MESSAGE Error accessing marker type\n!ENTRY org.eclipse.core.resources 4 376 Apr 04, 2004 23:03:08.109\n!MESSAGE Marker id: 68785 not found.\n\n\nThe essential problem manifests itself thus (in my situation):\n\nYou have a multi-project workspace, with a modest amount of interdependencies \nbetween projects. You edit and build (using autobuild, but this also happens \nto a colleague of mine using manual builds), and eventually the builds stop \nhappening.\n\nThe fact that the builds aren\u0027t happening is evident because\na) The progress monitor stops displaying ongoing build activities\nb) Coding warnings/errors fixed do not disappear from the Problems view\nc) There is no noticeable build activity going on (no disk activity, no \nrefresh of Problems view, no decoration changes in Package Explorer etc)\n\nInvoking Clean does nothing; turning off autobuild and manually invoking Build \nAll does nothing\n\nThe only solution is to close and restart Eclipse. Things then return to \nnormal for a little while.\n\nThis is a prevalent problem - to the extent that I essentially consider M8 \nunusable.\n\nTo reiterate, this appears to be a new problem. I have tried all 3.0 milestone \nbuilds, and quite a few of the integration builds, and have never seen this \npreviously",
+    "Moving to platform for further investigation.",
+    "As you\u0027re the first to report this, and many are using M8, I suspect a localized\nproblem.  First, can you give more details, including:\n\n - What plugins do you have installed outside the ones included in M8?\n - Are these plugin projects, or just normal Java projects?\n - Are the projects shared in a repository (CVS or otherwise)\n - Anything special about your file system (network drive, samba, etc)\n\nIf you can reproduce with any frequency, you can instrument the build mechanism\nto find out if builds are running:\n\n1) Copy the file plugins/org.eclipse.core.resources_3.0.0/.options to the\nEclipse install directory (eclipse/.options).\n\n2) Turn on builder instrumentation flags:\n\norg.eclipse.core.resources/debug\u003dtrue\norg.eclipse.core.resources/build/failure\u003dtrue\norg.eclipse.core.resources/build/invoking\u003dtrue\norg.eclipse.core.resources/build/delta\u003dtrue\norg.eclipse.core.resources/build/needbuild\u003dtrue\n\n3) Start eclipse with the \"-debug\" command line argument, and use java.exe as\nthe VM instead of javaw.exe:\n\n eclipse -vm d:\\java142\\jre\\bin\\java -debug\n\n-\u003e You should now get diagnostics printing in the Java console.  When it gets\ninto a state where builds no longer happen, see if any diagnostics are generated.\n\n",
+    "I would be delighted to hear that it was a localised problem, however as it \noccurs on at least 3 machines that I know of, my hopes aren\u0027t high.\n\nI will perform the debugging steps that you suggested, and in the meantime, in \nanswer to your questions:\n\n- I have no other plugins loaded at this time. I started using M8 from a brand \nnew workspace, with a clean, full SDK installation\n- All projects in my workspace are Java only\n- The code for all projects is held in a CVS repository, which I access via \nEclipse\n- My work machine is a dual-processor, dual-monitor Dell running XP Pro, my \nhome machine is a single-processor, single-monitor P4 clone running XP Home.\n\nThese are both machines that I have run all of the other milestone builds on \nwithout this problem.\n\nMy workspace has 24 projects in it - with a modest amount of inter-dependency \nbetween them (nothing too complex, but each is dependent on at least one other)",
+    "Thanks for all the details.  Sorry to ask this probably stupid question, but are\nyou sure it isn\u0027t building?  Builds now happen in the background, and the\nprogress shown to the user when a build starts and completes is almost\nnon-existent (see for example bug 52617). When no build is required and you hit\nCtrl+B, build is instantaneous and there is not even a flicker of feedback in\nthe UI. We are working on improving this...",
+    "Not a stupid question to ask at all :)\n\nIn trying to prove that I wasn\u0027t just imagining this problem, I set about a \nsort of experiment.\n\nThe projects I\u0027m working on have, over time, acquired a bunch of compiler \nwarnings (non-externalised strings, missing Javadoc etc), and last weekend I \nset about resolving them.\n\nAll began well - I\u0027d correct some issues, save the file(s) and the warning \nindicators and Problem view would update to reflect that those conditions had \nbeen resolved. All of this was accompanied by noticable activity in the \nProgress view\n\nAfter a while, however, the warning indicators, Problem view and Progress view \nall stopped responding. Essentially all signs point to the build not being \ndone.\n\nHaving said that, I\u0027m not too blinkered to admit that it might be something \nelse - and had discussed this with a colleague.\n\nWhat clinches it for me, though, is that when I have got into this situation \nwith compiler errors (not warnings) then I get \"unresolved compilation error\" \nproblems when I run my classes. So it does seem like it is not building.\n\nThat being said, I want to get this resolved more than any other issue, so I\u0027m \noff to do some further experimentation!\n\n\n\n",
+    "Well, the best thing is to run with the trace options turned on as I describe.\nThat should print more information than you ever wanted to know about\nif/when/what builds are happening.",
+    "I noticed you entered a very similar bug about builds not working in M8 (bug\n56708). Is this the same situation? Are you always getting the build up of\n\"Running Operation\" tasks before the builds fail?  Just trying to gather clues...",
+    "Yes, well spotted :)\n\nI do get that, continually - for example, if I check out a project from CVS \nand then open the project properties to complete the dependency configuration.\n\nIt\u0027s difficult to know if the two problems are related or not. The symptoms \nare the same, but in the other issue (56708), there is a build up of entries \nin the Progress view, and in this one, there is not.\n\nThe nett effect is the same, though - it works as it should for a while, and \nthen stops.\n\nI find the other issue (56708) *very* easy to recreate. Open the progress \nview, check out a project, progress view shows stuff and then empties. Open \nproperties and add (for example) an external jar library as a dependent, close \nproperties to allow Eclipse to do its rebuild, and ta-da - a hanging entry is \nleft in the progress view. \n\nAfter a \u0027random\u0027 number of these happening, no further auto-builds take place -\n eg a compilation problem that would be fixed by adding a dependent to the \nproject no longer resolves when I do so.\n\nIt would be very handy if this was related, because it (56708) is much more \npredictable and easy to see :)",
+    "OK - got some info from the debugging session. Won\u0027t help you much though!\n\nTurn on the instrumentation options you suggested and get the following when \nbuilds are working:\n\nTue Apr 13 06:34:29 BST 2004 - Checking if need to build. Starting delta \ncomputation between: ElementTree(52) and ElementTree(55)\nTue Apr 13 06:34:29 BST 2004 - End delta computation. (0ms).\nTue Apr 13 06:34:29 BST 2004 - JavaBuilder(msJavaFelixPluginUI) needs building \nbecause of changes in: msJavaFelixPluginUI\nTue Apr 13 06:34:29 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginUI)\nTue Apr 13 06:34:29 BST 2004 - Computing delta for project: \nmsJavaFelixPluginUI \nTue Apr 13 06:34:29 BST 2004 - Finished computing delta, time: 0ms\nTue Apr 13 06:34:29 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginUI) time: 47ms\nTue Apr 13 06:34:29 BST 2004 - Checking if need to build. Starting delta \ncomputation between: ElementTree(52) and ElementTree(56)\nTue Apr 13 06:34:29 BST 2004 - End delta computation. (0ms).\nTue Apr 13 06:34:29 BST 2004 - JavaBuilder(msJavaFelixPluginPluginEditor) \nneeds building because of changes in: msJavaFelixPluginUI\nTue Apr 13 06:34:29 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginPluginEditor)\nTue Apr 13 06:34:29 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginPluginEditor) time: 0ms\nTue Apr 13 06:34:29 BST 2004 - JavaBuilder(msJavaFelixPluginPlatformUI) needs \nbuilding because of changes in: msJavaFelixPluginUI\nTue Apr 13 06:34:29 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginPlatformUI)\nTue Apr 13 06:34:29 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginPlatformUI) time: 0ms\nTue Apr 13 06:34:29 BST 2004 - JavaBuilder(msJavaFelixPluginHelpManager) needs \nbuilding because of changes in: msJavaFelixPluginUI\nTue Apr 13 06:34:29 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginHelpManager)\nTue Apr 13 06:34:29 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginHelpManager) time: 15ms\nTue Apr 13 06:34:29 BST 2004 - JavaBuilder(msJavaFelixPluginBootstrapEditor) \nneeds building because of changes in: msJavaFelixPluginUI\nTue Apr 13 06:34:29 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginBootstrapEditor)\nTue Apr 13 06:34:29 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginBootstrapEditor) time: 0ms\nTue Apr 13 06:34:29 BST 2004 - JavaBuilder(msJavaFelixPluginViewer) needs \nbuilding because of changes in: msJavaFelixPluginUI\nTue Apr 13 06:34:29 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginViewer)\nTue Apr 13 06:34:29 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginViewer) time: 0ms\nTue Apr 13 06:34:29 BST 2004 - JavaBuilder\n(FeasibilityViewerApplicationController) needs building because of changes in: \nmsJavaFelixPluginUI\nTue Apr 13 06:34:29 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(FeasibilityViewerApplicationController)\nTue Apr 13 06:34:29 BST 2004 - Builder finished: JavaBuilder\n(FeasibilityViewerApplicationController) time: 0ms\n\n\nHowever, once the builds stop working, I get *absolutely no* output on the \nconsole.\n\neg. the output above is the last set of lines on my console, and I can go \naround my workspace now, editing files to my heart\u0027s content and am getting no \nfurther output.\n\nI\u0027ve just done a \"clean\" on the workspace (ie all projects), and get this as \nconsole output:\n\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(Viewer)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder(Viewer) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(ViewerResources)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder(ViewerResources) \ntime: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixCore)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder(msJavaFelixCore) \ntime: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixCoreTest)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixCoreTest) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginCore)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginCore) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginCoreResource)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginCoreResource) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginMIP)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginMIP) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginPlatformUIResource)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginPlatformUIResource) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginUI)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginUI) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginPluginEditor)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginPluginEditor) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginPluginEditorResource)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginPluginEditorResource) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginPlatformUI)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginPlatformUI) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginHelpManager)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginHelpManager) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginBootstrapEditor)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginBootstrapEditor) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginBootstrapEditorResource)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginBootstrapEditorResource) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginUIResource)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginUIResource) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginViewer)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginViewer) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFredaCore)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder(msJavaFredaCore) \ntime: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFredaValidation)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFredaValidation) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFredaFileStore)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFredaFileStore) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFredaMergeFormat)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFredaMergeFormat) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFredaDmcStore)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFredaDmcStore) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(msJavaFelixPluginDataModel)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginDataModel) time: 0ms\nTue Apr 13 06:40:47 BST 2004 - Invoking (INCREMENTAL_BUILD) on builder: \nJavaBuilder(FeasibilityViewerApplicationController)\nTue Apr 13 06:40:47 BST 2004 - Builder finished: JavaBuilder\n(FeasibilityViewerApplicationController) time: 0ms\n\n\nAs you can see (well, my interpretation is that...) Eclipse is convinced that \nall files are up-to-date. (Is this \u0027correct\u0027 behaviour for Clean???)\n\nThis is all with \"auto build on resource modification\" turned on.\n\nNow have turned that option off and am doing a \"build all\". This is the \nconsole output from the build all:\n\nTue Apr 13 06:44:47 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(Viewer)\nTue Apr 13 06:44:49 BST 2004 - Builder finished: JavaBuilder(Viewer) time: \n2156ms\nTue Apr 13 06:44:49 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(ViewerResources)\nTue Apr 13 06:44:49 BST 2004 - Builder finished: JavaBuilder(ViewerResources) \ntime: 94ms\nTue Apr 13 06:44:49 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixCore)\nTue Apr 13 06:44:50 BST 2004 - Builder finished: JavaBuilder(msJavaFelixCore) \ntime: 859ms\nTue Apr 13 06:44:50 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixCoreTest)\nTue Apr 13 06:44:50 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixCoreTest) time: 94ms\nTue Apr 13 06:44:50 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginCore)\nTue Apr 13 06:44:50 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginCore) time: 328ms\nTue Apr 13 06:44:50 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginCoreResource)\nTue Apr 13 06:44:50 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginCoreResource) time: 47ms\nTue Apr 13 06:44:50 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginMIP)\nTue Apr 13 06:44:50 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginMIP) time: 31ms\nTue Apr 13 06:44:50 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginPlatformUIResource)\nTue Apr 13 06:44:50 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginPlatformUIResource) time: 47ms\nTue Apr 13 06:44:50 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginUI)\nTue Apr 13 06:44:52 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginUI) time: 1235ms\nTue Apr 13 06:44:52 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginPluginEditor)\nTue Apr 13 06:44:52 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginPluginEditor) time: 93ms\nTue Apr 13 06:44:52 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginPluginEditorResource)\nTue Apr 13 06:44:52 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginPluginEditorResource) time: 63ms\nTue Apr 13 06:44:52 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginPlatformUI)\nTue Apr 13 06:44:52 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginPlatformUI) time: 469ms\nTue Apr 13 06:44:52 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginHelpManager)\nTue Apr 13 06:44:53 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginHelpManager) time: 172ms\nTue Apr 13 06:44:53 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginBootstrapEditor)\nTue Apr 13 06:44:53 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginBootstrapEditor) time: 203ms\nTue Apr 13 06:44:53 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginBootstrapEditorResource)\nTue Apr 13 06:44:53 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginBootstrapEditorResource) time: 62ms\nTue Apr 13 06:44:53 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginUIResource)\nTue Apr 13 06:44:53 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginUIResource) time: 16ms\nTue Apr 13 06:44:53 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginViewer)\nTue Apr 13 06:44:53 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginViewer) time: 359ms\nTue Apr 13 06:44:53 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFredaCore)\nTue Apr 13 06:44:54 BST 2004 - Builder finished: JavaBuilder(msJavaFredaCore) \ntime: 969ms\nTue Apr 13 06:44:54 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFredaValidation)\nTue Apr 13 06:44:57 BST 2004 - Builder finished: JavaBuilder\n(msJavaFredaValidation) time: 2609ms\nTue Apr 13 06:44:57 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFredaFileStore)\nTue Apr 13 06:44:57 BST 2004 - Builder finished: JavaBuilder\n(msJavaFredaFileStore) time: 328ms\nTue Apr 13 06:44:57 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFredaMergeFormat)\nTue Apr 13 06:44:57 BST 2004 - Builder finished: JavaBuilder\n(msJavaFredaMergeFormat) time: 375ms\nTue Apr 13 06:44:57 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFredaDmcStore)\nTue Apr 13 06:44:58 BST 2004 - Builder finished: JavaBuilder\n(msJavaFredaDmcStore) time: 375ms\nTue Apr 13 06:44:58 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(msJavaFelixPluginDataModel)\nTue Apr 13 06:44:58 BST 2004 - Builder finished: JavaBuilder\n(msJavaFelixPluginDataModel) time: 234ms\nTue Apr 13 06:44:58 BST 2004 - Invoking (FULL_BUILD) on builder: JavaBuilder\n(FeasibilityViewerApplicationController)\nTue Apr 13 06:44:59 BST 2004 - Builder finished: JavaBuilder\n(FeasibilityViewerApplicationController) time: 969ms\n\nThis all looks reasonable. Interesting to note that the Progress view remained \ncompletely empty during this process...\n\nRunning without the \"auto build on resource modification\" flag set, and \ndoing \"ctrl-B\" builds seems happier (on brief examination), although not my \npreferred way of working.\n\nI\u0027m going to close off this issue update for now and keep playing...\n\nAre there any other instrumentation flags worth enabling to help here now that \nwe have observed that no logging is produced when Eclipse gets into this \"non-\nbuilding\" state?\n\n\n\n\n",
+    "Thank you, this is all very useful information. I will try to deduce what is\nhappening, or at least ask you some better questions soon.",
+    "For reference, once the \u0027Auto Build\u0027 stops working, it cannot be coaxed into \nstarting again.\n\nI harbored notions that once I had invoked a Build All (after turning Auto \nBuild off), then it might get back into step. But I just did this, re-\nenabled \"Auto Build\", and the problem persists (no logging output, and .class \nfiles not being recreated after changing/saving their .java files)\n\nDunno if this information is pertinent, but it is worth you having anything at \nthis stage...I would hate for this problem to remain unresolved.\n\nThanks\nIan",
+    "*** Bug 57936 has been marked as a duplicate of this bug. ***",
+    "Ok, to recap what we know:\n\nWhen autobuild is turned on, it stops working after some period of time. No\nerrors appear in the log, and tracing shows that the builders are no longer being\ncalled at all. When autobuild is turned off, it continues to work normally.\nSometimes this happens after a build up of \"Waiting: Running Operation\" entries\nin the progress view, but not in all cases. At least two people have experienced\nthis.\n\nI\u0027m still stumped, but I have some more questions that might help narrow it down\n(theoretically after twenty questions it better be solved \u003cg\u003e):\n\n1) When you get into this state, do other things that use the progress view\nstill work? For example, do CVS operations and Java Search still work? These\nbackground tasks all use a common infrastructure so this might help narrow the\nproblem.\n\n2) When in this state, can one of you do a Ctrl+Break in the java console (run\nwith java.exe as described in comment #2).  This should produce a stack trace of\nall currently executing threads.  Copy this stack to a file and attach to the\nbug report (see the \"Create a New Attachment\" link at the top of the page).\n\n3) What VM are you using? Do java.exe -version and attach the output.",
+    "1. Trying something like a CVS \"Show in Resource History\" still works, but the \nProgress view reports nothing during the process. I even switched the Progress \nview to \"verbose\", but still nothing reported. Ditto with Java Search - the \nfunction works, but the Progress view does not display any activity\n\n2. Thread dump is about to be attached\n\n3. I am using J2SDK 1.4.2_04 - specifically:\njava version \"1.4.2_04\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.2_04-b05)\nJava HotSpot(TM) Client VM (build 1.4.2_04-b05, mixed mode)\n\n\nI like this 20 question thing :)  I\u0027m a very willing servant to assist you in \nresolving this!",
+    "Created an attachment (id\u003d9460)\nCtrl+break on Eclipse when autobuild has stopped working\n\nThis has been produced using Eclipse M8, running in debug mode with the\n.options file set to log build activities.\n\nAt the time that this dump was produced, Eclipse had stopped autobuilding on\nresource modification",
+    "Reading the report identified as a duplicate of this one, let me report this:\n\nNow I have a workspace setup in which this happens, it can no recur in \nvirtually no time at all - maybe \u003c5 mins with only half-a-dozen or so \nsuccessful save/builds.\n\nThis is on a workspace with multiple project in it, if that might make a \ndifference.\n\nThe situation occurs regardless of whether the build would succeed, fail, or \nproduce warnings.\n\nDoing a dir of the .java and .class files shows (as well as all the other \nevidence) that the .class files are unchanged and out of sync.\n\nAlthough I do have (and have reported) an issue where the Progress view \nacquires non-terminating entries (items get added and do not get removed), \nthis - for me - only happens on initial workspace creation - not during the \nnormal edit/build cycle, so I\u0027m not sure if that is related.",
+    "Wow, the thought plickens...\n\nSo once you are in this state, no background operations report progress in the\nprogress view at all?  Try a longer running CVS operation, such as clicking\n\"Synchronize\" in the Synchronize view. The resource history is fast enough that\nit doesn\u0027t always show progress.",
+    "I currently have two Eclipse instances running. One where autobuild is still \nfunctional, and one where it is not.\n\nThe one that is still working (only has a couple of projects in it) generates \nstuff in the Progress view on build (auto and manual), CVS and Java Search\n\nThe one that is not working (masses of projects) generates no Progress view \noutput for either auto build (cos it doesn\u0027t do anything!), manual build \n(which seems to work), CVS or Java Search (both of which work as normal)\n\nAs the broken one has wayyy more projects in it, I would have expected more \n(or at least longer-lasting) Progress view output from it...\n\nThe little 3-bar ProgressBar (bottom-right of desktop) behaves sensibly during \nlong operations (build/search/CVS)\n\nSynchronise produced no Progress view output either - although the operation \nitself worked\n\nThis is even with Verbose turned on in Progress view",
+    "**RED HERRING ALERT**\n\nThis may have *nothing* to do with it, but I\u0027m just wracking my brains now...\n\nIn the most recent incident of this happening to me, the task I had just \nperformed was to launch the code I was writing.\n\nI\u0027ve checked, at the code is no longer running and as far as I know, was not \nrunning on the first rebuild after that - just thought I\u0027d mention it... :)\n\n\nAlso, at some point during the instrumented output (long after the problem had \noccurred), the following exception was output...\n\njava.lang.IndexOutOfBoundsException: Index: 27, Size: 27\n        at java.util.ArrayList.RangeCheck(ArrayList.java:507)\n        at java.util.ArrayList.get(ArrayList.java:324)\n        at \norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitDocumentProvider$ReverseM\nap.get(CompilationUnitDocumentProvider.java:330)\n        at \norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitDocumentProvider$Compilat\nionUnitAnnotationModel.addAnnotation(CompilationUnitDocumentProvider.java:661)\n        at org.eclipse.jface.text.source.AnnotationModel.replaceAnnotations\n(AnnotationModel.java:190)\n        at org.eclipse.jface.text.source.AnnotationModel.replaceAnnotations\n(AnnotationModel.java:160)\n        at \norg.eclipse.jdt.internal.ui.javaeditor.OverrideIndicatorManager.updat\neAnnotations(OverrideIndicatorManager.java:227)\n        at \norg.eclipse.jdt.internal.ui.javaeditor.OverrideIndicatorManager.recon\nciled(OverrideIndicatorManager.java:271)\n        at \norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.reconcil\ned(CompilationUnitEditor.java:1669)\n        at \norg.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.reconci\nle(JavaReconcilingStrategy.java:107)\n        at \norg.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.reconci\nle(JavaReconcilingStrategy.java:118)\n        at \norg.eclipse.jface.text.reconciler.CompositeReconcilingStrategy.reconc\nile(CompositeReconcilingStrategy.java:83)\n        at \norg.eclipse.jdt.internal.ui.text.JavaCompositeReconcilingStrategy.rec\noncile(JavaCompositeReconcilingStrategy.java:97)\n        at org.eclipse.jface.text.reconciler.MonoReconciler.process\n(MonoReconciler.java:76)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:189)\n\n...again, may be of no interest here...\n",
+    "Ok, last question for the day.  In the Workbench \u003e Work in Progress preference \npage there is a slider bar that is used to give an indication of your machine \nspeed.  Have you touched this slider bar? If you get into a state where builds \nno longer work, does it have any effect to slide this bar all the way to the \nright (Fast)? This preference is used to throttle the amount of background \nactivity that happens concurrently, so that for slow machines we don\u0027t thrash \ntoo much. I\u0027m reaching here, but a bug in this computation could prevent \nbackground operations such as auto-build from running.",
+    "I have entered bug 58407 for the IndexOutOfBoundsException in the console \noutput. I\u0027m fairly sure this is unrelated.",
+    "Running in a different time zone to you, so apologies for not getting back to \nyou earlier :)\n\nMy machines are already running with the slider on \u0027fast\u0027. I\u0027ll give it a go \non a different \u0027speed\u0027 to see if it has any impact.\n\nI appreciate you sticking with this. I know this doesn\u0027t seem to be a problem \nthat many people have noticed, but it is a major issue to us - and I\u0027d hate to \nhave it persist into 3.0 final release before others start to spot it!",
+    "I thought I would add a couple of things that I\u0027ve noticed when this happens to \nme.\n\n- I am using JDK 1.4.1 to compile all of my projects\nC:\\\u003ejava -version\njava version \"1.4.1\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.1-b21)\nJava HotSpot(TM) Client VM (build 1.4.1-b21, mixed mode)\n\n- The slider bar for the machine speed is all the way to the right (as fast as \nit can go)\n\n- I have been switching back and forth between M7 and M8, but I can only get \nthis to happen with M8.\n\n- The last time I was able to reproduce this problem was right after I tried \ndebugging my class.  I\u0027m not sure if this is what causes it every time, but I \njust noticed this.  While I was updating my class, everything seemed to be \nworking fine.  Then, I tried running a junit test in debug mode.  After I \nfinished, the progress view would no longer display any information.  The task \nview was no longer being updated as well.  I was able to run a search however.\n",
+    "You have both indicated that this is happening (at least sometimes) immediately\nafter launching a Java program in debug mode. It would be useful to know if this\nis consistent. I\u0027ve still had no luck reproducing it here.",
+    "I have seen this reproduced using I20040413.  This is a stop-ship defect.",
+    "Ian, if you\u0027re still with me you could try the following debug flags:\n\norg.eclipse.core.runtime/debug\u003dtrue\norg.eclipse.core.runtime/jobs\u003dtrue\n\nThen, in the flood of messages in the console, look for this message when you\nget into a state where autobuild does not run:\n\n\"Stopped allocating worker threads. Thread count: \u003csome number\"",
+    "Just out of curiosity, where are these debug flags set? ",
+    "In the .options file in the eclipse install directory. See comment #2.",
+    "Could you both try running with the patch found at:\n\nhttp://dev.eclipse.org/viewcvs/index.cgi/%7Echeckout%7E/platform-core-home/downloads/patches/3.0M8/runtime.jar\n\nJust replace the JAR file at\neclipse/plugins/org.eclipse.core.runtime_3.0.0/runtime.jar with the one at that\nlink. I recommend keeping a copy of the old JAR just in case. This patch will\nonly work with 3.0 M8 (any operating system).\n\nI\u0027m still baffled at what might be causing it, but this patch adds several extra\nchecks to the code that decides if another background thread needs to be\nallocated (and tries to correct any error condition). This will tell me whether\nor not I\u0027m on the right track with this.",
+    "I am still with you on this, John. I put the extra instrumentation details \ninto my .options file, and the damn thing has been good as gold all day - not \na rebuild problem in sight!\n\nI was going to leave trying your new .jar file until the problem happened \nagain, but if you\u0027d prefer me to try it anyway, just let me know...\n\nIn the meantime, I\u0027ll just let you know what happens when the problem recurs",
+    "John, have you seen one of the other issues I\u0027ve raised? bug 56708\n\nNot necessarily connected, but in the same general area of \u0027build issues\u0027.\n\nThis still happens 100% consistently whenever I go to one of my projects and \nchange a build dependency (add/remove other project or external library).\n\nThere is a difference here - that issue leaves a tracer in the Progress view, \nbut might be kinda interesting to consider alongside this issues",
+    "Re: comment #30 - that is interesting in and of itself.  The fact that it\ndoesn\u0027t fail when instrumentation is enabled certainly suggests a subtle time\nissue or race condition.\n\nRe: comment #31 - I haven\u0027t seen that one either.  I\u0027m not as concerned about\nit, since the code that generated those \"Running Operation\" entries has all been\nchanged (it was a prototype of moving operations from fore-ground to background\nand it had some glitches).",
+    "A co-worker of mine is running into this as well.  He is running WinXP (plugins\nare XMLBuddy, and Tomcat... I don\u0027t know what versions).  There is a checkbox on\nthe Workbench-\u003eWork in Progress page to temporarily restore 2.1 build actions\nwhich we set.  This adds a Rebuild All to the Project menu and he was able to\nrebuild the projects via that.  This may be an anomolie, but I thought I would\ndrop it here as food for thought.",
+    "I have experienced similar problems with M8 (and with none of the previous 3.0\nbuilds). My system is linux based with Blackdown j2sdk-1.4.1_01 (but the same\nhappens with Sun\u0027s j2sdk-1.4.1_05). For some time everything is ok, but then\neclipse begins to report errors in the problem view (when saving a file) saying\nthat e.g. \"SomeException is not a type\" however SomeException and the class I\u0027m\nediting are in the same package. And of course an Ant build compiles everything\nfine. In my case restarting eclipse doesn\u0027t even help.\nThe only thing that works is commiting everything back into CVS, deleting the\nproject and checking it out again.\n\nMaybe this is another bug, but makes the M8 build very unusable.",
+    "We have discovered and fixed quite a few problems since M8 in areas that may be\nrelated to this bug.  As we are getting very close to the 3.0 release, we need\nto know if anyone can reproduce this problem on a newer build.  All components\nhave put in a lot of effort to produce a stable integration build this week in\nlieu of the old M9 milestone.  If you could take this new build (I20040506), and\nlet us know ASAP if you can reproduce this problem, it would be very much\nappreciated.\n\nUntil a reproducible case is discovered on I20040506 or later, I am downgrading\nthe priority of this bug.  \"P1\" means we will not ship Eclipse 3.0 until the\nproblem is fixed, which we cannot promise without knowing for certain if the\nproblem still exists.",
+    "I\u0027m afraid that I have got this trouble in I20040506 still - I\u0027ve only been \nable to use it for any length of time for a day, but I have noticed builds not \nhappening in two situations:\n\n1) Building my workspace, which consisted of me CVS checking out 17 projects \ninto one workspace, and then going through each adding external libs and inter-\nproject dependencies. After a while, it just stopped rebuilding/refreshing \nwhen I completed a dependency link. So this was in project properties actions \nonly - no code changes.\n\n2) I have just had the old, familiar not rebuilding after code edit issue \nrecur. I have a Java file open, I\u0027m making changes to it and saving (with auto-\nbuild), but the .class file is not being rebuilt. As before, once the rebuild \nstops working, it doesn\u0027t get going again without a restart.\n\nSorry to be the bearer of bad news, and I will now try and recreate this with \nthe debug tracers turned on to see if I can give more info - but I still think \nthere is an issue...\n\n**Once more, the progress view shows no activity - even in Verbose mode\n\n**This might be nothing related, but I have exceptions like this in my .log \nfile. It is /possible/ that the timestamp on these exceptions corresponds with \nthe builds stopping.\n\njava.version\u003d1.4.2_04\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_GB\nCommand-line arguments: -showlocation -showlocation -nologo\n!ENTRY org.eclipse.update.configurator May 14, 2004 11:07:11.477\n!MESSAGE ConfigurationParser.parse() error:\n!STACK 0\njava.lang.IllegalArgumentException\n        at org.apache.crimson.parser.Parser2.parseInternal(Parser2.java:691)\n        at org.apache.crimson.parser.Parser2.parse(Parser2.java:337)\n        at org.apache.crimson.parser.XMLReaderImpl.parse\n(XMLReaderImpl.java:448)\n        at javax.xml.parsers.SAXParser.parse(SAXParser.java:345)\n        at org.eclipse.update.internal.configurator.ConfigurationParser.parse\n(ConfigurationParser.java:68)\n        at \norg.eclipse.update.internal.configurator.PlatformConfiguration.loadConfig\n(PlatformConfiguration.java:1140)\n        at \norg.eclipse.update.internal.configurator.PlatformConfiguration.initializeCurren\nt(PlatformConfiguration.java:701)\n        at \norg.eclipse.update.internal.configurator.PlatformConfiguration.\u003cinit\u003e\n(PlatformConfiguration.java:83)\n        at \norg.eclipse.update.internal.configurator.PlatformConfiguration.startup\n(PlatformConfiguration.java:642)\n        at \norg.eclipse.update.internal.configurator.ConfigurationActivator.getPlatformConf\niguration(ConfigurationActivator.java:296)\n        at \norg.eclipse.update.internal.configurator.ConfigurationActivator.initialize\n(ConfigurationActivator.java:114)\n        at \norg.eclipse.update.internal.configurator.ConfigurationActivator.start\n(ConfigurationActivator.java:68)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl$1.run\n(BundleContextImpl.java:973)\n        at java.security.AccessController.doPrivileged(Native Method)\n        at \norg.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator\n(BundleContextImpl.java:969)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl.start\n(BundleContextImpl.java:952)\n        at org.eclipse.osgi.framework.internal.core.BundleHost.startWorker\n(BundleHost.java:408)\n        at org.eclipse.osgi.framework.internal.core.AbstractBundle.resume\n(AbstractBundle.java:373)\n        at org.eclipse.osgi.framework.internal.core.Framework.resumeBundle\n(Framework.java:999)\n        at \norg.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles\n(StartLevelManager.java:571)\n        at org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL\n(StartLevelManager.java:482)\n        at \norg.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel\n(StartLevelManager.java:272)\n        at \norg.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent\n(StartLevelManager.java:442)\n        at org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent\n(EventManager.java:153)\n        at org.eclipse.osgi.framework.eventmgr.EventThread$Queued.dispatchEvent\n(EventThread.java:56)\n        at org.eclipse.osgi.framework.eventmgr.EventThread.run\n(EventThread.java:107)\n!ENTRY org.eclipse.update.configurator May 14, 2004 11:07:11.493\n!MESSAGE ConfigurationParser.parse() error:\n!STACK 0\njava.lang.IllegalArgumentException\n        at org.apache.crimson.parser.Parser2.parseInternal(Parser2.java:691)\n        at org.apache.crimson.parser.Parser2.parse(Parser2.java:337)\n        at org.apache.crimson.parser.XMLReaderImpl.parse\n(XMLReaderImpl.java:448)\n        at javax.xml.parsers.SAXParser.parse(SAXParser.java:345)\n        at org.eclipse.update.internal.configurator.ConfigurationParser.parse\n(ConfigurationParser.java:68)\n        at \norg.eclipse.update.internal.configurator.PlatformConfiguration.loadConfig\n(PlatformConfiguration.java:1166)\n        at \norg.eclipse.update.internal.configurator.PlatformConfiguration.initializeCurren\nt(PlatformConfiguration.java:701)\n        at \norg.eclipse.update.internal.configurator.PlatformConfiguration.\u003cinit\u003e\n(PlatformConfiguration.java:83)\n        at \norg.eclipse.update.internal.configurator.PlatformConfiguration.startup\n(PlatformConfiguration.java:642)\n        at \norg.eclipse.update.internal.configurator.ConfigurationActivator.getPlatformConf\niguration(ConfigurationActivator.java:296)\n        at \norg.eclipse.update.internal.configurator.ConfigurationActivator.initialize\n(ConfigurationActivator.java:114)\n        at \norg.eclipse.update.internal.configurator.ConfigurationActivator.start\n(ConfigurationActivator.java:68)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl$1.run\n(BundleContextImpl.java:973)\n        at java.security.AccessController.doPrivileged(Native Method)\n        at \norg.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator\n(BundleContextImpl.java:969)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl.start\n(BundleContextImpl.java:952)\n        at org.eclipse.osgi.framework.internal.core.BundleHost.startWorker\n(BundleHost.java:408)\n        at org.eclipse.osgi.framework.internal.core.AbstractBundle.resume\n(AbstractBundle.java:373)\n        at org.eclipse.osgi.framework.internal.core.Framework.resumeBundle\n(Framework.java:999)\n        at \norg.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles\n(StartLevelManager.java:571)\n        at org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL\n(StartLevelManager.java:482)\n        at \norg.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel\n(StartLevelManager.java:272)\n        at \norg.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent\n(StartLevelManager.java:442)\n        at org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent\n(EventManager.java:153)\n        at org.eclipse.osgi.framework.eventmgr.EventThread$Queued.dispatchEvent\n(EventThread.java:56)\n        at org.eclipse.osgi.framework.eventmgr.EventThread.run\n(EventThread.java:107)\n\n",
+    "I am experiencing the same problem with M8: Windows 2000, JDK1.4.2_04, lots of \nprojects and the same symptoms: Suddenly build stops.\nIn that situation also the CVS icon decorations of the files in the project I \nworked on are no longer painted.\n\nSometimes (propability 30%?) when I switched on the verbose flag in the progress \nview, there were a few jobs listed there. All of them were waiting blocked (as \nfar as I remember). Cancelling one or more of the jobs solved the problem in 50% \nof all situations. So there seems to be a deadlock. Restarting Eclipde was the \nonly solution in the other situations.\n\nI have about the same configuration of Eclipse on a different machine with a \ndifferent workspace and do not experience this problem there. The main \ndifference is that the projects have less dependencies and are smaller. So maybe \ncomplexity of the build cycle is an important precondition to reproduce this \nproblem.\n\nUnfortunately I don\u0027t remember the list of jobs that were waiting in the \nprogress view and cancellation of which of them broke the deadlock. The relevant \nworkspace is at work and so I will not be able to provide additional information \nabout the problem before monday.",
+    "Just had it again on I200405140800\n\nWhat was going on was that I was creating interface classes and then gradually \nproviding implementations classes on the interfaces. At some point, the fact \nthat I had implemented the last set of methods of an interface failed to \nremove the related errors from the problem view - the build had stopped \nworking.\n\nIn desparation, I did a \u0027clean\u0027 on the affected project, and it just didn\u0027t \nrebuild afterwards - nothing in the progress view, and the build area was \nempty.\n\nI restarted eclipse and, when it came up, the problems view and decorators \nfailed to report any remaining warnings in the files - as though it still \ndidn\u0027t rebuild on restart.\n\nI then did a \u0027clean\u0027 again, and all looked fine.\n\nI\u0027ve now restarted with the instrumentation/trace flags on and will report \nwhat happens if this occurs again.\n\nIn common with the previous commenter, this is on a large workspace (17 \nprojects) with complex (but correct) inter-dependencies.\n\nI know you\u0027re struggling to reproduce this - and I know that you\u0027re really \ntrying, but it *will* render Eclipse unusable for me if this problem \npersists...because it can be hard to notice that this is happening when it is \nsomething subtle (like a small, clean code change) is done and there are no \nobvious signs that it has failed to build it.\n",
+    "OK, have just had this happen again. I\u0027m using I20040514 (0800 build).\n\nI am running in debug mode, with the .options settings turned on as you\u0027ve \nrequested in previous comments.\n\nI\u0027m afraid that the trace might not tell you much, though...\n\nOn hitting \"Ctrl+S\" to save and (hopefully!) rebuild. The following lines are \nwritten out:\n\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-123,5,main]]Starting job: Reading saved version of file for \nquick diff(4053)\n[Thread[main,6,main]]worker added to pool: Thread[Worker-128,6,main]\n[Thread[Worker-128,5,main]]worker sleeping for: 60000ms\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-128,5,main]]worker sleeping for: 60000ms\n[Thread[Worker-123,5,main]]Ending job: Reading saved version of file for quick \ndiff(4053)\n[Thread[Worker-123,5,main]]worker sleeping for: 60000ms\n[Thread[Java indexing,4,main]]notifiying a worker\n[Thread[Worker-128,5,main]]Starting job: Java indexing in progress(4055)\n[Thread[Worker-128,5,main]]Ending job: Java indexing in progress(4055)\n[Thread[Worker-128,5,main]]worker sleeping for: 60000ms\n\n\nTo step back a little, if I make an edit to a file (once in a no-build \nsituation) and then save, the complete trace is (which is everything from the \nkeypress that is the file edit, through to the save):\n\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-128,5,main]]Starting job: Java AST creation(4059)\n[Thread[Worker-128,5,main]]Ending job: Java AST creation(4059)\n[Thread[Worker-128,5,main]]worker sleeping for: 60000ms\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-128,5,main]]Starting job: Reading saved version of file for \nquick diff(4060)\n[Thread[main,6,main]]worker added to pool: Thread[Worker-129,6,main]\n[Thread[Worker-129,5,main]]worker sleeping for: 60000ms\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-129,5,main]]worker sleeping for: 60000ms\n[Thread[Worker-128,5,main]]Ending job: Reading saved version of file for quick \ndiff(4060)\n[Thread[Worker-128,5,main]]worker sleeping for: 60000ms\n[Thread[Java indexing,4,main]]notifiying a worker\n[Thread[Worker-129,5,main]]Starting job: Java indexing in progress(4062)\n[Thread[Worker-129,5,main]]Ending job: Java indexing in progress(4062)\n[Thread[Worker-129,5,main]]worker sleeping for: 60000ms\n\n\nThe stack trace (ctrl+break, running -consoleLog) in this situation is:\n\nFull thread dump Java HotSpot(TM) Client VM (1.4.2_04-b05 mixed mode):\n\n\"Worker-129\" prio\u003d5 tid\u003d0x03de2008 nid\u003d0x964 in Object.wait() \n[397f000..397fd8c]\n        at java.lang.Object.wait(Native Method)\n        at org.eclipse.core.internal.jobs.WorkerPool.sleep(WorkerPool.java:209)\n        - locked \u003c0x115f5298\u003e (a org.eclipse.core.internal.jobs.WorkerPool)\n        at org.eclipse.core.internal.jobs.WorkerPool.startJob\n(WorkerPool.java:236)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:59)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x03e9e578 \nnid\u003d0x9c8 in Object.wait() [670f000..670f\nd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread.run\n(AbstractReconciler.java:161)\n        - locked \u003c0x135bd140\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQueue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x03dc7d68 \nnid\u003d0x94c in Object.wait() [62df000..62df\nd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread.run\n(AbstractReconciler.java:161)\n        - locked \u003c0x12e68560\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQueue)\n\n\"Java indexing\" daemon prio\u003d4 tid\u003d0x0309e6c8 nid\u003d0xfd8 in Object.wait() \n[38bf000..38bfd8c]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x1176b638\u003e (a \norg.eclipse.jdt.internal.core.search.indexing.IndexManager)\n        at java.lang.Object.wait(Object.java:429)\n        at org.eclipse.jdt.internal.core.search.processing.JobManager.run\n(JobManager.java:344)\n        - locked \u003c0x1176b638\u003e (a \norg.eclipse.jdt.internal.core.search.indexing.IndexManager)\n        at java.lang.Thread.run(Thread.java:534)\n\n\"Thread-1\" prio\u003d7 tid\u003d0x03078bf8 nid\u003d0xc78 in Object.wait() [381f000..381fd8c]\n        at java.lang.Object.wait(Native Method)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:111)\n        - locked \u003c0x116ffa08\u003e (a java.lang.ref.ReferenceQueue$Lock)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:127)\n        at \norg.eclipse.jface.action.ActionContributionItem$ImageCache$ReferenceCleanerThre\nad.run(ActionContributionItem.\njava:196)\n\n\"Thread-0\" prio\u003d7 tid\u003d0x02e98c78 nid\u003d0x998 in Object.wait() [37df000..37dfd8c]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x116ffa78\u003e (a java.lang.ref.ReferenceQueue$Lock)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:111)\n        - locked \u003c0x116ffa78\u003e (a java.lang.ref.ReferenceQueue$Lock)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:127)\n        at \norg.eclipse.jface.action.ActionContributionItem$ImageCache$ReferenceCleanerThre\nad.run(ActionContributionItem.\njava:196)\n\n\"Start Level Event Dispatcher\" daemon prio\u003d5 tid\u003d0x00a420b0 nid\u003d0x1368 in \nObject.wait() [2fdf000..2fdfd8c]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x1143b628\u003e (a \norg.eclipse.osgi.framework.eventmgr.EventThread)\n        at java.lang.Object.wait(Object.java:429)\n        at org.eclipse.osgi.framework.eventmgr.EventThread.getNextEvent\n(EventThread.java:149)\n        - locked \u003c0x1143b628\u003e (a \norg.eclipse.osgi.framework.eventmgr.EventThread)\n        at org.eclipse.osgi.framework.eventmgr.EventThread.run\n(EventThread.java:107)\n\n\"Framework Event Dispatcher\" daemon prio\u003d5 tid\u003d0x02da8ca0 nid\u003d0x1754 in \nObject.wait() [2f9f000..2f9fd8c]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x1143b700\u003e (a \norg.eclipse.osgi.framework.eventmgr.EventThread)\n        at java.lang.Object.wait(Object.java:429)\n        at org.eclipse.osgi.framework.eventmgr.EventThread.getNextEvent\n(EventThread.java:149)\n        - locked \u003c0x1143b700\u003e (a \norg.eclipse.osgi.framework.eventmgr.EventThread)\n        at org.eclipse.osgi.framework.eventmgr.EventThread.run\n(EventThread.java:107)\n\n\"Signal Dispatcher\" daemon prio\u003d10 tid\u003d0x0003db20 nid\u003d0x294 waiting on \ncondition [0..0]\n\n\"Finalizer\" daemon prio\u003d9 tid\u003d0x009c0a90 nid\u003d0xef0 in Object.wait() \n[2c5f000..2c5fd8c]\n        at java.lang.Object.wait(Native Method)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:111)\n        - locked \u003c0x113ca8d8\u003e (a java.lang.ref.ReferenceQueue$Lock)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:127)\n        at java.lang.ref.Finalizer$FinalizerThread.run(Finalizer.java:159)\n\n\"Reference Handler\" daemon prio\u003d10 tid\u003d0x009bf660 nid\u003d0xe68 in Object.wait() \n[2c1f000..2c1fd8c]\n        at java.lang.Object.wait(Native Method)\n        at java.lang.Object.wait(Object.java:429)\n        at java.lang.ref.Reference$ReferenceHandler.run(Reference.java:115)\n        - locked \u003c0x113ca940\u003e (a java.lang.ref.Reference$Lock)\n\n\"main\" prio\u003d7 tid\u003d0x000356f0 nid\u003d0xd6c runnable [7f000..7fc3c]\n        at org.eclipse.swt.internal.win32.OS.WaitMessage(Native Method)\n        at org.eclipse.swt.widgets.Display.sleep(Display.java:3029)\n        at org.eclipse.ui.application.WorkbenchAdvisor.eventLoopIdle\n(WorkbenchAdvisor.java:344)\n        at org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1354)\n        at org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1324)\n        at org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.java:243)\n        at org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n        at org.eclipse.ui.internal.ide.IDEApplication.run\n(IDEApplication.java:90)\n        at org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:298)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:249)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:126)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n        at java.lang.reflect.Method.invoke(Method.java:324)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:269)\n        at org.eclipse.core.launcher.Main.run(Main.java:722)\n        at org.eclipse.core.launcher.Main.main(Main.java:706)\n\n\"VM Thread\" prio\u003d5 tid\u003d0x009fb6f8 nid\u003d0xe80 runnable\n\n\"VM Periodic Task Thread\" prio\u003d10 tid\u003d0x009fc320 nid\u003d0xb6c waiting on condition\n\"Suspend Checker Thread\" prio\u003d10 tid\u003d0x0003d1d8 nid\u003d0x9f4 runnable\n\n\nCan\u0027t think about anything that I might have been doing to prompt this. I was \nedting a large file (1400+ lines) that I was fixing up compiler warnings \n(missing Javadoc) with. I invoked a QuickFix during that process which would \nhave been approximately when it stopped building (perhaps)\n\nInterestingly, the problem view is not updating. I did have a filter \non \"selected resource\" only, and noticed that it wasn\u0027t switching when I \nselected different files. I changed the filter to \"any resource\", and still \nthe view doesn\u0027t update.\n\nThe editor is still responsive. I still get red-squiggles and stuff as I type \ninto an editor window (so the internal incremental compilation for the editor \nseems OK...)\n\nPackage explorer and editor tab decorators seem stuck. ie the decorators seem \nto reflect the state of the file at the last time that it was built - they do \nnot update the decorators as I go round editing the files. This is kinda \nexpected, as they only seem to update after a file-build anyway - just thought \nI\u0027d mention it.\n\nNot sure what other info I can get to you right now...\n\n\n",
+    "On restart, after this non-build situation, the workspace did not rebuild \nuntil I performed an edit.\n\nThe trace output I got then was huge - for example, lots of sections like this:\n\nSun May 16 19:55:28 BST 2004 - [Worker-6] Checking if need to build. Starting \ndelta computation between: ElementTree(4)\nand ElementTree(34)\nSun May 16 19:55:28 BST 2004 - [Worker-6] End delta computation. (0ms).\nSun May 16 19:55:28 BST 2004 - [Worker-6] Checking if need to build. Starting \ndelta computation between: ElementTree(3)\nand ElementTree(34)\nSun May 16 19:55:28 BST 2004 - [Worker-6] End delta computation. (0ms).\nSun May 16 19:55:28 BST 2004 - [Worker-6] JavaBuilder\n(msJavaFelixPluginPlatformUI) needs building because of changes in:\n msJavaFelixPluginPlatformUI\nSun May 16 19:55:28 BST 2004 - [Worker-6] Invoking (INCREMENTAL_BUILD) on \nbuilder: JavaBuilder(msJavaFelixPluginPlatform\nUI)\n\nI did this just to validate my .options settings, really - but was amazed at \nthe dozens of lines of output I got, compared to the 15 or so I was getting \npreviously",
+    "We have had a similar report of builds failing that appears to be caused by\nrunning out of memory. Try running with more heap space to see if that nixes it:\n\neclipse -vmargs -Xmx384M",
+    "I am already running Eclipse with -Xmx512M - so I think memory is not the\nproblem. I rather believe that there are multiple jobs waiting for each other -\ncausing the deadlock at least for building and icon decorations.\n\nUnfortunately the problem did not occur today, so I cannot provide additional\ninformation about the deadlock situation.",
+    "Markus, there is a good chance you are having a different problem from Ian. To\navoid confusion, can you enter a separate bug report (same product, component, \u0026\nowner)? if you are seeing several items in the progress view that never go away,\na stack trace (Ctrl+Break on Java console) would be very useful. Also, I\nrecommend trying with a newer build, such as I20040513-1200, which is a stable\npre-M9 build.",
+    "Re: comment #43 - Ok, I switched to the newer build and will open a new bug\nreport in case the problem still occurs.",
+    "OK, got a new theory/snippet of information\n\nThe previous suggestion of making the memory allocation larger has no \ninfluence (the problem still occurs, and is still as \u0027random\u0027 as ever).\n\nHowever, and this *could* be relevant, I might have spotted a pattern...\n\nI have a fairly large Java file in my project (1400 lines). This file has \nalready been blamed (by me) for triggering another Eclipse bug (62093).\n\nOn the two most recent situations whether this rebuild problem has occurred \n(both today), it has been immediately after I have made an edit in this file.\n\nIt is equally possible that this is always the case when this happens - it is \na key file in one of my projects.\n\nI don\u0027t think it is happening ever time I edit this file, but, for example, I \nhave just noticed the problem again and the last file that had either an edit \nor a rebuild is this one.\n\nIt would also explain why sometimes it can be a few days before the problem \noccurs, and sometimes only 10 minutes after Eclipse has been launched.\n\nI might be completely off-beam here, but if there is something that Eclipse \ndoesn\u0027t like about this file (see issue 62093) - maybe its too large, or too \ncomplex, or something, then I would be quite prepared to believe that it is \nresponsible for all of the times that this has happened to me.\n\nHope that this isn\u0027t too whacky an idea, but I have noticed other issues with \nthis file, so it is obviously slightly unpalatable for Eclipse, eg:\n- broken highlighting\n- broken indents (cursor will sometimes fail to auto-indent on [Enter]\n- broken auto-complete (ctrl+space sometimes does nothing)\n- incorrect report of \u0027missing\u0027 files (see issue 58986), which has only ever \nhappened on references made in this class\n\nHmmm...\n\nIf you want a look at the file, I attached it to 62093\n\n",
+    "Ian: a promising lead. I have not been able to reproduce a problem with your\nfile, but of course it won\u0027t compile correctly in my environment due to missing\nprerequisites. It might just be a piece of your configuration that is\ncontributing to the problem. On the theory that a large file might be causing\nit, I created a 20KB Java file with 120 inner types, 100 members, and 100\nfields. It is certainly sluggish, but no errors (just don\u0027t try to comment big\nfiles, see bug 62662).",
+    "I have added a patch to the platform core team homepage that adds more\ninstrumentation. It prints a statement to stdout every time a build is\nrequested, indicating the current state of the builder, when the build is\nscheduled, and whether it believes a build is needed. You don\u0027t need to add any\n.options file to get the trace statements.\n\nhttp://dev.eclipse.org/viewcvs/index.cgi/%7Echeckout%7E/platform-core-home/downloads/patches/bug_57656/resources.jar",
+    "John. I\u0027m having one or two problems with that .jar. Can you tell me which \nbuild it is compatible with? I\u0027m getting exceptions (missing-method type \nstuff) when I use it...\n",
+    "Darn. The JAR was built against I20040517, but I didn\u0027t think there were any\nbreaking changes since I20040514. Could you either move to a build from this\nweek, or let me know what the errors are? If you move to a build from today or\ntomorrow, I have added the diagnostics directly into the builds. I20040519 is\nremarkably free of errors. Without the custom patch you will have to turn on the\nfollowing debug flags to get the info:\n\norg.eclipse.core.resources/debug\u003dtrue\norg.eclipse.core.resources/build/needbuild\u003dtrue\n\nSorry about the bad patch. I\u0027m really trying to get this figured out before the\n3.0 release (which is coming up fast).",
+    "Just to let you know that this has just happened in M9 :(\n\nSame problem - but I wasn\u0027t running in debug mode, so no new info for you.\n\nAs a point of interest, switching on the Progress view in verbose mode shows \nno activities once this has started - even if I do a \"clean\" on all projects.\n\n\"Clean all projects\" does delete the .class files, but does not rebuild them\n\nInterestingly, if I uncheck \"Build automatically\" and then do \"Clean all \nprojects\" (and leave on the \"Start a build immediately\" check box), then a \nbuild *does* get done...\n\nAuto-build does not start working again, though, until after a restart",
+    "It just happened again in M9, but this time I had debug and the trace .options \non...\n\nThis is the console output from after the build is broken. I have just edited \na file and pressed \"Ctrl+S\" (save+auto-rebuild). The following lines are added \nto the output:\n\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-363,5,main]]Starting job: Reading saved version of file for \nquick\n diff(13819)\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-361,5,main]]worker sleeping for: 60000ms\nWed May 26 03:20:03 BST 2004 - [main] Build requested, needsBuild: true state: \nS\nLEEPING delay: 100\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-361,5,main]]worker sleeping for: 60000ms\n[Thread[Worker-363,5,main]]Ending job: Reading saved version of file for quick \nd\niff(13819)\n[Thread[Worker-363,5,main]]worker sleeping for: 60000ms\n[Thread[Java indexing,4,main]]notifiying a worker\n[Thread[Worker-361,5,main]]Starting job: Java indexing in progress(13821)\n[Thread[Worker-361,5,main]]Ending job: Java indexing in progress(13821)\n[Thread[Worker-361,5,main]]worker sleeping for: 60000ms\n\n\nThe progress view (verbose mode) shows:\n\nSystem: Java AST creation\nSystem: Update Progress\nSystem: Win32 refresh daemon (Sleeping)\nSystem: Periodic workspace save. (Sleeping)\n\nThe progress view does not change during the Ctrl+S processing - and is not \nreflecting any progress on a regular basis (which it does normally - it \nflickers through all sorts of things - eg the Win32 refresh daemon seems to \nstart and stop fairly frequently - every few seconds?, and now it is doing \nnothing)\n\nAny use?\n",
+    "Out of interest. The last successful build (as far as I can see using DIR from \nthe command prompt) took place at 03:11 (yikes - I\u0027m up late!)\n\nIn the .log file, these two exceptions appear, timestamped at 03:10. This \ncould just be a coincidence, but these are the first things written to \nthe .log for nearly 2.5 hours. Might mean nothing, but it might be \nsignificant - the time similarity makes it interesting at least...\n\n\n!ENTRY org.eclipse.ui 4 4 May 26, 2004 03:10:07.545\n!MESSAGE Unhandled event loop exception\n!ENTRY org.eclipse.ui 4 0 May 26, 2004 03:10:07.561\n!MESSAGE Failed to execute runnable \n(java.lang.ArrayIndexOutOfBoundsException: -1)\n!STACK 0\norg.eclipse.swt.SWTException: Failed to execute runnable \n(java.lang.ArrayIndexOutOfBoundsException: -1)\n\tat org.eclipse.swt.SWT.error(SWT.java:2689)\n\tat org.eclipse.swt.SWT.error(SWT.java:2614)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages\n(Synchronizer.java:109)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2693)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2385)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1363)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1334)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.java:253)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run\n(IDEApplication.java:97)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:307)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:256)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:127)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n\tat java.lang.reflect.Method.invoke(Unknown Source)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n\tat org.eclipse.core.launcher.Main.run(Main.java:638)\n\tat org.eclipse.core.launcher.Main.main(Main.java:622)\n!ENTRY org.eclipse.ui 4 4 May 26, 2004 03:10:07.561\n!MESSAGE *** SWT nested exception\n!ENTRY org.eclipse.ui 4 0 May 26, 2004 03:10:07.561\n!MESSAGE -1\n!STACK 0\njava.lang.ArrayIndexOutOfBoundsException: -1\n\tat org.eclipse.jface.text.rules.BufferedRuleBasedScanner.read\n(BufferedRuleBasedScanner.java:118)\n\tat \norg.eclipse.jdt.internal.ui.text.java.JavaCodeScanner$OperatorRule.evaluate\n(JavaCodeScanner.java:81)\n\tat org.eclipse.jface.text.rules.RuleBasedScanner.nextToken\n(RuleBasedScanner.java:155)\n\tat org.eclipse.jdt.internal.ui.text.AbstractJavaScanner.nextToken\n(AbstractJavaScanner.java:115)\n\tat \norg.eclipse.jface.text.rules.DefaultDamagerRepairer.createPresentation\n(DefaultDamagerRepairer.java:166)\n\tat \norg.eclipse.jface.text.presentation.PresentationReconciler.createPresentation\n(PresentationReconciler.java:446)\n\tat \norg.eclipse.jface.text.presentation.PresentationReconciler.processDamage\n(PresentationReconciler.java:555)\n\tat org.eclipse.jface.text.presentation.PresentationReconciler.access$3\n(PresentationReconciler.java:553)\n\tat \norg.eclipse.jface.text.presentation.PresentationReconciler$InternalListener.tex\ntChanged(PresentationReconciler.java:222)\n\tat org.eclipse.jface.text.TextViewer.updateTextListeners\n(TextViewer.java:2235)\n\tat org.eclipse.jface.text.TextViewer.invalidateTextPresentation\n(TextViewer.java:2931)\n\tat \norg.eclipse.jface.text.source.projection.ProjectionViewer.processModifications\n(ProjectionViewer.java:878)\n\tat \norg.eclipse.jface.text.source.projection.ProjectionViewer.catchupWithProjection\nAnnotationModel(ProjectionViewer.java:759)\n\tat org.eclipse.jface.text.source.projection.ProjectionViewer.access$7\n(ProjectionViewer.java:731)\n\tat org.eclipse.jface.text.source.projection.ProjectionViewer$1.run\n(ProjectionViewer.java:714)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages\n(Synchronizer.java:106)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2693)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2385)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1363)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1334)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.java:253)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run\n(IDEApplication.java:97)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:307)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:256)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:127)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n\tat java.lang.reflect.Method.invoke(Unknown Source)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n\tat org.eclipse.core.launcher.Main.run(Main.java:638)\n\tat org.eclipse.core.launcher.Main.main(Main.java:622)\n",
+    "I have entered bug 64162 for the ArrayIndexOutOfBoundsException.\n\nThe extra debug info is useful. This is the interesting line:\n\nWed May 26 03:20:03 BST 2004 - [main] Build requested, needsBuild: true state: \nSLEEPING delay: 100\n\nIt means the build was correctly requested to run in 100 milliseconds, and that\nthe autobuild job is currently sleeping. This eliminates several possible theories:\n\n1) The build might be scheduled for an unreasonably large delay\n2) The build was not requested\n3) The build is already running and somehow stuck.\n\nI\u0027m still mystified about how, once requested, the build job is not running,\nwhen clearly other jobs are still successfully running. I\u0027ll have to think some\nmore.",
+    "Ian, next time this occurs, try this:\n\n1) Open the progress view (double-click in lower right hand corner of window)\n2) In the drop down menu, turn on \"Verbose mode\".\n3) See if there is a sleeping \"Building workspace\" job\n4) If there is, click the cancel button on it.\n\nDoes this make things work again?",
+    "I\u0027ve been experiencing very similar problems to what Ian has described.  In M8\nthey were sporadic, but in M9 I\u0027m seeing them quite frequently (lately, at least\nseveral times a day).  The only workaround seems to be quitting and restarting\neclipse.  Note I did a clean install of M9 and started with a fresh workspace.\n\nSome of the symptoms:\n\nThe error decorators and problems view get out of sync.  Errors that are fixed\ndo not go away, even when the offending code is commented out.  Build clean\nsometimes fixes it, but more often than not quitting and restarting eclipse is\nnecessary.\n\nCVS decorators occasionally disappear, and any Team functionality is disabled\nuntil I quit and restart.\n\nSearching for references fails to find any matches, until I quit and restart.\n\nWhen launching a debug runtime workbench, sometimes a dialog comes up that says\na build is in progress, when nothing is happening.  If I choose to wait for the\nbuild to finish it just waits forever.  In the progress view with verbose on,\nsometimes there are either no building jobs or occasionally a job stuck at 100%.\n\nClicking on a java file in Package Explorer opens the wrong file (usually the\nfile above or below the one I want).  This one may be an unrelated SWT bug.\n\nI\u0027ve turned on the debug options as discussed in the earlier comments.  What\nshould I be looking for?  I can post debug info the next time I experience a\nproblem.\n\n-Chris",
+    "Created an attachment (id\u003d11251)\nZipped job examples plugin\n\nOk, some more low tech debugging tools. The attached zip contains a plugin; to\ninstall, just unzip into your eclipse\\plugins diretory. Once installed, go to\nWindow \u003e Customize Perspective \u003e Commands, and check \"Job Example Actions\".\nThis will add a \"Job\" menu, with two actions:\n\nDump Job Information\nSuspend Job Manager\n\nThe first one will dump a detailed report of all known background jobs in the\nsystem (running, waiting, and sleeping). It will be useful to know what this\nsays if the system gets into a state where builds are not occurring. The second\none is for globally turning off the job manager. You don\u0027t need to touch this\none ;)\n",
+    "OK, I\u0027ve had the situation recur with the job dump plugin added. Here is the \noutput:\n\n**** BEGIN DUMP JOB MANAGER INFORMATION ****\nDecoration Calculation(15) state: SLEEPING\nUpdate for Decoration Completion(26) state: SLEEPING\nWin32 refresh daemon(7) state: SLEEPING\nUpdate Progress(12) state: SLEEPING\nInitializing Quick Diff(114) state: SLEEPING\nPeriodic workspace save.(4) state: SLEEPING\nBuilding workspace(2) state: SLEEPING\n**** END DUMP JOB MANAGER INFORMATION ****\n\n\nFor additional info, here is the output I get on doing a save that should \ninvoke a rebuild:\n\n[Thread[Worker-0,5,main]]Starting job: Java AST creation(183)\n[Thread[Worker-0,5,main]]Ending job: Java AST creation(183)\n[Thread[Worker-0,5,main]]worker sleeping for: 60000ms\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-0,5,main]]Starting job: Reading saved version of file for quick \nd\niff(185)\n[Thread[main,6,main]]worker added to pool: Thread[Worker-11,6,main]\n[Thread[Worker-11,5,main]]worker sleeping for: 60000ms\nFri May 28 09:32:13 BST 2004 - [main] Build requested, needsBuild: true state: \nS\nLEEPING delay: 100\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-11,5,main]]worker sleeping for: 60000ms\n[Thread[Worker-0,5,main]]Ending job: Reading saved version of file for quick \ndif\nf(185)\n[Thread[Worker-0,5,main]]worker sleeping for: 60000ms\n[Thread[Java indexing,4,main]]notifiying a worker\n[Thread[Worker-11,5,main]]Starting job: Java indexing in progress(187)\n[Thread[Worker-11,5,main]]Ending job: Java indexing in progress(187)\n[Thread[Worker-11,5,main]]worker sleeping for: 60000ms\n\n",
+    "I\u0027ve just tried to perform the steps in comment #54\n\nI opened the Progress view, and it is empty\nI switched into Verbose mode, and it is still empty\n\nInterestingly, I then turned off autobuild, did a clean with \"start a build \nimmediately\" turned on. The build happened (as evidenced by lots of consoleLog \nactivity, and the .class files being recreated), but the Progress view stayed \nempty the entire way through (this is a large workspace and the build took  \n30+ seconds)\n\nI\u0027ll restart Eclipse, and have the Progress view open from the outset and see \nwhat it looks like if it happens again\n",
+    "With great drama, I believe we have identified and fixed this bug, within\nminutes of the first Eclipse 3.0 candidate build! \n\nSleeping jobs are inserted into a priority queue, and worker threads \"peek\" at\nthe queue to see if the first job should start running. There was a condition in\nwhich a job could have its wake priority changed without the queue being\nreshuffled. This could result in a job with a distant future wake time to be at\nthe head of the sleep queue. Worker threads would peek at this job, and then\ngive up after observing that the wake time had not yet been reached. Meanwhile,\nother jobs further back in the sleep queue could be well past their wake time.\n\nThe fix was to ensure the sleep queue is always resorted when a job changes it\ndesired wake time (this was happening in most cases, but in one case it was missed).\n\nIan\u0027s recent debug trace showing a load of SLEEPING jobs tipped us off that some\njobs were sleeping that should have already run. Thanks to Ian for giving us\nthis timely information!\n\nThe fix made it (just barely) into the noon EDT 3.0 RC1 build. This build is\nrunning now and will be available within the hour. If people experiencing this\nproblem could move up to this new build, it would be greatly appreciated.",
+    "For those who have not yet tried a build from today, it is probably better to\nwait for the 8PM EDT build. It will contain a fix for another critical bug (bug\n64540).\n\nThe 8PM build, however, will be good, or your money will be refunded :)\n\nI will keep this bug open until I receive independent verification (aka a thumbs\nup from Mr. Brown).",
+    "Sadly, oh-so-sadly, I find myself running I200405290105 and still having this \nproblem...\n\nAs I was flush with confidence, I am running without debug options on, so I \ncan\u0027t tell you much about the state. What I can see is a Progress view that \nhas 103 (!) entries in it saying \"Building workspace (Waiting)\", and 5 entries \nthat say \"Building workspace\" with a progress bars that are 50-70% across\n\nWill play around and see if this will recreate with debug instrumentation on",
+    "In response to comment #54, I have been through the Progress view.\n\nThere are no \u0027sleeping\u0027 Build workspace jobs.\n\nI\u0027ve tried cancelling all Build workspace jobs, but to no avail (and indeed, \nno difference at all).",
+    "Since my last report, I\u0027ve been using the same build, running in Debug mode \nwith the instrumentation options on. It has been continually running since my \nlast report - and I\u0027ve been using it for several hours.\n\nNo problems have occurred. Although the Progess view is filling up pretty \nquickly as its \u0027up\u0027 time has increased. Switching in and out of verbose mode \nreduces the list, but there seems to be a sluggishness creeping in. But, as I \nsay, it is behaving itself with regard to rebuilds.\n\nI\u0027m now dropping back to non-debug, and have just the Jobs dump available for \nif something goes wrong. Watch this space... :)",
+    "(\u0026^%#$!\n\nIt sounds like you are now seeing different problems, so perhaps we\u0027ve fixed one\nand uncovered another. It sound like you can easily reproduce the build up of\nwaiting build operations regardless of whether it gets into a state where it\nstops working? If this is true, a sample of your job debug output would be\ninteresting to see (similar to comment #39).",
+    "OK, just had the autobuild fail happen again. This time (as before) in non-\ndebug mode. The jobs output is:\n\n**** BEGIN DUMP JOB MANAGER INFORMATION ****\nDecoration Calculation(15) state: SLEEPING\nUpdate for Decoration Completion(27) state: SLEEPING\nWin32 refresh daemon(7) state: SLEEPING\nUpdate Progress(12) state: SLEEPING\nUpdating Problems view(23) state: SLEEPING\nInitializing Quick Diff(2357) state: SLEEPING\nPeriodic workspace save.(4) state: SLEEPING\nBuilding workspace(2) state: SLEEPING\n**** END DUMP JOB MANAGER INFORMATION ****\n\nAs an interesting aside, I have just tried a Debug launch of my configuration.\n\nThe Launching dialog box is up, but the launch does not happen. It seems \ndetermined to wait for a task to complete - and the task shows no intention of \ndoing so.\n\nThe text in the Details box is:\n\nLaunching\n [empty progress bar]\n The user operation is waiting for background work to complete. - 1 work items \nleft.\nBuilding Workspace (Waiting)\n\nAt this point, the progress view is massively populated (and the list is not \nreducing as I switch into/out of Verbose).\n\nIt is mostly full of \"Building workspace (Waiting)\" tasks, with a smattering \nof \"Building workspace\" tasks for specific projects - at various stages of \ncompletion according to the progress bars.\n\nAlso, one of the \"Building workspace\" tasks is going crazy! Although the sub-\ntext says \"Build done\", the progress bar is looping round and round.\n\nI\u0027m going to try cancelling this task and see what effect it has...\n\n",
+    "Attempting to stop any of the jobs mentioned in my previous comment (including \nthe one that was looping around) had no impact - the task stayed present and \nvisible and had no determinable impact.\n\nIt seems to be less prevalent than it was in M8, but is still happening at \nleast once a day on average - and it always takes me a least 30 mins of hair \npulling before I realise that this is why my code changes aren\u0027t fixing \nwhatever it is I\u0027m working on!\n\nI\u0027ll go back to debug mode now and see if I can get you some job output",
+    "*** Bug 63633 has been marked as a duplicate of this bug. ***",
+    "Autobuild is currently OK, but in response to comment #64, here is some build \ntrace output.\n\nI currently have a whole bunch (100?) items in my Progress view. The vast \nmajority are either \"Building workspace (Sleeping)\", \"System: Refreshing \nworkspace (Sleeping)\", but we have others here, too (quick diff, AST, \ndecoration calculation) in smaller quantities.\n\nPerformance is slowed noticeable - not unusable or anything, but things are \nslower.\n\nThe job manager output is sane:\n\n**** BEGIN DUMP JOB MANAGER INFORMATION ****\nWin32 refresh daemon(7) state: SLEEPING\nPeriodic workspace save.(4) state: SLEEPING\n**** END DUMP JOB MANAGER INFORMATION ****\n\nThe rest of the job output (.options tracing) is:\n\n---This on a regular basis\n\n[Thread[Worker-22,5,main]]worker sleeping for: 8ms\n[Thread[Worker-44,5,main]]Starting job: Win32 refresh daemon(7)\n[Thread[Worker-36,5,main]]worker sleeping for: 60000ms\n[Thread[Worker-44,5,main]]notifiying a worker\n[Thread[Worker-45,5,main]]worker sleeping for: 84ms\n[Thread[Worker-22,5,main]]worker sleeping for: 84ms\n[Thread[Worker-45,5,main]]worker sleeping for: 6ms\n[Thread[Worker-22,5,main]]Starting job: Update Progress(12)\n[Thread[Worker-22,5,main]]worker sleeping for: 60000ms\n[Thread[Worker-45,5,main]]worker sleeping for: 60000ms\n[Thread[main,6,main]]Ending job: Update Progress(12)\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-36,5,main]]worker sleeping for: 100ms\n[Thread[Worker-36,5,main]]Starting job: Update Progress(12)\n[Thread[Worker-36,5,main]]worker sleeping for: 60000ms\n[Thread[main,6,main]]Ending job: Update Progress(12)\n[Thread[Worker-44,5,main]]notifiying a worker\n[Thread[Worker-22,5,main]]worker sleeping for: 100ms\n[Thread[Worker-44,5,main]]Ending job: Win32 refresh daemon(7)\n[Thread[Worker-44,5,main]]notifiying a worker\n[Thread[Worker-45,5,main]]worker sleeping for: 84ms\n[Thread[Worker-44,5,main]]worker sleeping for: 84ms\n[Thread[Worker-45,5,main]]worker sleeping for: 6ms\n[Thread[Worker-22,5,main]]Starting job: Update Progress(12)\n[Thread[Worker-44,5,main]]worker sleeping for: 18177ms\n[Thread[Worker-45,5,main]]worker sleeping for: 18177ms\n[Thread[Worker-22,5,main]]worker sleeping for: 18177ms\n\n\n--and this on \"Save\"\n\n[Thread[main,6,main]]notifiying a worker\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-22,5,main]]Starting job: Reading saved version of file for quick\ndiff(3445)\n[Thread[Worker-44,5,main]]worker sleeping for: 85ms\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-45,5,main]]worker sleeping for: 85ms\nTue Jun 01 01:25:13 BST 2004 - [main] Build requested, needsBuild: true state: \nN\nONE delay: 100\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-36,5,main]]worker sleeping for: 69ms\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-44,5,main]]worker sleeping for: 53ms\n[Thread[Worker-36,5,main]]worker sleeping for: 6ms\n[Thread[Worker-45,5,main]]worker sleeping for: 6ms\n[Thread[Worker-36,5,main]]worker sleeping for: 6ms\n[Thread[Worker-45,5,main]]Starting job: Update Progress(12)\n[Thread[Worker-45,5,main]]worker sleeping for: 22ms\n[Thread[Worker-44,5,main]]worker sleeping for: 22ms\n[Thread[Worker-36,5,main]]worker sleeping for: 22ms\n[Thread[Worker-45,5,main]]worker sleeping for: 6ms\n[Thread[Worker-44,5,main]]worker sleeping for: 6ms\n[Thread[Worker-36,5,main]]worker sleeping for: 6ms\n[Thread[Worker-45,5,main]]worker sleeping for: 6ms\n[Thread[Worker-44,5,main]]worker sleeping for: 6ms\n[Thread[Worker-36,5,main]]Starting job: Building workspace(2)\n[Thread[Worker-36,5,main]]notifiying a worker\n[Thread[Worker-36,5,main]]notifiying a worker\n[Thread[Worker-45,5,main]]Starting job: Animation start(10)\nTue Jun 01 01:25:13 BST 2004 - [Worker-36] Checking if need to build. Starting \nd\nelta computation between: ElementTree(3029) and ElementTree(3035)\nTue Jun 01 01:25:13 BST 2004 - [Worker-36] End delta computation. (0ms).\n[Thread[Worker-44,5,main]]worker sleeping for: 7ms\n[Thread[Worker-45,5,main]]notifiying a worker\nTue Jun 01 01:25:13 BST 2004 - [Worker-36] JavaBuilder(LongitudinalDemo) needs \nb\nuilding because of changes in: LongitudinalDemo\n[Thread[Worker-44,5,main]]Starting job: Decoration Calculation(17)\n[Thread[Worker-44,5,main]]Ending job: Decoration Calculation(17)\n[Thread[Worker-44,5,main]]worker sleeping for: 84ms\nTue Jun 01 01:25:13 BST 2004 - [Worker-36] Invoking (INCREMENTAL_BUILD) on \nbuild\ner: JavaBuilder(LongitudinalDemo)\n[Thread[Worker-45,5,main]]worker sleeping for: 84ms\nTue Jun 01 01:25:13 BST 2004 - [Worker-36] Computing delta for project: \nLongitud\ninalDemo\nTue Jun 01 01:25:13 BST 2004 - [Worker-36] Finished computing delta, time: 16ms\n[Thread[Worker-44,5,main]]Starting job: Change cursor(97)\n[Thread[Worker-44,5,main]]worker sleeping for: 375ms\n[Thread[Worker-45,5,main]]worker sleeping for: 359ms\n[Thread[Worker-36,5,main]]notifiying a worker\n[Thread[Worker-44,5,main]]worker sleeping for: 328ms\nTue Jun 01 01:25:13 BST 2004 - [Worker-36] Builder finished: JavaBuilder\n(Longitu\ndinalDemo) time: 188ms\nTue Jun 01 01:25:13 BST 2004 - [Worker-36] Checking if need to build. Starting \nd\nelta computation between: ElementTree(3029) and ElementTree(3036)\nTue Jun 01 01:25:13 BST 2004 - [Worker-36] End delta computation. (0ms).\n[Thread[Worker-36,5,main]]notifiying a worker\n[Thread[Worker-45,5,main]]worker sleeping for: 297ms\nTue Jun 01 01:25:13 BST 2004 - [Worker-36] Build requested, needsBuild: true \nsta\nte: RUNNING delay: 100\n[Thread[Worker-36,5,main]]Ending job: Building workspace(2)\n[Thread[Worker-36,5,main]]notifiying a worker\n[Thread[Worker-36,5,main]]Starting job: Animation Done(11)\n[Thread[Worker-44,5,main]]worker sleeping for: 297ms\n[Thread[Worker-36,5,main]]worker sleeping for: 281ms\n[Thread[main,6,main]]Ending job: Update Progress(12)\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-45,5,main]]worker sleeping for: 250ms\n[Thread[main,6,main]]Ending job: Animation start(10)\n[Thread[main,6,main]]Ending job: Change cursor(97)\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-44,5,main]]worker sleeping for: 100ms\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-36,5,main]]worker sleeping for: 84ms\n[Thread[main,6,main]]Ending job: Animation Done(11)\n[Thread[Worker-36,5,main]]worker sleeping for: 6ms\n[Thread[Worker-22,5,main]]notifiying a worker\n[Thread[Worker-45,5,main]]worker sleeping for: 6ms\n[Thread[Worker-22,5,main]]Ending job: Reading saved version of file for quick \ndi\nff(3445)\n[Thread[Worker-22,5,main]]worker sleeping for: 6ms\n[Thread[Worker-36,5,main]]worker sleeping for: 6ms\n[Thread[Java indexing,4,main]]notifiying a worker\n[Thread[Worker-44,5,main]]Starting job: Java indexing in progress(3448)\n[Thread[Worker-44,5,main]]notifiying a worker\n[Thread[Worker-45,5,main]]Starting job: Change cursor(97)\n[Thread[main,6,main]]Ending job: Change cursor(97)\n[Thread[Worker-45,5,main]]worker sleeping for: 106ms\n[Thread[Worker-22,5,main]]worker sleeping for: 106ms\n[Thread[Worker-36,5,main]]worker sleeping for: 106ms\n[Thread[Worker-45,5,main]]worker sleeping for: 13ms\n[Thread[Worker-22,5,main]]Starting job: Decoration Calculation(17)\n[Thread[Worker-22,5,main]]notifiying a worker\n[Thread[Worker-22,5,main]]Ending job: Decoration Calculation(17)\n[Thread[Worker-45,5,main]]Starting job: Update for Decoration Completion(20)\n[Thread[Worker-22,5,main]]worker sleeping for: 59ms\n[Thread[Worker-36,5,main]]worker sleeping for: 59ms\n[Thread[Worker-45,5,main]]worker sleeping for: 59ms\n[Thread[main,6,main]]Ending job: Update for Decoration Completion(20)\n[Thread[Worker-22,5,main]]worker sleeping for: 12ms\n[Thread[Worker-45,5,main]]worker sleeping for: 12ms\n[Thread[Worker-36,5,main]]worker sleeping for: 12ms\n[Thread[Worker-22,5,main]]Starting job: Initializing Quick Diff(3447)\n[Thread[Worker-36,5,main]]worker sleeping for: 72ms\n[Thread[Worker-45,5,main]]worker sleeping for: 72ms\n[Thread[Worker-22,5,main]]Ending job: Initializing Quick Diff(3447)\n[Thread[Worker-22,5,main]]worker sleeping for: 72ms\n[Thread[Worker-45,5,main]]Starting job: Update Progress(12)\n[Thread[Worker-36,5,main]]worker sleeping for: 47ms\n[Thread[Worker-45,5,main]]worker sleeping for: 47ms\n[Thread[Worker-22,5,main]]worker sleeping for: 47ms\n[Thread[Worker-22,5,main]]Starting job: Updating Problems view(103)\n[Thread[Worker-45,5,main]]worker sleeping for: 12648ms\n[Thread[Worker-36,5,main]]worker sleeping for: 12648ms\n[Thread[Worker-22,5,main]]notifiying a worker\n[Thread[Worker-45,5,main]]worker sleeping for: 100ms\n[Thread[Worker-22,5,main]]notifiying a worker\n[Thread[Worker-36,5,main]]Starting job: Refreshing marker view(102)\n[Thread[Worker-45,5,main]]Starting job: Change cursor(97)\n[Thread[Worker-45,5,main]]worker sleeping for: 12539ms\n[Thread[Worker-36,5,main]]worker sleeping for: 12539ms\n[Thread[Worker-44,5,main]]Ending job: Java indexing in progress(3448)\n[Thread[Worker-44,5,main]]worker sleeping for: 12476ms\n[Thread[main,6,main]]Ending job: Update Progress(12)\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-45,5,main]]worker sleeping for: 300ms\n[Thread[main,6,main]]Ending job: Change cursor(97)\n[Thread[main,6,main]]Ending job: Refreshing marker view(102)\n[Thread[Worker-22,5,main]]Ending job: Updating Problems view(103)\n[Thread[Worker-22,5,main]]notifiying a worker\n[Thread[Worker-36,5,main]]worker sleeping for: 100ms\n[Thread[Worker-22,5,main]]worker sleeping for: 100ms\n[Thread[Worker-22,5,main]]worker sleeping for: 7ms\n[Thread[Worker-36,5,main]]worker sleeping for: 7ms\n[Thread[Worker-22,5,main]]Starting job: Change cursor(97)\n[Thread[Worker-36,5,main]]worker sleeping for: 159ms\n[Thread[Worker-22,5,main]]worker sleeping for: 159ms\n[Thread[main,6,main]]Ending job: Change cursor(97)\n[Thread[Worker-36,5,main]]worker sleeping for: 3ms\n[Thread[Worker-22,5,main]]worker sleeping for: 3ms\n[Thread[Worker-45,5,main]]worker sleeping for: 3ms\n[Thread[Worker-36,5,main]]worker sleeping for: 3ms\n[Thread[Worker-22,5,main]]worker sleeping for: 3ms\n[Thread[Worker-45,5,main]]worker sleeping for: 3ms\n[Thread[Worker-36,5,main]]Starting job: Update Progress(12)\n[Thread[Worker-36,5,main]]worker sleeping for: 11945ms\n[Thread[main,6,main]]Ending job: Update Progress(12)\n[Thread[Worker-22,5,main]]worker sleeping for: 11945ms\n[Thread[Worker-45,5,main]]worker sleeping for: 11945ms\n[Thread[Worker-36,5,main]]worker sleeping for: 8ms\n[Thread[Worker-44,5,main]]Starting job: Win32 refresh daemon(7)\n[Thread[Worker-22,5,main]]worker sleeping for: 60000ms\n[Thread[Worker-44,5,main]]notifiying a worker\n[Thread[Worker-45,5,main]]worker sleeping for: 100ms\n[Thread[Worker-36,5,main]]worker sleeping for: 100ms\n[Thread[Worker-44,5,main]]notifiying a worker\n[Thread[Worker-22,5,main]]worker sleeping for: 100ms\n[Thread[Worker-44,5,main]]Ending job: Win32 refresh daemon(7)\n[Thread[Worker-44,5,main]]notifiying a worker\n[Thread[Worker-44,5,main]]worker sleeping for: 100ms\n[Thread[Worker-45,5,main]]worker sleeping for: 100ms\n[Thread[Worker-36,5,main]]worker sleeping for: 6ms\n[Thread[Worker-22,5,main]]worker sleeping for: 6ms\n[Thread[Worker-45,5,main]]worker sleeping for: 6ms\n[Thread[Worker-44,5,main]]worker sleeping for: 6ms\n[Thread[Worker-22,5,main]]Starting job: Update Progress(12)\n[Thread[Worker-36,5,main]]worker sleeping for: 90ms\n[Thread[Worker-22,5,main]]worker sleeping for: 90ms\n[Thread[Worker-45,5,main]]worker sleeping for: 90ms\n[Thread[Worker-44,5,main]]worker sleeping for: 90ms\n[Thread[Worker-36,5,main]]Starting job: Refreshing workspace(5)\n[Thread[Worker-44,5,main]]worker sleeping for: 796ms\n[Thread[Worker-45,5,main]]worker sleeping for: 796ms\n[Thread[Worker-22,5,main]]worker sleeping for: 796ms\n[Thread[Worker-36,5,main]]notifiying a worker\n[Thread[Worker-44,5,main]]worker sleeping for: 765ms\nTue Jun 01 01:25:32 BST 2004 - [Worker-36] Build requested, needsBuild: false \nst\nate: NONE delay: 100\n[Thread[Worker-36,5,main]]notifiying a worker\n[Thread[Worker-36,5,main]]Ending job: Refreshing workspace(5)\n[Thread[Worker-45,5,main]]worker sleeping for: 85ms\n[Thread[Worker-36,5,main]]worker sleeping for: 85ms\n[Thread[Worker-45,5,main]]worker sleeping for: 6ms\n[Thread[Worker-36,5,main]]worker sleeping for: 6ms\n[Thread[Worker-45,5,main]]Starting job: Building workspace(2)\n[Thread[Worker-45,5,main]]notifiying a worker\n[Thread[Worker-36,5,main]]Starting job: Animation start(10)\n[Thread[Worker-22,5,main]]worker sleeping for: 656ms\n[Thread[Worker-45,5,main]]notifiying a worker\n[Thread[Worker-44,5,main]]worker sleeping for: 100ms\n[Thread[Worker-36,5,main]]worker sleeping for: 100ms\nTue Jun 01 01:25:32 BST 2004 - [Worker-45] Checking if need to build. Starting \nd\nelta computation between: ElementTree(3035) and ElementTree(3039)\nTue Jun 01 01:25:32 BST 2004 - [Worker-45] End delta computation. (0ms).\nTue Jun 01 01:25:32 BST 2004 - [Worker-45] Checking if need to build. Starting \nd\nelta computation between: ElementTree(3036) and ElementTree(3039)\nTue Jun 01 01:25:32 BST 2004 - [Worker-45] End delta computation. (0ms).\nTue Jun 01 01:25:32 BST 2004 - [Worker-45] Build requested, needsBuild: false \nst\nate: RUNNING delay: 100\n[Thread[Worker-45,5,main]]Ending job: Building workspace(2)\n[Thread[Worker-45,5,main]]notifiying a worker\n[Thread[Worker-45,5,main]]Starting job: Animation Done(11)\n[Thread[Worker-22,5,main]]worker sleeping for: 100ms\n[Thread[Worker-45,5,main]]worker sleeping for: 100ms\n[Thread[main,6,main]]Ending job: Update Progress(12)\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-44,5,main]]worker sleeping for: 6ms\n[Thread[Worker-36,5,main]]worker sleeping for: 6ms\n[Thread[Worker-44,5,main]]worker sleeping for: 6ms\n[Thread[Worker-36,5,main]]Starting job: Change cursor(97)\n[Thread[Worker-36,5,main]]worker sleeping for: 184ms\n[Thread[Worker-44,5,main]]worker sleeping for: 184ms\n[Thread[Worker-22,5,main]]worker sleeping for: 184ms\n[Thread[Worker-45,5,main]]worker sleeping for: 184ms\n[Thread[main,6,main]]Ending job: Animation start(10)\n[Thread[main,6,main]]Ending job: Animation Done(11)\n[Thread[main,6,main]]Ending job: Change cursor(97)\n[Thread[Worker-36,5,main]]Starting job: Update Progress(12)\n[Thread[Worker-36,5,main]]worker sleeping for: 359ms\n[Thread[main,6,main]]Ending job: Update Progress(12)\n[Thread[Worker-44,5,main]]worker sleeping for: 359ms\n[Thread[Worker-22,5,main]]worker sleeping for: 359ms\n[Thread[Worker-45,5,main]]worker sleeping for: 359ms\n[Thread[Worker-36,5,main]]Starting job: Win32 refresh daemon(7)\n[Thread[Worker-44,5,main]]worker sleeping for: 60000ms\n[Thread[Worker-36,5,main]]notifiying a worker\n[Thread[Worker-45,5,main]]worker sleeping for: 100ms\n[Thread[Worker-22,5,main]]worker sleeping for: 100ms\n[Thread[Worker-44,5,main]]worker sleeping for: 100ms\n[Thread[Worker-36,5,main]]notifiying a worker\n[Thread[Worker-45,5,main]]worker sleeping for: 100ms\n[Thread[Worker-36,5,main]]Ending job: Win32 refresh daemon(7)\n[Thread[Worker-36,5,main]]notifiying a worker\n[Thread[Worker-36,5,main]]worker sleeping for: 100ms\n[Thread[Worker-22,5,main]]worker sleeping for: 100ms\n[Thread[Worker-44,5,main]]worker sleeping for: 6ms\n[Thread[Worker-45,5,main]]worker sleeping for: 6ms\n[Thread[Worker-36,5,main]]worker sleeping for: 6ms\n[Thread[Worker-22,5,main]]worker sleeping for: 6ms\n[Thread[Worker-44,5,main]]worker sleeping for: 6ms\n[Thread[Worker-45,5,main]]Starting job: Update Progress(12)\n[Thread[Worker-36,5,main]]worker sleeping for: 91ms\n[Thread[Worker-45,5,main]]worker sleeping for: 91ms\n[Thread[Worker-22,5,main]]worker sleeping for: 91ms\n[Thread[Worker-44,5,main]]worker sleeping for: 91ms\n[Thread[Worker-36,5,main]]worker sleeping for: 12ms\n[Thread[Worker-45,5,main]]worker sleeping for: 12ms\n[Thread[Worker-22,5,main]]worker sleeping for: 12ms\n[Thread[Worker-44,5,main]]Starting job: Refreshing workspace(5)\n[Thread[Worker-36,5,main]]worker sleeping for: 797ms\n[Thread[Worker-45,5,main]]worker sleeping for: 797ms\n[Thread[Worker-22,5,main]]worker sleeping for: 781ms\n[Thread[Worker-44,5,main]]notifiying a worker\nTue Jun 01 01:25:33 BST 2004 - [Worker-44] Build requested, needsBuild: false \nst\nate: NONE delay: 100\n[Thread[Worker-36,5,main]]worker sleeping for: 766ms\n[Thread[Worker-44,5,main]]notifiying a worker\n[Thread[Worker-44,5,main]]Ending job: Refreshing workspace(5)\n[Thread[Worker-45,5,main]]worker sleeping for: 100ms\n[Thread[Worker-44,5,main]]worker sleeping for: 100ms\n[Thread[Worker-44,5,main]]Starting job: Building workspace(2)\n[Thread[Worker-45,5,main]]worker sleeping for: 656ms\n[Thread[Worker-44,5,main]]notifiying a worker\n[Thread[Worker-44,5,main]]notifiying a worker\n[Thread[Worker-22,5,main]]Starting job: Animation start(10)\n[Thread[Worker-36,5,main]]worker sleeping for: 100ms\n[Thread[Worker-22,5,main]]worker sleeping for: 100ms\nTue Jun 01 01:25:33 BST 2004 - [Worker-44] Build requested, needsBuild: false \nst\nate: RUNNING delay: 100\n[Thread[Worker-44,5,main]]Ending job: Building workspace(2)\n[Thread[Worker-44,5,main]]notifiying a worker\n[Thread[Worker-45,5,main]]Starting job: Animation Done(11)\n[Thread[Worker-44,5,main]]worker sleeping for: 100ms\n[Thread[Worker-45,5,main]]worker sleeping for: 100ms\n[Thread[main,6,main]]Ending job: Update Progress(12)\n[Thread[main,6,main]]notifiying a worker\n[Thread[Worker-36,5,main]]worker sleeping for: 22ms\n[Thread[Worker-22,5,main]]worker sleeping for: 6ms\n[Thread[Worker-36,5,main]]worker sleeping for: 6ms\n[Thread[Worker-44,5,main]]worker sleeping for: 6ms\n[Thread[Worker-45,5,main]]Starting job: Change cursor(97)\n[Thread[Worker-45,5,main]]worker sleeping for: 169ms\n[Thread[Worker-22,5,main]]worker sleeping for: 169ms\n[Thread[Worker-36,5,main]]worker sleeping for: 169ms\n[Thread[Worker-44,5,main]]worker sleeping for: 169ms\n[Thread[main,6,main]]Ending job: Animation start(10)\n[Thread[main,6,main]]Ending job: Animation Done(11)\n[Thread[main,6,main]]Ending job: Change cursor(97)\n[Thread[Worker-45,5,main]]worker sleeping for: 13ms\n[Thread[Worker-22,5,main]]Starting job: Update Progress(12)\n[Thread[Worker-22,5,main]]worker sleeping for: 375ms\n[Thread[main,6,main]]Ending job: Update Progress(12)\n\n\nAny interest?",
+    "In addition to the comments in #68, here is the ctrl+break output at this \ntime. Remember here, that autobuild is still OK at this point, but the system \nseems to be running slow with lots of (apparently) uncompleted tasks:\n\nFull thread dump Java HotSpot(TM) Client VM (1.4.2_04-b05 mixed mode):\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x041b14c0 \nn\nid\u003d0xd60 in Object.wait() [5a6f000..5a6fd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x14442170\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x04243b78 \nn\nid\u003d0x1210 in Object.wait() [3cef000..3cefd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x143f7100\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"Worker-45\" prio\u003d5 tid\u003d0x03f14758 nid\u003d0x1410 in Object.wait() \n[6b6f000..6b6fd8c]\n\n        at java.lang.Object.wait(Native Method)\n        at org.eclipse.core.internal.jobs.WorkerPool.sleep(WorkerPool.java:209)\n        - locked \u003c0x1159d160\u003e (a org.eclipse.core.internal.jobs.WorkerPool)\n        at org.eclipse.core.internal.jobs.WorkerPool.startJob\n(WorkerPool.java:23\n6)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:59)\n\n\"Worker-44\" prio\u003d5 tid\u003d0x03e1fea8 nid\u003d0x1d8 in Object.wait() [6aef000..6aefd8c]\n        at java.lang.Object.wait(Native Method)\n        at org.eclipse.core.internal.jobs.WorkerPool.sleep(WorkerPool.java:209)\n        - locked \u003c0x1159d160\u003e (a org.eclipse.core.internal.jobs.WorkerPool)\n        at org.eclipse.core.internal.jobs.WorkerPool.startJob\n(WorkerPool.java:23\n6)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:59)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x032edbd8 \nn\nid\u003d0xe80 in Object.wait() [59cf000..59cfd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x140f1b68\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x041227b8 \nn\nid\u003d0xec0 in Object.wait() [595f000..595fd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x140b60b0\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x041c4c58 \nn\nid\u003d0x129c in Object.wait() [583f000..583fd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x140499c0\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x032029a8 \nn\nid\u003d0xa1c in Object.wait() [3d2f000..3d2fd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x14008d28\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x0417cb90 \nn\nid\u003d0xf8 in Object.wait() [57cf000..57cfd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x13f99f90\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x04141c08 \nn\nid\u003d0xae4 in Object.wait() [4b3f000..4b3fd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x13ce66d8\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x033e4e88 \nn\nid\u003d0xd70 in Object.wait() [4aff000..4affd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x13ca5128\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x0412a1d8 \nn\nid\u003d0x6c0 in Object.wait() [48bf000..48bfd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x13c61f08\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x04128380 \nn\nid\u003d0x1224 in Object.wait() [487f000..487fd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x13c1fbc0\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x041f1308 \nn\nid\u003d0xe7c runnable [45cf000..45cfd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x13bc7880\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x04128a40 \nn\nid\u003d0x830 runnable [460f000..460fd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x13baec08\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x0426c118 \nn\nid\u003d0x1e4 runnable [38ff000..38ffd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x13aa3c30\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"org.eclipse.jdt.internal.ui.text.JavaReconciler\" daemon prio\u003d2 tid\u003d0x033c1358 \nn\nid\u003d0x8b8 runnable [3a8f000..3a8fd8c]\n        at java.lang.Object.wait(Native Method)\n        at \norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread\n.run(AbstractReconciler.java:172)\n        - locked \u003c0x13a0cf78\u003e (a \norg.eclipse.jface.text.reconciler.DirtyRegionQu\neue)\n\n\"Worker-36\" prio\u003d5 tid\u003d0x04158500 nid\u003d0x124 in Object.wait() [46cf000..46cfd8c]\n        at java.lang.Object.wait(Native Method)\n        at org.eclipse.core.internal.jobs.WorkerPool.sleep(WorkerPool.java:209)\n        - locked \u003c0x1159d160\u003e (a org.eclipse.core.internal.jobs.WorkerPool)\n        at org.eclipse.core.internal.jobs.WorkerPool.startJob\n(WorkerPool.java:23\n6)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:59)\n\n\"Worker-22\" prio\u003d5 tid\u003d0x03e7c850 nid\u003d0xd90 in Object.wait() [483f000..483fd8c]\n        at java.lang.Object.wait(Native Method)\n        at org.eclipse.core.internal.jobs.WorkerPool.sleep(WorkerPool.java:209)\n        - locked \u003c0x1159d160\u003e (a org.eclipse.core.internal.jobs.WorkerPool)\n        at org.eclipse.core.internal.jobs.WorkerPool.startJob\n(WorkerPool.java:23\n6)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:59)\n\n\"Java indexing\" daemon prio\u003d4 tid\u003d0x03105230 nid\u003d0xcb4 in Object.wait() \n[3a1f000\n..3a1fd8c]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x11756088\u003e (a \norg.eclipse.jdt.internal.core.search.indexi\nng.IndexManager)\n        at java.lang.Object.wait(Object.java:429)\n        at org.eclipse.jdt.internal.core.search.processing.JobManager.run\n(JobMan\nager.java:344)\n        - locked \u003c0x11756088\u003e (a \norg.eclipse.jdt.internal.core.search.indexing.I\nndexManager)\n        at java.lang.Thread.run(Thread.java:534)\n\n\"Reference Cleaner - 2\" prio\u003d7 tid\u003d0x03098140 nid\u003d0x3e8 in Object.wait() \n[397f00\n0..397fd8c]\n        at java.lang.Object.wait(Native Method)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:111)\n        - locked \u003c0x116dd010\u003e (a java.lang.ref.ReferenceQueue$Lock)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:127)\n        at \norg.eclipse.jface.action.ActionContributionItem$ImageCache$ReferenceC\nleanerThread.run(ActionContributionItem.java:207)\n\n\"Reference Cleaner - 1\" prio\u003d7 tid\u003d0x03068bb0 nid\u003d0xcc4 in Object.wait() \n[393f00\n0..393fd8c]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x116dd080\u003e (a java.lang.ref.ReferenceQueue$Lock)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:111)\n        - locked \u003c0x116dd080\u003e (a java.lang.ref.ReferenceQueue$Lock)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:127)\n        at \norg.eclipse.jface.action.ActionContributionItem$ImageCache$ReferenceC\nleanerThread.run(ActionContributionItem.java:207)\n\n\"Start Level Event Dispatcher\" daemon prio\u003d5 tid\u003d0x02e9a410 nid\u003d0x9ac in \nObject.\nwait() [2fdf000..2fdfd8c]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x1143b6f0\u003e (a \norg.eclipse.osgi.framework.eventmgr.EventTh\nread)\n        at java.lang.Object.wait(Object.java:429)\n        at org.eclipse.osgi.framework.eventmgr.EventThread.getNextEvent\n(EventThr\nead.java:162)\n        - locked \u003c0x1143b6f0\u003e (a \norg.eclipse.osgi.framework.eventmgr.EventThread\n)\n        at org.eclipse.osgi.framework.eventmgr.EventThread.run\n(EventThread.java:\n100)\n\n\"Framework Event Dispatcher\" daemon prio\u003d5 tid\u003d0x02d9d7f0 nid\u003d0xb0c in \nObject.wa\nit() [2f9f000..2f9fd8c]\n        at java.lang.Object.wait(Native Method)\n        - waiting on \u003c0x1143b770\u003e (a \norg.eclipse.osgi.framework.eventmgr.EventTh\nread)\n        at java.lang.Object.wait(Object.java:429)\n        at org.eclipse.osgi.framework.eventmgr.EventThread.getNextEvent\n(EventThr\nead.java:162)\n        - locked \u003c0x1143b770\u003e (a \norg.eclipse.osgi.framework.eventmgr.EventThread\n)\n        at org.eclipse.osgi.framework.eventmgr.EventThread.run\n(EventThread.java:\n100)\n\n\"Signal Dispatcher\" daemon prio\u003d10 tid\u003d0x0003dab8 nid\u003d0xe8 waiting on condition\n[0..0]\n\n\"Finalizer\" daemon prio\u003d9 tid\u003d0x009c0a38 nid\u003d0x1350 in Object.wait() \n[2c5f000..2\nc5fd8c]\n        at java.lang.Object.wait(Native Method)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:111)\n        - locked \u003c0x113ca270\u003e (a java.lang.ref.ReferenceQueue$Lock)\n        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:127)\n        at java.lang.ref.Finalizer$FinalizerThread.run(Finalizer.java:159)\n\n\"Reference Handler\" daemon prio\u003d10 tid\u003d0x009bf608 nid\u003d0x15d0 in Object.wait() \n[2\nc1f000..2c1fd8c]\n        at java.lang.Object.wait(Native Method)\n        at java.lang.Object.wait(Object.java:429)\n        at java.lang.ref.Reference$ReferenceHandler.run(Reference.java:115)\n        - locked \u003c0x113ca2d8\u003e (a java.lang.ref.Reference$Lock)\n\n\"main\" prio\u003d7 tid\u003d0x000356b0 nid\u003d0xb3c runnable [7f000..7fc3c]\n        at org.eclipse.swt.internal.win32.OS.WaitMessage(Native Method)\n        at org.eclipse.swt.widgets.Display.sleep(Display.java:3020)\n        at org.eclipse.ui.application.WorkbenchAdvisor.eventLoopIdle\n(WorkbenchAd\nvisor.java:344)\n        at org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1364)\n        at org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1334)\n        at org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.jav\na:253)\n        at org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n        at org.eclipse.ui.internal.ide.IDEApplication.run\n(IDEApplication.java:96\n)\n        at org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformAct\nivator.java:334)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.ja\nva:273)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.ja\nva:128)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.\njava:39)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAcces\nsorImpl.java:25)\n        at java.lang.reflect.Method.invoke(Method.java:324)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n        at org.eclipse.core.launcher.Main.run(Main.java:638)\n        at org.eclipse.core.launcher.Main.main(Main.java:622)\n\n\"VM Thread\" prio\u003d5 tid\u003d0x009fb6e8 nid\u003d0x10bc runnable\n\n\"VM Periodic Task Thread\" prio\u003d10 tid\u003d0x009fc2d0 nid\u003d0x60c waiting on condition\n\n\"Suspend Checker Thread\" prio\u003d10 tid\u003d0x0003d170 nid\u003d0x156c runnable",
+    "I still see this in RC1.\n\nPlease notice the dump of the job manager in comment 57 and comment 65. It\u0027s \nsimilary for me. The first item is always \"Decoration Calculation\" which is \nsleeping and all other jobs (building etc.) are sleeping, too. After canceling \nthe first task (\"Decoration Calculation\"), all things start working fine again.\n\nNote that after enabling \"Verbose\" mode in the Progess view I have to close \nand reopen the view to see any changes.",
+    "I think there are two possibly unrelated problems:\n\n1) Progress view showing stale entries\n2) A rare condition that causes jobs to remain indefinitely in sleeping state.\n\nWe have seen several reports of 1), although not nearly as severe as what Ian\nobserves. 2) needs further investigation.",
+    "Interesting thought!\n\nOn all machines that I know have experienced this problem are dual processor.\n\n(apart from my home machine, but that is a hyperthreaded one which appears to \nthe OS as a dual processor).\n\nIf this is a threading/timing issue, this may be significant...???",
+    "Same for me. HyperThreading CPU (P4 2,8 GHz) that simulates 2 CPUs for Windows \nXP.",
+    "I haven\u0027t seen this problem since I switched to RC1 yet.  However, I too am \nusing a dual processor.",
+    "Well, that\u0027s certainly interesting news. The only member of the Eclipse team\nfacing similar problems is also using a dual-processor Windows box. I use a\ndual-processor Linux box and have not seen the problem. Timing problems and\nconcurency bugs are often exacerbated on dual processor machines because the VMs\nare more aggressive about making use of thread-local caches. I will review the\ncode again with this in mind.",
+    "Ines has seen similar problems on the Mac in RC1. Ines can you provide details \nplease?",
+    "Unfortunately, I was not able to reproduce the \"Error accessing marker type\"\nissue. But here are my steps if it helps:\n\nI am using build id 200406040800 on Mac OS 10.3.3.\n\n- Check out \"org.eclipse.ui.carbon\"\n- Wait for the build to finish. Once the errors appear in the problems view, go\ncheck out \"org.eclipse.swt\"\n- Run the operation in the background\n- Switch to the \"Navigator View\"\n- As soon as you see the \"org.eclispe.swt\" project appear, rename SWT\u0027s\nclasspath_carbon to classpath\n- The progress dialog shows up (showing the CVS operation and refactoring jobs)\n- When both jobs were finished, I noticed that the errors were not gone in the\nproblems view, but they were gone in the java file\n- Clicking on the errors in the problems view generated the \"Error accessing\nmarker type\" message in the log\n- Re-building would not respond\n- I had to restart for everything to rebuild",
+    "Just as a potentially useful hint, the last few times that this has happened \nto me, the topmost item in the \u0027jobs\u0027 list (from John\u0027s Jobs plugin) has been \nDecoration Calculation\n\nThis might mean nothing - I don\u0027t know if the list is in any particular order -\n but it would be remiss of me not to mention it if it gives you a clue...",
+    "*** Bug 63800 has been marked as a duplicate of this bug. ***",
+    "For those still experiencing this in 3.0 RC1, there is a chance that the fix for\nbug 66168 is related to this. I\u0027m not optimistic at this stage, but I would\nencourage everyone to try 3.0 RC2 when it comes out tomorrow to see if the\nproblem still happens.",
+    "*** Bug 67594 has been marked as a duplicate of this bug. ***",
+    "Created an attachment (id\u003d12693)\nNew diagnostic plugin zip\n\nThe attached zip contains an improved plugin that will print more diagnostic\ninformation about the state of the job manager. The Job \u003e Dump Job Information\naction will print a bunch of information on the Java console. If anyone gets\nback into the state where jobs are not running, this dump information would be\nvery useful to see. As a bonus, this plugin also contains an action, Job \u003e Wake\nup Jobs, that should get you out of this broken state. I would be very keen to\nhear if this works for those having this problem. At the very least it should\nbe a band-aid that helps people keep working until we have a real fix\navailable.",
+    "Ian, and others still experiencing this problem: I believe we have just fixed\nit. See bug 68452 for more details.\n\nWe are fast approaching the 3.0 build, so we\u0027re looking for as many verifiers as\npossible. The fix will appear in today\u0027s 4PM EDT build. This build is likely to\nbe the final Eclipse 3.0 release (with the exception of documentation changes).\nIf you could all run with this build, and follow up here with results, that\nwould be *greatly* appreciated. Hyperthreading and dual-processor results would\nbe particularly interesting. I will mark this fixed next week if I hear no\nnegative results on today\u0027s 4pm build or the final Eclipse 3.0 release.",
+    "The behaviour described in Bug 67594 seems to be corrected in 3.0 release.",
+    "I am marking this fixed in release 3.0, since we have not heard reports\notherwise. Thanks to everyone for providing the details that helped us track\nthis problem down.",
+    "*** Bug 56708 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2004-04-06T22:32:28+02:00",
+    "2004-04-06T23:38:33+02:00",
+    "2004-04-07T00:20:47+02:00",
+    "2004-04-12T16:56:22+02:00",
+    "2004-04-12T17:43:12+02:00",
+    "2004-04-12T21:59:57+02:00",
+    "2004-04-12T22:13:48+02:00",
+    "2004-04-13T00:50:58+02:00",
+    "2004-04-13T06:27:48+02:00",
+    "2004-04-13T08:00:06+02:00",
+    "2004-04-13T20:06:12+02:00",
+    "2004-04-13T21:41:06+02:00",
+    "2004-04-13T23:33:26+02:00",
+    "2004-04-13T23:46:42+02:00",
+    "2004-04-14T01:17:38+02:00",
+    "2004-04-14T01:19:48+02:00",
+    "2004-04-14T01:29:58+02:00",
+    "2004-04-14T01:32:30+02:00",
+    "2004-04-14T01:53:13+02:00",
+    "2004-04-14T02:02:55+02:00",
+    "2004-04-14T05:18:44+02:00",
+    "2004-04-14T05:22:09+02:00",
+    "2004-04-14T11:28:11+02:00",
+    "2004-04-14T21:52:55+02:00",
+    "2004-04-15T19:18:14+02:00",
+    "2004-04-16T17:44:08+02:00",
+    "2004-04-16T18:16:40+02:00",
+    "2004-04-16T18:33:37+02:00",
+    "2004-04-16T18:39:33+02:00",
+    "2004-04-16T23:53:20+02:00",
+    "2004-04-18T03:19:38+02:00",
+    "2004-04-18T17:25:22+02:00",
+    "2004-04-19T16:01:27+02:00",
+    "2004-04-23T15:22:49+02:00",
+    "2004-04-24T15:57:11+02:00",
+    "2004-05-07T17:50:26+02:00",
+    "2004-05-14T12:48:36+02:00",
+    "2004-05-15T23:02:53+02:00",
+    "2004-05-16T00:02:52+02:00",
+    "2004-05-16T21:03:33+02:00",
+    "2004-05-16T21:15:32+02:00",
+    "2004-05-17T18:19:18+02:00",
+    "2004-05-17T18:44:02+02:00",
+    "2004-05-17T18:52:34+02:00",
+    "2004-05-18T08:51:32+02:00",
+    "2004-05-18T16:07:59+02:00",
+    "2004-05-18T17:29:26+02:00",
+    "2004-05-18T17:55:30+02:00",
+    "2004-05-19T22:01:21+02:00",
+    "2004-05-20T01:02:54+02:00",
+    "2004-05-25T16:40:29+02:00",
+    "2004-05-26T04:39:36+02:00",
+    "2004-05-26T04:45:23+02:00",
+    "2004-05-26T18:41:02+02:00",
+    "2004-05-27T16:49:00+02:00",
+    "2004-05-27T21:00:11+02:00",
+    "2004-05-28T00:55:12+02:00",
+    "2004-05-28T10:47:35+02:00",
+    "2004-05-28T10:54:11+02:00",
+    "2004-05-28T18:32:24+02:00",
+    "2004-05-28T23:30:26+02:00",
+    "2004-05-30T03:57:28+02:00",
+    "2004-05-30T04:07:41+02:00",
+    "2004-05-31T15:16:01+02:00",
+    "2004-05-31T16:54:38+02:00",
+    "2004-05-31T20:56:19+02:00",
+    "2004-05-31T21:15:26+02:00",
+    "2004-05-31T22:46:53+02:00",
+    "2004-06-01T02:28:04+02:00",
+    "2004-06-01T02:30:14+02:00",
+    "2004-06-01T11:44:10+02:00",
+    "2004-06-01T23:52:55+02:00",
+    "2004-06-02T11:21:26+02:00",
+    "2004-06-02T14:50:31+02:00",
+    "2004-06-02T15:00:18+02:00",
+    "2004-06-02T16:12:58+02:00",
+    "2004-06-04T17:32:53+02:00",
+    "2004-06-04T22:56:56+02:00",
+    "2004-06-05T00:35:21+02:00",
+    "2004-06-07T16:16:22+02:00",
+    "2004-06-10T20:43:57+02:00",
+    "2004-06-18T13:39:21+02:00",
+    "2004-06-22T22:18:11+02:00",
+    "2004-06-24T20:17:45+02:00",
+    "2004-06-29T15:13:29+02:00",
+    "2004-07-06T20:08:33+02:00",
+    "2004-07-14T21:25:33+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IndexOutOfBoundsException",
+      "message": "Index: 27, Size: 27",
+      "elements": [
+        {
+          "method": "java.util.ArrayList.RangeCheck",
+          "source": "ArrayList.java:507"
+        },
+        {
+          "method": "java.util.ArrayList.get",
+          "source": "ArrayList.java:324"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitDocumentProvider$ReverseMap.get",
+          "source": "CompilationUnitDocumentProvider.java:330"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitDocumentProvider$CompilationUnitAnnotationModel.addAnnotation",
+          "source": "CompilationUnitDocumentProvider.java:661"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.AnnotationModel.replaceAnnotations",
+          "source": "AnnotationModel.java:190"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.AnnotationModel.replaceAnnotations",
+          "source": "AnnotationModel.java:160"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.OverrideIndicatorManager.updateAnnotations",
+          "source": "OverrideIndicatorManager.java:227"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.OverrideIndicatorManager.reconciled",
+          "source": "OverrideIndicatorManager.java:271"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.reconciled",
+          "source": "CompilationUnitEditor.java:1669"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.reconcile",
+          "source": "JavaReconcilingStrategy.java:107"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.reconcile",
+          "source": "JavaReconcilingStrategy.java:118"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.CompositeReconcilingStrategy.reconcile",
+          "source": "CompositeReconcilingStrategy.java:83"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.JavaCompositeReconcilingStrategy.reconcile",
+          "source": "JavaCompositeReconcilingStrategy.java:97"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.MonoReconciler.process",
+          "source": "MonoReconciler.java:76"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread.run",
+          "source": "AbstractReconciler.java:189"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 19,
+      "bugId": "57656",
+      "date": "2004-04-14T02:02:55+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "elements": [
+        {
+          "method": "org.apache.crimson.parser.Parser2.parseInternal",
+          "source": "Parser2.java:691"
+        },
+        {
+          "method": "org.apache.crimson.parser.Parser2.parse",
+          "source": "Parser2.java:337"
+        },
+        {
+          "method": "org.apache.crimson.parser.XMLReaderImpl.parse",
+          "source": "XMLReaderImpl.java:448"
+        },
+        {
+          "method": "javax.xml.parsers.SAXParser.parse",
+          "source": "SAXParser.java:345"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.ConfigurationParser.parse",
+          "source": "ConfigurationParser.java:68"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.PlatformConfiguration.loadConfig",
+          "source": "PlatformConfiguration.java:1140"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.PlatformConfiguration.initializeCurrent",
+          "source": "PlatformConfiguration.java:701"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.PlatformConfiguration.\u003cinit\u003e",
+          "source": "PlatformConfiguration.java:83"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.PlatformConfiguration.startup",
+          "source": "PlatformConfiguration.java:642"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.ConfigurationActivator.getPlatformConfiguration",
+          "source": "ConfigurationActivator.java:296"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.ConfigurationActivator.initialize",
+          "source": "ConfigurationActivator.java:114"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.ConfigurationActivator.start",
+          "source": "ConfigurationActivator.java:68"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$1.run",
+          "source": "BundleContextImpl.java:973"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:969"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "BundleContextImpl.java:952"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "BundleHost.java:408"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.resume",
+          "source": "AbstractBundle.java:373"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.resumeBundle",
+          "source": "Framework.java:999"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles",
+          "source": "StartLevelManager.java:571"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL",
+          "source": "StartLevelManager.java:482"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel",
+          "source": "StartLevelManager.java:272"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent",
+          "source": "StartLevelManager.java:442"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent",
+          "source": "EventManager.java:153"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventThread$Queued.dispatchEvent",
+          "source": "EventThread.java:56"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventThread.run",
+          "source": "EventThread.java:107"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 36,
+      "bugId": "57656",
+      "date": "2004-05-14T12:48:36+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "elements": [
+        {
+          "method": "org.apache.crimson.parser.Parser2.parseInternal",
+          "source": "Parser2.java:691"
+        },
+        {
+          "method": "org.apache.crimson.parser.Parser2.parse",
+          "source": "Parser2.java:337"
+        },
+        {
+          "method": "org.apache.crimson.parser.XMLReaderImpl.parse",
+          "source": "XMLReaderImpl.java:448"
+        },
+        {
+          "method": "javax.xml.parsers.SAXParser.parse",
+          "source": "SAXParser.java:345"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.ConfigurationParser.parse",
+          "source": "ConfigurationParser.java:68"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.PlatformConfiguration.loadConfig",
+          "source": "PlatformConfiguration.java:1166"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.PlatformConfiguration.initializeCurrent",
+          "source": "PlatformConfiguration.java:701"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.PlatformConfiguration.\u003cinit\u003e",
+          "source": "PlatformConfiguration.java:83"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.PlatformConfiguration.startup",
+          "source": "PlatformConfiguration.java:642"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.ConfigurationActivator.getPlatformConfiguration",
+          "source": "ConfigurationActivator.java:296"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.ConfigurationActivator.initialize",
+          "source": "ConfigurationActivator.java:114"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.ConfigurationActivator.start",
+          "source": "ConfigurationActivator.java:68"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$1.run",
+          "source": "BundleContextImpl.java:973"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:969"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "BundleContextImpl.java:952"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "BundleHost.java:408"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.resume",
+          "source": "AbstractBundle.java:373"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.resumeBundle",
+          "source": "Framework.java:999"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles",
+          "source": "StartLevelManager.java:571"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL",
+          "source": "StartLevelManager.java:482"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel",
+          "source": "StartLevelManager.java:272"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent",
+          "source": "StartLevelManager.java:442"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent",
+          "source": "EventManager.java:153"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventThread$Queued.dispatchEvent",
+          "source": "EventThread.java:56"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventThread.run",
+          "source": "EventThread.java:107"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 36,
+      "bugId": "57656",
+      "date": "2004-05-14T12:48:36+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "message": "-1)",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2689"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2614"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:109"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2693"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2385"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1363"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1334"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:253"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:97"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:307"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:256"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:127"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:638"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:622"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 52,
+      "bugId": "57656",
+      "date": "2004-05-26T04:45:23+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "message": "-1",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.text.rules.BufferedRuleBasedScanner.read",
+          "source": "BufferedRuleBasedScanner.java:118"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.JavaCodeScanner$OperatorRule.evaluate",
+          "source": "JavaCodeScanner.java:81"
+        },
+        {
+          "method": "org.eclipse.jface.text.rules.RuleBasedScanner.nextToken",
+          "source": "RuleBasedScanner.java:155"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.AbstractJavaScanner.nextToken",
+          "source": "AbstractJavaScanner.java:115"
+        },
+        {
+          "method": "org.eclipse.jface.text.rules.DefaultDamagerRepairer.createPresentation",
+          "source": "DefaultDamagerRepairer.java:166"
+        },
+        {
+          "method": "org.eclipse.jface.text.presentation.PresentationReconciler.createPresentation",
+          "source": "PresentationReconciler.java:446"
+        },
+        {
+          "method": "org.eclipse.jface.text.presentation.PresentationReconciler.processDamage",
+          "source": "PresentationReconciler.java:555"
+        },
+        {
+          "method": "org.eclipse.jface.text.presentation.PresentationReconciler.access$3",
+          "source": "PresentationReconciler.java:553"
+        },
+        {
+          "method": "org.eclipse.jface.text.presentation.PresentationReconciler$InternalListener.textChanged",
+          "source": "PresentationReconciler.java:222"
+        },
+        {
+          "method": "org.eclipse.jface.text.TextViewer.updateTextListeners",
+          "source": "TextViewer.java:2235"
+        },
+        {
+          "method": "org.eclipse.jface.text.TextViewer.invalidateTextPresentation",
+          "source": "TextViewer.java:2931"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.projection.ProjectionViewer.processModifications",
+          "source": "ProjectionViewer.java:878"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.projection.ProjectionViewer.catchupWithProjectionAnnotationModel",
+          "source": "ProjectionViewer.java:759"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.projection.ProjectionViewer.access$7",
+          "source": "ProjectionViewer.java:731"
+        },
+        {
+          "method": "org.eclipse.jface.text.source.projection.ProjectionViewer$1.run",
+          "source": "ProjectionViewer.java:714"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2693"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2385"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1363"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1334"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:253"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:97"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:307"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:256"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:127"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:638"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:622"
+        }
+      ],
+      "number": 4,
+      "commentIndex": 52,
+      "bugId": "57656",
+      "date": "2004-05-26T04:45:23+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "57656",
+  "bugId": "57656",
+  "date": "2004-04-06T22:32:28+02:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "critical"
+}

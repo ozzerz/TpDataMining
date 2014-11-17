@@ -1,0 +1,162 @@
+{
+  "comments": [
+    "I see this printed to my terminal every time I close Eclipse 3.1M3:\n\njava.lang.IllegalStateException: Workspace is closed.\n        at\norg.eclipse.core.resources.ResourcesPlugin.getWorkspace(ResourcesPlugin.java:320)\n        at\norg.eclipse.team.internal.ccvs.core.resources.EclipseSynchronizer.endOperation(EclipseSynchronizer.java:530)\n        at\norg.eclipse.team.internal.ccvs.core.resources.EclipseSynchronizer.members(EclipseSynchronizer.java:432)\n        at\norg.eclipse.team.internal.ccvs.core.resources.EclipseFolder.members(EclipseFolder.java:41)\n        at\norg.eclipse.team.internal.ccvs.core.resources.EclipseFolder.calculateAndSaveChildModificationStates(EclipseFolder.java:356)\n        at\norg.eclipse.team.internal.ccvs.core.resources.EclipseFolder.isModified(EclipseFolder.java:326)\n        at\norg.eclipse.team.internal.ccvs.ui.CVSLightweightDecorator.isDirty(CVSLightweightDecorator.java:93)\n        at\norg.eclipse.team.internal.ccvs.ui.CVSLightweightDecorator.isDirty(CVSLightweightDecorator.java:102)\n        at\norg.eclipse.team.internal.ccvs.ui.CVSLightweightDecorator.decorate(CVSLightweightDecorator.java:186)\n        at\norg.eclipse.team.internal.ccvs.ui.CVSLightweightDecorator.decorate(CVSLightweightDecorator.java:164)\n        at\norg.eclipse.ui.internal.decorators.LightweightDecoratorDefinition.decorate(LightweightDecoratorDefinition.java:145)\n        at\norg.eclipse.ui.internal.decorators.LightweightDecoratorManager$LightweightRunnable.run(LightweightDecoratorManager.java:65)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:616)\n        at org.eclipse.core.runtime.Platform.run(Platform.java:747)\n        at\norg.eclipse.ui.internal.decorators.LightweightDecoratorManager.decorate(LightweightDecoratorManager.java:259)\n        at\norg.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecorations(LightweightDecoratorManager.java:244)\n        at\norg.eclipse.ui.internal.decorators.DecorationScheduler$1.run(DecorationScheduler.java:285)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:66)\njava.lang.NoClassDefFoundError: org/eclipse/ui/internal/misc/StatusUtil\n        at\norg.eclipse.ui.internal.decorators.LightweightDecoratorManager$LightweightRunnable.handleException(LightweightDecoratorManager.java:55)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.handleException(InternalPlatform.java:350)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:618)\n        at org.eclipse.core.runtime.Platform.run(Platform.java:747)\n        at\norg.eclipse.ui.internal.decorators.LightweightDecoratorManager.decorate(LightweightDecoratorManager.java:259)\n        at\norg.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecorations(LightweightDecoratorManager.java:244)\n        at\norg.eclipse.ui.internal.decorators.DecorationScheduler$1.run(DecorationScheduler.java:285)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:66)",
+    ".EclipseSynchronizer.endOperation(EclipseSynchronizer.java:530 should be \nchecking for the workspace closing.\n\nI am not sure if this happens before workbench shutdown - if it does then \nbounce this back to us as we should cancel this operation on shutdown.\n\nI suspect a change in the shutdown sequence.",
+    "How can a core class that knows nothing about the workbench check for \nworkbench closing? Is there API on Core Resources to know that the workbench \nis closed? The simpliest solution would be to spec the getWorkbench method to \nsay that it throws IllegalStateException when the workbench is closed. I would \njust catch the exception and deal with it accordingly. Copying John for his \ncomment on this.",
+    "Michael, you seem to be mixing \"workbench\" with \"workspace\" so I\u0027m not sure what\nyou\u0027re suggesting. ResourcesPlugin.getWorkspace() does throw\nIllegalStateException in this case (and only this case).  You can also check if\nthe resources plugin is shutting down or has already shut down using:\n\nif (Platform.getBundle(ResourcesPlugin.PI_RESOURCES).getState() \u003d\u003d Bundle.ACTIVE)\n\nI also think it would be useful for the decoration job (defined by\nDecorationScheduler#createDecorationJob) to check for shutdown more often to\nminimize the risk of this kind of error.  Currently the decoration job does this\nto check for cancelation:\n\nif(shutdown)//Cancelled on shutdown\n\treturn Status.CANCEL_STATUS;\n\nHowever, it only performs this check once at the start of the job. If this check\nwas moved into the while loop it would make the decoration job more responsive\nto shutdown:\n\n\twhile ((reference \u003d nextElement()) !\u003d null) {\n\t\tif(shutdown)//Cancelled on shutdown\n\t\t\treturn Status.CANCEL_STATUS;\n\t\t...\n\t}\n",
+    "Am I correct in assuming that the CVS bundle is shut down before the Resources \nbundle? If this is the case, I should probably check whether the CVS bundle is \nactive instead of Resources.",
+    "That is a valid assumption. Plugins are shutdown in reverse-prerequisite order.\n All of your pre-reqs will be shutdown after you.",
+    "I\u0027ve made the changes to the CVS code. Moving to UI to consider John\u0027s \nsuggestion for the decorator thread.",
+    "We are now checking the decorator thread as of last week.",
+    "Verified in 20050510"
+  ],
+  "commentCreationDates": [
+    "2004-11-10T16:14:00+01:00",
+    "2004-11-10T16:20:20+01:00",
+    "2004-11-10T16:36:50+01:00",
+    "2004-11-10T18:09:27+01:00",
+    "2004-11-10T18:20:31+01:00",
+    "2004-11-10T18:22:24+01:00",
+    "2004-11-11T21:13:30+01:00",
+    "2005-04-27T20:47:25+02:00",
+    "2005-05-10T19:54:42+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalStateException",
+      "message": "Workspace is closed.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.resources.ResourcesPlugin.getWorkspace",
+          "source": "ResourcesPlugin.java:320"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseSynchronizer.endOperation",
+          "source": "EclipseSynchronizer.java:530"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseSynchronizer.members",
+          "source": "EclipseSynchronizer.java:432"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseFolder.members",
+          "source": "EclipseFolder.java:41"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseFolder.calculateAndSaveChildModificationStates",
+          "source": "EclipseFolder.java:356"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseFolder.isModified",
+          "source": "EclipseFolder.java:326"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.CVSLightweightDecorator.isDirty",
+          "source": "CVSLightweightDecorator.java:93"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.CVSLightweightDecorator.isDirty",
+          "source": "CVSLightweightDecorator.java:102"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.CVSLightweightDecorator.decorate",
+          "source": "CVSLightweightDecorator.java:186"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.CVSLightweightDecorator.decorate",
+          "source": "CVSLightweightDecorator.java:164"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorDefinition.decorate",
+          "source": "LightweightDecoratorDefinition.java:145"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager$LightweightRunnable.run",
+          "source": "LightweightDecoratorManager.java:65"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:616"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:747"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager.decorate",
+          "source": "LightweightDecoratorManager.java:259"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecorations",
+          "source": "LightweightDecoratorManager.java:244"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.DecorationScheduler$1.run",
+          "source": "DecorationScheduler.java:285"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:66"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "78303",
+      "date": "2004-11-10T16:14:00+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "org/eclipse/ui/internal/misc/StatusUtil",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager$LightweightRunnable.handleException",
+          "source": "LightweightDecoratorManager.java:55"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.handleException",
+          "source": "InternalPlatform.java:350"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:618"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:747"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager.decorate",
+          "source": "LightweightDecoratorManager.java:259"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecorations",
+          "source": "LightweightDecoratorManager.java:244"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.DecorationScheduler$1.run",
+          "source": "DecorationScheduler.java:285"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:66"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "78303",
+      "date": "2004-11-10T16:14:00+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "78303",
+  "bugId": "78303",
+  "date": "2004-11-10T16:14:00+01:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "major"
+}

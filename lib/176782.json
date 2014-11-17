@@ -1,0 +1,236 @@
+{
+  "comments": [
+    "An NPE is being thrown by BundleHost\u0027s getLoaderProxy() as a result of calling PackageAdmin\u0027s getExportedPackages(String) method, and then calling getImportingBundles().  Here\u0027s the stack trace:\n\njava.lang.NullPointerException\n        at\norg.eclipse.osgi.framework.internal.core.BundleHost.getLoaderProxy(BundleHost.java:534)\n        at\norg.eclipse.osgi.framework.internal.core.BundleHost.getBundleLoader(BundleHost.java:526)\n        at\norg.eclipse.osgi.framework.internal.core.ExportedPackageImpl.getImportingBundles(ExportedPackageImpl.java:56)\n...\n\n\nHere\u0027s the code from BundleHost with line 534 marked:\n\nprotected synchronized BundleLoaderProxy getLoaderProxy() {\n  if (proxy !\u003d null)\n    return proxy;\n  BundleDescription bundleDescription \u003d getBundleDescription();\n  proxy \u003d new BundleLoaderProxy(this, bundleDescription);\n  bundleDescription.setUserObject(proxy);  // Line 534: NPE!\n  return proxy;\n}\n\nThe problem appears to be timing related since it does not happen all the time.  The code in question is executing when the framework is launched.  Unfortunately I do not have a test case for this, and have not seen it myself, but I know a man that has... Everyone involved is CC\u0027d.",
+    "Tom: Could this be related to a corrupt persistent state cache?  This is seen during launch, so I guess that the persistent state cache is probably getting updated a lot.  See bug 121148 and  bug 168521 for similar NPEs; both of these were supposedly fixed for Eclipse 3.2.2.  Note that this problem is seen in Equinox 3.2.2.",
+    "Would the workaround (pasted below) mentioned in https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d121148 also be applicable here?\n\n\"The workaround from the opening comment should be to add the following toyour\nconfig.ini:\n\nosgi.noLazyStateLoading\u003dtrue\"",
+    "Are you uninstalling bundles?  Is there any more information you can provide on what you are doing when this occurs?\n\nIf you restart the platform do you see it occur again?  Do you need to run with -clean to clear up the issue?  It would be helpful to know if setting osgi.noLazyStateLoading\u003dtrue works around the issue.",
+    "(In reply to comment #3)\n\u003e Are you uninstalling bundles?  Is there any more information you can provide on\n\u003e what you are doing when this occurs?\n\u003e If you restart the platform do you see it occur again?  Do you need to run with\n\u003e -clean to clear up the issue?  It would be helpful to know if setting\n\u003e osgi.noLazyStateLoading\u003dtrue works around the issue.\n\nWhen the error occurs, a series of bundles are being installed using the BundleContext.installBundle(String) method. The location argument is an HTTP URL. There are typically 80-90 bundles being installed. Immediately after installation of all bundles, they are then started using the Bundle.start() method (i.e. first all bundles are installed then the set of installed bundles is iterated over, each one started in turn). This error was seen within the IDE (Version: 3.2.2, Build id: M20070212-1330) as well as within the standalone runtime (org.eclipse.osgi_3.2.2.R32x_v20070118.jar).\n\nThis error was never seen if the runtime was restarted with the currently loaded stack in place. It was reproducible, although not repeatedly, if the environment was reset using a script designed to accomplish the same thing as using the -clean program argument (i.e. everything except config.ini is deleted underneath the configurations directory). This resulted in all bundles being reloaded and started.\n\nI have not been able to reproduce this error since installing an updated SAT feature incorporating a workaround. Consequently, I have been unable to experiment with using the -clean program argument or the osgi.noLazyStateLoading system property.\n\nI\u0027m pasting the full stack trace from when this error occurs in case it\u0027s helpful.\n\njava.lang.NullPointerException\n        at\norg.eclipse.osgi.framework.internal.core.BundleHost.getLoaderProxy(BundleHost.java:534)\n        at\norg.eclipse.osgi.framework.internal.core.BundleHost.getBundleLoader(BundleHost.java:526)\n        at\norg.eclipse.osgi.framework.internal.core.ExportedPackageImpl.getImportingBundles(ExportedPackageImpl.java:56)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleDependencyManager.registerImportedPackageDependency(BundleDependencyManager.java:470)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleDependencyManager.registerImportedPackageDependencies(BundleDependencyManager.java:445)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleDependencyManager.handleBundleInstalled(BundleDependencyManager.java:293)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleDependencyManager.populateDependencyTracker(BundleDependencyManager.java:360)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleDependencyManager.handleManagerStarted(BundleDependencyManager.java:324)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleManager.startup(BundleManager.java:366)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.Activator.startupBundleDependencyManager(Activator.java:310)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.Activator.addExportedBundleDependencyService(Activator.java:93)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.Activator.activate(Activator.java:85)\n        at\norg.eclipse.soda.sat.core.framework.BaseBundleActivator$1.activate(BaseBundleActivator.java:280)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager.activate(BundleActivationManager.java:150)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager.performActivation(BundleActivationManager.java:1262)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager.access$0(BundleActivationManager.java:1248)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager$1.acquired(BundleActivationManager.java:391)\n        at\norg.eclipse.soda.sat.core.internal.record.container.ImportServiceRecordContainer.serviceAcquired(ImportServiceRecordContainer.java:470)\n        at\norg.eclipse.soda.sat.core.internal.record.container.ImportServiceRecordContainer.access$0(ImportServiceRecordContainer.java:458)\n        at\norg.eclipse.soda.sat.core.internal.record.container.ImportServiceRecordContainer$4.serviceAcquired(ImportServiceRecordContainer.java:282)\n        at\norg.eclipse.soda.sat.core.internal.record.ImportServiceRecord.acquire(ImportServiceRecord.java:115)\n        at\norg.eclipse.soda.sat.core.internal.record.ImportServiceRecord.acquire(ImportServiceRecord.java:124)\n        at\norg.eclipse.soda.sat.core.internal.record.container.ImportServiceRecordContainer$1.execute(ImportServiceRecordContainer.java:58)\n        at\norg.eclipse.soda.sat.core.internal.record.container.ServiceRecordContainer.doForService(ServiceRecordContainer.java:353)\n        at\norg.eclipse.soda.sat.core.internal.record.container.ServiceRecordContainer.doForEach(ServiceRecordContainer.java:321)\n        at\norg.eclipse.soda.sat.core.internal.record.container.ImportServiceRecordContainer.acquire(ImportServiceRecordContainer.java:237)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager.acquireImportedServices(BundleActivationManager.java:125)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager.startSync(BundleActivationManager.java:1663)\n        at\norg.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager.start(BundleActivationManager.java:1632)\n        at\norg.eclipse.soda.sat.core.framework.BaseBundleActivator.start(BaseBundleActivator.java:1073)\n        at\norg.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run(BundleContextImpl.java:991)\n        at\njava.security.AccessController.doPrivileged(AccessController.java:220)\n        at\norg.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:985)\n        at\norg.eclipse.osgi.framework.internal.core.BundleContextImpl.start(BundleContextImpl.java:966)\n        at\norg.eclipse.osgi.framework.internal.core.BundleHost.startWorker(BundleHost.java:317)\n        at\norg.eclipse.osgi.framework.internal.core.AbstractBundle.start(AbstractBundle.java:256)\n        at com.ibm.rfid.bundle.loader.BundleLoader.startBundles(Unknown Source)\n        at com.ibm.rfid.bundle.loader.BundleLoader.loadBundles(Unknown Source)\n        at com.ibm.rfid.bundle.loader.Activator.doStart(Unknown Source)\n        at com.ibm.rfid.bundle.loader.Activator$2.run(Unknown Source)\n        at java.lang.Thread.run(Thread.java:719)\nException when starting bundle:  org.eclipse.soda.sat.core\norg.osgi.framework.BundleException: Exception in\norg.eclipse.soda.sat.core.internal.framework.bundle.Activator.start() of bundle\norg.eclipse.soda.sat.core.\n",
+    "I just reproduced this error using the latest SAT build. Exact same scenario as described previously. It definitely appears timing related. Sometimes I can get the error 2 or 3 times in a row. Sometimes it takes 15 or more runs for it to appear. This error will occur starting with a completely clean environment so I doubt it has to do with the persistent state cache. Because this can\u0027t be reproduced reliably, it may take some time to know with any degree of confidence that the osgi.noLazyStateLoading\u003dtrue workaround is applicable.\n\nI\u0027m going to attach several files that may contain helpful information.\n\n",
+    "Created an attachment (id\u003d60636)\nException stacktrace only.\n\n",
+    "Created an attachment (id\u003d60637)\nLog of entire session where exception appeared.\n\n",
+    "I have reproduced the error.  This is occurring when you uninstall a bundle while another thread is calling ExportedPackage.getImportingBundles.  When calculating the importing bundles we first get a complete list of bundles in the framework.  If a bundle is uninstalled after we have gotten the complete list then there is a chance that we will attempt to get a loader proxy for an uninstalled bundle.  We need to take protective measures here.",
+    "Thank you, Tom, for looking into this tricky bug.",
+    "Fix has been released for M6"
+  ],
+  "commentCreationDates": [
+    "2007-03-09T05:13:20+01:00",
+    "2007-03-10T15:24:11+01:00",
+    "2007-03-10T15:32:50+01:00",
+    "2007-03-12T15:58:14+01:00",
+    "2007-03-13T01:38:22+01:00",
+    "2007-03-13T03:14:26+01:00",
+    "2007-03-13T03:15:28+01:00",
+    "2007-03-13T03:16:05+01:00",
+    "2007-03-15T17:32:35+01:00",
+    "2007-03-15T18:42:34+01:00",
+    "2007-03-15T23:30:20+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.getLoaderProxy",
+          "source": "BundleHost.java:534"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.getBundleLoader",
+          "source": "BundleHost.java:526"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.ExportedPackageImpl.getImportingBundles",
+          "source": "ExportedPackageImpl.java:56"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "176782",
+      "date": "2007-03-09T05:13:20+01:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.getLoaderProxy",
+          "source": "BundleHost.java:534"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.getBundleLoader",
+          "source": "BundleHost.java:526"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.ExportedPackageImpl.getImportingBundles",
+          "source": "ExportedPackageImpl.java:56"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleDependencyManager.registerImportedPackageDependency",
+          "source": "BundleDependencyManager.java:470"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleDependencyManager.registerImportedPackageDependencies",
+          "source": "BundleDependencyManager.java:445"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleDependencyManager.handleBundleInstalled",
+          "source": "BundleDependencyManager.java:293"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleDependencyManager.populateDependencyTracker",
+          "source": "BundleDependencyManager.java:360"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleDependencyManager.handleManagerStarted",
+          "source": "BundleDependencyManager.java:324"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleManager.startup",
+          "source": "BundleManager.java:366"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.Activator.startupBundleDependencyManager",
+          "source": "Activator.java:310"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.Activator.addExportedBundleDependencyService",
+          "source": "Activator.java:93"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.Activator.activate",
+          "source": "Activator.java:85"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.framework.BaseBundleActivator$1.activate",
+          "source": "BaseBundleActivator.java:280"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager.activate",
+          "source": "BundleActivationManager.java:150"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager.performActivation",
+          "source": "BundleActivationManager.java:1262"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager.access$0",
+          "source": "BundleActivationManager.java:1248"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager$1.acquired",
+          "source": "BundleActivationManager.java:391"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.record.container.ImportServiceRecordContainer.serviceAcquired",
+          "source": "ImportServiceRecordContainer.java:470"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.record.container.ImportServiceRecordContainer.access$0",
+          "source": "ImportServiceRecordContainer.java:458"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.record.container.ImportServiceRecordContainer$4.serviceAcquired",
+          "source": "ImportServiceRecordContainer.java:282"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.record.ImportServiceRecord.acquire",
+          "source": "ImportServiceRecord.java:115"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.record.ImportServiceRecord.acquire",
+          "source": "ImportServiceRecord.java:124"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.record.container.ImportServiceRecordContainer$1.execute",
+          "source": "ImportServiceRecordContainer.java:58"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.record.container.ServiceRecordContainer.doForService",
+          "source": "ServiceRecordContainer.java:353"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.record.container.ServiceRecordContainer.doForEach",
+          "source": "ServiceRecordContainer.java:321"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.record.container.ImportServiceRecordContainer.acquire",
+          "source": "ImportServiceRecordContainer.java:237"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager.acquireImportedServices",
+          "source": "BundleActivationManager.java:125"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager.startSync",
+          "source": "BundleActivationManager.java:1663"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.internal.framework.bundle.BundleActivationManager.start",
+          "source": "BundleActivationManager.java:1632"
+        },
+        {
+          "method": "org.eclipse.soda.sat.core.framework.BaseBundleActivator.start",
+          "source": "BaseBundleActivator.java:1073"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run",
+          "source": "BundleContextImpl.java:991"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "AccessController.java:220"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:985"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "BundleContextImpl.java:966"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "BundleHost.java:317"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.start",
+          "source": "AbstractBundle.java:256"
+        },
+        {
+          "method": "com.ibm.rfid.bundle.loader.BundleLoader.startBundles",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "com.ibm.rfid.bundle.loader.BundleLoader.loadBundles",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "com.ibm.rfid.bundle.loader.Activator.doStart",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "com.ibm.rfid.bundle.loader.Activator$2.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:719"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 4,
+      "bugId": "176782",
+      "date": "2007-03-13T01:38:22+01:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "176782",
+  "bugId": "176782",
+  "date": "2007-03-09T05:13:20+01:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "normal"
+}

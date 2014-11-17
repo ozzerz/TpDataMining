@@ -1,0 +1,176 @@
+{
+  "comments": [
+    "If you delete a read-only directory you get no error and the directory is removed from the Remote Systems View.  If you refresh the parent of the removed directory it will come back.\n\nThe directory you delete must have a file inside it or else the directory will actually be deleted.\n\n-----------Enter bugs above this line-----------\nTM 2.0RC2 Testing\ninstallation : eclipse-SDK-3.3RC3\nRSE install  : RSE 2.0 RC2\njava.runtime : Sun 1.5.0_11-b03\nos.name:     : Windows XP, Service Pack 2\n------------------------------------------------",
+    "I think this is a minor issue only",
+    "Created an attachment (id\u003d75878)\nNo longer return true if the classification is not a file\n\nRemoved the code that did a check if the file is a file and not a folder in DStoreFileService.delete.  Before if it was a folder it would return true even if deleting the directory failed.\n\nI also noticed that we did a check if the error started with \"failed\" and threw an exception if it did.  I changed this to check for SUCCESS and return true else throw the exception.  In case\u0027s deleting a directory was successful we weren\u0027t setting the status to anything.  Patch sets the status to success in those cases.\n\nLegal Message: I, Kevin Doyle, declare that I developed attached code from\nscratch, without referencing any 3rd party materials except material licensed\nunder the EPL. I am authorized by my employer, IBM Canada Ltd. to make this\ncontribution under the EPL.",
+    "I\u0027ve committed the patch.",
+    "There might be a backward compatibility issue: I\u0027m wondering what the effect of this fix is, when running an RSE 2.0.1 client against an RSE 2.0.0 server.\n\nLooking at the code, it seems that in case a directory is being deleted (successfully), the \"status\" is not being set at all, so the client would issue an error. Which is not correct, because the error would be shown although everything is fine.\n\nIf, however, there is an error deleting the remote directory, it looks like an exception would be thrown in the UniversalFileSystemMiner, so a status ERROR would be returned.\n\nThis observation is just from looking at the code, and might need to be verified by testing; but for me, it looks like a more proper code at the client would throw the error only if an error status is sent from the remote, and return OK if no status is sent from the remote.\n\nReopening to investigate.\n\n",
+    "FYI, changes were in\n   DStoreFileService.java  1.16\n   UniversalFileSystemMIner.java  1.21\n",
+    "You are right, Martin.  The fix will have a problem with an older 2.0 dStore server.",
+    "Created an attachment (id\u003d75984)\nFix for backwards compatibility\n\nI forgot that we are maintaining backwards compatibility with the dstore servers.  Nice catch Martin.\n\nI don\u0027t like making this change as an empty status is an error in my opinion, but to maintain backwards compatibility this patch checks for an empty source message and returns true.\n\nWhile testing I noticed that if deleting a file in an archive failed it didn\u0027t display the file name in the error dialog.  Patch fixes that as well.\n\nLegal Message: I, Kevin Doyle, declare that I developed attached code from\nscratch, without referencing any 3rd party materials except material licensed\nunder the EPL. I am authorized by my employer, IBM Canada Ltd. to make this\ncontribution under the EPL.",
+    "applied the patch, and tried the following scenarios:\n\nExpand an Archive file, so that a folder could be shown.  And expand that virtual folder as well.\n\nIn another workspace, delete that expanded folder.\n\nGo back to the first workspace, and tried to delete the virtual folder again.  Got error message saying cannot delete.\nDismissed the message, but the parent of the virtual folder is not refreshed, so that the non-existing folder still shown.\nRefresh its parent, got the following error:\n\njava.lang.NullPointerException\nat org.eclipse.rse.internal.services.dstore.files.DStoreHostFile.isFile(DStoreHostFile.java:214)\nat org.eclipse.rse.internal.services.dstore.files.DStoreHostFile.getClassification(DStoreHostFile.java:300)\nat org.eclipse.rse.internal.subsystems.files.dstore.DStoreFile.getClassification(DStoreFile.java:202)\nat org.eclipse.rse.internal.files.ui.view.SystemViewRemoteFileAdapter.testAttribute(SystemViewRemoteFileAdapter.java:3035)\nat org.eclipse.ui.internal.ActionExpression$ObjectStateExpression.preciselyMatches(ActionExpression.java:530)\nat org.eclipse.ui.internal.ActionExpression$ObjectStateExpression.isEnabledFor(ActionExpression.java:499)\nat org.eclipse.ui.internal.ActionExpression$AndExpression.isEnabledFor(ActionExpression.java:132)\nat org.eclipse.ui.internal.ActionExpression$SingleExpression.isEnabledFor(ActionExpression.java:743)\nat org.eclipse.ui.internal.ActionExpression.isEnabledFor(ActionExpression.java:1053)\nat org.eclipse.ui.internal.decorators.DecoratorDefinition.isEnabledFor(DecoratorDefinition.java:281)\nat org.eclipse.ui.internal.decorators.DecoratorManager.getDecoratorsFor(DecoratorManager.java:193)\nat org.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecoratorsFor(LightweightDecoratorManager.java:292)\nat org.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecorations(LightweightDecoratorManager.java:315)\nat org.eclipse.ui.internal.decorators.DecorationScheduler$1.ensureResultCached(DecorationScheduler.java:369)\nat org.eclipse.ui.internal.decorators.DecorationScheduler$1.run(DecorationScheduler.java:329)\nat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)\n\n\n",
+    "Created an attachment (id\u003d76123)\nUpdated to fix NPE\u0027s in DStoreHostFile\n\nXuan try this patch and see if you get any more NPE\u0027s.  \n\nLegal Message: I, Kevin Doyle, declare that I developed attached code from\nscratch, without referencing any 3rd party materials except material licensed\nunder the EPL. I am authorized by my employer, IBM Canada Ltd. to make this\ncontribution under the EPL.",
+    "Applied the patch, and tried the following scenarios:\n\nExpand an Archive file, so that a folder could be shown.  And expand that\nvirtual folder as well.\n\nIn another workspace, delete that expanded folder.\n\nGo back to the first workspace, and tried to delete the virtual folder again. \nGot error message saying cannot delete.\nDismissed the message, but the parent of the virtual folder is not refreshed,\nso that the non-existing folder still shown.\nRefresh the folder itself, I got the following error in my dstore server:\n\njava.lang.NullPointerException\n        at org.eclipse.rse.internal.dstore.universal.miners.filesystem.ArchiveQu\neryThread.createDataElement(ArchiveQueryThread.java:230)\n        at org.eclipse.rse.internal.dstore.universal.miners.filesystem.ArchiveQu\neryThread.doQueryAll(ArchiveQueryThread.java:138)\n        at org.eclipse.rse.internal.dstore.universal.miners.filesystem.ArchiveQu\neryThread.run(ArchiveQueryThread.java:57)\njava.lang.NullPointerException\n        at org.eclipse.rse.internal.dstore.universal.miners.filesystem.FileClass\nifier.classifyVirtualChildren(FileClassifier.java:1006)\n        at org.eclipse.rse.internal.dstore.universal.miners.filesystem.FileClass\nifier.run(FileClassifier.java:297)\n\n\nIf I refresh the parent, it is fine.\n\nThis NPE may not releate to the fix.  But please investigate more to make sure it is not a regression.  Thanks.",
+    "(In reply to comment #10)\nXuan I\u0027m not sure this is a valid testcase... when I understand right, you did this:\n\n* In workspace A, expand a folder inside x.zip\n* In workspace B, delete that folder inside x.zip\n  --\u003e As a result, x.zip will be re-written to x.zip.tmp, then renamed\n      back into x.zip on the remote; in other words, the archive file\n      itself gets a different timestamp\n\nBecause of that, I find it quite natural that the parent needs to be refreshed. After all, the parent AND grandparent of the deleted virtual folder all get invalid, don\u0027t they?\n\nAlso, did you try this scenario on a workspace without Kevin\u0027s patch and did it work as expected? I would assume there is the same failure so it would not be a regression.\n\nIn general, I think that when refreshing a virtual folder, the refresh logic should look at the timestamp of the containing archive (i.e. check if it has changed on the remote). If it has changed, the archive itself as well as all its children need to be refreshed because anything could have changed inside the archive. I\u0027m not sure, but I don\u0027t think we have such logic in place yet; looks like we should probably create a separate bug or enhancement request asking for such behavior.",
+    "(In reply to comment #11)\n\u003e (In reply to comment #10)\n\u003e Xuan I\u0027m not sure this is a valid testcase... when I understand right, you did\n\u003e this:\n\u003e \n\u003e * In workspace A, expand a folder inside x.zip\n\u003e * In workspace B, delete that folder inside x.zip\n\u003e   --\u003e As a result, x.zip will be re-written to x.zip.tmp, then renamed\n\u003e       back into x.zip on the remote; in other words, the archive file\n\u003e       itself gets a different timestamp\n\u003e \n\u003e Because of that, I find it quite natural that the parent needs to be refreshed.\n\u003e After all, the parent AND grandparent of the deleted virtual folder all get\n\u003e invalid, don\u0027t they?\n\nThe deleted folders parent and grandparent are being marked stale inside the DeleteJob.\n\n\u003e Also, did you try this scenario on a workspace without Kevin\u0027s patch and did it\n\u003e work as expected? I would assume there is the same failure so it would not be a\n\u003e regression.\n\nIt\u0027s actually a regression because before we would always return true when deleting a directory even if it failed.   Therefore the folder would be removed from the view, so you couldn\u0027t try to refresh the deleted object.\n\n\u003e In general, I think that when refreshing a virtual folder, the refresh logic\n\u003e should look at the timestamp of the containing archive (i.e. check if it has\n\u003e changed on the remote). If it has changed, the archive itself as well as all\n\u003e its children need to be refreshed because anything could have changed inside\n\u003e the archive. I\u0027m not sure, but I don\u0027t think we have such logic in place yet;\n\u003e looks like we should probably create a separate bug or enhancement request\n\u003e asking for such behavior.\n\u003e \n\nIn addition if delete fails for reason FILE_DOES_NOT_EXIST then we should display an error, but also update the Remote Systems View.  We know the file no longer exists and shouldn\u0027t force the user to do a refresh.\n\nThe NPE is happening because we aren\u0027t checking if the list of children is null when going through them.  I added in the null check, but now if you refresh the deleted folder it will show no children, but the folder is still displayed.  On Local Archives the folder is also removed.  On Local it checks for exists and SystemZipHandler\u0027s hash map does not contain an element for it as it no longer exists.  On DStore we don\u0027t query the remote\u0027s SystemZipHandler and try to determine exists differently.  For DStore we check if the DataElement.isDeleted() is true, but it returns false as the value for deleted is not set to \"deleted\".  We then try to see if the type is proper, but it is as well, so exists() returns true.\n\nDoing this on normal DStore folders the file still returns true for exists for the same reasons, but in SystemView.add we do a refresh on the parent.  When getting the children\u0027s content the DataElements type is updated to \"universal.FilterObject\" which is not a valid type for a DStoreHostFile so exists returns false and thats why the parent is refreshed.  \n\nSince I can\u0027t get remote debugging to work on my machine I can\u0027t see where exactly normal files and virtual files are changing the type differently.",
+    "(In reply to comment #11)\n\nYeah, the ideal behaviour should be:\nWhen I tried to deleted the virtual folder in workspace A, I got a message saying I cannot.  Then, the archive file needs to be refreshed, and the deleted folder should be gone.\n",
+    "(In reply to comment #12)\n\nKevin,\nI could help you debugging once I am finish the problem I am investigating.  ",
+    "Kevin - I think in your patch I\u0027d like to see a comment why you return true in DStoreFileService, when sourceMsg.equals(\"\")\n\nJust leave a note that this can only happen when running against an old (version 2.0.0) dstore server. BTW, is there a way for retrieving the dstore server version, and perhaps doing that check only if it\u0027s 2.0.0 but not if it\u0027s newer?\n\nFor the code in DStoreHostFile, I think I\u0027d like to see fewer lines changed compared to the original. The case of path\u003d\u003dnull or name\u003d\u003dnull is the special case, and could be handled like this:\n\nif (path\u003d\u003dnull) {\n    //file was deleted on the host\n    return null;\n}\n\nThis would leave more of the original code untouched, keep the normal flow of operation clearer, and make it easier to e.g. set a breakpoint at the \"return null\" statement because in reality, no client should ever hit this (i.e. it should check for file.exists() before getting a name, or the file should be removed by some other means).\n\nBTW, those NPE issues remind me about problems we\u0027ve had with the absolute path of DStoreHostFile\u0027s changing when they were renamed. The SystemView, and its elementMap, rely on the absolutePath of an element never changing. I think this was bug 184053, reading it might be instructive.\n\nFor the rest, it looks like you\u0027ll need to debug why DataElement.isDeleted() does not return true.",
+    "(In reply to comment #15)\n\u003e Kevin - I think in your patch I\u0027d like to see a comment why you return true in\n\u003e DStoreFileService, when sourceMsg.equals(\"\")\n\nWill be in next patch. \n\n\u003e Just leave a note that this can only happen when running against an old\n\u003e (version 2.0.0) dstore server. BTW, is there a way for retrieving the dstore\n\u003e server version, and perhaps doing that check only if it\u0027s 2.0.0 but not if it\u0027s\n\u003e newer?\n\nAre we planning to update the version from 9 (2.0.0) to 10 with (2.0.1)?\nDataStore has getServerVersion() which returns an int.  Currently it just returns 9 for both.\n\n\u003e For the code in DStoreHostFile, I think I\u0027d like to see fewer lines changed\n\u003e compared to the original. The case of path\u003d\u003dnull or name\u003d\u003dnull is the special\n\u003e case, and could be handled like this:\n\u003e \n\u003e if (path\u003d\u003dnull) {\n\u003e     //file was deleted on the host\n\u003e     return null;\n\u003e }\n\u003e \n\u003e This would leave more of the original code untouched, keep the normal flow of\n\u003e operation clearer, and make it easier to e.g. set a breakpoint at the \"return\n\u003e null\" statement because in reality, no client should ever hit this (i.e. it\n\u003e should check for file.exists() before getting a name, or the file should be\n\u003e removed by some other means).\n\nI\u0027ll fix it up to look like that. ",
+    "Created an attachment (id\u003d76331)\nUpdated based on Comments\n\nI\u0027ve updated DStoreHostFile, added a comment for checking source message is the empty string, and updated ArchiveQueryThread that will make DataElement\u0027s type an invalid type so exists returns false.\n\nLegal Message: I, Kevin Doyle, declare that I developed attached code from\nscratch, without referencing any 3rd party materials except material licensed\nunder the EPL. I am authorized by my employer, IBM Canada Ltd. to make this\ncontribution under the EPL.",
+    "The fix looks good.  I\u0027ve tested the scenario in both Linux and Windows DStore, and it is fine.\n\nI will commit the change.",
+    "Patch is committed.",
+    "Verified fixed in I20071108."
+  ],
+  "commentCreationDates": [
+    "2007-06-07T20:43:57+02:00",
+    "2007-06-12T14:11:14+02:00",
+    "2007-08-10T20:31:39+02:00",
+    "2007-08-11T05:26:23+02:00",
+    "2007-08-13T10:41:13+02:00",
+    "2007-08-13T10:41:53+02:00",
+    "2007-08-13T16:31:42+02:00",
+    "2007-08-13T20:11:08+02:00",
+    "2007-08-13T22:07:56+02:00",
+    "2007-08-15T15:40:08+02:00",
+    "2007-08-15T20:13:37+02:00",
+    "2007-08-16T11:44:12+02:00",
+    "2007-08-16T16:55:11+02:00",
+    "2007-08-16T17:51:37+02:00",
+    "2007-08-16T17:55:11+02:00",
+    "2007-08-17T12:31:58+02:00",
+    "2007-08-17T16:46:50+02:00",
+    "2007-08-17T21:58:22+02:00",
+    "2007-08-23T17:22:13+02:00",
+    "2007-08-23T17:25:03+02:00",
+    "2007-11-08T14:50:26+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.rse.internal.services.dstore.files.DStoreHostFile.isFile",
+          "source": "DStoreHostFile.java:214"
+        },
+        {
+          "method": "org.eclipse.rse.internal.services.dstore.files.DStoreHostFile.getClassification",
+          "source": "DStoreHostFile.java:300"
+        },
+        {
+          "method": "org.eclipse.rse.internal.subsystems.files.dstore.DStoreFile.getClassification",
+          "source": "DStoreFile.java:202"
+        },
+        {
+          "method": "org.eclipse.rse.internal.files.ui.view.SystemViewRemoteFileAdapter.testAttribute",
+          "source": "SystemViewRemoteFileAdapter.java:3035"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ActionExpression$ObjectStateExpression.preciselyMatches",
+          "source": "ActionExpression.java:530"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ActionExpression$ObjectStateExpression.isEnabledFor",
+          "source": "ActionExpression.java:499"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ActionExpression$AndExpression.isEnabledFor",
+          "source": "ActionExpression.java:132"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ActionExpression$SingleExpression.isEnabledFor",
+          "source": "ActionExpression.java:743"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ActionExpression.isEnabledFor",
+          "source": "ActionExpression.java:1053"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.DecoratorDefinition.isEnabledFor",
+          "source": "DecoratorDefinition.java:281"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.DecoratorManager.getDecoratorsFor",
+          "source": "DecoratorManager.java:193"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecoratorsFor",
+          "source": "LightweightDecoratorManager.java:292"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecorations",
+          "source": "LightweightDecoratorManager.java:315"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.DecorationScheduler$1.ensureResultCached",
+          "source": "DecorationScheduler.java:369"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.DecorationScheduler$1.run",
+          "source": "DecorationScheduler.java:329"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 8,
+      "bugId": "191548",
+      "date": "2007-08-13T22:07:56+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "minor"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.rse.internal.dstore.universal.miners.filesystem.ArchiveQueryThread.createDataElement",
+          "source": "ArchiveQueryThread.java:230"
+        },
+        {
+          "method": "org.eclipse.rse.internal.dstore.universal.miners.filesystem.ArchiveQueryThread.doQueryAll",
+          "source": "ArchiveQueryThread.java:138"
+        },
+        {
+          "method": "org.eclipse.rse.internal.dstore.universal.miners.filesystem.ArchiveQueryThread.run",
+          "source": "ArchiveQueryThread.java:57"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 10,
+      "bugId": "191548",
+      "date": "2007-08-15T20:13:37+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "minor"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.rse.internal.dstore.universal.miners.filesystem.FileClassifier.classifyVirtualChildren",
+          "source": "FileClassifier.java:1006"
+        },
+        {
+          "method": "org.eclipse.rse.internal.dstore.universal.miners.filesystem.FileClassifier.run",
+          "source": "FileClassifier.java:297"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 10,
+      "bugId": "191548",
+      "date": "2007-08-15T20:13:37+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "minor"
+    }
+  ],
+  "groupId": "191548",
+  "bugId": "191548",
+  "date": "2007-06-07T20:43:57+02:00",
+  "product": "Target Management",
+  "component": "RSE",
+  "severity": "minor"
+}

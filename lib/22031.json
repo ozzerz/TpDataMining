@@ -1,0 +1,161 @@
+{
+  "comments": [
+    "On project change we catch the event (using ResourceChangeListener) and make an \nattempt to determine its CVS repository. Certainly, we use internal API for \nthat:\n\n\tpublic static ICVSRepositoryLocation getLocation(IProject project)\n\t{\n\t\tRepositoryProvider provider \u003d RepositoryProvider.getProvider\n(project);\n\t\tif (provider \u003d\u003d null || !(provider instanceof CVSTeamProvider))\n\t\t\treturn null;\n\n\t\tCVSTeamProvider cvsProvider \u003d (CVSTeamProvider) provider;\n\t\ttry {\n\t\t\treturn cvsProvider.getRemoteLocation();\n\t\t} catch (CVSException ex) {\n\t\t\t// log\n\t\t} catch (Exception ex) {\n\t\t\t// log\n\t\t}\n\t\treturn null;\n\t}\n\nBut we found very strange behaviour in the case when one renames the project. \nThen, an attempt to get its repository leads to \n\"org.eclipse.core.internal.resources.ResourceException: Resource /A03 does not \nexist.\" and log shows the message like \"The CVS synchronization information for \nA03 has become corrupt or does not exist\". And synchronizing does not help. But \nafter Eclipse restart, our view displays the right picture, hence it could get \nrepository from the project.",
+    "Which line in the above code is throwing the exception?\n\nAre you asking for the repository provider of the old project name or the new \nproject name?  Since the old project name does not exist after the move, the \n\"resource does not exist\" and \"sync info does not exist\" messages would make \nsenese.",
+    "\"cvsProvider.getRemoteLocation();\" throws the exception. I am asking the same \nIProject object.",
+    "Ah.  An IProject object is just a handle with a fixed name.  If you rename a \nproject, then the old project will no longer exist.  This is comparable to the \nbehaviour of java.io.File, for example:\n\njava.io.File oldFile \u003d new File(c:\\\\temp\\\\oldFile);\njava.io.File newFile \u003d new File(c:\\\\temp\\\\newFile);\noldFile.exists() -\u003e returns true\noldFile.renameTo(newFile);\noldFile.exists() -\u003e returns false\n\nTherefore, in your case you need to create a new IProject object with the new \nname, and then ask for its location.  During resource change notification, if \nthe resource is moved you can obtain the new path using \nIResourceDelta.getMovedToPath().  Let us know if this works for you.\n",
+    "Thank you for the answer a lot. I have investigated the situation in more \ndetail and can tell you that I made a mistake when said I use the same IProject \nobject. Really, since I use IResourceChangeListener, I receive \nIResourceDelta.REMOVED and than IResourceDelta.ADDED. For instance, renaming \nshared project would result in the following log (format is \"\u003cdelta kind\u003e: \n\u003cprojname\u003e (\u003cprojobj\u003e) at \u003cirepository\u003e\"):\n\nREMOVED: G79 (P/G79) at null\norg.eclipse.team.internal.ccvs.core.CVSException: The CVS synchronization \ninformation for G79 has become corrupt or does not exist\n\tat \norg.eclipse.team.internal.ccvs.core.resources.CVSWorkspaceRoot.getRemoteLocation\n(CVSWorkspaceRoot.java:194)\n\tat org.eclipse.team.internal.ccvs.core.CVSTeamProvider.getRemoteLocation\n(CVSTeamProvider.java:496)\n\tat com.exigen.studio.navigator.internal.Adapt.getLocation(Adapt.java:70)\n\tat \ncom.exigen.studio.navigator.internal.NavigatorContentProvider$DeltaVisitor.visit\n(NavigatorContentProvider.java:171)\n\tat org.eclipse.core.internal.events.ResourceDelta.accept\n(ResourceDelta.java:71)\n\tat org.eclipse.core.internal.events.ResourceDelta.accept\n(ResourceDelta.java:79)\n\tat org.eclipse.core.internal.events.ResourceDelta.accept\n(ResourceDelta.java:52)\n\tat com.exigen.studio.navigator.internal.NavigatorContentProvider$2.run\n(NavigatorContentProvider.java:259)\n\tat org.eclipse.ui.internal.UIWorkspaceLock.doPendingWork\n(UIWorkspaceLock.java:53)\n\tat org.eclipse.ui.internal.UISynchronizer$1.run(UISynchronizer.java:23)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:31)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages\n(Synchronizer.java:95)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:1506)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1294)\n\tat org.eclipse.jface.operation.ModalContext$ModalContextThread.block\n(ModalContext.java:133)\n\tat org.eclipse.jface.operation.ModalContext.run(ModalContext.java:258)\n\tat org.eclipse.jface.dialogs.ProgressMonitorDialog.run\n(ProgressMonitorDialog.java:335)\n\tat org.eclipse.ui.actions.WorkspaceAction.run(WorkspaceAction.java:272)\n\tat org.eclipse.ui.actions.RenameResourceAction.runWithNewPath\n(RenameResourceAction.java:373)\n\tat \norg.eclipse.ui.views.navigator.ResourceNavigatorRenameAction.runWithNewPath\n(ResourceNavigatorRenameAction.java:45)\n\tat org.eclipse.ui.actions.RenameResourceAction$7.run\n(RenameResourceAction.java:400)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:31)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages\n(Synchronizer.java:95)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:1506)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1294)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1177)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1160)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:775)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:432)\n\tat EclipseRuntimeLauncher.main(EclipseRuntimeLauncher.java:24)\nADDED: G80 (P/G80) at null\n\nThat is, calling \"getLocation\" method for the \"ADDED\" project object results in \nexception, but the call for \"REMOVED\" object simply returns null.",
+    "Thanks for clarifying what you see.  As you noted, you\u0027re using internal CVS \nplugin methods here so there are no guarantees.  Moving to VCM team for further \ncomment.",
+    "This has been fixed in both the 2.1 and 2.0.1 branches"
+  ],
+  "commentCreationDates": [
+    "2002-07-30T10:46:42+02:00",
+    "2002-07-30T18:09:41+02:00",
+    "2002-07-31T08:49:48+02:00",
+    "2002-07-31T15:49:10+02:00",
+    "2002-07-31T16:34:49+02:00",
+    "2002-08-19T22:21:16+02:00",
+    "2002-08-23T22:08:22+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.team.internal.ccvs.core.CVSException",
+      "message": "The CVS synchronization  information for G79 has become corrupt or does not exist",
+      "elements": [
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.CVSWorkspaceRoot.getRemoteLocation",
+          "source": "CVSWorkspaceRoot.java:194"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.CVSTeamProvider.getRemoteLocation",
+          "source": "CVSTeamProvider.java:496"
+        },
+        {
+          "method": "com.exigen.studio.navigator.internal.Adapt.getLocation",
+          "source": "Adapt.java:70"
+        },
+        {
+          "method": "com.exigen.studio.navigator.internal.NavigatorContentProvider$DeltaVisitor.visit",
+          "source": "NavigatorContentProvider.java:171"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.ResourceDelta.accept",
+          "source": "ResourceDelta.java:71"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.ResourceDelta.accept",
+          "source": "ResourceDelta.java:79"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.ResourceDelta.accept",
+          "source": "ResourceDelta.java:52"
+        },
+        {
+          "method": "com.exigen.studio.navigator.internal.NavigatorContentProvider$2.run",
+          "source": "NavigatorContentProvider.java:259"
+        },
+        {
+          "method": "org.eclipse.ui.internal.UIWorkspaceLock.doPendingWork",
+          "source": "UIWorkspaceLock.java:53"
+        },
+        {
+          "method": "org.eclipse.ui.internal.UISynchronizer$1.run",
+          "source": "UISynchronizer.java:23"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:31"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:95"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:1506"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1294"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.block",
+          "source": "ModalContext.java:133"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.run",
+          "source": "ModalContext.java:258"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.ProgressMonitorDialog.run",
+          "source": "ProgressMonitorDialog.java:335"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceAction.run",
+          "source": "WorkspaceAction.java:272"
+        },
+        {
+          "method": "org.eclipse.ui.actions.RenameResourceAction.runWithNewPath",
+          "source": "RenameResourceAction.java:373"
+        },
+        {
+          "method": "org.eclipse.ui.views.navigator.ResourceNavigatorRenameAction.runWithNewPath",
+          "source": "ResourceNavigatorRenameAction.java:45"
+        },
+        {
+          "method": "org.eclipse.ui.actions.RenameResourceAction$7.run",
+          "source": "RenameResourceAction.java:400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:31"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:95"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:1506"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1294"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1177"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1160"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:775"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:432"
+        },
+        {
+          "method": "EclipseRuntimeLauncher.main",
+          "source": "EclipseRuntimeLauncher.java:24"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "22031",
+      "date": "2002-07-31T16:34:49+02:00",
+      "product": "Platform",
+      "component": "Team",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "22031",
+  "bugId": "22031",
+  "date": "2002-07-30T10:46:42+02:00",
+  "product": "Platform",
+  "component": "Team",
+  "severity": "normal"
+}

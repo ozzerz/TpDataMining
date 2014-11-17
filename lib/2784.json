@@ -1,0 +1,145 @@
+{
+  "comments": [
+    "While shutting down a target eclipse, I got the following error in the .log:\n\nLog: Thu Aug 30 17:26:46 EDT 2001\n2 org.eclipse.ui 2 Problems occurred when invoking code from plug-in: org.eclipse.ui.\njava.lang.IllegalArgumentException: Argument cannot be null\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:99)\n\tat org.eclipse.ui.internal.WorkbenchWindow.close(WorkbenchWindow.java:289)\n\tat org.eclipse.jface.window.WindowManager.close(WindowManager.java:103)\n\tat org.eclipse.ui.internal.Workbench$2.run(Workbench.java:100)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:758)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:393)\n\tat org.eclipse.ui.internal.Workbench.busyClose(Workbench.java:98)\n\tat org.eclipse.ui.internal.Workbench.access$4(Workbench.java:76)\n\tat org.eclipse.ui.internal.Workbench$3.run(Workbench.java:157)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:98)\n\tat org.eclipse.ui.internal.Workbench.close(Workbench.java:155)\n\tat org.eclipse.ui.internal.QuitAction.run(QuitAction.java:31)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:407)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent(ActionContributionItem.java:361)\n\tat org.eclipse.jface.action.ActionContributionItem.access$0(ActionContributionItem.java:352)\n\tat org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent(ActionContributionItem.java:47)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:51)\n\tat org.eclipse.swt.widgets.Widget.notifyListeners(Widget.java:622)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1277)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1087)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:675)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:658)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:815)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:285)\n\tat java.lang.reflect.Method.invoke(Native Method)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:151)\n\tat org.eclipse.core.launcher.Main.run(Main.java:498)\n\tat org.eclipse.core.launcher.UIMain.main(UIMain.java:52)\n\n\nNOTES:\n\nNE (08/30/01 5:41:39 PM)\n\tI was running the site example.\n\tThe workspace was apparently saved OK.\n\nDS (9/13/01 12:55:46 PM)\n\tAt the time this PR was filed Veronika says that SWT included version 1.2 of\n\tBusyIndicator.  \n\tHere is the source.  Line 99 is indicated by the arrow.\n\nstatic void clear(Display display) {\n\tint index \u003d 0;\n\twhile (index \u003c displays.length) {\n\t\tif (displays[index] \u003d\u003d display) break;    \u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\n\t\tindex++;\n\t}\n\n\tThere is a contradiction here.  The stack trace indicates a problem in busyWhile, but line\n\t99 is in the clear method.  This method will only be called after the display is disposed.\n\tDisplay disposal happens in the Workbench.run method after everything else.\n\n\tPerhaps Nick had modified the code in some way.  I will confer.\n\nNE (9/17/01 12:35:04 PM)\n\tNo, I had no changes to SWT in my workspace.\n\tIf I open BusyIndicator.java in my build 133 self-hosting workspace, line 99 is:\n\ttry {\n\t\trunnable.run();\n\t} finally {\t\t// \u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c here\n\t...\n\n\tNeither this place nor the one above make sense though.  \n\tIn the code I have, there is no throw of IllegalArgumentException.\n\nDS (9/18/01 12:06:29 PM)\n\tThe exception is probably being thrown by the runnable.  Within this runnable\n\twe execute busyClose, which saves the state of each perspective ( and each part )\n\tin the window and then closes all perspectives ( and each part ) in the window.\n\tThe problem now is to identify which part / class generated the exception.\n\n\tThe IllegalArgumentException(String text) constructor is referenced by the following\n\torg.eclipse.ui classes ..\n\n\t\tContributionManager.insertAfter --\u003e  \"can\u0027t find ID\"\n\t\tContributionManager.insertBefore --\u003e \"can\u0027t find ID\"\n\t\tContributionManager.remove --\u003e \"can\u0027t find ID\"\n\t\tContributionManager.addToGroup --\u003e \"group not found:\"\n\t\tImageRegistry.put --\u003e \"ImageRegistry key already in use: \" + key\n\t\tTextViewer.setVisibleRegion --\u003e \"TextViewer.error.invalid_visible_region_2\"\n\t\tTextViewer.internalRevealRange --\u003e \"TextViewer.error.invalid_range\"\n\t\tTextViewer.setDocument --\u003e \"TextViewer.error.invalid_range\"\n\t\tStringConverter --\u003e various places with different text.\n\n\tNone of these seem related.\n\tA simple search for \"Argument cannot\" in eclipse ui yielded nothing. \n\n\tI also unzipped the source for all of the plugins in core, jdt, pde, vcm\n\tand ui.  \"Argument cannot be null\" string is only defined in SWT.java\n\tas the error string for ERROR_NULL_ARGUMENT.  This constant is referenced in\n\t69 files within org.eclipse.swt and is typically thrown whenever the input to\n\tan SWT method is erroneously null. \n\n\tConclusion: somebody passed null to an SWT control method. There is no\n\tindication which method was called or who called it.  I think we must wait \n\tuntil we have a reproduceable case.  \n\nDS (9/18/01 1:44:26 PM)\n\tDeferring.  Moved to Open bucket.",
+    "PRODUCT VERSION:\n133\n\n",
+    "Have not seen this in a long time, and we have no reproducable case.\nClosing PR."
+  ],
+  "commentCreationDates": [
+    "2001-10-11T04:43:31+02:00",
+    "2001-10-30T00:16:29+01:00",
+    "2002-01-27T20:12:59+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Argument cannot be null",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:99"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.close",
+          "source": "WorkbenchWindow.java:289"
+        },
+        {
+          "method": "org.eclipse.jface.window.WindowManager.close",
+          "source": "WindowManager.java:103"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$2.run",
+          "source": "Workbench.java:100"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:758"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:393"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.busyClose",
+          "source": "Workbench.java:98"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:76"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$3.run",
+          "source": "Workbench.java:157"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:98"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.close",
+          "source": "Workbench.java:155"
+        },
+        {
+          "method": "org.eclipse.ui.internal.QuitAction.run",
+          "source": "QuitAction.java:31"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:407"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent",
+          "source": "ActionContributionItem.java:361"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$0",
+          "source": "ActionContributionItem.java:352"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent",
+          "source": "ActionContributionItem.java:47"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:51"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.notifyListeners",
+          "source": "Widget.java:622"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:1277"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1087"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:675"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:658"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:815"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:285"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:151"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:498"
+        },
+        {
+          "method": "org.eclipse.core.launcher.UIMain.main",
+          "source": "UIMain.java:52"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "2784",
+      "date": "2001-10-11T04:43:31+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "2784",
+  "bugId": "2784",
+  "date": "2001-10-11T04:43:31+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

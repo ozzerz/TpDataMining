@@ -1,0 +1,720 @@
+{
+  "comments": [
+    "We\u0027ve got a ViewPart that renders an image, called ImageView.  It creates \nas its Control a ScrolledComposite, which contains an embedded Composite \nwhich contains a java.awt.Frame (obtained via SWT_AWT bridge) which \ncontains a Swing component that we use called JadeDisplay, a \nhigh-performance image rendering component\n(http://www.openchannelfoundation.org/projects/JadeDisplay/)\n\nSometimes as we update the image that the Swing component is rendering, we \ncrash outside the JVM.  Sometimes the app dumps core, sometimes not.  We \nare in the process of trying to run our app outside of Eclipse and attach \ngdb to it to get the stack trace at the seg fault or whatever is \nresponsible for the crash.\n\nOn the console we see a message like the following from our friend the X \nserver:\nThe program \u0027\u003cunknown\u003e\u0027 received an X Window System error.\nThis probably reflects a bug in the program.\nThe error was \u0027BadMatch (invalid parameter attributes)\u0027.\n  (Details: serial 3639 error_code 8 request_code 42 minor_code 0)\n  (Note to programmers: normally, X errors are reported asynchronously;\n   that is, you will receive the error a while after causing it.\n   To debug your program, run it with the --sync command line\n   option to change this behavior. You can then get a meaningful\n   backtrace from your debugger if you break on the gdk_x_error() function.)\n\nWe are also seeing this error occur sometimes when we are creating our view \nfor the first time.\n\nOne thing that is notable about this particular component is that we are \nusing Java Advanced Imaging which is computing image tiles in parallel and \nJadeDisplay component which is asynchronously rendering images tile by tile \nas they are incrementally computed.\n\nAnother thing that may matter is that we\u0027re running Eclipse version 3.0 final\nunder Fedora Core 1 with the JDK 1.5 beta 2 for Linux.\n\nAt Steve Northover\u0027s suggestion, I tried running this same integrated GUI under\nMotif (mwm) and I was *unable* as yet to reproduce this error after what I\nbelieve is an adequate amount of testing to reproduce it...this suggestion was\nto isolate the GTK-based implementation as the area to scrutinize when debugging.\n\nSteve also suggested running SWT hacked with --sync (as referred to in the X\nserver crash report) to dump a stack trace and further isolate the bug.  I do\nnot have sufficient into the SWT implementation to know where to start on that.",
+    "SSQ to follow up.  Let\u0027s give them the \"--sync\" hack (or fix SWT to respect it \nand/or the debug flags in DeviceData) so they can do some of the tracing.\n\nAre you crashing constantly and unable to work?  Can you construct a smaller \nexample (rather than the whole \"JadeDisplay integation\" code base) that shows \nthe problem?",
+    "If you want to enable the --sync option in SWT, all you need to do is to created\nthe SWT display as follow:\n\nDeviceData data \u003d new DeviceData();\ndata.debug \u003d true;\nDisplay display \u003d new Display(data);\n\nThis should also print a stack trace when the BadMatch error happens, which will\nhelp us determine what is causing the segmentation fault.\n\nNote that you need to use the latest code from (HEAD).",
+    "Mark, if you are an Eclipse (plug-in rather than a stand alone SWT program), \nyou are going to have to find out in Eclipse where the display is created and \nhack it to set the debug flag.",
+    "Am I doing this properly? I was unable to get a stack trace out of the error. I\nused Eclipse 3.1M2, and we are in a plugin. I hooked it to the Display this way:\n\nFrom our IRunnablePlugin, I copied createDisplay from Workbench and do this:\n\nDeviceData data \u003d new DeviceData();\ndata.debug \u003d true;\nnewDisplay \u003d new Display(data);",
+    "You have to alter the code in the Workbench instead of coping it. Note that \nthere is request to support changing the flag without hacking the Workbench \ncode (See bug#74961).",
+    "I have had exactly this same problem using a JSVGCanvas from Apache Batik. \nEmbedding the component in the Shell led to very few crashes.  However, now I\nhave nested it inside other components, it crashes when resizing the window very\nquickly.\n\nI also have tried the DeviceData fix.  I am not sure how I am supposed to use\nthe --sync option, do I just append it to my java command line invokation?  I\u0027ve\ntried both of these and I\u0027m getting no extra debug data.\n",
+    "Do you see the \"X BadMatch\" error before you crash?  If so, with debugging \nturned on, you should get a stack trace show the offending call.\n\nMark, did this every get resolved for you?  If so, how?",
+    "We chose to use a widget programmed in SWT instead of the Swing widget that was\nevoking this behavior under the SWT_AWT for a number of reasons, including my\nlack of knowledge about how to help debug this issue effectively.  We would\nstill like to see this fixed to head off any problems in the future with using\nother Swing widgets like JOGL\u0027s or Java3D\u0027s canvas, JFreeChart, etc. until\nequivalent SWT-based alternatives are available.",
+    "(In reply to comment #7)\n\u003e Do you see the \"X BadMatch\" error before you crash?  If so, with debugging \n\u003e turned on, you should get a stack trace show the offending call.\n\nYes, I get this error before the crash.  However, I\u0027m still not clear if I\u0027m \nturning debugging on correctly.  I\u0027ve also been getting segfaults (JVM 1.4.2_06)\nand, unfortunately, due to time constraints, I\u0027ve had to abandon SWT and resort\nto Swing for my project.",
+    "You should download the latest SWT from HEAD (it\u0027s almost M5 so it should be \nvery stable or we are in trouble) to see if the problem has been magically \nfixed.  You will need that (rather than 3.0.x) in order for debugging to work \nas Silenio said in comment #2.  If debugging was correctly turned on, you \nshould see a Java stack trace just before the X BadMatch.  This would help us \na lot to isolate the problem.\n\nNo shame in using Swing.  It\u0027s a great toolkit.",
+    "*** Bug 86454 has been marked as a duplicate of this bug. ***",
+    "I am using M5a, I saw in bug#74961 that it should now be possible to enable the\ndebug without hacking eclipse.\nhow do I do it?\n(I am running an RCP application from within eclipse).",
+    "Billy, please help this guy set the right Eclipse setting.",
+    "okay. found it.\nIt seems to be a runtime exception from my code, in AWT thread.\nfor some reason it makes the entire application fly:\nalthough I didn\u0027t get the bad match error this time.\n\nException in thread \"AWT-EventQueue-0\" java.lang.IllegalArgumentException:\nnegative width(-1) or height(-1)\n\tat com.telmap.iawt.aa.ArrayImage.\u003cinit\u003e(ArrayImage.java:67)\n\tat com.telmap.iawt.aa.AAGraphics_x86.cacheImage(AAGraphics_x86.java:7066)\n\tat com.telmap.iawt.aa.AAGraphics_x86.getArrayImage(AAGraphics_x86.java:7082)\n\tat com.telmap.iawt.aa.AAGraphics_x86.drawImage(AAGraphics_x86.java:6768)\n\tat com.telmap.iawt.aa.AAGraphics_x86.drawImage(AAGraphics_x86.java:6847)\n\tat com.telmap.map.map.local.MapImage.paint(MapImage.java:140)\n\tat com.telmap.map.map.MapComponent$7.run(MapComponent.java:1868)\n\tat\ncom.telmap.iawt.IawtUtilities$RunnableCanvas.processEvent(IawtUtilities.java:162)\n\tat java.awt.Component.dispatchEventImpl(Component.java:3955)\n\tat java.awt.Component.dispatchEvent(Component.java:3803)\n\tat java.awt.EventQueue.dispatchEvent(EventQueue.java:463)\n\tat\njava.awt.EventDispatchThread.pumpOneEventForHierarchy(EventDispatchThread.java:234)\n\tat\njava.awt.EventDispatchThread.pumpEventsForHierarchy(EventDispatchThread.java:163)\n\tat java.awt.EventDispatchThread.pumpEvents(EventDispatchThread.java:157)\n\tat java.awt.EventDispatchThread.pumpEvents(EventDispatchThread.java:149)\n\tat java.awt.EventDispatchThread.run(EventDispatchThread.java:110)",
+    "fiddled with it a bit more, and manage to crash it with the badmatch error, but\nit didn\u0027t give any stack trace.\nI the debug by enabling debug/swtdebug in the trace options of the launch\nconfiguration of my app.\n",
+    "I the debug -\u003e I enabled the debug.\n",
+    "disregard the runtime exception from my code, I think its unrelated.\nwas a coincidence that it happened just before crashing.\n",
+    "I am having what appears to be the same problem when integrating Swing into an\nSWT dialog (a wizard, actually.)  The wizard (SWT dialog with Swing panels)\nappears to work just fine until the \"Finish\" button is pressed.  \n\nI\u0027m using eclipse 3.1 M5a.  java -version gives the following:\n\njava version \"1.5.0_01\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.5.0_01-b08)\nJava HotSpot(TM) Client VM (build 1.5.0_01-b08, mixed mode)\n\n\nHere\u0027s the message that I get after eclipse crashes: \n\nThe program \u0027\u003cunknown\u003e\u0027 received an X Window System error.\nThis probably reflects a bug in the program.\nThe error was \u0027BadMatch (invalid parameter attributes)\u0027.\n  (Details: serial 3419 error_code 8 request_code 42 minor_code 0)\n  (Note to programmers: normally, X errors are reported asynchronously;\n   that is, you will receive the error a while after causing it.\n   To debug your program, run it with the --sync command line\n   option to change this behavior. You can then get a meaningful\n   backtrace from your debugger if you break on the gdk_x_error() function.)\n\nAny hints on how I go about resolving or diagnosing this issue?  I see a lot of\ncomments about a debug facility that\u0027s available with a command-line switch. \nHow do I turn this on?\n",
+    "You can enable SWT\u0027s debug flag in eclipse by editing the file:\n\n  plugins/org.eclipse.ui_3.1.0/.options\n\nand set the following to be true:\n\n  org.eclipse.ui/debug\u003dtrue\n  org.eclipse.ui/debug/swtdebug\u003dtrue",
+    "Note that I was unable to reproduce this problem using the following configuration:\n\nSuSE Linux 9.1\nSun Java 1.5.0_01\n\nThe following configuration reliably reproduces the problem:\n\nSun Java Desktop System R1\nSun Java 1.5.0_01\nRemote X Server (Cygwin-X)",
+    "I am unable to get a stacktrace when the problem occures even with those trace\noptions set to true.\nI tried to turn the trace on both in eclipse/plugin/.../.options and in my\nproject launch configuration (trace tab).\nany other leads ideas?\n",
+    "I used this to verify that I was indeed in debug mode :\nSystem.err.println(\"Debug ? \" + Display.getCurrent().getDeviceData().debug);\nit printed true.\n\nalso, this string seems consistent in the errors I get, as well in other guys\nerrors :\nerror_code 8 request_code 42 minor_code 0.\n\nmaybe we should look for the meaning of this.\n\n\n",
+    "Created an attachment (id\u003d18729)\nSWT_AWT crash\n",
+    "I have a very similar problem which can be reproduced with the attached sample.\nI have tried it on all kinds of RedHat and Fedora Linuxes (SuSE too) with every\navailable JDK 1.5 build. \nI am running SWT inside the AWT event thread in order to avoid potential deadlocks.\nAlso I have tried every option described in this bug but still no luck. \nWhen I click on any of the tabs I get this:\n\nThe program \u0027\u003cunknown\u003e\u0027 received an X Window System error.\nThis probably reflects a bug in the program.\nThe error was \u0027BadMatch (invalid parameter attributes)\u0027.\n  (Details: serial 289 error_code 8 request_code 42 minor_code 0)\n  (Note to programmers: normally, X errors are reported asynchronously;\n   that is, you will receive the error a while after causing it.\n   To debug your program, run it with the --sync command line\n   option to change this behavior. You can then get a meaningful\n   backtrace from your debugger if you break on the gdk_x_error() function.)\n",
+    "Same problem, but this time a different message from the X server.  This \nproblem seems to occur when closing a window that contains a Swing component. \n \nError message follows: \n \nThe program \u0027\u003cunknown\u003e\u0027 received an X Window System error. \nThis probably reflects a bug in the program. \nThe error was \u0027BadMatch (invalid parameter attributes)\u0027. \n  (Details: serial 52771 error_code 8 request_code 42 minor_code 0) \n  (Note to programmers: normally, X errors are reported asynchronously; \n   that is, you will receive the error a while after causing it. \n   To debug your program, run it with the --sync command line \n   option to change this behavior. You can then get a meaningful \n   backtrace from your debugger if you break on the gdk_x_error() function.) \nThe program \u0027\u003cunknown\u003e\u0027 received an X Window System error. \nThis probably reflects a bug in the program. \nThe error was \u0027BadCursor (invalid Cursor parameter)\u0027. \n  (Details: serial 264828 error_code 6 request_code 2 minor_code 0) \n  (Note to programmers: normally, X errors are reported asynchronously; \n   that is, you will receive the error a while after causing it. \n   To debug your program, run it with the --sync command line \n   option to change this behavior. You can then get a meaningful \n   backtrace from your debugger if you break on the gdk_x_error() function.) \n \n ",
+    "I believe these problems are happening because multiple threads are accessing \nX concurrently (AWT and SWT). SWT has a looking mechanism and if I am not \nwrong AWT has another one, but in order to make this go away, they need to use \nthe same lock.",
+    "Is the eclipse project comitted to supporting SWT_AWT, or is it a \"user-beware\"\nfeature?  \n\nI know this sounds like a loaded question, however it\u0027s important to know, since\nthis defect is critical in nature for our users.  When eclipse instantly\ndisappears from the Linux desktop, this is a major usability (and\nuser-confidence) problem.  \n\nIf this defect continues to go unresolved then Linux is not a viable platform\nfor using eclipse with SWT_AWT.  Our product strategy must take this in to account.\n\nI\u0027m sure that given the appropriate level of attention this defect can be\nresolved.  I\u0027m not convinced that this is a thread- or lock-related issue, since\nit only happens when a window is closing.  Perhaps when disposing the SWT\ncomponent should attempt to dispose the nested AWT frame (and wait for it to\ncomplete) before disposing the underlying OS resource?\n",
+    "Sorry that we have not been able to reproduce this problem or give more\ninformation.  The debugging callbacks that SWT sets up may be overridden by\nAWT\u0027s own X error handlers, which may explain why you have not been able to get\na stack trace even if SWT debugging is enabled:  X error handlers are global.\n\nWe are busy with the API freeze for M6 and so have not had time to look into\nthis further on our end.  Will investigate further post M6.",
+    "Thank you for your continued efforts.  We all want eclipse to be a high quality\nproduct -- so if there\u0027s anything that I can do to help with this one please let\nme know.",
+    "I could reproduce the problem using the test from comment#23 using Cgwin-X. I \nchanged SWT to be able to print X Errors that happen in AWT. To enable this, \nthe first two lines of main() should be:\n\n\t\tToolkit.getDefaultToolkit();\n\t\tDevice.DEBUG \u003d true;\n\nThis is the stacktrace running the latest SWT with the debug lines:\n\norg.eclipse.swt.SWTError: Unspecified error\n\tat org.eclipse.swt.graphics.Device.XErrorProc(Device.java:788)\n\tat sun.awt.X11.XlibWrapper.XSetInputFocus(Native Method)\n\tat sun.awt.X11.XBaseWindow.xRequestFocus(XBaseWindow.java:455)\n\tat sun.awt.X11.XWindowPeer.requestInitialFocus(XWindowPeer.java:684)\n\tat sun.awt.X11.XEmbeddedFramePeer.requestInitialFocus\n(XEmbeddedFramePeer.java:66)\n\tat sun.awt.X11.XWindowPeer.handleMapNotifyEvent(XWindowPeer.java:678)\n\tat sun.awt.X11.XBaseWindow.dispatchEvent(XBaseWindow.java:813)\n\tat sun.awt.X11.XWindowPeer.dispatchEvent(XWindowPeer.java:437)\n\tat sun.awt.X11.XBaseWindow.dispatchToWindow(XBaseWindow.java:766)\n\tat sun.awt.X11.XToolkit.dispatchEvent(XToolkit.java:394)\n\tat sun.awt.X11.XToolkit.run(XToolkit.java:493)\n\tat sun.awt.X11.XToolkit.run(XToolkit.java:438)\n\tat java.lang.Thread.run(Thread.java:595)\nThe program \u0027\u003cunknown\u003e\u0027 received an X Window System error.\nThis probably reflects a bug in the program.\nThe error was \u0027BadMatch (invalid parameter attributes)\u0027.\n  (Details: serial 246 error_code 8 request_code 42 minor_code 0)\n  (Note to programmers: normally, X errors are reported asynchronously;\n   that is, you will receive the error a while after causing it.\n   To debug your program, run it with the --sync command line\n   option to change this behavior. You can then get a meaningful\n   backtrace from your debugger if you break on the gdk_x_error() function.)\n",
+    "So, the problem from comment#23 seems to be in AWT. Could everyone try to \nreproduce their problem with the debug code? Note that this is not a fix, it \njust helps to isolate the problem.",
+    "I am using Linux-GTK of the 3.0.1 eclipse-platform release with Sun java \n1.5.0_03 (1.5 update 3)\n\nBesides what you have suggested in comment#30 #31, I have added \ndisplay.setWarnings(true); as what you suggested did not give me any messages.\n\nBut I get a different errors\n+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n+++++++\njava.lang.Error\n\tat org.eclipse.swt.graphics.Device.logProc(Device.java:560)\n\tat org.eclipse.swt.internal.gtk.OS.gtk_container_add(Native Method)\n\tat org.eclipse.swt.widgets.Composite.createHandle(Composite.java:211)\n\tat org.eclipse.swt.widgets.Shell.createHandle(Shell.java:502)\n\tat org.eclipse.swt.widgets.Widget.createWidget(Widget.java:321)\n\tat org.eclipse.swt.widgets.Control.createWidget(Control.java:306)\n\tat org.eclipse.swt.widgets.Scrollable.createWidget(Scrollable.java:146)\n\tat org.eclipse.swt.widgets.Decorations.createWidget\n(Decorations.java:236)\n\tat org.eclipse.swt.widgets.Shell.\u003cinit\u003e(Shell.java:241)\n\tat org.eclipse.swt.widgets.Shell.\u003cinit\u003e(Shell.java:226)\n\tat org.eclipse.swt.widgets.Shell.\u003cinit\u003e(Shell.java:180)\n\tat org.tnm.Main$2.run(Main.java:50)\n\tat java.awt.event.InvocationEvent.dispatch(InvocationEvent.java:199)\n\tat java.awt.EventQueue.dispatchEvent(EventQueue.java:461)\n\tat java.awt.EventDispatchThread.pumpOneEventForHierarchy\n(EventDispatchThread.java:242)\n\tat java.awt.EventDispatchThread.pumpEventsForHierarchy\n(EventDispatchThread.java:163)\n\tat java.awt.EventDispatchThread.pumpEvents\n(EventDispatchThread.java:157)\n\tat java.awt.EventDispatchThread.pumpEvents\n(EventDispatchThread.java:149)\n\tat java.awt.EventDispatchThread.run(EventDispatchThread.java:110)\n\n(\u003cunknown\u003e:484): Gtk-WARNING **: gtk_scrolled_window_add(): cannot add non \nscrollable widget use gtk_scrolled_window_add_with_viewport() instead\nThe program \u0027\u003cunknown\u003e\u0027 received an X Window System error.\nThis probably reflects a bug in the program.\nThe error was \u0027BadMatch (invalid parameter attributes)\u0027.\n  (Details: serial 162 error_code 8 request_code 42 minor_code 0)\n  (Note to programmers: normally, X errors are reported asynchronously;\n   that is, you will receive the error a while after causing it.\n   To debug your program, run it with the --sync command line\n   option to change this behavior. You can then get a meaningful\n   backtrace from your debugger if you break on the gdk_x_error() function.)\n\n\nAnd these, quire frequentely ...\n+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n+++++++\nava.lang.StackOverflowError\n\tat sun.misc.Unsafe.getByte(Native Method)\n\tat sun.awt.X11.Native.getByte(Native.java:65)\n\tat sun.awt.X11.XErrorEvent.get_error_code(XErrorEvent.java:42)\n\tat sun.awt.X11.XToolkit$1.handleError(XToolkit.java:156)\n\tat sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:140)\n\tat sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n\tat sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n\tat sun.awt.X11.XToolkit$1.handleError(XToolkit.java:159)\n\tat sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:140)\n\tat sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n\tat sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n\tat sun.awt.X11.XToolkit$1.handleError(XToolkit.java:159)\n\tat sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:140)\n\tat sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n\tat sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n\tat sun.awt.X11.XToolkit$1.handleError(XToolkit.java:159)\n\tat sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:140)\n\tat sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n\tat sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n\tat sun.awt.X11.XToolkit$1.handleError(XToolkit.java:159)\n\tat sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:140)\n\tat sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n\tat sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n\tat sun.awt.X11.XToolkit$1.handleError(XToolkit.java:159)\n\tat sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:140)\n\tat sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n\tat sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n.... continues \n\nRarely, I get these:\n+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n+++++++\nException on Toolkit thread: sun.awt.X11.XException: Cannot write XdndAware \nproperty\nsun.awt.X11.XException: Cannot write XdndAware property\n\tat sun.awt.X11.XDnDDropTargetProtocol.registerEmbedderDropSite\n(XDnDDropTargetProtocol.java:185)\n\tat sun.awt.X11.XDropTargetRegistry.registerEmbedderDropSite\n(XDropTargetRegistry.java:223)\n\tat sun.awt.X11.XDropTargetRegistry.registerEmbeddedDropSite\n(XDropTargetRegistry.java:365)\n\tat sun.awt.X11.XDropTargetRegistry.registerDropSite\n(XDropTargetRegistry.java:437)\n\tat sun.awt.X11.XDropTargetRegistry$1.run(XDropTargetRegistry.java:466)\n\tat sun.awt.X11.XToolkit.callTimeoutTasks(XToolkit.java:1341)\n\tat sun.awt.X11.XToolkit.run(XToolkit.java:462)\n\tat sun.awt.X11.XToolkit.run(XToolkit.java:438)\n\tat java.lang.Thread.run(Thread.java:595)",
+    "The setWarnings(true) might be causing the sdtack overflows because the X \nwarning handlers might not stack properly between SWT and AWT.  Can you \nconfirm that adding only these two lines give no more information?\n\n\t\tToolkit.getDefaultToolkit();\n\t\tDevice.DEBUG \u003d true;\n\nFor example, you should at least see the original X error.",
+    "We believe that the problem is in AWT.  Can everyone on this bug report please \nturn on debugging and help us confirm this?",
+    "I can reliably reproduce the error with comment#23 using eclipse3.1, java\n1.5.0_04 and linux 2.6.8-24.10\n\nAttempting to reproduce the problem thusfar with eclipse and SWT_AWT has not\nbeen successful.\n\nWill attempt using Cygwin-X configuration.",
+    "I am little worried about two facts:\n\n- that X errors are intercepted so that program terminates because of them.  AWT\ndoesn\u0027t use such an error handler, so I wonder who installed it and why?  Such\nan error handler may be useful for debugging (but as we see - it has very little\nuse if we can\u0027t even get a stack trace), but in the product mode an application\nshould simply ignore all such errors (or log them)\n\n- that we recursively install our own (AWT) error handler.  By default, we use\nNULL error handler, but sometimes we do set some special error handler. \nHowever, we do this for atomic X calls - and restore the previous error handler\nimmediately.  All this is done under AWT_LOCK.  The fact that we could get our\nown error handler from the XSetErrorHandler means that someone first stored our\nerror handler somewhere and then restored it AFTER we exited from our\nerror-handling section.  This could happen if someone called XSetErrorHandler\nwithout proper synchronization with AWT.\n\nRegarding the errors we see:\n. BadMatch for request 42 (XSetInputFocus) most likely means non-viewable\nwindow, which is fine.  \n. BadCursor during XChangeWindowAttributes is worrying, I\u0027ll investigate it further.\n. Exception \"Cannot write XdndAware property\" - this most likely means that the\nwindow was destroyed during our XDnD preparations.  But it is not critical -\nprogram continues working after this exception.\n\nI don\u0027t have the proper environment setup yet for SWT testing, so can some pass\nthis parameter \"-Djava.util.logging.config.file\u003d\u003call.props full path\u003e\" to Java,\nrun the test and send me java0.log file (comperessed) back?  all.props is attached.\n\nThanks.",
+    "Created an attachment (id\u003d24766)\nXAWT logging configuration file\n",
+    "There are at least 3 toolkits in here who want to hook the X error handler.  \nGTK sets and clears the X handler during gdk_error_trap_push\n()/gdk_error_trap_pop().  According to  Denis, AWT sets and restores the X \nhandler around certain calls.  Finally, SWT sets the X error handler, only \nwhen the debug flag is true (in order to print the stack) and calls the GTK \npush/pop.\n\nIt looks like there is at least one unprotected bad match in AWT.  The first \nerror in comment 32 is expected.  GTK is printing a warning that we want to \nhide from gtk_container_add() and this is not an X error.  I have no idea \nabout the recursion.  Where is the bottom of the stack?",
+    "Created an attachment (id\u003d24806)\nlog\n\nHere is the java0.log for the same crash as comment#30.",
+    "(In reply to comment #39)\n\u003e Created an attachment (id\u003d24806) [edit]\n\u003e log\n\u003e \n\u003e Here is the java0.log for the same crash as comment#30.\n\nThanks for the log.  I see that due to some reason we do XSetInputFocus(\u003cAWT\nXEmbed client\u003e, RevertToParent, CurrentTime).  From the log, I don\u0027t see why\nthis results in X server error as there was no DestroyNotify and the parameters\nare more or less correct.  But the fact that we do XSetInputFocus during active\nXEmbed worries me.  Can you produce another log?  Please use all_focus.props now.\n\nThanks.\n\nDenis",
+    "Created an attachment (id\u003d24882)\nFocus events logging configuration file\n",
+    "Created an attachment (id\u003d24913)\nnew log\n",
+    "Fixed \u003e 20050721.\n\nPlease try the latest and reopen this bug if you still see the problem.",
+    "I\u0027ve found a similar issue, which I\u0027ve filed as a new bug (since this one is\nclosed) - Bug #110163, \"X Window System error, using Swing system look and feel,\nrendering SVG using SWT_AWT in non-top stack layout\"",
+    "Running with Eclipse 3.2M3 I am still seeing the following problem:\n\n        at sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n        at sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)\n        at sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n        at sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n        at sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)\n        at sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n        at sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n        at sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)\n        at sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n        at sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n        at sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)\n        at sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n        at sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n        at sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)\n        at sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n        at sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n        at sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)\n        at sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n        at sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n        at sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)\n        at sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n",
+    "Jamie, we will need the code that causes this problem plus the usual JVM version information.\n\nDenis, any ideas?  ",
+    "System Information:\n\njava.runtime.version\u003d1.5.0_06-b05\norg.eclipse.core.runtime (3.1.0.v20051027) \"Core Runtime\" [Active]\norg.eclipse.jface (3.2.0) \"JFace\" [Active]\norg.eclipse.swt (3.1.0.v3212c) \"Standard Widget Toolkit\" [Resolved]\norg.eclipse.swt.gtk.linux.x86 (3.1.0.v3212) \"Standard Widget Toolkit for GTK 2.0\" [Resolved]\norg.eclipse.ui (3.2.0) \"Eclipse UI\" [Active]\norg.eclipse.ui.workbench (3.2.0) \"Workbench\" [Active]\n\nRed Hat Linux release 9 (Shrike)\n\nI am having trouble tracking down exactly what code is causing the problem.  The stack trace starts with the following and just repeats itself:\n\n\tat sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n\tat sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n\tat sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)\n\tat sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n\tat sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n\tat sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)\n\tat sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n\nIs there any other debugging information I can gather?\n",
+    "I also see the following error which crashes the RCP:\n\nThe program \u0027\u0027 received an X Window System error.\nThis probably reflects a bug in the program.\nThe error was \u0027BadMatch (invalid parameter attributes)\u0027.\n  (Details: serial 58235 error_code 8 request_code 147 minor_code 4)\n  (Note to programmers: normally, X errors are reported asynchronously;\n   that is, you will receive the error a while after causing it.\n   To debug your program, run it with the --sync command line\n   option to change this behavior. You can then get a meaningful\n   backtrace from your debugger if you break on the gdk_x_error() function.)\n",
+    "Created an attachment (id\u003d31585)\nXAWT Logging output of bad match crash.\n\nCompressed log file.",
+    "This looks like an AWT problem.  You could try entering a bug report at Sun and pointing them back here.",
+    "From your the stack trace, AWT seems to be calling its own error handler recursively:\n\n        at sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n        at sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n\nIt\u0027s quite possible that there is an interaction with SWT where the error handler is saved and restored and AWT doesn\u0027t get the error handler it expects.\n\nDid you run with the SWT debugging flag set as suggested in comment #33?",
+    "Also, comment #38 describes the error handler situation.\n\nSomehow Denis is not on this bug report so I added him.  Denis, any ideas?",
+    "I added the following to my Application class which implements IPlatformRunnable\n  display.getDeviceData().debug \u003d true;\n  Device.DEBUG \u003d true;\n  System.out.println(\"****Debug ? \" + display.getDeviceData().debug);\n\nI repeated my tests.  There was no additional debug information displayed.\n\nIs there anything else I should try?",
+    "Unfortunately, that has to run before the Display is created.\n\nThere is a tracing option in the Platform UI code.  I believe you have to set org.eclipse.ui/debug\u003dtrue and org.eclipse.ui/swtdebug\u003dtrue.  See the tracing options in the run dialog to confirm.",
+    "Oleg, the AWT error handler is being called recursively.  Comment #38 describes the situation wrt. error handling.  It\u0027s possible that someone has restored the wrong error handler, causing the recursion.",
+    "Now AWT code just stores pointer to previous error handler (in static variable)\nand sets new, and then restore it.  So if, for some reasons, XSetErrorHandler() \nwill return us pointer to our own handler, then we could get stack overflow.",
+    "Does it save and restore the error handler around every call or does it get it once at the beginning?\n\nJamie, is the recursive error stack happening when the SWT debug flag is set to true?  What is at the bottom of the stack?",
+    "Hi all,\n\nI work with Jamie Woodhead, he has asked me to provide some addition debug information that has been asked for in this thread.\n\nI have imported Jamie\u0027s project and have reproduced the BadMatch error that exits out of the app.  I also have seen the ErrorHandler looping error a few times.\n\nI have enabled tracing for:\norg.eclipse.ui/debug\u003dtrue \norg.eclipse.ui/debug/swtdebug\u003dtrue\n\nbut I am not seeing any addition debug/information being printed to the IDE\u0027s console.  Is there something else that I need to enable or any flags that I need to set?\n\nWe are still using Eclipse 3.2M3, because M4 gives us strange bundle/dependency errors when we run our project.\n\nLarry",
+    "Created an attachment (id\u003d33825)\nStackOverFlowError\n\nHere is the full trace that we\u0027ve been seeing.\n\nSometimes we get the StackOverflow and other times we just get the BadMatch error and sometimes both.  Not sure if the errors are related or not.\n\nLarry",
+    "Steve/All,\n\nDo you guys believe that the Bad Match error and stack overflow are related?  From our standpoint, the two seem unrelated.  Our application seems to recover fine from the stack overflow issue, but the application terminates when we get the bad match error.  The bad match error can occur at startup while the app is initializing or a while after the application has been in use.  While the application is in use, both errors seem to occur when moving views around and opening/closing views.\n\nWe are going to spend some more time trying to isolate the problem, but previous attempts have been unsuccessful.\n\nShould I create new bugs for each of these issues?",
+    "I think they are unrelated.\n\nThe stack overflow issue is described in comment #38 (ie. three toolkits, one global X error handler).  In comment #30, Silenio was able to reproduce the problem using Cgwin-X, find a bug and fix it (comment #43).  Other than that, we can\u0027t make it happen.\n\nThe BadMatch looks like an AWT bug to me (but I\u0027m not sure).  Can you somehow run the code in a Frame (rather than using the EmbeddedFrame provided by the SWT_AWT bridge) and see whether you can make the BadMatch happen?",
+    "Jamie, did you ever get the BadMatch to happen in a Frame rather than an EmbeddedFrame to see whether the problem only happens in the SWT_AWT bridge?",
+    "(In reply to comment #62)\n\u003e Jamie, did you ever get the BadMatch to happen in a Frame rather than an\n\u003e EmbeddedFrame to see whether the problem only happens in the SWT_AWT bridge?\n\u003e \n\nYes, we did try that.  The problem only seems to happen when our components are in the SWT_AWT bridge.",
+    "This should have been reopened.  Jamie is still seeing the problem.",
+    "*** Bug 158186 has been marked as a duplicate of this bug. ***",
+    "will someone change the summery of this bug to something more reasonable, like:\n\"SWT_AWT bridge sometimes crashes on Linux\" \n?",
+    "\u003e We are going to spend some more time trying to isolate the problem, but\n\u003e previous attempts have been unsuccessful.\n\nJamie, did you ever get anywhere?",
+    "In order to look into this farther, say for Eclipse 3.2.2, I\u0027ll need some code that shows the crash.  We believe that the case in comment #23 is fixed.  Does anyone have a repeatable case?",
+    "Waiting on feedback from the reporters...",
+    "I am able to reproduce this problem using Crystal Reports for Eclipse.\n\n\u003e cat /etc/SuSE-release\nSUSE LINUX Enterprise Server 9 (i586)\nVERSION \u003d 9\nPATCHLEVEL \u003d 3\n\n\u003e uname -a\nLinux van-w-02-msiege 2.6.5-7.244-default #1 Mon Dec 12 18:32:25 UTC 2005 i686 i686 i386 GNU/Linux\n\nJava version: SUN JDK 1.5.0_08\n\nI\u0027ve installed the following versions of eclipse projects:\n\nEclipse\thttp://download.eclipse.org/eclipse/downloads/drops/R-3.2-200606291905/index.php\n\teclipse-SDK-3.2-linux-gtk.tar.gz\n\t\nGEF\thttp://download.eclipse.org/tools/gef/downloads/drops/R-3.2-200606270816/index.php\n\tGEF-runtime-3.2.zip\n\nWTP\thttp://download.eclipse.org/webtools/downloads/drops/R1.5/R-1.5.0-200606281455/\n\twtp-R-1.5.0-200606281455.zip\n\nEMF\thttp://www.eclipse.org/emf/downloads/\n\temf-sdo-runtime-2.2.0.zip\n\nXSD\thttp://www.eclipse.org/emf/downloads/\n\txsd-runtime-2.2.0.zip\n\t\nJEM\thttp://download.eclipse.org/tools/ve/downloads/drops/R-1.2-200606280938/index.html\n\tJEM-runtime-1.2.zip\n\nAnd the Crystal Reports for Eclipse:\nCR4E \thttp://diamond.businessobjects.com/node/435\n\tcrystalreportsforeclipse-1.0.1(unregistered).zip\n\nReproduction steps:\nLaunch eclipse.  Create a new project.\nCreate a new Crystal Report (New \u003e Other \u003e Crystal Reports \u003e Blank Report)\n\nDrag and drop \"Text\" from the Palette onto the report canvas.  Type some text in.  Repeat.  Try to add the text objects and type as fast as possible.  I can get the application to crash within adding 10 objects.\n\nEventually you will get:\nJVM terminated. Exit code\u003d1\n/usr/bin/java\n-Xms40m\n-Xmx256m\n-jar /home/msiegel/CR4E/download/eclipse/./startup.jar\n-os linux\n-ws gtk\n-arch x86\n-launcher /home/msiegel/CR4E/download/eclipse/./eclipse\n-name Eclipse\n-showsplash 600\n-exitdata 1b0001\n-vm /usr/bin/java\n-vmargs\n-Xms40m\n-Xmx256m\n-jar /home/msiegel/CR4E/download/eclipse/./startup.jar\n\nThe program \u0027Eclipse\u0027 received an X Window System error.\nThis probably reflects a bug in the program.\nThe error was \u0027BadMatch (invalid parameter attributes)\u0027.\n  (Details: serial 1503 error_code 8 request_code 42 minor_code 0)\n  (Note to programmers: normally, X errors are reported asynchronously;\n   that is, you will receive the error a while after causing it.\n   To debug your program, run it with the --sync command line\n   option to change this behavior. You can then get a meaningful\n   backtrace from your debugger if you break on the gdk_x_error() function.)\n\n\nI will attempt to reproduce the problem in a smaller app than CR4E (and possibly with newer versions of the above mentioned eclipse projects), but these reproduction steps should work in the meantime.",
+    "I haven\u0027t had any immediate success with reproducing the problem outside of CR4E in a test SWT app.  Are there any particular aspects of code that could be considered more susceptible to this type of error that I could focus my efforts on?  Just curious if anyone has any hunches about what type of behaviour could trigger this problem.",
+    "Created an attachment (id\u003d56117)\nSWT application to reproduce crash\n\nI\u0027ve been working on creating an SWT test application to reproduce this particular problem.  Unfortunately, the farthest I\u0027ve gotten is the attached project (\"Mark Siegel - GTK crash using SWT_AWT.zip\").  This application can easily generate the error below by entering 10 into the text field, and hitting the \"Run\" button.  Then drag the \"Drag Me!\" label around the window until the application crashes with the following error\n\nThe program \u0027Eclipse\u0027 received an X Window System error.\nThis probably reflects a bug in the program.\nThe error was \u0027BadWindow (invalid Window parameter)\u0027.\n  (Details: serial 6007 error_code 3 request_code 40 minor_code 0)\n  (Note to programmers: normally, X errors are reported asynchronously;\n   that is, you will receive the error a while after causing it.\n   To debug your program, run it with the --sync command line\n   option to change this behavior. You can then get a meaningful\n   backtrace from your debugger if you break on the gdk_x_error() function.)\n\nI\u0027m not sure if this is the same type of error or not (BadWindow vs. BadMatch), so I\u0027m not sure how useful it will be.  It attempts to replicate the behaviour that causes CR4E to have the BadMatch error.  I also have a GEF-based application (not attached) that exhibits the same behaviour (BadWindow error) by mimicking how CR4E edits text.",
+    "Your code does not crash for me running with SWT from HEAD (~3.3 M4).  I believe that you are seeing bug 110163, which was fixed for 3.2.1.  Can you confirm that the problem doesn\u0027t happen there?\n\nIn the meantime, here is what I am doing (it does not crash):\n\n0) Type \"10\" in the text field\n1) Click the \u0027Run\u0027 button\n2) Start a drag operation in the \u0027Drag me!\u0027 label",
+    "I can confirm that upgrading to SWT 3.2.1 fixes the aforementioned problem.\n\nHowever, using the same test application I am able to reproduce a StackOverflowError with reasonable consistency.\n\n1. Double Click \u0027hello\u0027\n2. Drag \"Drag me!\" over the in-place text editor.  Start at the \u0027h\u0027 and slowly drag to the right.  Eventually you\u0027ll get an IllegalArgumentException (stack below).\n3. Drop the text.  It doesn\u0027t seem to matter if it drops successfully or not\n4. Drag \"Drag me!\" again.  Drop it into the text editor.  It doesn\u0027t seem to matter if it drops successfully.\n5. Enter 1 iterations\n6. Hit run\n7. You should get a stack overflow exception (stack below).\n\njava.lang.IllegalArgumentException: bad position: 6\n\tat javax.swing.text.JTextComponent.setCaretPosition(JTextComponent.java:1398)\n\tat javax.swing.plaf.basic.BasicTextUI$TextDropTargetListener.updateInsertionLocation(BasicTextUI.java:2124)\n\tat javax.swing.plaf.basic.BasicDropTargetListener.dragOver(BasicDropTargetListener.java:233)\n\tat javax.swing.TransferHandler$SwingDropTarget.dragOver(TransferHandler.java:590)\n\tat sun.awt.dnd.SunDropTargetContextPeer.processMotionMessage(SunDropTargetContextPeer.java:439)\n\tat sun.awt.dnd.SunDropTargetContextPeer.access$600(SunDropTargetContextPeer.java:53)\n\tat sun.awt.dnd.SunDropTargetContextPeer$EventDispatcher.dispatchMotionEvent(SunDropTargetContextPeer.java:784)\n\tat sun.awt.dnd.SunDropTargetContextPeer$EventDispatcher.dispatchEvent(SunDropTargetContextPeer.java:730)\n\tat sun.awt.dnd.SunDropTargetEvent.dispatch(SunDropTargetEvent.java:29)\n\tat java.awt.Component.dispatchEventImpl(Component.java:3826)\n\tat java.awt.Container.dispatchEventImpl(Container.java:2024)\n\tat java.awt.Component.dispatchEvent(Component.java:3803)\n\tat java.awt.LightweightDispatcher.retargetMouseEvent(Container.java:4212)\n\tat java.awt.LightweightDispatcher.processDropTargetEvent(Container.java:3963)\n\tat java.awt.LightweightDispatcher.dispatchEvent(Container.java:3817)\n\tat java.awt.Container.dispatchEventImpl(Container.java:2010)\n\tat java.awt.Window.dispatchEventImpl(Window.java:1778)\n\tat java.awt.Component.dispatchEvent(Component.java:3803)\n\tat java.awt.EventQueue.dispatchEvent(EventQueue.java:463)\n\tat java.awt.EventDispatchThread.pumpOneEventForHierarchy(EventDispatchThread.java:242)\n\tat java.awt.EventDispatchThread.pumpEventsForHierarchy(EventDispatchThread.java:163)\n\tat java.awt.EventDispatchThread.pumpEvents(EventDispatchThread.java:157)\n\tat java.awt.EventDispatchThread.pumpEvents(EventDispatchThread.java:149)\n\tat java.awt.EventDispatchThread.run(EventDispatchThread.java:110)\n\t\njava.lang.StackOverflowError\n\tat sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n\tat sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n\tat sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)\n\tat sun.awt.X11.XlibWrapper.CallErrorHandler(Native Method)\n\tat sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER(XToolkit.java:131)\n\tat sun.awt.X11.XToolkit.GlobalErrorHandler(XToolkit.java:142)",
+    "I can also reproduce this problem mentioned in Comment #74 a lot more sporadically without having it throw the IllegalArgumentException first.\n\n1) Double click hello\n2) Drag \"Drag Me!\" all around the dialog repeatedly, making sure to enter/exit the in place text editor often.  Drop it (anywhere seems to work).\n3) Do Step 2 again.\n4) Enter 1 iteration and hit run.\n5) Repeat until you get a stack overflow.  It usually takes me 2-5 iterations of this process to get the exception.",
+    "Steve N, regarding our brief discussion on yesterday\u0027s dev call, the current state of this one is not completely clear although it appears work has stopped for 3.2.2.  Just to be clear, is the stack overflow (comment 74 and comment 75) still being investigated?\n",
+    "I was investigating the stack overflow but not getting anywhere.  Perhaps a new bug should be opened for that and this one closed (ie. the crash no longer happens).\n\nEveryone\u0027s thoughts?",
+    "With regard to comment 77, that sounds right to me.\n",
+    "Not sure if anyone opened a new bug for the stack overflow or not. If so, could they add a link to it here. Marking this one fixed as per Steve\u0027s comment 77.\n",
+    "I\u0027ve created a new bug to track the StackOverflowError problem: Bug 171432."
+  ],
+  "commentCreationDates": [
+    "2004-09-16T20:17:40+02:00",
+    "2004-09-16T21:15:26+02:00",
+    "2004-09-22T23:37:11+02:00",
+    "2004-09-22T23:41:30+02:00",
+    "2004-11-10T19:50:19+01:00",
+    "2004-11-10T22:05:22+01:00",
+    "2005-02-10T21:40:13+01:00",
+    "2005-02-11T15:41:36+01:00",
+    "2005-02-11T17:24:06+01:00",
+    "2005-02-15T12:50:27+01:00",
+    "2005-02-15T14:33:57+01:00",
+    "2005-02-24T13:29:49+01:00",
+    "2005-02-24T13:50:19+01:00",
+    "2005-02-24T13:55:10+01:00",
+    "2005-02-24T13:55:52+01:00",
+    "2005-02-24T14:00:05+01:00",
+    "2005-02-24T14:00:52+01:00",
+    "2005-02-24T14:02:43+01:00",
+    "2005-02-24T23:42:13+01:00",
+    "2005-02-25T17:46:49+01:00",
+    "2005-02-25T19:50:05+01:00",
+    "2005-02-27T11:15:18+01:00",
+    "2005-02-27T11:29:25+01:00",
+    "2005-03-12T01:31:40+01:00",
+    "2005-03-12T01:41:29+01:00",
+    "2005-03-13T17:49:01+01:00",
+    "2005-03-14T16:22:33+01:00",
+    "2005-03-22T20:38:35+01:00",
+    "2005-03-22T21:24:25+01:00",
+    "2005-03-22T21:31:37+01:00",
+    "2005-05-04T20:52:17+02:00",
+    "2005-05-04T20:58:33+02:00",
+    "2005-06-21T09:35:34+02:00",
+    "2005-06-21T19:31:55+02:00",
+    "2005-07-08T15:20:25+02:00",
+    "2005-07-14T18:27:13+02:00",
+    "2005-07-14T18:29:57+02:00",
+    "2005-07-14T18:30:58+02:00",
+    "2005-07-14T22:44:40+02:00",
+    "2005-07-14T23:11:08+02:00",
+    "2005-07-16T16:24:43+02:00",
+    "2005-07-16T16:26:12+02:00",
+    "2005-07-18T17:12:32+02:00",
+    "2005-07-21T20:35:23+02:00",
+    "2005-09-21T14:37:30+02:00",
+    "2005-12-12T14:15:54+01:00",
+    "2005-12-12T16:49:25+01:00",
+    "2005-12-12T17:49:57+01:00",
+    "2005-12-12T18:57:23+01:00",
+    "2005-12-12T19:59:17+01:00",
+    "2005-12-14T21:38:46+01:00",
+    "2005-12-22T15:50:02+01:00",
+    "2005-12-22T15:52:11+01:00",
+    "2005-12-27T16:07:59+01:00",
+    "2005-12-27T16:24:16+01:00",
+    "2006-01-10T15:51:59+01:00",
+    "2006-01-11T19:03:22+01:00",
+    "2006-01-11T20:00:19+01:00",
+    "2006-01-30T14:27:13+01:00",
+    "2006-01-30T21:46:03+01:00",
+    "2006-01-31T15:57:55+01:00",
+    "2006-01-31T23:34:00+01:00",
+    "2006-03-14T01:30:49+01:00",
+    "2006-03-14T12:09:55+01:00",
+    "2006-09-21T23:36:17+02:00",
+    "2006-09-21T23:36:56+02:00",
+    "2006-11-13T09:35:50+01:00",
+    "2006-12-14T17:20:38+01:00",
+    "2006-12-14T17:46:02+01:00",
+    "2006-12-18T15:45:19+01:00",
+    "2006-12-19T19:53:12+01:00",
+    "2006-12-20T17:46:55+01:00",
+    "2006-12-23T00:52:43+01:00",
+    "2007-01-02T23:09:24+01:00",
+    "2007-01-03T01:11:20+01:00",
+    "2007-01-03T01:19:34+01:00",
+    "2007-01-18T14:50:04+01:00",
+    "2007-01-18T15:17:19+01:00",
+    "2007-01-22T15:52:11+01:00",
+    "2007-01-23T14:36:50+01:00",
+    "2007-01-23T17:59:13+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "negative width(-1) or height(-1)",
+      "elements": [
+        {
+          "method": "com.telmap.iawt.aa.ArrayImage.\u003cinit\u003e",
+          "source": "ArrayImage.java:67"
+        },
+        {
+          "method": "com.telmap.iawt.aa.AAGraphics_x86.cacheImage",
+          "source": "AAGraphics_x86.java:7066"
+        },
+        {
+          "method": "com.telmap.iawt.aa.AAGraphics_x86.getArrayImage",
+          "source": "AAGraphics_x86.java:7082"
+        },
+        {
+          "method": "com.telmap.iawt.aa.AAGraphics_x86.drawImage",
+          "source": "AAGraphics_x86.java:6768"
+        },
+        {
+          "method": "com.telmap.iawt.aa.AAGraphics_x86.drawImage",
+          "source": "AAGraphics_x86.java:6847"
+        },
+        {
+          "method": "com.telmap.map.map.local.MapImage.paint",
+          "source": "MapImage.java:140"
+        },
+        {
+          "method": "com.telmap.map.map.MapComponent$7.run",
+          "source": "MapComponent.java:1868"
+        },
+        {
+          "method": "com.telmap.iawt.IawtUtilities$RunnableCanvas.processEvent",
+          "source": "IawtUtilities.java:162"
+        },
+        {
+          "method": "java.awt.Component.dispatchEventImpl",
+          "source": "Component.java:3955"
+        },
+        {
+          "method": "java.awt.Component.dispatchEvent",
+          "source": "Component.java:3803"
+        },
+        {
+          "method": "java.awt.EventQueue.dispatchEvent",
+          "source": "EventQueue.java:463"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpOneEventForHierarchy",
+          "source": "EventDispatchThread.java:234"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEventsForHierarchy",
+          "source": "EventDispatchThread.java:163"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:157"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:149"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.run",
+          "source": "EventDispatchThread.java:110"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 14,
+      "bugId": "74095",
+      "date": "2005-02-24T13:55:52+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "Unspecified error",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.graphics.Device.XErrorProc",
+          "source": "Device.java:788"
+        },
+        {
+          "method": "sun.awt.X11.XlibWrapper.XSetInputFocus",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.awt.X11.XBaseWindow.xRequestFocus",
+          "source": "XBaseWindow.java:455"
+        },
+        {
+          "method": "sun.awt.X11.XWindowPeer.requestInitialFocus",
+          "source": "XWindowPeer.java:684"
+        },
+        {
+          "method": "sun.awt.X11.XEmbeddedFramePeer.requestInitialFocus",
+          "source": "XEmbeddedFramePeer.java:66"
+        },
+        {
+          "method": "sun.awt.X11.XWindowPeer.handleMapNotifyEvent",
+          "source": "XWindowPeer.java:678"
+        },
+        {
+          "method": "sun.awt.X11.XBaseWindow.dispatchEvent",
+          "source": "XBaseWindow.java:813"
+        },
+        {
+          "method": "sun.awt.X11.XWindowPeer.dispatchEvent",
+          "source": "XWindowPeer.java:437"
+        },
+        {
+          "method": "sun.awt.X11.XBaseWindow.dispatchToWindow",
+          "source": "XBaseWindow.java:766"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.dispatchEvent",
+          "source": "XToolkit.java:394"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.run",
+          "source": "XToolkit.java:493"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.run",
+          "source": "XToolkit.java:438"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 30,
+      "bugId": "74095",
+      "date": "2005-05-04T20:52:17+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.Error",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.graphics.Device.logProc",
+          "source": "Device.java:560"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.gtk_container_add",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.createHandle",
+          "source": "Composite.java:211"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.createHandle",
+          "source": "Shell.java:502"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.createWidget",
+          "source": "Widget.java:321"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.createWidget",
+          "source": "Control.java:306"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Scrollable.createWidget",
+          "source": "Scrollable.java:146"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Decorations.createWidget",
+          "source": "Decorations.java:236"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.\u003cinit\u003e",
+          "source": "Shell.java:241"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.\u003cinit\u003e",
+          "source": "Shell.java:226"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.\u003cinit\u003e",
+          "source": "Shell.java:180"
+        },
+        {
+          "method": "org.tnm.Main$2.run",
+          "source": "Main.java:50"
+        },
+        {
+          "method": "java.awt.event.InvocationEvent.dispatch",
+          "source": "InvocationEvent.java:199"
+        },
+        {
+          "method": "java.awt.EventQueue.dispatchEvent",
+          "source": "EventQueue.java:461"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpOneEventForHierarchy",
+          "source": "EventDispatchThread.java:242"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEventsForHierarchy",
+          "source": "EventDispatchThread.java:163"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:157"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:149"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.run",
+          "source": "EventDispatchThread.java:110"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 32,
+      "bugId": "74095",
+      "date": "2005-06-21T09:35:34+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "ava.lang.StackOverflowError",
+      "elements": [
+        {
+          "method": "sun.misc.Unsafe.getByte",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.awt.X11.Native.getByte",
+          "source": "Native.java:65"
+        },
+        {
+          "method": "sun.awt.X11.XErrorEvent.get_error_code",
+          "source": "XErrorEvent.java:42"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit$1.handleError",
+          "source": "XToolkit.java:156"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.GlobalErrorHandler",
+          "source": "XToolkit.java:140"
+        },
+        {
+          "method": "sun.awt.X11.XlibWrapper.CallErrorHandler",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER",
+          "source": "XToolkit.java:131"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit$1.handleError",
+          "source": "XToolkit.java:159"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.GlobalErrorHandler",
+          "source": "XToolkit.java:140"
+        },
+        {
+          "method": "sun.awt.X11.XlibWrapper.CallErrorHandler",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER",
+          "source": "XToolkit.java:131"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit$1.handleError",
+          "source": "XToolkit.java:159"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.GlobalErrorHandler",
+          "source": "XToolkit.java:140"
+        },
+        {
+          "method": "sun.awt.X11.XlibWrapper.CallErrorHandler",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER",
+          "source": "XToolkit.java:131"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit$1.handleError",
+          "source": "XToolkit.java:159"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.GlobalErrorHandler",
+          "source": "XToolkit.java:140"
+        },
+        {
+          "method": "sun.awt.X11.XlibWrapper.CallErrorHandler",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER",
+          "source": "XToolkit.java:131"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit$1.handleError",
+          "source": "XToolkit.java:159"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.GlobalErrorHandler",
+          "source": "XToolkit.java:140"
+        },
+        {
+          "method": "sun.awt.X11.XlibWrapper.CallErrorHandler",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER",
+          "source": "XToolkit.java:131"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit$1.handleError",
+          "source": "XToolkit.java:159"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.GlobalErrorHandler",
+          "source": "XToolkit.java:140"
+        },
+        {
+          "method": "sun.awt.X11.XlibWrapper.CallErrorHandler",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER",
+          "source": "XToolkit.java:131"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 32,
+      "bugId": "74095",
+      "date": "2005-06-21T09:35:34+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "sun.awt.X11.XException",
+      "message": "Cannot write XdndAware property",
+      "elements": [
+        {
+          "method": "sun.awt.X11.XDnDDropTargetProtocol.registerEmbedderDropSite",
+          "source": "XDnDDropTargetProtocol.java:185"
+        },
+        {
+          "method": "sun.awt.X11.XDropTargetRegistry.registerEmbedderDropSite",
+          "source": "XDropTargetRegistry.java:223"
+        },
+        {
+          "method": "sun.awt.X11.XDropTargetRegistry.registerEmbeddedDropSite",
+          "source": "XDropTargetRegistry.java:365"
+        },
+        {
+          "method": "sun.awt.X11.XDropTargetRegistry.registerDropSite",
+          "source": "XDropTargetRegistry.java:437"
+        },
+        {
+          "method": "sun.awt.X11.XDropTargetRegistry$1.run",
+          "source": "XDropTargetRegistry.java:466"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.callTimeoutTasks",
+          "source": "XToolkit.java:1341"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.run",
+          "source": "XToolkit.java:462"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.run",
+          "source": "XToolkit.java:438"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "number": 4,
+      "commentIndex": 32,
+      "bugId": "74095",
+      "date": "2005-06-21T09:35:34+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "bad position: 6",
+      "elements": [
+        {
+          "method": "javax.swing.text.JTextComponent.setCaretPosition",
+          "source": "JTextComponent.java:1398"
+        },
+        {
+          "method": "javax.swing.plaf.basic.BasicTextUI$TextDropTargetListener.updateInsertionLocation",
+          "source": "BasicTextUI.java:2124"
+        },
+        {
+          "method": "javax.swing.plaf.basic.BasicDropTargetListener.dragOver",
+          "source": "BasicDropTargetListener.java:233"
+        },
+        {
+          "method": "javax.swing.TransferHandler$SwingDropTarget.dragOver",
+          "source": "TransferHandler.java:590"
+        },
+        {
+          "method": "sun.awt.dnd.SunDropTargetContextPeer.processMotionMessage",
+          "source": "SunDropTargetContextPeer.java:439"
+        },
+        {
+          "method": "sun.awt.dnd.SunDropTargetContextPeer.access$600",
+          "source": "SunDropTargetContextPeer.java:53"
+        },
+        {
+          "method": "sun.awt.dnd.SunDropTargetContextPeer$EventDispatcher.dispatchMotionEvent",
+          "source": "SunDropTargetContextPeer.java:784"
+        },
+        {
+          "method": "sun.awt.dnd.SunDropTargetContextPeer$EventDispatcher.dispatchEvent",
+          "source": "SunDropTargetContextPeer.java:730"
+        },
+        {
+          "method": "sun.awt.dnd.SunDropTargetEvent.dispatch",
+          "source": "SunDropTargetEvent.java:29"
+        },
+        {
+          "method": "java.awt.Component.dispatchEventImpl",
+          "source": "Component.java:3826"
+        },
+        {
+          "method": "java.awt.Container.dispatchEventImpl",
+          "source": "Container.java:2024"
+        },
+        {
+          "method": "java.awt.Component.dispatchEvent",
+          "source": "Component.java:3803"
+        },
+        {
+          "method": "java.awt.LightweightDispatcher.retargetMouseEvent",
+          "source": "Container.java:4212"
+        },
+        {
+          "method": "java.awt.LightweightDispatcher.processDropTargetEvent",
+          "source": "Container.java:3963"
+        },
+        {
+          "method": "java.awt.LightweightDispatcher.dispatchEvent",
+          "source": "Container.java:3817"
+        },
+        {
+          "method": "java.awt.Container.dispatchEventImpl",
+          "source": "Container.java:2010"
+        },
+        {
+          "method": "java.awt.Window.dispatchEventImpl",
+          "source": "Window.java:1778"
+        },
+        {
+          "method": "java.awt.Component.dispatchEvent",
+          "source": "Component.java:3803"
+        },
+        {
+          "method": "java.awt.EventQueue.dispatchEvent",
+          "source": "EventQueue.java:463"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpOneEventForHierarchy",
+          "source": "EventDispatchThread.java:242"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEventsForHierarchy",
+          "source": "EventDispatchThread.java:163"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:157"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:149"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.run",
+          "source": "EventDispatchThread.java:110"
+        }
+      ],
+      "number": 5,
+      "commentIndex": 74,
+      "bugId": "74095",
+      "date": "2007-01-03T01:11:20+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.StackOverflowError",
+      "elements": [
+        {
+          "method": "sun.awt.X11.XlibWrapper.CallErrorHandler",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER",
+          "source": "XToolkit.java:131"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.GlobalErrorHandler",
+          "source": "XToolkit.java:142"
+        },
+        {
+          "method": "sun.awt.X11.XlibWrapper.CallErrorHandler",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.SAVED_ERROR_HANDLER",
+          "source": "XToolkit.java:131"
+        },
+        {
+          "method": "sun.awt.X11.XToolkit.GlobalErrorHandler",
+          "source": "XToolkit.java:142"
+        }
+      ],
+      "number": 6,
+      "commentIndex": 74,
+      "bugId": "74095",
+      "date": "2007-01-03T01:11:20+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    }
+  ],
+  "groupId": "74095",
+  "bugId": "74095",
+  "date": "2004-09-16T20:17:40+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "major"
+}

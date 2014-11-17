@@ -1,0 +1,55 @@
+{
+  "comments": [
+    "In a non-jared SWT case, when a plug-in requires SWT, it gets the following \nclasspath:\norg.eclipse.swt.gtk64/${ws}/swt.jar\norg.eclipse.swt.win32/${ws}/swt.jar\norg.eclipse.swt.macosx/${ws}/swt.jar\n\nThe ${ws} is of importance since it is being set by the caller resulting in \nonly one entry to be valid (since there is no such thing as \no.e.swt.win32/gtk64/swt.jar).\n\nHowever in jared form the classpath entries are\norg.eclipse.swt.gtk64/@dot\norg.eclipse.swt.win32/@dot\norg.eclipse.swt.macosx/@dot\n\nwhich leads to inconsistencies when plugins refer to internal classes (for \nexample ui.carbon).\n\n\nAll that could be fine",
+    "The band aid solution is to get the carbon fragment fixed.\n\nThe real solution would consist in changing pde build to take into account the \nplatform filters when adding a bundle to the classpath.\n",
+    "Pascal, what do you suggest for the Carbon fragment?",
+    "The carbon ui fragment does use the internal Callback class, but it really is\ntightly coupled with the SWT implementation on the Mac.\n\nI could change CarbonUIEnhancer to use a long to hold the result of\ngetAddress(), but I\u0027d have to cast it back down to int for the call to\nInstallEventHandler.\nI\u0027d prefer not to do so, since that risks losing information, and the fix\nwouldn\u0027t be correct for a 64-bit implementation.\n",
+    "Andre, have you had any discussions with the SWT team on making the following\nAPI on SWT-mac, or on them providing equivalent higher-level APIs?\n\nimport org.eclipse.swt.internal.Callback;\nimport org.eclipse.swt.internal.carbon.HICommand;\nimport org.eclipse.swt.internal.carbon.OS;\n\n",
+    "Yes, I briefly discussed with Steve (some time ago), to fold the functionality provided by the Carbon \nfragment into SWT.",
+    "I modified pde build to take platform filters into account.\nKim is running a test build.\nWe will soon find out the results.",
+    "Fixed.",
+    "In the last nightly build, the CarbonUIEnhancer compiled OK, but the following\ncase still occurred.  \n\njava.lang.NoSuchFieldError: handle\nat org.eclipse.ui.tests.keys.Bug43597Test.testFontReset(Bug43597Test.java:70)\n\nPascal and I have already discussed this one, and we thought it was the same\nproblem, that Font.handle was getting found as a long rather than an int.  It\ndoesn\u0027t fail at compile time because there\u0027s a long variant of assertEquals.\nThe line in question is:\n\n    assertEquals(\n         \"Clearing text resets font.\", fontBefore.handle, fontAfter.handle);\n//$NON-NLS-1$",
+    "Here is the situation\n1) the releng style build compile for all the platforms at once\n2) ui.tests is platform independent. Given 1), its classpath contains SWT and\nall the platform specific fragments in a random order. This is fine since SWT\nprovides the same API in all its fragments. Therefore any class will be correct.\n3) Font.handle is not API, but the implementation varies from platform to\nplatform (on gtk64 it a long instead of being an int).\n\nEven if we were to make the test compile and run on win32, it will fail in a\nsimilar way if we were to run it on gtk64...\n\nGiven that what you are expressing in using this internal is: I rely on non 64\nbits platform, the only solution to solve this problem (aside from deleting the\ntest) is to put this test in a fragment specific plugin (this is the approach\nused by Andre in the ui.carbon plug-in).\n",
+    "I\u0027ve filed bug 88872 to fix up the test.\n",
+    "All support for that has been released and is working."
+  ],
+  "commentCreationDates": [
+    "2005-03-18T22:54:26+01:00",
+    "2005-03-18T22:56:14+01:00",
+    "2005-03-20T15:06:10+01:00",
+    "2005-03-21T01:03:59+01:00",
+    "2005-03-21T01:05:40+01:00",
+    "2005-03-21T08:33:07+01:00",
+    "2005-03-21T19:44:32+01:00",
+    "2005-03-23T00:48:32+01:00",
+    "2005-03-23T14:42:31+01:00",
+    "2005-03-23T15:21:27+01:00",
+    "2005-03-23T16:04:40+01:00",
+    "2005-03-23T19:50:11+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoSuchFieldError",
+      "message": "handle",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.tests.keys.Bug43597Test.testFontReset",
+          "source": "Bug43597Test.java:70"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 8,
+      "bugId": "88532",
+      "date": "2005-03-23T14:42:31+01:00",
+      "product": "PDE",
+      "component": "Build",
+      "severity": "major"
+    }
+  ],
+  "groupId": "88532",
+  "bugId": "88532",
+  "date": "2005-03-18T22:54:26+01:00",
+  "product": "PDE",
+  "component": "Build",
+  "severity": "major"
+}

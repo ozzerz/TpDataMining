@@ -1,0 +1,49 @@
+{
+  "comments": [
+    "This was recently observed while launching the framework...\n\njava.io.IOException: Could not save file table.\n  at org.eclipse.osgi.storagemanager.StorageManager.save(StorageManager.java:560)\n  at org.eclipse.osgi.storagemanager.StorageManager.add(StorageManager.java:234)\n  at org.eclipse.osgi.storagemanager.StorageManager.closeOutputStream(StorageManager.java:892)\n\nThe problem is from this code in StorageManager\u0027s save() method...\n\n  ...\n  ReliableFileOutputStream fileStream \u003d new ReliableFileOutputStream(tableFile);\n  try {\n   boolean error \u003d true;\n   try {\n    props.store(fileStream, \"safe table\"); //$NON-NLS-1$\n    fileStream.close();\n    error \u003d false;\n   } finally {\n    if (error)\n     fileStream.abort();\n   }\n  } catch (IOException e) {\n   throw new IOException(EclipseAdaptorMsg.fileManager_couldNotSave);\n  }\n  ...\n\nTo top most stack frame points at line 560, which is this line:\n   throw new IOException(EclipseAdaptorMsg.fileManager_couldNotSave);\n\nThis, of course, results in the orginal IOException being discarded and a new one with the message \"Could not save file table\" thrown instead.  This is unfortunate, since it makes it impossible to diagnose the cause.\n\nSince neither the OSGi Min nor the OSGi Foundation execution environments allow the cause Exception to be passed to the newly created exception (that\u0027s a relatively newish capability), a better approach is to simply allow the original exeception to be thrown.  Alternatively, the error \"Could not save file table\" could be written to the LogService (or some such log) and then the original exception re-thrown from the catch block.\n\nEither way, we need to prevent the oringal cause from being lost.",
+    "Created an attachment (id\u003d81723)\npatch\n\nThere are a few places in the StorageManager where we catch and rethrow the original IOException.  Not sure why they do that unnecessary catch.  In this particular case the IOException is caught and we simple throw a new IOException with a silly error message which is not very useful.  I think the best thing to do is to just allow the original IOException be thrown.  Other areas of the code do allow the original IOException to be thrown which is more logical since it has the correct context of the exception.",
+    "Will release for M4.",
+    "Sounds great.  Thank you, Tom.",
+    "Patch released for 3.4 M4."
+  ],
+  "commentCreationDates": [
+    "2007-10-26T19:55:51+02:00",
+    "2007-10-31T16:31:52+01:00",
+    "2007-10-31T16:32:33+01:00",
+    "2007-10-31T16:59:37+01:00",
+    "2007-11-05T17:50:09+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.IOException",
+      "message": "Could not save file table.",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.storagemanager.StorageManager.save",
+          "source": "StorageManager.java:560"
+        },
+        {
+          "method": "org.eclipse.osgi.storagemanager.StorageManager.add",
+          "source": "StorageManager.java:234"
+        },
+        {
+          "method": "org.eclipse.osgi.storagemanager.StorageManager.closeOutputStream",
+          "source": "StorageManager.java:892"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "207599",
+      "date": "2007-10-26T19:55:51+02:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "207599",
+  "bugId": "207599",
+  "date": "2007-10-26T19:55:51+02:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "normal"
+}

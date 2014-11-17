@@ -1,0 +1,161 @@
+{
+  "comments": [
+    "If you navigate directly to the end of a virtual table, you can bypass the\nassociation of table items to model elements.  If you then reset the input on\nthe viewer, the code disassociates all table items from their model elements. \nBut, it asserts that an association had previously been made.\n\nA sample program is attached: instructions print to System.out.\n\nA potential patch for StructuredViewer is attached.\n\nIvor\n\u003d\u003d\u003d\u003d\u003d Sample program \u003d\u003d\u003d\u003d\u003d\npackage virtualtable;\n\nimport org.eclipse.jface.viewers.ILabelProviderListener;\nimport org.eclipse.jface.viewers.IStructuredContentProvider;\nimport org.eclipse.jface.viewers.ITableLabelProvider;\nimport org.eclipse.jface.viewers.TableViewer;\nimport org.eclipse.jface.viewers.Viewer;\nimport org.eclipse.jface.window.ApplicationWindow;\nimport org.eclipse.swt.SWT;\nimport org.eclipse.swt.events.SelectionAdapter;\nimport org.eclipse.swt.events.SelectionEvent;\nimport org.eclipse.swt.graphics.Image;\nimport org.eclipse.swt.graphics.Point;\nimport org.eclipse.swt.widgets.Composite;\nimport org.eclipse.swt.widgets.Control;\nimport org.eclipse.swt.widgets.Shell;\nimport org.eclipse.swt.widgets.Table;\nimport org.eclipse.swt.widgets.TableColumn;\n\npublic class Main extends ApplicationWindow {\n\n\tprivate static final int HEIGHT \u003d 200;\n\tprivate static final int WIDTH \u003d 400;\n\t\n\tpublic static void main(String[] args) {\n\t\tSystem.out.println(\n\t\t\t\"To recreate the assertion failure bug:\\n\"\n\t\t\t+ \"- Press End to navigate to the end of the table without calling\nTableItem.setData() on some items\\n\"\n\t\t\t+ \"- Press Enter to call TableViewer.setInput()\\n\"\n\t\t\t+ \"- StructuredViewer.disassociate(TableItem) asserts that data has been set\\n\"\n\t\t);\n\t\tnew Main().open();\n    }\n\t\n\tpublic Main() {\n\t\tsuper(null);\n\t\tsetBlockOnOpen(true);\n    }\n\n    protected void configureShell(Shell shell) {\n\t\tsuper.configureShell(shell);\n\t\tshell.setText(\"Virtual Table test program\");\n\t}\n    \n\tprotected Control createContents(Composite parent) {\n\t\tTable table \u003d new Table(parent, SWT.VIRTUAL);\n\t\tTableColumn column \u003d new TableColumn(table, SWT.NONE);\n\t\tcolumn.setWidth(WIDTH);\n\t\t\n\t\tfinal TableViewer viewer \u003d new TableViewer(table);\n\t\tviewer.setContentProvider(contentProvider);\n\t\tviewer.setLabelProvider(labelProvider);\n\t\tviewer.setInput(model);\n\n\t\ttable.addSelectionListener(new SelectionAdapter() {\n\t\t\tpublic void widgetDefaultSelected(SelectionEvent e) {\n\t\t\t\tSystem.out.println(\"calling viewer.setInput()\");\n\t\t\t\tviewer.setInput(model);\n\t\t\t}\n\t\t});\n\t\t\n\t\treturn table;\n\t}\n\t\n\tprotected Point getInitialSize() {\n\t\treturn new Point(WIDTH, HEIGHT);\n\t}\n\n\t\n\t\n\t\n\t// Simple model and providers\n\tprivate final String[] model \u003d new String[200];\n\t{\n\t\tfor (int i \u003d 0; i \u003c model.length; i++) {\n\t\t\tmodel[i] \u003d \"element#\" + i;\n\t\t}\n\t}\n\t\n    private IStructuredContentProvider contentProvider \u003d new\nIStructuredContentProvider() {\n\t\tpublic void dispose() {}\n\t\tpublic Object[] getElements(Object inputElement) {\n\t\t\treturn (Object[]) inputElement;\n\t\t}\n\t\tpublic void inputChanged(Viewer viewer, Object oldInput, Object newInput) {}\n\t};\n\t\n\tprivate ITableLabelProvider labelProvider \u003d new ITableLabelProvider() {\n\t\tpublic void addListener(ILabelProviderListener listener) {}\n\t\tpublic void dispose() {}\n\t\tpublic Image getColumnImage(Object element, int columnIndex) {\n\t\t\treturn null;\n\t\t}\n\t\tpublic String getColumnText(Object element, int columnIndex) {\n\t\t\treturn (String) element;\n\t\t}\n\t\tpublic boolean isLabelProperty(Object element, String property) {\n\t\t\treturn false;\n\t\t}\n\t\tpublic void removeListener(ILabelProviderListener listener) {}\n\t};\n\t\n}\n\u003d\u003d\u003d\u003d\u003d Potential patch \u003d\u003d\u003d\u003d\u003d\nIndex: src/org/eclipse/jface/viewers/StructuredViewer.java\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\nRCS file:\n/home/eclipse/org.eclipse.jface/src/org/eclipse/jface/viewers/StructuredViewer.java,v\nretrieving revision 1.33\ndiff -u -r1.33 StructuredViewer.java\n--- src/org/eclipse/jface/viewers/StructuredViewer.java\t1 Dec 2004 15:07:58\n-0000\t1.33\n+++ src/org/eclipse/jface/viewers/StructuredViewer.java\t20 Dec 2004 00:05:24 -0000\n@@ -497,10 +497,11 @@\n \t */\n \tprotected void disassociate(Item item) {\n \t\tObject element \u003d item.getData();\n-\t\tAssert.isNotNull(element);\n-\t\t//Clear the map before we clear the data\n-\t\tunmapElement(element, item);\n-\t\titem.setData(null);\n+\t\tif (element !\u003d null) {\n+\t\t\t//Clear the map before we clear the data\n+\t\t\tunmapElement(element, item);\n+\t\t\titem.setData(null);\n+\t\t}\n \t}\n \n \t/**",
+    "The same assertion fails for me when I have a virtual table with a sorter. When\nI scroll a bit around in it , and then refresh using a different sort criterium\n(sort by different colun), I get the following:\n\norg.eclipse.jface.util.Assert$AssertionFailedException: null argument;\n\tat org.eclipse.jface.util.Assert.isNotNull(Assert.java:149)\n\tat org.eclipse.jface.util.Assert.isNotNull(Assert.java:125)\n\tat\norg.eclipse.jface.viewers.StructuredViewer.disassociate(StructuredViewer.java:500)\n\tat org.eclipse.jface.viewers.TableViewer.internalRefresh(TableViewer.java:750)\n\tat org.eclipse.jface.viewers.TableViewer.internalRefresh(TableViewer.java:706)\n\tat org.eclipse.jface.viewers.StructuredViewer$7.run(StructuredViewer.java:1172)\n\tat\norg.eclipse.jface.viewers.StructuredViewer.preservingSelection(StructuredViewer.java:1109)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java:1170)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java:1129)\n\tat\ncom.artnology.kunstdb.ui.views.BestandView$ColumnSelectedListener.widgetSelected(BestandView.java:127)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:89)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:833)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2809)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2454)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1569)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1540)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:285)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:144)\n\tat com.artnology.kunstdb.ui.UiApplication.run(UiApplication.java:25)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:220)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:273)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:129)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n\tat org.eclipse.core.launcher.Main.run(Main.java:710)\n\tat org.eclipse.core.launcher.Main.main(Main.java:694)\n\nMaybe this deserves \"major\" severity, as it makes any application using virtual\ntables with sorters very very unstable.",
+    "You should not use a sorter or a filter with a virtual table for exactly this \nreason - it is a really ineffecient way to sort even if we did make it work - \nyou should handle that in your content provider.\n\nWe have bandied about the idea of adding an assertion to setSorter and \nsetFilter to throw an exception if this is done with a virtual table but I \nthought that too aggressive. We should at least put a warning on this API.",
+    "With I20050118-1015, the assertion does not fail anymore when using a sorter and\nrefreshing after scrolling a bit. I don\u0027t know about the test in the original\nreport, I didn\u0027t try it. Maybe Ivor wants to try it again with I20050118-1015?",
+    "Thanks, Tod.  org.eclipse.jface v20051108-0800 does indeed solve my problem.\n\nMy example used neither sorter nor filter, but here\u0027s my $0.02: as long as the\nsolution prohibits the use of either, the assertion is the way to go.\n\nIvor\n",
+    "Thanks Ivor. We have made getSortedChildren throw an Assertion failed now if \nan ILazyContentProvider is in use. This doesnt affect people using the current \ncontent providers as we still allow sorting and filtering with them.",
+    "Verified in 20050215-2300"
+  ],
+  "commentCreationDates": [
+    "2004-12-20T00:14:01+01:00",
+    "2005-01-21T14:55:56+01:00",
+    "2005-01-21T16:36:09+01:00",
+    "2005-01-21T18:27:34+01:00",
+    "2005-01-28T00:49:24+01:00",
+    "2005-01-28T12:57:41+01:00",
+    "2005-02-16T20:11:04+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.jface.util.Assert$AssertionFailedException",
+      "message": "null argument;",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.util.Assert.isNotNull",
+          "source": "Assert.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.util.Assert.isNotNull",
+          "source": "Assert.java:125"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.disassociate",
+          "source": "StructuredViewer.java:500"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TableViewer.internalRefresh",
+          "source": "TableViewer.java:750"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TableViewer.internalRefresh",
+          "source": "TableViewer.java:706"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$7.run",
+          "source": "StructuredViewer.java:1172"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.preservingSelection",
+          "source": "StructuredViewer.java:1109"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java:1170"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java:1129"
+        },
+        {
+          "method": "com.artnology.kunstdb.ui.views.BestandView$ColumnSelectedListener.widgetSelected",
+          "source": "BestandView.java:127"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:89"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:833"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2809"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2454"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1569"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1540"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:285"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:144"
+        },
+        {
+          "method": "com.artnology.kunstdb.ui.UiApplication.run",
+          "source": "UiApplication.java:25"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:220"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:129"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:710"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:694"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "81621",
+      "date": "2005-01-21T14:55:56+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "81621",
+  "bugId": "81621",
+  "date": "2004-12-20T00:14:01+01:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

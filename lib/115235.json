@@ -1,0 +1,106 @@
+{
+  "comments": [
+    "The code below overflows when concretizing a circular pointcut from a\nparameterized aspect.  Not true when the aspect is not parameterized.\n\n---------------------------------------------\npublic class SelfPC {\n\n\tpublic static void main(String[] args) {\n\t\tnew C().foo();\n\t}\n\tstatic class C { \n\t\tpointcut doit() : C.doit(); // CE expected\n\t\tvoid foo() {} \n\t}\n\t\n\t// ------------ pertarget\u003cT\u003e\n\tstatic abstract aspect PT_PARM\u003cT\u003e pertarget(pc()) {\n\t\tabstract protected pointcut pc();\n\t\tbefore() : pc() {}\n\t}\n\tstatic aspect CPT_PARM extends PT_PARM\u003cC\u003e {\n\t\tprotected pointcut pc() : C.doit();\n\t}\n\t\n//\t// ------------ issingleton\u003cT\u003e\n//\tstatic abstract aspect IS_PARM\u003cT\u003e {\n//\t\tabstract protected pointcut pc();\n//\t\tbefore() : pc() {}\n//\t}\n//\tstatic aspect CIS_PARM extends IS_PARM\u003cC\u003e {\n//\t\tprotected pointcut pc() : C.doit();\n//\t}\n//\t// ------------ pertarget\n//\tstatic abstract aspect PT pertarget(pc()) {\n//\t\tabstract protected pointcut pc();\n//\t\tbefore() : pc() {}\n//\t}\n//\tstatic aspect CPT extends PT{\n//\t\tprotected pointcut pc() : C.doit();\n//\t}\n//\t// ------------ issingleton\n//\tstatic abstract aspect SIS {\n//\t\tabstract protected pointcut pc();\n//\t\tbefore() : pc() {}\n//\t}\n//\tstatic aspect CSIS extends SIS {\n//\t\tprotected pointcut pc() : C.doit();\n//\t}\n\n}\n---------------------------------------------\njava.lang.StackOverflowError\nat java.lang.StringBuffer.append(StringBuffer.java:225)\nat org.aspectj.weaver.UnresolvedType.nameToSignature(UnresolvedType.java:734)\nat org.aspectj.weaver.UnresolvedType.forName(UnresolvedType.java:308)\nat\norg.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.fromBinding(EclipseFactory.java:302)\nat\norg.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.fromEclipse(EclipseFactory.java:129)\nat\norg.aspectj.ajdt.internal.compiler.lookup.EclipseSourceType.getSuperclass(EclipseSourceType.java:119)\nat org.aspectj.weaver.ReferenceType.getSuperclass(ReferenceType.java:481)\nat org.aspectj.weaver.ResolvedType.getDirectSupertypes(ResolvedType.java:65)\nat org.aspectj.weaver.ResolvedType$6.get(ResolvedType.java:447)\nat org.aspectj.weaver.Iterators$4.next(Iterators.java:148)\nat org.aspectj.weaver.Iterators$3$1.hasNext(Iterators.java:117)\nat org.aspectj.weaver.Iterators$3.hasNext(Iterators.java:128)\nat org.aspectj.weaver.ResolvedType.findPointcut(ResolvedType.java:466)\nat\norg.aspectj.weaver.patterns.ReferencePointcut.concretize1(ReferencePointcut.java:269)\nat org.aspectj.weaver.patterns.Pointcut.concretize(Pointcut.java:229)\nat\norg.aspectj.weaver.patterns.ReferencePointcut.concretize1(ReferencePointcut.java:326)\nat org.aspectj.weaver.patterns.Pointcut.concretize(Pointcut.java:229)\n...\n---------------------------------------------",
+    "I\u0027ve managed to recreate the problem with the following simplified testcase:\n\nabstract aspect ParameterizedAbstractAspect\u003cT\u003e{\n\tabstract protected pointcut pc();\n\tbefore() : pc() {}\n}\n\naspect ParameterizedConcrete extends\nParameterizedAbstractAspect\u003cParameterizedConcrete\u003e {\n\tprotected pointcut pc() : pc();\n}\n\nThe reason the StackOverflowError is occuring is in\nReferencePointcut.concretize1(...). In this method, there is a flag called\n\"concretizing\" which is initially false but is set to true when concretizing is\ntaking place. The method begins with a check on whether or not \"concretizing\" is\ntrue and if it is then the expected error message is produced - \u0027circular\npointcut declaration involving: pc()\u0027 type message. If it\u0027s false, then we go\nahead and try to concretize. \n\nThe part of the method which is causing the problems is:\n\nPointcut ret \u003d pointcutDec.getPointcut();\nif (typeVariableMap !\u003d null) ret \u003d ret.parameterizeWith(typeVariableMap);\nreturn ret.concretize(searchStart, declaringType, newBindings);\n\n(note that the implementation of concretize calls the concretize1 method).\nIf the aspect is not parameterized then typeVariableMap \u003d\u003d null. However, if it\nis parameterized then typeVariableMap is non-null. In this case, ret becomes a\nnew object (due to the implementation of\nReferencePointcut.parameterizeWith(..)). So, for example, if we\u0027re looking at\nnon-parameterized aspects, we get the following info at the trouble spot in\nconcretize1:\n\nfirst pass in concretize1:  this: id \u003d 144 concretizing is set to true, \n                            ret : id \u003d 176 concretizing is still false\nsecond pass in concretize1: this: id \u003d 176 concretizing is set to true\n                            ret : id \u003d 176 concretizing is still true\nthird pass in concretize1:  this: id \u003d 176 concretizing is true so get compiler \n                                           warning as expected\n\nHowever, if we\u0027re looking at parameterized aspects, we get the following:\n\nfirst pass in concretize1:  \n  this                                     : id \u003d 47 concretizing is set to true\n  ret (before call to parameterizeWith(..) : id \u003d 92 concretizing is false\n  ret (after call to parameterizeWith(..)  : id \u003d 95 concretizing is false\n \nsecond pass in concretize1:  \n  this                                     : id \u003d 95 concretizing is set to true\n  ret (before call to parameterizeWith(..) : id \u003d 92 concretizing is false\n  ret (after call to parameterizeWith(..)  : id \u003d 135 concretizing is false\n\nthird pass in concretize1:  \n  this                                     : id \u003d 135 concretizing set to true\n  ret (before call to parameterizeWith(..) : id \u003d 92 concretizing is false\n  ret (after call to parameterizeWith(..)  : id \u003d 147 concretizing is false\n\nthis goes on and on..... and hence the StackOverflowError.",
+    "The fix is to add a protected boolean field hasBeenParameterized to the abstract\nclass Pointcut. Then add an extra check in the problem code mentioned in comment\n#1, changing it from \n\nif (typeVariableMap !\u003d null) ret \u003d ret.parameterizeWith(typeVariableMap);\n\nto\n\nif (typeVariableMap !\u003d null \u0026\u0026 !hasBeenParameterized) {\t\t\t\t\t\n    ret \u003d ret.parameterizeWith(typeVariableMap);\n    ret.hasBeenParameterized\u003dtrue;\n}\n\nIt is necessary to update the field here rather than in the\nReferencePointcut.parameterizeWith(...) method, because parameterizeWith is\ncalled several times from different places whereas you only concretize once.",
+    "Created an attachment (id\u003d29852)\npatch containing fix\n\nApply the patch to the weaver project.\n\nThe patch contains the fix described in the previous comment.",
+    "Created an attachment (id\u003d29853)\npatch containing testcases\n\nApply this patch to the tests project.\n\nThis patch contains the original failing testcase in file pr115325.aj. I\u0027ve\nalso included another testcase in file pr115325b.aj which came about from me\ninvestigating difference scenarios. I\u0027m not sure whether it should be included\nin the suite, however, I thought I would include it in the patch just in case\n:-)",
+    "fix available."
+  ],
+  "commentCreationDates": [
+    "2005-11-06T12:26:57+01:00",
+    "2005-11-09T13:41:57+01:00",
+    "2005-11-14T09:38:45+01:00",
+    "2005-11-14T09:39:42+01:00",
+    "2005-11-14T09:42:10+01:00",
+    "2005-11-15T11:39:05+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StackOverflowError",
+      "elements": [
+        {
+          "method": "java.lang.StringBuffer.append",
+          "source": "StringBuffer.java:225"
+        },
+        {
+          "method": "org.aspectj.weaver.UnresolvedType.nameToSignature",
+          "source": "UnresolvedType.java:734"
+        },
+        {
+          "method": "org.aspectj.weaver.UnresolvedType.forName",
+          "source": "UnresolvedType.java:308"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.fromBinding",
+          "source": "EclipseFactory.java:302"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.fromEclipse",
+          "source": "EclipseFactory.java:129"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.EclipseSourceType.getSuperclass",
+          "source": "EclipseSourceType.java:119"
+        },
+        {
+          "method": "org.aspectj.weaver.ReferenceType.getSuperclass",
+          "source": "ReferenceType.java:481"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getDirectSupertypes",
+          "source": "ResolvedType.java:65"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType$6.get",
+          "source": "ResolvedType.java:447"
+        },
+        {
+          "method": "org.aspectj.weaver.Iterators$4.next",
+          "source": "Iterators.java:148"
+        },
+        {
+          "method": "org.aspectj.weaver.Iterators$3$1.hasNext",
+          "source": "Iterators.java:117"
+        },
+        {
+          "method": "org.aspectj.weaver.Iterators$3.hasNext",
+          "source": "Iterators.java:128"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.findPointcut",
+          "source": "ResolvedType.java:466"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.ReferencePointcut.concretize1",
+          "source": "ReferencePointcut.java:269"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.concretize",
+          "source": "Pointcut.java:229"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.ReferencePointcut.concretize1",
+          "source": "ReferencePointcut.java:326"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.concretize",
+          "source": "Pointcut.java:229"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "115235",
+      "date": "2005-11-06T12:26:57+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "115235",
+  "bugId": "115235",
+  "date": "2005-11-06T12:26:57+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

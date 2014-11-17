@@ -1,0 +1,113 @@
+{
+  "comments": [
+    "I20050509-2010\n\nI am able to produce timeout exceptions by stepping in a method while a \nlogical structure is displayed for a Vector. Stepping quickly - allow the UI \nto start to update and then step again - seems to cause the problem. I am not \nholding down the step key. This may be flooding the target with requests as \nthe views are attempting to update as the next step starts.",
+    "*** Bug 95707 has been marked as a duplicate of this bug. ***",
+    "It may be possible that multiple threads are waiting for a JDWP reply. When a \nreply packet is received a notifyAll() is performed in the receive manager \nwhich will let one thread check the reply packet queue. If the reply is not \nfor the thread that was waiting, it goes into a wait again, but does not \nnotify to allow another waiting thread to check the reply queue.\n\nBy putting a notifyAll() before waiting for a packet, I no longer get timeout \nexceptions. This allows any other waiting threads to check the queue.",
+    "False lead - the notifyAll performed when a reply packet is received should \nhave the desired effect of waking all waiting threads.",
+    "A few findings:\n\n* When invoking a method in the target VM to perform a \u0027toString()\u0027 or compute \na logical structure, we set the request timeout to infinite. This has the side \neffect of causing other requests to the VM to use the infinite timeout as well \n(if the requests come in while performing the method invocation). We should \nonly use the infinite timeout for methdod invocations.\n* The timeouts that are occurring are somewhere between 3 and 5 seconds on my \nmachine. Increasing the timeout value reduces the occurrence of the problem.\n* method invocations seem pretty quick - usually less than 10ms on my machine\n* it appears that in my test case, ArrayReference.getValues() is timing out \nthe most.\n* I can\u0027t get the problem to occurr on J9, only Sun VMs.",
+    "more notes:\n\n* I\u0027m not sure why \"array.getValues\" is timing out\n* When I turn off logical structures and simply expand the raw list to show \nits array, the timeout does not occurr as often",
+    "*** Bug 94503 has been marked as a duplicate of this bug. ***",
+    "*** Bug 98550 has been marked as a duplicate of this bug. ***",
+    "Nothing planned for 3.1. We have no difinitive fixes. Note that the timeouts \nseem to occurr on the Sun VM, but not on the IBM/J9 VM.",
+    "Why didn\u0027t the timeout happen with older versions of Eclipse? Or did they?",
+    "Timeouts did occurr in older versions of Eclipse, but not as fequently (at \nleast that\u0027s my impression). In 3.1, we do more work in background threads in \nthe debugger which may put extra demands on the target (i.e. more requests \ncoming from the front end at once). This may be the reason for the timeouts \n(but the problem needs more investigation). As well, it\u0027s not clear to me why \nthe timeouts seem to occurr on Sun VMs, but not IBM VMs.",
+    "FYI, both IBM Sovereign and J9 VMs (at least have similar problem, they only\nfail faster so you do not obviously notice the failure. The exception that you\nget is\n\n!ENTRY org.eclipse.jdt.debug 4 120 2005-06-21 09:09:24.672\n!MESSAGE Internal error logged from JDI Debug: \n!STACK 1\norg.eclipse.debug.core.DebugException: Evaluation failed - thread not suspended.\n\tat\norg.eclipse.jdt.internal.debug.core.model.JDIDebugElement.throwDebugException(JDIDebugElement.java:200)\n\tat\norg.eclipse.jdt.internal.debug.core.model.JDIDebugElement.requestFailed(JDIDebugElement.java:158)\n\tat\norg.eclipse.jdt.internal.debug.core.model.JDIThread.runEvaluation(JDIThread.java:555)\n\tat\norg.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$EvalRunnable.run(ASTEvaluationEngine.java:389)\n\tat\norg.eclipse.jdt.internal.debug.core.model.JDIThread$ThreadJob.run(JDIThread.java:2446)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)\n!SUBENTRY 1 org.eclipse.jdt.debug 4 100 2005-06-21 09:09:24.672\n!MESSAGE Evaluation failed - thread not suspended.",
+    "The failure in comment#11 is not a timeout - it shows an evaluation could not \ncomplete because a thread was not suspended. The same happens on Sun VMs.",
+    "Additional info - the problem appears to happen on my hyper-threaded P4 3GHz \nmachine, but not my T30 laptop. As well, does not happen on Kevin\u0027s P4 2.6GHz \nmachine either.",
+    "Great - so much for having a nice machine!",
+    "Created an attachment (id\u003d23670)\nPatch allows to gather JDWP traffic info\n\nAttaching a patch I used to gather some JDWP traffic info. Patch is just to\nallow me to see what sort of messaging is going on with the target when a\ntimeout occurrs.\n\nFor my test case that causes the timeouts, I found we are usually retrieving\nmany values from an array individually. A quick hack that coallesses the\nretrieval of values (100 at a time) makes the timeout problem disappear\n(however, my hack was not robust).",
+    "Created an attachment (id\u003d23787)\npatch to measure thru put\n\nadditional stat gathering code",
+    "We tested the hypothesis that we were flooding the VM with JDWP requests. The \nSun VM seemed to peak at handling about 1350 requests per second, and J9 \npeaked at about 2800 requests per second. However, simply sending requests \nacross the wire as fast as possible did not cause timeouts to occurr. Only \nwhen the requests were interleaved from different threads did the timeouts \noccurr.\n\nWe then found that when we synchronized request sending with response \nreceiving that the timeouts did not occurr. I.e. don\u0027t send request 2 until \nresponse 1 is received (or times out).\n\nI will attach a binary plug-in with the \u0027synch\u0027 behavior that users may test \nand provide feedback with.",
+    "Created an attachment (id\u003d23788)\nzip of replacement org.eclipse.jdt.debug plug-in\n",
+    "Additional note - the fix is quite simple in terms of code. We only allow one \nthread to send and wait for a reply at once. There is only one place in our \nJDI client where this happens, so we can create a synchronized block around \nthe send/receive on a global lock object. This still allows events to be \nreceived from the VM at the same time (so sending a request does not interfere \nwith events being fired from the VM). To our knowledge, we don\u0027t know of any \nsituation where one JDWP request relies on another to be sent at the same time \n(i.e. potential for deadlock).",
+    "Created an attachment (id\u003d23789)\nCode patch for org.eclipse.jdt.debug\n",
+    "*** Bug 101430 has been marked as a duplicate of this bug. ***",
+    "I have a test case that floods a target from three separate threads for \nrequests to get values from an array iteratively. The tests fail on Sun and J9 \nVMs without the synch fix. With the synch fix, all VMs pass the test.\n\nThe strange thing is that the JDWP spec explicitly claims to be async: \"The \nJDWP is asynchronous; multiple command packets may be sent before the first \nreply packet is received.\"\n\nIn practice, this does not seem to be the case.\n\nI have modified my original patch to have one \"communication\" lock per VM \nrather than one communication lock for all VMs.",
+    "Targeting fix for 3.1.1. Synchronization change needs more testing in the \nfield (too late/risky to put into 3.1).",
+    "Created an attachment (id\u003d23853)\npatch\n\nUpdated code patch that sync\u0027s per VM rather than for all VMs",
+    "Created an attachment (id\u003d23855)\nAutomated test (in progress)\n\nA test that can be used to flood a target. Starting point for adding a test to\nautomated test suite.",
+    "I\u0027ve been using the two patched versions of debug plugin for two days total and \ndidn\u0027t see any timeout exceptions or any other problems. My vote is for \nincluding the fix in 3.1.",
+    "Created an attachment (id\u003d23975)\nTest using jdi client directly\n\nWrote a quick test that uses JDI directly instead of using Eclipse. Though JDI\nwill not timeout like Eclipse does, I have not yet seen any unreasonable\nresults from flooding the target this way (ie nothing approaching 3s). I\u0027ve\ntested on Windows/Sun 1.4.2 and OS X/Apple 1.4.2.\n\nNotes:\n-code needs tools.jar/classes.jar to compile and run. \n-code cannot be run with eclipse\u0027s JDI client due to bug 101686",
+    "Created an attachment (id\u003d25416)\nProject with stand alone JDI test\n\nZip of project with standalone JDI test that shows problem. Test uses three\nthreads to pound VM for values in an array. The VM appears to respond with\nintermittent delays (that cause timeouts using Eclipse JDI client). Problem\noccurss on P4 Hyper threaded machine with more fequency. Problem occurrs more\nfequently on Sun VM than IBM J9 VM.",
+    "Nothing planned for 3.1.1 as we have no difinitive fix available. Marking as \n3.2.",
+    "Deferred. This problem occurrs less often using current 3.2 builds (perhaps because we use SWT.VIRTUAL trees, and create less labels/less requests on the target)."
+  ],
+  "commentCreationDates": [
+    "2005-05-10T20:06:05+02:00",
+    "2005-05-18T14:56:31+02:00",
+    "2005-05-30T18:20:27+02:00",
+    "2005-05-31T22:37:59+02:00",
+    "2005-06-01T17:16:47+02:00",
+    "2005-06-01T17:25:26+02:00",
+    "2005-06-02T20:03:39+02:00",
+    "2005-06-13T15:35:46+02:00",
+    "2005-06-20T22:59:00+02:00",
+    "2005-06-20T23:10:44+02:00",
+    "2005-06-20T23:14:02+02:00",
+    "2005-06-21T15:14:44+02:00",
+    "2005-06-21T15:33:17+02:00",
+    "2005-06-21T18:53:23+02:00",
+    "2005-06-21T19:38:29+02:00",
+    "2005-06-21T22:55:58+02:00",
+    "2005-06-22T23:44:42+02:00",
+    "2005-06-22T23:48:14+02:00",
+    "2005-06-22T23:52:46+02:00",
+    "2005-06-23T00:00:18+02:00",
+    "2005-06-23T00:03:15+02:00",
+    "2005-06-23T14:46:27+02:00",
+    "2005-06-23T15:49:21+02:00",
+    "2005-06-23T16:35:16+02:00",
+    "2005-06-23T17:07:01+02:00",
+    "2005-06-23T17:08:02+02:00",
+    "2005-06-24T02:57:58+02:00",
+    "2005-06-24T22:42:24+02:00",
+    "2005-07-28T18:12:46+02:00",
+    "2005-09-14T16:55:26+02:00",
+    "2006-03-30T21:47:43+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.debug.core.DebugException",
+      "message": "Evaluation failed - thread not suspended.",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.throwDebugException",
+          "source": "JDIDebugElement.java:200"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.requestFailed",
+          "source": "JDIDebugElement.java:158"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread.runEvaluation",
+          "source": "JDIThread.java:555"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$EvalRunnable.run",
+          "source": "ASTEvaluationEngine.java:389"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread$ThreadJob.run",
+          "source": "JDIThread.java:2446"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 11,
+      "bugId": "94452",
+      "date": "2005-06-21T15:14:44+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "94452",
+  "bugId": "94452",
+  "date": "2005-05-10T20:06:05+02:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

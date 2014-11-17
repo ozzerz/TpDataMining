@@ -1,0 +1,212 @@
+{
+  "comments": [
+    "the following NPE occurs on selected platform object implementations that return \nassociated IResource references indirectly via an IContributorResourceAdapter \ninstance on a call to getAdapter(Class).\n\njava.lang.NullPointerException\nat org.eclipse.ui.internal.dialogs.ResourceInfoPage.\ncreateContents(ResourceInfoPage.java:175)\nat org.eclipse.jface.preference.PreferencePage.createControl(PreferencePage.jav\na:215)\nat org.eclipse.jface.preference.PreferenceDialog.showPage(PreferenceDialog.java\n:1016)\nat org.eclipse.jface.preference.PreferenceDialog.selectSavedItem(PreferenceDial\nog.java:703)\nat org.eclipse.jface.preference.PreferenceDialog$3.run(PreferenceDialog.java:32\n9)\nat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\nat org.eclipse.jface.preference.PreferenceDialog.createContents(PreferenceDialo\ng.java:324)\nat org.eclipse.jface.window.Window.create(Window.java:302)\nat org.eclipse.ui.dialogs.PropertyDialogAction.run(PropertyDialogAction.java:16\n1)\nat com.\u003cmyfirm\u003e.team.starteam.ui.internal.actions.PropertyDialogActionDelegate.\nexecute(PropertyDialogActionDelegate.java:156)\nat com.\u003cmyfirm\u003e.team.starteam.ui.internal.actions.\u003cMyProduct\u003eActionDelegate.run\n(StarTeamActionDelegate.java:86)\nat org.eclipse.ui.actions.ActionDelegate.runWithEvent(ActionDelegate.java:71)\nat org.eclipse.ui.internal.PluginAction.runWithEvent(PluginAction.java:241)\nat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(Action\nContributionItem.java:456)\nat org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent(ActionCont\nributionItem.java:403)\nat org.eclipse.jface.action.ActionContributionItem.access$0(ActionContributionI\ntem.java:397)\nat org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent(A\nctionContributionItem.java:72)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:81)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:840)\nat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1838)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1545)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1402)\nat org.eclipse.ui.internal.Workbench.run(Workbench.java:1385)\nat org.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.jav\na:858)\nat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\nat java.lang.reflect.Method.invoke(Unknown Source)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:291)\nat org.eclipse.core.launcher.Main.run(Main.java:747)\nat org.eclipse.core.launcher.Main.main(Main.java:583)\n\nmy implementers of IAdaptable return the matching IResource instance on\na call to getAdapter(Class) indirectly via implementations of the\ninterface IContributorResourceAdapter. the implementer of\nthis interface retrieves the resource correctly and as a safety measure also\nimplements IAdaptable to also allow retrieval of the resource via\ngetAdapter(Class). the property dialog mechanism seems to be broken. the \nPropertyPageContributorManager used in PropertyDialogAction uses the \nIContributorResourceAdapter on the selected object to determine all applicable \nproperty pages. it correctly finds out that resources can be accessed in this \nindirect way and hence adds all the pages registered for IResource. the problem \nstarts within the property pages that all get to see the selected object via\nsetElement(Object) and not the IResource instance. the pages are even smart\nenough to ask these objects (IAdaptabe implementers) for the resource\ninstance via getAdapter(Class) but they don\u0027t consider the possibility of having \nto access the resource with the intermediate step via the \nIContributorResourceAdapter like the property page management does. \n\ncould it be that property page management and concrete property page\nimplementations follow different and incompatible strategies? shouldn\u0027t the\nproperty page management rather set the resource as the input of property\npages that it already identified as resource-related?",
+    "Lets be sure I have this straight.\n\nYou have a type that adapts to IResource but when we open a resource page on \nit we send the original type?\n\nI don\u0027t think it is quite that simple as the Java types all use this mechanism.\n\nWhen I call getAdapter(IFile.class) to your type what does it return an \ninstance of?",
+    "Created an attachment (id\u003d5695)\nexample plugin using indirect resource retrieval on selected adaptables\n",
+    "the problem is that the PropertyPageContributionManager retrieves IResource \nadapters in two ways. it asks first directly adaptable.getAdapter(IResource.\nclass) and then \nadaptable.getAdapter(IContributorResourceAdapter.class). this way it determines \nthat selected objects returning IResource instances in any of the two ways \nshould get the property pages that were registered for IResource classes. the \nstack trace below shows exactly the position where this identification of \nsuitable property pages is done in 2.1.1:\n\n\tat org.eclipse.ui.internal.ObjectContributorManager.\ngetAdaptedResource(ObjectContributorManager.java:332)\n\tat org.eclipse.ui.internal.ObjectContributorManager.\ngetContributors(ObjectContributorManager.java:183)\n\tat org.eclipse.ui.internal.dialogs.PropertyPageContributorManager.\ncontribute(PropertyPageContributorManager.java:79)\n\tat org.eclipse.ui.dialogs.PropertyDialogAction.run(PropertyDialogAction.\njava:146)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:842)\n\tat org.eclipse.jface.action.ActionContributionItem.\nhandleWidgetSelection(ActionContributionItem.java:456)\n\tat org.eclipse.jface.action.ActionContributionItem.\nhandleWidgetEvent(ActionContributionItem.java:403)\n\tat org.eclipse.jface.action.ActionContributionItem.\naccess$0(ActionContributionItem.java:397)\n\tat org.eclipse.jface.action.ActionContributionItem$ActionListener.\nhandleEvent(ActionContributionItem.java:72)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:81)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:840)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1838)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1545)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1402)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1385)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.\nrun(InternalBootLoader.java:858)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.\njava:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.\ninvoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:291)\n\tat org.eclipse.core.launcher.Main.run(Main.java:747)\n\tat org.eclipse.core.launcher.Main.main(Main.java:583)\n\nnonetheless, the RegistryPageContributor knows only one way to retrieve the \nIResource instance the selected object adapts to:\n\n\tif(isResourceContributor)\n\t\tppage.setElement((IAdaptable) element.getAdapter(IResource.class));\n\telse\n\t\tppage.setElement(element);\n\nand this is done at the following execution point:\n\n\tat org.eclipse.ui.internal.dialogs.RegistryPageContributor.\ncreatePage(RegistryPageContributor.java:80)\n\tat org.eclipse.ui.internal.dialogs.PropertyPageNode.\ncreatePage(PropertyPageNode.java:48)\n\tat org.eclipse.jface.preference.PreferenceDialog.showPage(PreferenceDialog.\njava:993)\n\tat org.eclipse.jface.preference.PreferenceDialog.\nselectSavedItem(PreferenceDialog.java:703)\n\tat org.eclipse.jface.preference.PreferenceDialog$3.run(PreferenceDialog.\njava:329)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\n\tat org.eclipse.jface.preference.PreferenceDialog.\ncreateContents(PreferenceDialog.java:324)\n\tat org.eclipse.jface.window.Window.create(Window.java:302)\n\tat org.eclipse.ui.dialogs.PropertyDialogAction.run(PropertyDialogAction.\njava:161)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:842)\n\tat org.eclipse.jface.action.ActionContributionItem.\nhandleWidgetSelection(ActionContributionItem.java:456)\n\tat org.eclipse.jface.action.ActionContributionItem.\nhandleWidgetEvent(ActionContributionItem.java:403)\n\tat org.eclipse.jface.action.ActionContributionItem.\naccess$0(ActionContributionItem.java:397)\n\tat org.eclipse.jface.action.ActionContributionItem$ActionListener.\nhandleEvent(ActionContributionItem.java:72)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:81)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:840)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1838)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1545)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1402)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1385)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.\nrun(InternalBootLoader.java:858)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.\njava:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.\ninvoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:291)\n\tat org.eclipse.core.launcher.Main.run(Main.java:747)\n\tat org.eclipse.core.launcher.Main.main(Main.java:583)\n\n\nhence, implementations for resource property pages like the information page get \nnull as the IResource instance. the result is an NPE:\n\njava.lang.NullPointerException\n\tat org.eclipse.ui.internal.dialogs.ResourceInfoPage.\ncreateContents(ResourceInfoPage.java:175)\n\tat org.eclipse.jface.preference.PreferencePage.\ncreateControl(PreferencePage.java:215)\n\tat org.eclipse.jface.preference.PreferenceDialog.showPage(PreferenceDialog.\njava:1016)\n\tat org.eclipse.jface.preference.PreferenceDialog.\nselectSavedItem(PreferenceDialog.java:703)\n\tat org.eclipse.jface.preference.PreferenceDialog$3.run(PreferenceDialog.\njava:329)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\n\tat org.eclipse.jface.preference.PreferenceDialog.\ncreateContents(PreferenceDialog.java:324)\n\tat org.eclipse.jface.window.Window.create(Window.java:302)\n\tat org.eclipse.ui.dialogs.PropertyDialogAction.run(PropertyDialogAction.\njava:161)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:842)\n\tat org.eclipse.jface.action.ActionContributionItem.\nhandleWidgetSelection(ActionContributionItem.java:456)\n\tat org.eclipse.jface.action.ActionContributionItem.\nhandleWidgetEvent(ActionContributionItem.java:403)\n\tat org.eclipse.jface.action.ActionContributionItem.\naccess$0(ActionContributionItem.java:397)\n\tat org.eclipse.jface.action.ActionContributionItem$ActionListener.\nhandleEvent(ActionContributionItem.java:72)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:81)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:840)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1838)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1545)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1402)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1385)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.\nrun(InternalBootLoader.java:858)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.\njava:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.\ninvoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:291)\n\tat org.eclipse.core.launcher.Main.run(Main.java:747)\n\tat org.eclipse.core.launcher.Main.main(Main.java:583)\n\ni hope this clairfies the problem. the essence of it is different ways of \ndetermination of IResource adapters for the PropertyPageManager and the \nPropertyPageContributor.\n\ni attached an example plug-in via separate e-mail to make the bug-squashing \neasier.\n\nmany thanks in advance!\n",
+    "a fix for org.eclipse.ui.internal.dialogs.RegistryPageContributor could be:\n\n/**\n * Creates the page based on the information in the configuration element.\n */\npublic IWorkbenchPropertyPage createPage(IAdaptable element) throws \nCoreException {\n\tIWorkbenchPropertyPage ppage \u003d null;\n\tppage \u003d (IWorkbenchPropertyPage)WorkbenchPlugin.createExtension(\n\t\tpageElement, PropertyPagesRegistryReader.ATT_CLASS);\n\t\t\n\tif(isResourceContributor) {\n        IAdaptable adaptable \u003d (IAdaptable) element;\n        IResource resource \u003d (IResource) adaptable.getAdapter(IResource.class);\n        if (resource \u003d\u003d null) {\n            IContributorResourceAdapter contributorResourceAdapter \u003d\n                (IContributorResourceAdapter) adaptable.getAdapter(\n                    IContributorResourceAdapter.class);\n            if (contributorResourceAdapter !\u003d null) {\n                resource \u003d contributorResourceAdapter.getAdaptedResource(\n                    adaptable);\n            }\n        }\n        ppage.setElement(resource);\n\t} else\n\t\tppage.setElement(element);\n\tppage.setTitle(pageName);\n\treturn ppage;\n}\n",
+    "Created an attachment (id\u003d7165)\nPatch for org.eclipse.ui.workbench/RegistryPageContributor\n\nPatch for RegistryPageContributor that takes into account RCP changes.",
+    "Deferred until post-M6.",
+    "reopening",
+    "Fixed in HEAD.",
+    "Verified against I20040210-200402101600",
+    "Closed."
+  ],
+  "commentCreationDates": [
+    "2003-07-30T23:15:23+02:00",
+    "2003-08-05T19:26:56+02:00",
+    "2003-08-09T15:35:00+02:00",
+    "2003-08-09T15:35:24+02:00",
+    "2003-08-09T21:20:28+02:00",
+    "2003-12-15T16:26:17+01:00",
+    "2003-12-15T16:27:12+01:00",
+    "2004-01-05T13:47:09+01:00",
+    "2004-01-05T13:48:02+01:00",
+    "2004-02-11T15:50:54+01:00",
+    "2004-04-01T21:41:39+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.dialogs.ResourceInfoPage.createContents",
+          "source": "ResourceInfoPage.java:175"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferencePage.createControl",
+          "source": "PreferencePage.jav a:215"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog.showPage",
+          "source": "PreferenceDialog.java :1016"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog.selectSavedItem",
+          "source": "PreferenceDial og.java:703"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog$3.run",
+          "source": "PreferenceDialog.java:32 9"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog.createContents",
+          "source": "PreferenceDialo g.java:324"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.create",
+          "source": "Window.java:302"
+        },
+        {
+          "method": "org.eclipse.ui.dialogs.PropertyDialogAction.run",
+          "source": "PropertyDialogAction.java:16 1"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "40980",
+      "date": "2003-07-30T23:15:23+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.dialogs.ResourceInfoPage.createContents",
+          "source": "ResourceInfoPage.java:175"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferencePage.createControl",
+          "source": "PreferencePage.java:215"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog.showPage",
+          "source": "PreferenceDialog. java:1016"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog.selectSavedItem",
+          "source": "PreferenceDialog.java:703"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog$3.run",
+          "source": "PreferenceDialog. java:329"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog.createContents",
+          "source": "PreferenceDialog.java:324"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.create",
+          "source": "Window.java:302"
+        },
+        {
+          "method": "org.eclipse.ui.dialogs.PropertyDialogAction.run",
+          "source": "PropertyDialogAction. java:161"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:842"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:456"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent",
+          "source": "ActionContributionItem.java:403"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$0",
+          "source": "ActionContributionItem.java:397"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent",
+          "source": "ActionContributionItem.java:72"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:81"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:840"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:1838"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1545"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1402"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1385"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:858"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl. java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:291"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:747"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:583"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 3,
+      "bugId": "40980",
+      "date": "2003-08-09T15:35:24+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "40980",
+  "bugId": "40980",
+  "date": "2003-07-30T23:15:23+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

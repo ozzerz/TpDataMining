@@ -1,0 +1,57 @@
+{
+  "comments": [
+    "*Note:\n\nThe following was seen in the CORONA code base.  However, the code\nis the same in the WTP code base.\n\n*Problem Statement:\n\nAm seeing a StringIndexOutOfBoundsException in DirectoryLoadStrategyImpl.makeRelative:\n\n[9/18/06 15:12:03:281 EDT] 0000000a ApplicationMg E   WSVR0100W: An         \nerror occurred initializing, can1                                           \njava.lang.StringIndexOutOfBoundsException: String index out of range: -1    \n        at java.lang.String.substring(String.java(Compiled Code))           \n        at java.lang.String.substring(String.java(Compiled Code))           \n        at                                                                  \ncom.ibm.etools.j2ee.commonarchivecore.strategy.DirectoryLoadStrategyImpl    \n.makeRelative(DirectoryLoadStrat                                            \negyImpl.java:202)                                                           \n\nThe exception occurs when the two parameters to makeRelative are the same,\nfor example:\n\n    aStrategy.makeRelative(\"/was/app/EnterpriseApps/can1.ear\",\n                           \"/was/app/EnterpriseApps/can1.ear\");\n\n*Problem Analysis:\n\nThe exception occurs because a non-valid integer value is used as an\nargument to String.substring:\n\n    private String makeRelative(String fileName, String root) {\n        if (fileName \u003d\u003d null || root \u003d\u003d null)\n            return null;\n        String name \u003d null;\n        for (; root.endsWith(\"/\"); root \u003d ArchiveUtil.truncateIgnoreCase(root, \"/\")); //$NON-NLS-1$ //$NON-NLS-2$\n        name \u003d replaceSeparators(fileName);\n        if (name.startsWith(root))\n            name \u003d name.substring(root.length() + 1);  // **** EXCEPTION HERE\n        else\n            name \u003d null;\n        return name;\n    }\n\nWhen the file name and root are the same, the result is a call to:\n\n    name.substring(name.length() + 1);\n\nwhich will always fail with an exception.\n\nNote that the conditions under which two equal values are parameters to\nmakeRelative may be the result of a non-valid application.  However, even\nin this case, the code should not fail with the exception.\n\n*Suggested Code Change:\n\nIn the CORONA code base, the problem is seen in the class:\n\ncom.ibm.etools.j2ee.commonarchivecore.strategy.DirectoryLoadStrategyImpl\n\nIn the WTP code base, the problem is seen in the class:\n\norg.eclipse.jst.j2ee.commonarchivecore.internal.strategy.DirectoryLoadStrategyImpl\n\nThe code has been updated with several changes.\n\nFirst, the use of truncateIgnoreCase is unnecessary, as the \"/\"\nparameter is stable across cases.\n\nSecond, the final increment to the root length suggests that the\ncode is attempting to remove a separating slash character in\naddition to the root text.  This fails when the root is a prefix\nto the file path, but is either the entire file path, or is not\nfollowed by a slash in the file path.  A second code change was\nmade to ensure that exactly one slash was left on the root (and\nadding a slash if there was not already one).  This allowed the\n\u0027startsWith\u0027 and \u0027substring\u0027 calls to use the same prefix text.\n\nprivate String makeRelative(String fileName, String root)\n{\n    if ( (fileName \u003d\u003d null) || (root \u003d\u003d null) )\n        return null;\n\n    int offset \u003d root.length();\n    \n    while ( (offset \u003e 0) \u0026\u0026 root.charAt(offset - 1) \u003d\u003d \u0027/\u0027 )\n        offset--;\n    \n    if ( offset \u003c root.length() ) {\n        offset++;\n\n        if ( offset \u003c root.length() )\n            root \u003d root.substring(0, offset);\n    } else {\n        root +\u003d \u0027/\u0027;\n    }\n    \n    String name \u003d replaceSeparators(fileName);\n\n    if ( name.startsWith(root) )\n        name \u003d name.substring( root.length() );\n    else\n        name \u003d null;\n    \n    return name;\n}\n\nThe updated method was tested with these values (root / filePath / expected):\n\n    { null, null, null },\n    { null, \"child\", null },\n    { \"parent\", null, null },\n\n    { \"\", \"\", null },\n    { \"/\", \"\", null },\n    { \"///\", \"\", null },\n            \n    { \"\", \"/\", \"\" },            \n    { \"/\", \"/\", \"\" },          \n    { \"///\", \"/\", \"\" },\n            \n    { \"\", \"/child\", \"child\" },            \n    { \"/\", \"/child\", \"child\" },\n    { \"///\", \"/child\", \"child\" },            \n\n    { \"parent\", \"parent/child\", \"child\" },\n    { \"parent/\", \"parent/child\", \"child\" },\n    { \"parent///\", \"parent/child\", \"child\" },\n            \n    { \"parent\", \"parent\", null },\n    { \"parent\", \"parentChild\", null }",
+    "Created an attachment (id\u003d51257)\npatch\n\nThis patch file is the same as the code suggested above by Thomas.",
+    "mass update to remove target for all those targeted to 1.5.3 that were \"normal\" severity and \"priority 3\" (on the surface those dont\u0027 seem serious enough to fix in a maintenance release). \n\nIf I have made an error pleasae reset target and set priority appropriately. \n",
+    "Approve.",
+    "approve",
+    "code checked in both 1.5.3 and 2.0 streams.",
+    "verified with help from Jason",
+    "verified by Raj",
+    "closing."
+  ],
+  "commentCreationDates": [
+    "2006-09-27T00:01:45+02:00",
+    "2006-10-02T17:58:42+02:00",
+    "2006-10-26T10:50:44+02:00",
+    "2006-11-06T18:44:07+01:00",
+    "2006-11-09T14:15:24+01:00",
+    "2006-11-10T20:31:00+01:00",
+    "2007-02-06T19:13:06+01:00",
+    "2007-02-06T19:28:34+01:00",
+    "2007-02-06T19:28:51+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StringIndexOutOfBoundsException",
+      "message": "String index out of range: -1",
+      "elements": [
+        {
+          "method": "java.lang.String.substring",
+          "source": "String.java(Compiled Code)"
+        },
+        {
+          "method": "java.lang.String.substring",
+          "source": "String.java(Compiled Code)"
+        },
+        {
+          "method": "com.ibm.etools.j2ee.commonarchivecore.strategy.DirectoryLoadStrategyImpl.makeRelative",
+          "source": "DirectoryLoadStrat                                             egyImpl.java:202"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "158879",
+      "date": "2006-09-27T00:01:45+02:00",
+      "product": "Web Tools",
+      "component": "wst.common",
+      "severity": "major"
+    }
+  ],
+  "groupId": "158879",
+  "bugId": "158879",
+  "date": "2006-09-27T00:01:45+02:00",
+  "product": "Web Tools",
+  "component": "wst.common",
+  "severity": "major"
+}

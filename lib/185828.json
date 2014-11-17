@@ -1,0 +1,114 @@
+{
+  "comments": [
+    "CDT HEAD:\n\njava.lang.StackOverflowError\n\tat org.eclipse.cdt.internal.core.pdom.dom.PDOMNode.getLinkage(PDOMNode.java:115)\n\tat org.eclipse.cdt.internal.core.pdom.dom.PDOMNode.getLinkageImpl(PDOMNode.java:103)\n\tat org.eclipse.cdt.internal.core.pdom.dom.cpp.PDOMCPPInstance.getArguments(PDOMCPPInstance.java:79)\n\tat org.eclipse.cdt.internal.core.pdom.dom.cpp.PDOMCPPInstance.matchesArguments(PDOMCPPInstance.java:91)\n\tat org.eclipse.cdt.internal.core.pdom.dom.cpp.PDOMCPPClassTemplate$InstanceFinder.visit(PDOMCPPClassTemplate.java:311)\n\tat org.eclipse.cdt.internal.core.pdom.db.PDOMNodeLinkedList.accept(PDOMNodeLinkedList.java:73)\n\tat org.eclipse.cdt.internal.core.pdom.dom.cpp.PDOMCPPClassTemplate.getInstance(PDOMCPPClassTemplate.java:329)\n\tat org.eclipse.cdt.internal.core.pdom.dom.cpp.PDOMCPPClassTemplatePartialSpecialization.instantiate(PDOMCPPClassTemplatePartialSpecialization.java:165)\n\tat org.eclipse.cdt.internal.core.pdom.dom.cpp.PDOMCPPDeferredClassInstance.instantiate(PDOMCPPDeferredClassInstance.java:127)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPTemplates.instantiateType(CPPTemplates.java:698)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPClassInstance.getBases(CPPClassInstance.java:64)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPSemantics.lookupInParents(CPPSemantics.java:1159)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPSemantics.lookupInParents(CPPSemantics.java:1210)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPSemantics.lookupInParents(CPPSemantics.java:1210)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPSemantics.lookupInParents(CPPSemantics.java:1210)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPSemantics.lookupInParents(CPPSemantics.java:1210)\n\nMarking as critical since the stack overflow triggers \"Do you want to exit the workbench?\" dialog during index rebuild.",
+    "Sergey, do you have any code to help reproduce this?\n\nalso, do you know if its an infinite stack or just a very large one? (we had a recent bug that turned out to be the latter and was solved by increasing the JVM stack size)",
+    "(In reply to comment #1)\n\u003e Sergey, do you have any code to help reproduce this?\nI was not able to reproduce it on a simple example. I can collect additional information for you if you tell me what to look for, or provide an instrumented version of the code.\n\n\u003e do you know if its an infinite stack or just a very large one?\n\nThere are 1009 identical stack frames of org.eclipse.cdt.internal.core.dom.parser.cpp.CPPSemantics.lookupInParents(CPPSemantics.java:1210).\nDoes not look like it would ever get out of the recursion.\n\n",
+    "Created an attachment (id\u003d66654)\nprintlns for debugging\n\nThis patch adds some printlns to the area of code where the recurrence is being seen. The output might help see what is happening - it will give you the names of the classes being visited during the symbol lookup, and the name of the symbol being looked up.\n\nIts possible that the ObjectSet being used as a breadcrumb trail of base-classes already visited is being defeated by on-the-fly instantiation of PDOM templates, but this is only a guess. The println output should help determine if this is along the right lines though.",
+    "Created an attachment (id\u003d66805)\nConsole output\n\nConsole output for one of the stack overflows. Please let me know if you\u0027d like me to collect additional info.",
+    "Created an attachment (id\u003d66854)\n2nd trace printlns\n\nthanks Sergey. The trace didn\u0027t show any pdom bindings, so its possible this is a limitation in the parser / dom bindings.\n\nI\u0027ve attached a second set patch for printlns which will hopefully help more",
+    "Created an attachment (id\u003d66941)\nNew console log\n\n",
+    "thanks, I\u0027ve added a test case\n   org.eclipse.cdt.internal.index.tests.IndexCPPBindingResolutionBugs._test185828()\n\nwhich fails in the same way. The code in the test case won\u0027t compile, but its likely that whatever valid code is producing the stack overflow is hitting the same problem - that the pdom ICPPTemplateDefinition implementation\u0027s \"instantiate\" methods create new instantiation objects per invocation, and that the inheritance cycle-detection is based on object identity comparisons.\n\nI think this means we\u0027ve two options\n (1) fix 180784 (extending it to also cover dom bindings)\n (2) cache ICPPTemplateInstance instances on a pdom binding (eg. identified by record offset) basis\n\nadditionally, we could add a workaround for CDT 4.0 which assumes an arbitrary (eg. 30) depth of inheritance is a cycle. According to these, a depth of 10 is the maximum found in practice:\n   http://pooh.unl.edu/~scotth/ssr95/Bieman-etal-SSR95.pdf\n   http://www.javaspecialists.co.za/archive/newsletter.do?issue\u003d121\u0026print\u003dyes\u0026locale\u003den_US\n\ndoes anyone have any preferences? (I\u0027m leaning towards the workaround)",
+    "\u003e does anyone have any preferences? (I\u0027m leaning towards the workaround)\n\nThe workaround works for me.",
+    "(In reply to comment #8)\n\u003e \u003e does anyone have any preferences? (I\u0027m leaning towards the workaround)\n\u003e The workaround works for me.\n\n+1, we already use this pattern for handling other stack-overflows.",
+    "thanks, I\u0027ve added the workaround to HEAD\n\nmarking as FIXED\n",
+    "non-empty comment"
+  ],
+  "commentCreationDates": [
+    "2007-05-07T20:33:51+02:00",
+    "2007-05-09T10:23:56+02:00",
+    "2007-05-09T22:07:57+02:00",
+    "2007-05-10T14:42:12+02:00",
+    "2007-05-11T05:53:45+02:00",
+    "2007-05-11T16:28:30+02:00",
+    "2007-05-11T23:23:26+02:00",
+    "2007-05-14T14:57:40+02:00",
+    "2007-05-14T17:12:19+02:00",
+    "2007-05-14T17:23:36+02:00",
+    "2007-05-16T09:15:45+02:00",
+    "2007-05-16T09:29:20+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StackOverflowError",
+      "elements": [
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.dom.PDOMNode.getLinkage",
+          "source": "PDOMNode.java:115"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.dom.PDOMNode.getLinkageImpl",
+          "source": "PDOMNode.java:103"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.dom.cpp.PDOMCPPInstance.getArguments",
+          "source": "PDOMCPPInstance.java:79"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.dom.cpp.PDOMCPPInstance.matchesArguments",
+          "source": "PDOMCPPInstance.java:91"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.dom.cpp.PDOMCPPClassTemplate$InstanceFinder.visit",
+          "source": "PDOMCPPClassTemplate.java:311"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.db.PDOMNodeLinkedList.accept",
+          "source": "PDOMNodeLinkedList.java:73"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.dom.cpp.PDOMCPPClassTemplate.getInstance",
+          "source": "PDOMCPPClassTemplate.java:329"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.dom.cpp.PDOMCPPClassTemplatePartialSpecialization.instantiate",
+          "source": "PDOMCPPClassTemplatePartialSpecialization.java:165"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.dom.cpp.PDOMCPPDeferredClassInstance.instantiate",
+          "source": "PDOMCPPDeferredClassInstance.java:127"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPTemplates.instantiateType",
+          "source": "CPPTemplates.java:698"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPClassInstance.getBases",
+          "source": "CPPClassInstance.java:64"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPSemantics.lookupInParents",
+          "source": "CPPSemantics.java:1159"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPSemantics.lookupInParents",
+          "source": "CPPSemantics.java:1210"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPSemantics.lookupInParents",
+          "source": "CPPSemantics.java:1210"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPSemantics.lookupInParents",
+          "source": "CPPSemantics.java:1210"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPSemantics.lookupInParents",
+          "source": "CPPSemantics.java:1210"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "185828",
+      "date": "2007-05-07T20:33:51+02:00",
+      "product": "CDT",
+      "component": "CDT-parser",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "185828",
+  "bugId": "185828",
+  "date": "2007-05-07T20:33:51+02:00",
+  "product": "CDT",
+  "component": "CDT-parser",
+  "severity": "critical"
+}

@@ -1,0 +1,81 @@
+{
+  "comments": [
+    "Mark:\n\nI have a problem I can\u0027t find. I think you have my ecore file to reference...\n\nWhen I go to create and add a new ServiceGroup object in one client I get an error in all other clients that follows.\n\n !ENTRY org.eclipse.ui.workbench 4 2 2007-11-13 12:46:27.381\n !MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.ui.workbench\".\n !STACK 0\n java.lang.IllegalStateException: Duplicate version: NamedEquipmentList@16v1\n         at org.eclipse.emf.cdo.internal.protocol.revision.CDORevisionResolverImpl.addRevision(CDORevisionResolverImpl.java:309)\n         at org.eclipse.emf.internal.cdo.protocol.LoadRevisionRequest.confirming(LoadRevisionRequest.java:125)\n         at org.eclipse.emf.internal.cdo.protocol.LoadRevisionRequest.confirming(LoadRevisionRequest.java:1)\n         at org.eclipse.net4j.signal.RequestWithConfirmation.execute(RequestWithConfirmation.java:57)\n         at org.eclipse.net4j.signal.Signal.runSync(Signal.java:130)\n         at org.eclipse.net4j.signal.SignalProtocol.startSignal(SignalProtocol.java:231)\n         at org.eclipse.net4j.signal.SignalActor.send(SignalActor.java:50)\n         at org.eclipse.net4j.signal.SignalActor.send(SignalActor.java:40)\n....\n\nThese other clients are refreshing a tree view for the Facility model object. In the course of calling get modelChildren the following is called...which seems to cause the error above.\ngetFacility().getEchostar(). Echostar is the root object which I am using for some other purpose. If you look at the model Facility contains         NamedEquipmentList.\n\nI don\u0027t see anything in my code that looks suspect.",
+    "To me it looks like a minor race condition in the LookAhead and Prefetch implementation that Simon contributed. If I\u0027m right with this assumption, it could simply be fixed by ignoring the exception in org.eclipse.emf.internal.cdo.protocol.LoadRevisionRequest.confirming(LoadRevisionRequest.java:125).\n\nIn general Duplicate version errors are mostly important for the server in the course of a transaction. In the client it indicates that the revision has been loaded already and the duplicate can be discarded.\n\nI\u0027ll put a try-catch-trace-ignore block around the line and commit so that you can test it.\n\nSimon: Can you please verify that the CDOStore.loadAhead() method can cope with the new CDODuplicateRevisionException?",
+    "(In reply to comment #1)\n\u003e To me it looks like a minor race condition in the LookAhead and Prefetch\n\u003e implementation that Simon contributed. If I\u0027m right with this assumption, it\n\u003e could simply be fixed by ignoring the exception in\n\u003e org.eclipse.emf.internal.cdo.protocol.LoadRevisionRequest.confirming(LoadRevisionRequest.java:125).\n\u003e In general Duplicate version errors are mostly important for the server in the\n\u003e course of a transaction. In the client it indicates that the revision has been\n\u003e loaded already and the duplicate can be discarded.\n\u003e I\u0027ll put a try-catch-trace-ignore block around the line and commit so that you\n\u003e can test it.\n\u003e Simon: Can you please verify that the CDOStore.loadAhead() method can cope with\n\u003e the new CDODuplicateRevisionException?\n\nCan you (Mark) send me your ecore ? I will try to build a Test case based on that.\n\nThe look ahead will fetch objects that are not in your cache. \n\nEike,\n do you think it will be possible to add a contains(CDOID, version) ?\n\nIt will be better to have a function that check and add at the same time.. like an addRevisionIfNotThere  :-). Because I will do the check twice.\n\nWhat do you think ? contains(CDOID, version) is cleaner... but not efficient.\n",
+    "(In reply to comment #1)\n\u003e To me it looks like a minor race condition in the LookAhead and Prefetch\n\u003e implementation that Simon contributed. If I\u0027m right with this assumption, it\n\u003e could simply be fixed by ignoring the exception in\n\u003e org.eclipse.emf.internal.cdo.protocol.LoadRevisionRequest.confirming(LoadRevisionRequest.java:125).\n\u003e In general Duplicate version errors are mostly important for the server in the\n\u003e course of a transaction. In the client it indicates that the revision has been\n\u003e loaded already and the duplicate can be discarded.\n\u003e I\u0027ll put a try-catch-trace-ignore block around the line and commit so that you\n\u003e can test it.\n\u003e Simon: Can you please verify that the CDOStore.loadAhead() method can cope with\n\u003e the new CDODuplicateRevisionException?\n\nI looked again to that problem and was wondering why we don\u0027t have any problem in our application.(prod)\n\nIt seems that before refactoring with RevisionHolder addRevision was returning true or false.\n\nSo my question is the following : Do you want to keep the exception there ? or you want to go back what it was before when I develop that feature ?",
+    "(In reply to comment #2)\n\u003e Eike,\n\u003e  do you think it will be possible to add a contains(CDOID, version) ?\n\nI think simply ignoring the exception in the client is better since we never can avoid all race conditions. If the UI requests to load a revision although loading has already been requested but not yet completed (same can happen if multiple threads operate on the view) then a duplicate revison will arrive at the lient and can be ignored.",
+    "(In reply to comment #3)\n\u003e It seems that before refactoring with RevisionHolder addRevision was returning\n\u003e true or false.\n\u003e \n\u003e So my question is the following : Do you want to keep the exception there ? or\n\u003e you want to go back what it was before when I develop that feature ?\n\nI prefer to keep the exception declared and thrown and let the caller decide whether a thrown exception indicates a problem or not.\n\nSorry if that caused confusion!\nThis is the downside of unchecked exceptions...\n",
+    "(In reply to comment #5)\n\u003e (In reply to comment #3)\n\u003e \u003e It seems that before refactoring with RevisionHolder addRevision was returning\n\u003e \u003e true or false.\n\u003e \u003e \n\u003e \u003e So my question is the following : Do you want to keep the exception there ? or\n\u003e \u003e you want to go back what it was before when I develop that feature ?\n\u003e I prefer to keep the exception declared and thrown and let the caller decide\n\u003e whether a thrown exception indicates a problem or not.\n\u003e Sorry if that caused confusion!\n\u003e This is the downside of unchecked exceptions...\n\nSo I don\u0027t need to do anything ?",
+    "(In reply to comment #6)\n\nNo, I just asked you to verify that your analyzers don\u0027t have other (indirect) calls to addRevision() ;-)\n\nBTW. once I noticed that your analyzers never call getRevisionByTime() but only getRevision(). Does that mean that they can\u0027t be used with audit views? In that case we should either check the configuration of the views or you could have a look at how to make them work with audit views as well.",
+    "Committed to CVS",
+    "(In reply to comment #8)\n\u003e Committed to CVS\n\u003e \n\nConfirmed FIXED.\n\nI just did a CVS update and tested with no problems.\n",
+    "Fixed in I200711141128."
+  ],
+  "commentCreationDates": [
+    "2007-11-14T10:47:21+01:00",
+    "2007-11-14T11:00:49+01:00",
+    "2007-11-14T12:16:56+01:00",
+    "2007-11-14T12:30:44+01:00",
+    "2007-11-14T15:39:57+01:00",
+    "2007-11-14T15:42:19+01:00",
+    "2007-11-14T15:48:07+01:00",
+    "2007-11-14T15:53:24+01:00",
+    "2007-11-14T16:35:32+01:00",
+    "2007-11-14T16:39:04+01:00",
+    "2007-11-14T17:05:42+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalStateException",
+      "message": "Duplicate version: NamedEquipmentList@16v1",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.cdo.internal.protocol.revision.CDORevisionResolverImpl.addRevision",
+          "source": "CDORevisionResolverImpl.java:309"
+        },
+        {
+          "method": "org.eclipse.emf.internal.cdo.protocol.LoadRevisionRequest.confirming",
+          "source": "LoadRevisionRequest.java:125"
+        },
+        {
+          "method": "org.eclipse.emf.internal.cdo.protocol.LoadRevisionRequest.confirming",
+          "source": "LoadRevisionRequest.java:1"
+        },
+        {
+          "method": "org.eclipse.net4j.signal.RequestWithConfirmation.execute",
+          "source": "RequestWithConfirmation.java:57"
+        },
+        {
+          "method": "org.eclipse.net4j.signal.Signal.runSync",
+          "source": "Signal.java:130"
+        },
+        {
+          "method": "org.eclipse.net4j.signal.SignalProtocol.startSignal",
+          "source": "SignalProtocol.java:231"
+        },
+        {
+          "method": "org.eclipse.net4j.signal.SignalActor.send",
+          "source": "SignalActor.java:50"
+        },
+        {
+          "method": "org.eclipse.net4j.signal.SignalActor.send",
+          "source": "SignalActor.java:40"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "209773",
+      "date": "2007-11-14T10:47:21+01:00",
+      "product": "EMFT",
+      "component": "CDO",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "209773",
+  "bugId": "209773",
+  "date": "2007-11-14T10:47:21+01:00",
+  "product": "EMFT",
+  "component": "CDO",
+  "severity": "normal"
+}

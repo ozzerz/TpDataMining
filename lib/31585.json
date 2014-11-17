@@ -1,0 +1,207 @@
+{
+  "comments": [
+    "* add a watch expression like \"Thread sleep(10000); return \"done\";\"\n* when it is pending, and the thread updates to \"evaluating\", suspend the thread\n* the thread suspends as expected\n* resume the thread\n* the eval continues to completion, but the stack frames are not displayed when \ndone",
+    "This is becuase the final event fired is a suspend event for an implicit \nevaluation, which does not refresh the thread - it only updates the icons. We \nshould note that a suspend was received for a timedout thread, and then \nexplicitly refresh in this case. ",
+    "The tricky part is that there could be severl implicit evals queued up, so we \ndo not know when it is safe to show the frames.",
+    "*** Bug 24861 has been marked as a duplicate of this bug. ***",
+    "I can no longer suspend long running expicit/implicit evaluations. The thread \nchanges to \"running\" - but the state appears messed up.",
+    "Ah - I have to open/close the debug view to get the proper update.",
+    "This appears in the log:\n\n!ENTRY org.eclipse.jdt.debug 4 100 Mar 05, 2003 16:54:27.970\n!MESSAGE com.sun.jdi.IncompatibleThreadStateException: Thread was not suspended \noccurred retrieving stack frames.\n!STACK 0\ncom.sun.jdi.IncompatibleThreadStateException: Thread was not suspended\n\tat org.eclipse.jdi.internal.ThreadReferenceImpl.frames\n(ThreadReferenceImpl.java:186)\n\tat org.eclipse.jdi.internal.ThreadReferenceImpl.frames\n(ThreadReferenceImpl.java:165)\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIThread.getUnderlyingFrames\n(JDIThread.java:530)\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIThread.computeStackFrames\n(JDIThread.java:390)\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIThread.computeStackFrames\n(JDIThread.java:479)\n\tat org.eclipse.jdt.internal.debug.core.model.JDIThread.getStackFrames\n(JDIThread.java:367)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchViewContentProvider.getChildren\n(LaunchViewContentProvider.java:35)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.getRawChildren\n(AbstractTreeViewer.java:643)\n\tat org.eclipse.jface.viewers.StructuredViewer.getFilteredChildren\n(StructuredViewer.java:454)\n\tat org.eclipse.jface.viewers.StructuredViewer.getSortedChildren\n(StructuredViewer.java:555)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer$1.run\n(AbstractTreeViewer.java:299)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:65)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.createChildren\n(AbstractTreeViewer.java:287)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.internalExpand\n(AbstractTreeViewer.java:797)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.setSelectionToWidget\n(AbstractTreeViewer.java:1221)\n\tat org.eclipse.jface.viewers.StructuredViewer.setSelectionToWidget\n(StructuredViewer.java:1050)\n\tat org.eclipse.jface.viewers.StructuredViewer.preservingSelection\n(StructuredViewer.java:805)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh\n(StructuredViewer.java:856)\n\tat org.eclipse.debug.internal.ui.views.launch.LaunchViewer.refresh\n(LaunchViewer.java:62)\n\tat org.eclipse.debug.internal.ui.views.launch.LaunchView.autoExpand\n(LaunchView.java:959)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleSuspen\ndThreadEvent(LaunchViewEventHandler.java:229)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleSuspen\ndEvent(LaunchViewEventHandler.java:175)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleDebugE\nvents(LaunchViewEventHandler.java:96)\n\tat org.eclipse.debug.internal.ui.views.AbstractDebugEventHandler$1.run\n(AbstractDebugEventHandler.java:66)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:31)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages\n(Synchronizer.java:94)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:1752)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1487)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1268)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1251)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:845)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:247)\n\tat org.eclipse.core.launcher.Main.run(Main.java:703)\n\tat org.eclipse.core.launcher.Main.main(Main.java:539)\n",
+    "Suspending the implicit eval triggered another implicit eval (i.e. the variable \nview responded to the suspend event and queued another toString() evaluation).",
+    "Found that on JDK1.4.1, if we invoke a method, and then suspend the thread, the \nunderlying thread did not really suspend - it is still invoking the method. \nThis does not happen on IBM1.3.1, JDK1.3.1, or IBM1.4. Thus, the problem on \nJDK1.4.1 is different.",
+    "Fixed (noting problem with sun 1.4.1). Added state in JDI thread to keep track \nof when an evaluation is interrupted. The thread then fires a change event when \nall queued evaluations (runnables) are complete. This is not the best solution \n(as it is really a view update problem), but the view does not know when it is \nsafe to update, and the thread does - thus the \"distributed\" solution.",
+    "Please verify, Luc.",
+    "Verified."
+  ],
+  "commentCreationDates": [
+    "2003-02-11T20:23:29+01:00",
+    "2003-02-11T20:25:03+01:00",
+    "2003-02-11T20:37:59+01:00",
+    "2003-02-14T02:19:52+01:00",
+    "2003-03-05T22:18:04+01:00",
+    "2003-03-05T22:19:14+01:00",
+    "2003-03-05T23:06:38+01:00",
+    "2003-03-06T02:00:37+01:00",
+    "2003-03-06T02:21:24+01:00",
+    "2003-03-06T16:30:01+01:00",
+    "2003-03-06T16:30:26+01:00",
+    "2003-03-06T23:32:18+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "com.sun.jdi.IncompatibleThreadStateException",
+      "message": "Thread was not suspended",
+      "elements": [
+        {
+          "method": "org.eclipse.jdi.internal.ThreadReferenceImpl.frames",
+          "source": "ThreadReferenceImpl.java:186"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.ThreadReferenceImpl.frames",
+          "source": "ThreadReferenceImpl.java:165"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread.getUnderlyingFrames",
+          "source": "JDIThread.java:530"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread.computeStackFrames",
+          "source": "JDIThread.java:390"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread.computeStackFrames",
+          "source": "JDIThread.java:479"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread.getStackFrames",
+          "source": "JDIThread.java:367"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewContentProvider.getChildren",
+          "source": "LaunchViewContentProvider.java:35"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.getRawChildren",
+          "source": "AbstractTreeViewer.java:643"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.getFilteredChildren",
+          "source": "StructuredViewer.java:454"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.getSortedChildren",
+          "source": "StructuredViewer.java:555"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer$1.run",
+          "source": "AbstractTreeViewer.java:299"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:65"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.createChildren",
+          "source": "AbstractTreeViewer.java:287"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalExpand",
+          "source": "AbstractTreeViewer.java:797"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.setSelectionToWidget",
+          "source": "AbstractTreeViewer.java:1221"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.setSelectionToWidget",
+          "source": "StructuredViewer.java:1050"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.preservingSelection",
+          "source": "StructuredViewer.java:805"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java:856"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewer.refresh",
+          "source": "LaunchViewer.java:62"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchView.autoExpand",
+          "source": "LaunchView.java:959"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleSuspendThreadEvent",
+          "source": "LaunchViewEventHandler.java:229"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleSuspendEvent",
+          "source": "LaunchViewEventHandler.java:175"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleDebugEvents",
+          "source": "LaunchViewEventHandler.java:96"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.AbstractDebugEventHandler$1.run",
+          "source": "AbstractDebugEventHandler.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:31"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:94"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:1752"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1487"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1268"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1251"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:845"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:247"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:703"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:539"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 6,
+      "bugId": "31585",
+      "date": "2003-03-05T23:06:38+01:00",
+      "product": "Platform",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "31585",
+  "bugId": "31585",
+  "date": "2003-02-11T20:23:29+01:00",
+  "product": "Platform",
+  "component": "Debug",
+  "severity": "normal"
+}

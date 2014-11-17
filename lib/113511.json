@@ -1,0 +1,113 @@
+{
+  "comments": [
+    "Alex, here is the basic patch that is working well before you leave for the\nweekend ;-) I\u0027ll let Matthew post it officially to bugzilla since it was his\nidea. The earlier return from !enabled is a small addition I made that seems\nto help further. It would be great to have this in HEAD so I can report\nperformance numbers based on it in part 2 of my article on developerworks\n;-)\n\nHope you are enjoying your new addition!\n\nThanks!\n\nIndex: ClassLoaderWeavingAdaptor.java\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\nRCS file:\n/home/technology/org.aspectj/modules/loadtime/src/org/aspectj/weaver/loadtim\ne/ClassLoaderWeavingAdaptor.java,v\nretrieving revision 1.18\ndiff -u -r1.18 ClassLoaderWeavingAdaptor.java\n--- ClassLoaderWeavingAdaptor.java      19 Oct 2005 13:11:36 -0000      1.18\n+++ ClassLoaderWeavingAdaptor.java      21 Oct 2005 16:04:41 -0000\n@@ -107,8 +107,13 @@\n\n        // register the definitions\n        registerDefinitions(weaver, loader);\n+        if (!enabled) {\n+               return;\n+        }\n        messageHandler \u003d bcelWorld.getMessageHandler();\n\n+\nbcelWorld.setResolutionLoader((ClassLoader)null);//loader.getParent());\n+\n        // after adding aspects\n        weaver.prepareForWeave();\n    }\n@@ -148,7 +153,11 @@\n                           definitions.add(DocumentParser.parse(xml));\n                       }\n               }\n-\n+               if (definitions.isEmpty()) {\n+                       enabled \u003d false;\n+                       return;\n+               }\n+\n            // still go thru if definitions is empty since we will\nconfigure\n            // the default message handler in there\n            registerOptions(weaver, loader, definitions);",
+    "commited this one (TomcatGlassBox startup 28s -\u003e 21s)\n\nplease attach next for World sharing on java.* things\n",
+    "RC1",
+    "*** Bug 112817 has been marked as a duplicate of this bug. ***",
+    "using P2 to track things for RC1 (P3 or below will not make the cut...)",
+    "The reflection delegates code is now requiring a special type of world, a \nReflectionWorld, which causes my previously working optimization that used \nreflection delegates when loading bootstrap classes to fail. This will also \ncause problems with any attempt to use reflection-based proxies to optimize \ninstead of using BCEL proxies...\n\nIn ReflectionBasedReferenceTypeDelegate this method fails now:\n\tprotected ReflectionWorld getReflectionWorld() {\n\t\treturn (ReflectionWorld) this.world;\n\t}\n\nMy changed code that supported this is in BcelWorld. I think Matthew\u0027s right \nthat it is going to be better to replace BCEL delegates with reflection-based \nproxies by weaving into classloaders. However, either way, I think it\u0027s going \nto be important to support reflection-based proxies for load-time weaving.\n\n\tprotected ReferenceTypeDelegate resolveDelegate(ReferenceType ty) {\n        String name \u003d ty.getName();\n        JavaClass jc \u003d null;\n        if (hasResolutionLoader) {\n\t\t\ttry {\n\t\t\t\t\tString asRes \u003d name.replace\n(\u0027.\u0027, \u0027/\u0027).concat(\".class\");\n\t\t\t\t\t// will I resolve this by delegating to \nmy parent?\n\t\t\t\t\tjava.net.URL parentURL \u003d \nparent.getResource(asRes);\n\t\t\t\t\tif (parentURL !\u003d null \u0026\u0026 \nparentURL.equals(resolutionLoader.getResource(asRes))) {\n\t\t\t\t\t\tClass resultBoot \u003d Class.forName\n(name, false, parent);\n\t\t\t\t\t\tif (resultBoot !\u003d null) {\n\t\t        \t\t\treturn new \nReflectionBasedReferenceTypeDelegate(resultBoot, this, ty);\t\t\t\n\t\t\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\t\n\t\t\t\t\tClass resultBoot \u003d Class.forName(name, \nfalse, null);\n\t\t\t\t\tif (resultBoot !\u003d null) {\n\t        \t\t\treturn new \nReflectionBasedReferenceTypeDelegate(resultBoot, this, ty);\t\t\t\n\t\t\n\t\t\t\t\t}\n\t\t\t\t\n\t\t\t} catch (Throwable e) {\n\t\t\t\t// proceed with normal\n\t\t\t}\n        }\n",
+    "Notes from a conversation with Adrian 10/11/05\n\nWe need to reduce startup time and latent foot print. There are 3 things we can do:\n1.\tOnly weave when we need to. We have already identified the ?enbled? flag as a way to avoid using a weaver when no aop.xml is present. This could be extended to include situations where no aspects are actually declared or defined.\n2.\tUse reflection instead of byte-code when it is safe to do so. We can introduce a new LTW World \u0026 Weaver which is constructed with a class loader and uses both BCEL/byte-code as well as reflection to resolve types.\n3.\tReplace byte-code when we are certain that a class has been successfully defined. Woven byte-code must be retained in memory because it is difficult and expensive to recreate. However once a class has been defined the byte-code can be replaced by the Class object. There are 3 levels of optimization possible:\na.\tIntercept successful calls to defineClass(), either though custom class loaders or weaving, and call back into the weaver.\nb.\tCascade define events from parent loaders for types used in resolution but not defined locally\nc.\tUse weak references to allow the ResolvedMembers associated with a delegate to be dropped and further reduce latent footprint.\n\nCertain environments make these optimizations difficult. It is not possible to share resources reliably between weaver worlds because the relationship between the class loaders with which they are associated cannot always be determined e.g. OSGi. Using reflection may only be safe when using the boot loader due to non-delegating web application class loaders. Byte-code must continue to be used for aspects as their meta-data is not available through reflection pre-Java 5. However they will represent a small proportion of types in the system and a hybrid delegate could be introduced used where reflection is used for Java meta-data and byte-code for AspectJ meta-data.\n\nMany of these enhancements will be targeted post 1.5.0 therefore I suggest closing this bug as resolved because it addresses the simple enhancement to use the enabled flag. We should raise a separate enhancement for each possible optimization (I have already opened bug 114083 to cover an LTWWorld) to help stage their introduction and wider testing. Using this bug as a long running ?bucket? will just be confusing.\n",
+    "Closing as per matthew\u0027s last comment. Ron :- note that the reflection world issue has been fixed under a separate bug report and your optimization should hopefully be working again now.",
+    "I updated bug #114083 with an improved optimization. Unfortunately, it isn\u0027t so simple to integrate even just the bootstrap loader performance improvement because it results in ClassCastExceptions from code like this:\n\n\tpublic static ResolvedMember createResolvedMethod(Method aMethod, World inWorld) {\n\t\tReflectionBasedResolvedMemberImpl ret \u003d new ReflectionBasedResolvedMemberImpl(org.aspectj.weaver.Member.METHOD,\n\t\t\t\ttoResolvedType(aMethod.getDeclaringClass(),(ReflectionWorld)inWorld),\n\t\t\t\taMethod.getModifiers(),\n\t\t\t\ttoResolvedType(aMethod.getReturnType(),(ReflectionWorld)inWorld),\n\nSample stack trace (from the debugger the method being resolved is public native int java.lang.Object.hashCode()):\n\njava.lang.ClassCastException: org.aspectj.weaver.ltw.LTWWorld\n\tat org.aspectj.weaver.reflect.ReflectionBasedReferenceTypeDelegateFactory.createResolvedMethod(ReflectionBasedReferenceTypeDelegateFactory.java:83)\n\tat org.aspectj.weaver.reflect.ReflectionBasedReferenceTypeDelegateFactory.createResolvedMember(ReflectionBasedReferenceTypeDelegateFactory.java:73)\n\tat org.aspectj.weaver.reflect.ReflectionBasedReferenceTypeDelegate.getDeclaredMethods(ReflectionBasedReferenceTypeDelegate.java:232)\n\tat org.aspectj.weaver.ReferenceType.getDeclaredMethods(ReferenceType.java:412)\n\tat org.aspectj.weaver.ResolvedType.getDeclaredAdvice(ResolvedType.java:682)\n\tat org.aspectj.weaver.ResolvedType.getDeclaredShadowMungers(ResolvedType.java:719)\n\tat org.aspectj.weaver.ResolvedType.collectShadowMungers(ResolvedType.java:559)\n\tat org.aspectj.weaver.ResolvedType.collectCrosscuttingMembers(ResolvedType.java:488)\n\tat org.aspectj.weaver.CrosscuttingMembersSet.addOrReplaceAspect(CrosscuttingMembersSet.java:58)\n\tat org.aspectj.weaver.bcel.BcelWeaver.addLibraryAspect(BcelWeaver.java:172)\n\tat org.aspectj.weaver.loadtime.ClassLoaderWeavingAdaptor.registerAspects(ClassLoaderWeavingAdaptor.java:330)\n\tat org.aspectj.weaver.loadtime.ClassLoaderWeavingAdaptor.registerDefinitions(ClassLoaderWeavingAdaptor.java:188)\n\tat org.aspectj.weaver.loadtime.ClassLoaderWeavingAdaptor.initialize(ClassLoaderWeavingAdaptor.java:125)\n\tat org.aspectj.weaver.loadtime.Aj$ExplicitlyInitializedClassLoaderWeavingAdaptor.initialize(Aj.java:130)\n\tat org.aspectj.weaver.loadtime.Aj$ExplicitlyInitializedClassLoaderWeavingAdaptor.getWeavingAdaptor(Aj.java:135)\n\tat org.aspectj.weaver.loadtime.Aj$WeaverContainer.getWeaver(Aj.java:101)\n\tat org.aspectj.weaver.loadtime.Aj.preProcess(Aj.java:65)"
+  ],
+  "commentCreationDates": [
+    "2005-10-24T11:39:33+02:00",
+    "2005-10-24T11:48:56+02:00",
+    "2005-10-24T12:31:30+02:00",
+    "2005-10-25T17:47:43+02:00",
+    "2005-10-28T13:24:00+02:00",
+    "2005-11-14T16:47:55+01:00",
+    "2005-11-21T16:01:25+01:00",
+    "2005-11-22T08:27:29+01:00",
+    "2005-11-22T09:33:46+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.aspectj.weaver.ltw.LTWWorld",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.reflect.ReflectionBasedReferenceTypeDelegateFactory.createResolvedMethod",
+          "source": "ReflectionBasedReferenceTypeDelegateFactory.java:83"
+        },
+        {
+          "method": "org.aspectj.weaver.reflect.ReflectionBasedReferenceTypeDelegateFactory.createResolvedMember",
+          "source": "ReflectionBasedReferenceTypeDelegateFactory.java:73"
+        },
+        {
+          "method": "org.aspectj.weaver.reflect.ReflectionBasedReferenceTypeDelegate.getDeclaredMethods",
+          "source": "ReflectionBasedReferenceTypeDelegate.java:232"
+        },
+        {
+          "method": "org.aspectj.weaver.ReferenceType.getDeclaredMethods",
+          "source": "ReferenceType.java:412"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getDeclaredAdvice",
+          "source": "ResolvedType.java:682"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getDeclaredShadowMungers",
+          "source": "ResolvedType.java:719"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.collectShadowMungers",
+          "source": "ResolvedType.java:559"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.collectCrosscuttingMembers",
+          "source": "ResolvedType.java:488"
+        },
+        {
+          "method": "org.aspectj.weaver.CrosscuttingMembersSet.addOrReplaceAspect",
+          "source": "CrosscuttingMembersSet.java:58"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.addLibraryAspect",
+          "source": "BcelWeaver.java:172"
+        },
+        {
+          "method": "org.aspectj.weaver.loadtime.ClassLoaderWeavingAdaptor.registerAspects",
+          "source": "ClassLoaderWeavingAdaptor.java:330"
+        },
+        {
+          "method": "org.aspectj.weaver.loadtime.ClassLoaderWeavingAdaptor.registerDefinitions",
+          "source": "ClassLoaderWeavingAdaptor.java:188"
+        },
+        {
+          "method": "org.aspectj.weaver.loadtime.ClassLoaderWeavingAdaptor.initialize",
+          "source": "ClassLoaderWeavingAdaptor.java:125"
+        },
+        {
+          "method": "org.aspectj.weaver.loadtime.Aj$ExplicitlyInitializedClassLoaderWeavingAdaptor.initialize",
+          "source": "Aj.java:130"
+        },
+        {
+          "method": "org.aspectj.weaver.loadtime.Aj$ExplicitlyInitializedClassLoaderWeavingAdaptor.getWeavingAdaptor",
+          "source": "Aj.java:135"
+        },
+        {
+          "method": "org.aspectj.weaver.loadtime.Aj$WeaverContainer.getWeaver",
+          "source": "Aj.java:101"
+        },
+        {
+          "method": "org.aspectj.weaver.loadtime.Aj.preProcess",
+          "source": "Aj.java:65"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 8,
+      "bugId": "113511",
+      "date": "2005-11-22T09:33:46+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "113511",
+  "bugId": "113511",
+  "date": "2005-10-24T11:39:33+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

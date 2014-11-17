@@ -1,0 +1,110 @@
+{
+  "comments": [
+    "Hi guys!\n\nI\u0027ve downloaded DEVELOPMENT-20051029200407.\n\nThere is some issue that I think is still open.\nTake a look at the example:\n\nJava Code:\n----------\n\npublic class Test1 {\n\n\tSet\u003cInteger\u003e intsSet;\n\n\tpublic Set\u003cInteger\u003e foo() {\n\t\treturn intsSet;\n\t}\n}\n\npublic class Test2 {\n\n\tSet\u003cDouble\u003e dSet;\n\n\tpublic Set\u003cDouble\u003e foo() {\n\t\treturn dSet;\n\t}\n}\n\nAspect:\n-------\n\npublic privileged aspect TestAspect {\n\n    pointcut gettingMemberCollection(Test t) :\n                target(t) \u0026\u0026\n                get(!public Set\u003cNumber+\u003e com.*.*) \u0026\u0026\n                !within(TestAspect);\n\n    Set around(Test t) : gettingMemberCollection(t)  {\n        Set s \u003d  proceed(t);\n        return s;\n    }\n}\n\nAs you can see, I would like to replace access to member Set of something which \nderives from Number. But the problem is that around advice is stricted to \nreturn exact type of the member, and I\u0027m getting the same error as earlier.\n\nincompatible return type applying to field-get(java.util.Set \ncom.mprv.secsph.Test.intsSet)\n\nincompatible return type applying to field-get(java.util.Set \ncom.mprv.secsph.Test.dSet)\n\nIn the M2 I just declared the advice this way and it worked fine.\n\nMay be now, you should allow to declare the advice this way:\n\n    Set\u003c? extends Number\u003e around(Test t) : gettingMemberCollection(t) {\n        Set s \u003d proceed(t);\n        return s;\n    }\n\nThanks!\nMisha.",
+    "interesting.  it is a slight variation from the previous problem posted. marking\nRC1.",
+    "Fix checked in.  We will allow the case where you use \u0027Set\u0027 as the around()\nadvice return value but you will get an unchecked conversion warning, if you\nwant to hide the conversion warning, use -Xlint to suppress it or this\nannotation on the advice\n\n@org.aspectj.lang.annotation.SuppressAjWarnings(\"uncheckedAdviceConversion\")\n\nWaiting on build before closing.",
+    "Thanks A LOT!\n\nI\u0027ll get the build as soon as it\u0027s ready.",
+    "fix available from download page.  thanks for the clear bug report and test case.",
+    "Hi!\n\nAnother issue ... :)\n\nHere is the example:\n\nJava Code:\n----------\n\npublic class Test\u003cT\u003e {\n\n\tSet\u003cT\u003e set;\n\n\tpublic \u003cT\u003e T[] toArray(T[] a) {\n\t\treturn set.toArray(a);\n\t}\n}\n\npublic class TTT {\n\tpublic void foo() {\n\t\tTest\u003cInteger\u003e mt \u003d new Test\u003cInteger\u003e();\n\t\tInteger[] arr \u003d mt.toArray(new Integer[]{});\n\t}\n}\n\nAspect:\n-------\n\npublic privileged aspect TestAspect {\n\n      pointcut TestToArray(Test mt) :\n                target(mt) \u0026\u0026\n                !within(TestAspect);\n\n\n    Object[] around(Test mt, Object[] objs) :\n            TestToArray(mt) \u0026\u0026\n            args(objs) \u0026\u0026\n            execution(Object[] com.Test.toArray(Object[])) {\n\n        objs \u003d proceed(mt, objs);\n        return objs;\n    }\n}\n\nErrors:\n-------\nTestAspect.aj:19::381 incompatible return type applying to method-execution\n(java.lang.Object[] com.mprv.secsph.Test.toArray(java.lang.Object[]))\n\nTest.java:19:0::0 incompatible return type applying to method-execution\n(java.lang.Object[] com.mprv.secsph.Test.toArray(java.lang.Object[]))\n\n\nAs you see, I\u0027m trying to apply around advice to generic version of \"toArray\" \nmethod. I think it\u0027s impossible for now to do so ...\n\nP.S. THANKS A LOT for your fast responses and almost immediate bug fixes!!!",
+    "sigh...",
+    "eventually we\u0027ll get to a point where you try something and it works :)  I\u0027ll\nlook at this bug tomorrow morning.",
+    "Don\u0027t misunderstand me, I\u0027ve tried a lot of things in AspectJ that already \nwork :) - we have developed for a 6 months with M2 version and it was great. \n\nJust a new generics stuff is still causing problems, but this is what \nMilestones are made for :)\n\nI think you are doing a great job!\n\nThanks!",
+    "Fix for latest case committed.  I\u0027m going to experiment a little bit with it\nthough - I suspect if the bounds of the type variable aren\u0027t Object then we\u0027ll\nblow up...",
+    "Ok, tried my case and *it worked* (shock horror).  So i\u0027ll close this bug again\nwhen the build comes through :)  thanks for the simple testcase each time.",
+    "*boing* it bounces closed again - build is available with latest fix in.",
+    "Hi,\n\nIt seems that those \"field-get problems\" were not fixed in aspectjweaver.jar.\n\nWhen I compile my code I only get warnings for \"unchecked conversion\" (like \nexpected). But when I\u0027ve tried to enable load time weaving, I\u0027ve got the same \nerrors like in my first post here.\n\nThanks!",
+    "As it fails LTW, it probably fails binary weaving - I\u0027ll try it out.",
+    "seems to work for me either binary weaving or LTW - so I need more information,\nI must be doing something different to you.  I\u0027m using the program almost as\ndescribed in the original post on this bug report - except my Test1 and Test2\nare subclasses of a simple Test type (required by the pointcut definition...)\n\nOr are you referring to the program in comment #5?\n\nAnd when you say \u0027enabled load time weaving\u0027 - how are you doing that? command\nline? in AJDT?\n\nI\u0027m confused because exactly the same logic is used to weave in either case - so\nI can\u0027t currently see how it can work in one case and not another, hmmm.",
+    "Hi,\n\nI\u0027m referring to the FIRST post - not comment #5.\nI\u0027m enabling LTW by passing: \n-javaagent:/my_path/aspectjweaver.jar \nto JVM.\n\nI have the development build from November 3. When I look at the content of the \naspectjweaver.jar I can see that most of the classes are created at Nov 3, but \nsome of them are from Oct 17. May be aspectjweaver.jar is not up-to-date?\n\nThanks!",
+    "October 10, not 17",
+    "Some of the jar contents come from other jars - if those weren\u0027t rebuilt then\nthey\u0027ll still have the old dates in aspectjweaver.jar (e.g.\norg/aspectj/apache/bcel/*).  I don\u0027t think thats a problem here as the fix was\nin org/aspectj/weaver/Advice which doesn\u0027t come from a jar.\n\ntwo things:\n\n1. Can you try on a more up to date dev build?  3rd Nov is a bit old... \nalthough I don\u0027t know that this will help considering the fix was committed on\nthe 1st Nov.\n\n2. Can I ask how you are building the parts of the application prior to load\ntime weaving?",
+    "Created an attachment (id\u003d30140)\nTest case\n",
+    "Hi Andy,\n\nI\u0027ve attached the IntelliJ Idea\u0027s project. Unfortunately bugzilla didn\u0027t allow\nme to attach more than 10MB, so you will have to put aspectj libs in the\nproject\u0027s lib directory.\n\nRun it. You will receive the errors. \nFor build information, you can look at the build.xml\n\nIf you have questions, I\u0027m here :)\n",
+    "Guys? What about this bug? \n",
+    "You havent been forgotten - I\u0027ve just a mountain of bugs to get through and they are all serious.  Did you try a more recent dev build, per my comment #17.  If you could unpick your build.xml to explain how the parts of the application build prior to load time weaving, that will help me too.  I don\u0027t use intellij so haven\u0027t looked at the appended tar.gz yet.",
+    "I\u0027m trying to recreate this problem.\n\nI\u0027ve installed an up to date AspectJ in c:\\aspectj1.5.0-dev\n\nThen I type \u0027ant build\u0027 then \u0027ant build-aspects\u0027 (the latter of which gives me warnings I can ignore about advice not matching)\n\nI then try and run it from the resultant classes folder:\n\njava -javaagent:c:\\aspectj1.5.0-dev\\lib\\aspectjweaver.jar com.mprv.secsph.Test\n\nand it just blows up with a BCException.\n\nwhat am i doing wrong such that I don\u0027t see the failure you see?\n\nthis is what I get:\n\nwarning Register definition failed -- (BCException) malformed org.aspectj.weaver.PointcutDeclaration attribute java.io.EOFExceptio\nn\n\nmalformed org.aspectj.weaver.PointcutDeclaration attribute java.io.EOFException\n\norg.aspectj.weaver.BCException: malformed org.aspectj.weaver.PointcutDeclaration attribute java.io.EOFException\n\n        at org.aspectj.weaver.AjAttribute.read(AjAttribute.java:123)\n        at org.aspectj.weaver.bcel.BcelAttributes.readAjAttributes(BcelAttributes.java:59)\n        at org.aspectj.weaver.bcel.BcelObjectType.unpackAspectAttributes(BcelObjectType.java:270)\n        at org.aspectj.weaver.bcel.BcelObjectType.\u003cinit\u003e(BcelObjectType.java:131)\n        at org.aspectj.weaver.bcel.BcelWorld.makeBcelObjectType(BcelWorld.java:255)\n        at org.aspectj.weaver.bcel.BcelWorld.resolveDelegate(BcelWorld.java:250)\n        at org.aspectj.weaver.World.resolveToReferenceType(World.java:296)\n\n\n",
+    "Hi,\n\nSorry for the late response. Tonns of work ... :)\nAre you still getting this exception?\n\nI\u0027m going to try the latest build now with this testcase.",
+    "Hi,\n\nI\u0027ve runned the testcase with the latest (today\u0027s Nov 23 build) build and it worked!\n\nI\u0027ve rechecked it with Nov 3 build, and it didn\u0027t work!\n\nDid you do something? :-)\n\nAnyway, thanks a lot!\n",
+    "Thanks for trying it out.  I haven\u0027t knowingly done anything to affect this test but we have fixed quite a few bugs in the last few days all over the place.  \n\nSo shall I close it again for now? :)  Feel free to reopen if you encounter this problem again.",
+    "Hi Andy,\n\nThanks for the help!\n\nI think now this bug can be closed :-)\n\nBut there is another issue. Take a look at this post (and topic) - you will know what I\u0027m talking about. \n\nhttp://dev.eclipse.org/mhonarc/lists/aspectj-dev/msg01869.html\n\nMy problem is that I\u0027m working with Hibernate (3.0.5, cglib 2.1) and LTW seems to cause exceptions in generated code.\n\nIs this issue will be solved in 1.5, or should I leave LTW for a while?\n\nThanks!\nMisha.",
+    "Closing as fixed.\n\nOn the other comments... I remember that long debate about attributes and annotations.  We have no plans to move to annotations for everything during 1.5.0 - we\u0027re going to look at it again for 1.5.1.  Out of interest, how does it manifest as failing for you?  \n\nThe problem we were getting at in the annotation/attribute discussion was that ASM discards attributes it doesn\u0027t understand - so it discards the attributes AspectJ adds that tells the weaver what to do.  We are thinking about what the right solution is  .... maybe a plugin for ASM that would allow us to define whats allowed through ... maybe we move to annotations, but that isn\u0027t a small piece of work we can fit into 1.5.0 now."
+  ],
+  "commentCreationDates": [
+    "2005-10-31T12:22:47+01:00",
+    "2005-10-31T12:38:27+01:00",
+    "2005-11-01T11:23:01+01:00",
+    "2005-11-01T11:38:00+01:00",
+    "2005-11-01T13:17:48+01:00",
+    "2005-11-02T19:13:20+01:00",
+    "2005-11-02T19:32:51+01:00",
+    "2005-11-02T20:35:03+01:00",
+    "2005-11-03T08:19:45+01:00",
+    "2005-11-03T10:31:16+01:00",
+    "2005-11-03T11:05:56+01:00",
+    "2005-11-03T13:16:44+01:00",
+    "2005-11-17T08:15:10+01:00",
+    "2005-11-17T08:30:16+01:00",
+    "2005-11-17T13:01:24+01:00",
+    "2005-11-17T13:20:17+01:00",
+    "2005-11-17T13:31:34+01:00",
+    "2005-11-17T14:11:00+01:00",
+    "2005-11-17T14:57:12+01:00",
+    "2005-11-17T15:00:07+01:00",
+    "2005-11-22T10:21:39+01:00",
+    "2005-11-22T10:44:25+01:00",
+    "2005-11-23T14:31:40+01:00",
+    "2005-11-23T17:00:02+01:00",
+    "2005-11-23T17:16:52+01:00",
+    "2005-11-23T17:26:30+01:00",
+    "2005-11-23T18:48:17+01:00",
+    "2005-11-24T08:31:47+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.EOFException",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.AjAttribute.read",
+          "source": "AjAttribute.java:123"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelAttributes.readAjAttributes",
+          "source": "BcelAttributes.java:59"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelObjectType.unpackAspectAttributes",
+          "source": "BcelObjectType.java:270"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelObjectType.\u003cinit\u003e",
+          "source": "BcelObjectType.java:131"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWorld.makeBcelObjectType",
+          "source": "BcelWorld.java:255"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWorld.resolveDelegate",
+          "source": "BcelWorld.java:250"
+        },
+        {
+          "method": "org.aspectj.weaver.World.resolveToReferenceType",
+          "source": "World.java:296"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 22,
+      "bugId": "114343",
+      "date": "2005-11-23T14:31:40+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "114343",
+  "bugId": "114343",
+  "date": "2005-10-31T12:22:47+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "critical"
+}

@@ -1,0 +1,121 @@
+{
+  "comments": [
+    "OS:\t\tSLES 9 Beta2\nLanguage:\tSimplified Chinese\nBuild level:\t200403261517\nJDK version:\tIBM JDK 1.4.2 Beta\nTest case #:\tWB30PFSH010\n\nSummary: GB18030: Can not search the expression via Menu \"Search\"-\u003e\"Read \nAccess\"-\u003e\"Workspace\" correctly.\n\nSteps to recreate problem:\n1-Start Eclipse;\n2-Click menu \"File\"-\u003e\"New\"-\u003e\"Project\";\n3-Select Java Project , press \"Next\u003e\" button;\n4-Input \"JavaTest\" in Project Name field, press \"Finish\" button;\n5-\"Confirm Perspective Switch\" window shows up, press \"Yes\" button;\n6-Create two classes, A class name contains GB18030 character. The B inherit \nfrom A. Following is the source code of CLASS A and B?F\n/*****************************************************/\n/*A.java*/\nclass A {\n\tstatic int counter;\n\tint\n}\n/*****************************************************/\n\n/*****************************************************/\n/*B.java*/\nclass B extends A{\n\tint readCounter(){\n\t\treturn counter;\n\t}\n}\n/*****************************************************/\n\n7-Double click the A class to open it from Java Editor;\n8-Select the variable \"counter\";\n9-Click menu \"Search\"-\u003e\"Read Access\"-\u003e\"Workspace\";You will get one item found \nin \"Search\" View.\n10-Add an int Variable into Class A named with character \"0x6d4b\"(using Unicode \nime to input);\n11-Select the variable \"counter\";\n12-Click menu \"Search\"-\u003e\"Read Access\"-\u003e\"Workspace\";You will get one item found \nin \"Search\" View;\n13-Add an int Variable into Class A named with \"temp\";\n14-Select the variable \"counter\";\n15-Click menu \"Search\"-\u003e\"Read Access\"-\u003e\"Workspace\";You will get nothing found \nin \"Search\" View;\n   I think Searching result should like the result in step 9 \u0026 12.\n\nError:  Can not correctly search the \"Read Access\".\n\nExpected Result: Show what you input, search the expression correctly and \nswitch correctly.\n\nRemark:  This problem does occur in RHEL 3 WS and Window 2003 too.",
+    "A couple of questions here:\n\n1) The class a is syntactically incorrect (\"int\" after definition of the\n\"counter\" variable.\n2) Is there anything in the .log file?",
+    "I am unable to reproduce this on Windows 2000 with build wswb-I20040413-\n200404191247.\n\nAlso, creating the variable with the 0x6d4b character results in a syntax \nerror, \"invalid variableDeclarator\".  Is this a bug?\n",
+    "I\u0027ve  tried with Build level 200404131323 on Windows XP, following is the \ndetail steps:\n\nSteps to recreate problem:\n1-Start Eclipse;\n2-Click menu \"File\"-\u003e\"New\"-\u003e\"Project\";\n3-Select Java Project , press \"Next\u003e\" button;\n4-Input \"JavaTest\" in Project Name field, press \"Finish\" button;\n5-\"Confirm Perspective Switch\" window shows up, press \"Yes\" button;\n6-Click menu \"File\"-\u003e\"New\"-\u003e\"Class\";\n7-input \"A\" in \"Name\" field and select the \"default\" option in Modifiers group;\n8-Click \"Finish\" button.\n9-Click menu \"File\"-\u003e\"New\"-\u003e\"Class\";\n10-input \"B\" in \"Name\" field and select the \"default\" option in Modifiers group;\n11-Click \"Finish\" button.\n12-double click \"A.java\" in the \"Package Explore View\" to open it from Java \nEditor.\n13-Copy and paste the following contents to replace file \"A.java\".\n/*****************************************************/\nclass A {\n\tstatic int counter;\n}\n/*****************************************************/\n14-Press \"Ctrl + S\" to save file \"A.java\"\n15-double click \"B.java\" in the \"Package Explore View\" to open it from Java \nEditor.\n16-Copy and paste the following contents to replace file \"B.java\".\n/*****************************************************/\nclass B extends A{\n\tint readCounter()\t{return counter;}\n}\n/*****************************************************/\n17-Press \"Ctrl + S\" to save file \"B.java\".\n18-double click \"A.java\" in the \"Package Explore View\" to open it from Java \nEditor.\n19-Select the variable \"counter\";\n20-Click menu \"Search\"-\u003e\"Read Access\"-\u003e\"Workspace\";You will get nothing found \nin \"Search\" View.\n\nError:  Can not correctly search the \"Read Access\".\n\nExpected Result: Show what you input, search the expression correctly and \nswitch correctly.\n\nRemark:\nIt cause error log.\n",
+    "Created an attachment (id\u003d9744)\nerror log\n\nerror log",
+    "I have not been able to reproduce the problem (on my machine, the reference is\ncorrectly reported). Looking at the stack trace, I suspect a JDT Core problem.\nMoving to JDT Core.",
+    "We tried the original scenario (with Chinese characters) on Dirks machine (with\nbuild 2004-04-20), but it works there, too.",
+    "Kent - could indexing be affected by encoding ?",
+    "*** Bug 57861 has been marked as a duplicate of this bug. ***",
+    "Was NOT able to reproduce the problem on a Windows XP Chinese machine running \nbuild M8.\n\nI have been told that several DBCS problems were fixed recently in SWT.\n\nCould you please try again on the latest integration build?",
+    "From the stack trace, this is the call we are making in DiskIndex:\n\nDataInputStream stream \u003d new DataInputStream(new BufferedInputStream(new \nFileInputStream(getIndexFile())));\n\nThe constructor in BufferedInputStream is:\n\npublic BufferedInputStream(InputStream in) {\n  this(in, defaultBufferSize);\n}\n\nwhich calls:\n\npublic BufferedInputStream(InputStream in, int size) {\n  super(in);\n  if (size \u003c\u003d 0) {\n    throw new IllegalArgumentException(\"Buffer size \u003c\u003d 0\");\n  }\n  buf \u003d new byte[size];\n}\n\nWe do NOT pass in the buffer size (we use the default) so how can it be \nnegative? Its initialized as:\n\n    private static int defaultBufferSize \u003d 2048;\n\nCan you run a simple example that uses a BufferedInputStream on your VM?",
+    "I\u0027ve tested BufferedInputStream on my VM and there is no error, following is my \ntesting code.\n\n/*IOStreamDemo.java*/\nimport java.io.*;\n\npublic class IOStreamDemo {\n  // Throw exceptions to console:\n  public static void main(String[] args) \n  throws IOException {\n    // Storing \u0026 recovering data\n    try {\n      DataOutputStream out1 \u003d\n        new DataOutputStream(\n          new BufferedOutputStream(\n            new FileOutputStream(\"Data.txt\")));\n      out1.writeDouble(3.14159);\n      out1.writeUTF(\"That was pi\");\n      out1.writeDouble(1.41413);\n      out1.writeUTF(\"Square root of 2\");\n      out1.close();\n      DataInputStream in1 \u003d\n        new DataInputStream(\n          new BufferedInputStream(\n            new FileInputStream(\"Data.txt\")));\n      // Must use DataInputStream for data:\n      System.out.println(in1.readDouble());\n      // Only readUTF() will recover the \n      // Java-UTF String properly:\n      System.out.println(in1.readUTF());\n      // Read the following double and String:\n      System.out.println(in1.readDouble());\n      System.out.println(in1.readUTF());\n    } catch(EOFException e) {\n      System.err.println(\"End of stream\");\n    }\n  }\n}\n\n/*output result:\n3.14159\nThat was pi\n1.41413\nSquare root of 2\n*/",
+    "The build level which I used is 200404131323.",
+    "Cheng : can you still reproduce the original problem on latest build ?\n\n",
+    "I have not found new build on ftp server(ott4f). I am using build 200404131323 \nnow and the problem exists in that build.\nIf I get new build I\u0027ll verify this problem ASAP.",
+    "Do you have access to other 1.4.x VMs (Sun, IBM... doesn\u0027t matter)?\n\nIf so can you try to reproduce the problem on those VMs.",
+    "I\u0027ve looked at this with the bscenario of bug 57861 on I20040422. It seems that \nnewer version of IBM JVM 1.4.2 and Sun\u0027s JVM 1.4.2_03 don\u0027t have the error of \n57861.",
+    "I\u0027ve replaced JRE with Sun JRE and this problem does not occur, following is \nthe version information of Sun JRE:\njava version \"1.4.2_04\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.2_04-b05)\nJava HotSpot(TM) Client VM (build 1.4.2_04-b05, mixed mode)",
+    "We\u0027re going to close this since it is confirmed as a VM problem with IBM JDK \n1.4.2 Beta.",
+    "Yes, It\u0027s a VM problem with IBM JDK 1.4.2 Beta.",
+    "*** Bug 61481 has been marked as a duplicate of this bug. ***",
+    "I tried this on the 5/19 M9 candidate.  This exception occurs with this JVM \n(not beta):\n\njava.vendor\u003dIBM Corporation\njava.version\u003d1.4.1\njava.vm.info\u003dJ2RE 1.4.1 IBM Windows 32 build cn1411-20030930 (JIT enabled: \njitc)\njava.vm.name\u003dClassic VM\n\nHere is the stack trace:\n\n\njava.lang.IllegalArgumentException: Buffer size \u003c\u003d 0\n\tat java.io.BufferedInputStream.\u003cinit\u003e(BufferedInputStream.java(Inlined \nCompiled Code))\n\tat java.io.BufferedInputStream.\u003cinit\u003e(BufferedInputStream.java(Inlined \nCompiled Code))\n\tat org.eclipse.jdt.internal.core.index.DiskIndex.readCategoryTable\n(DiskIndex.java(Compiled Code))\n\tat org.eclipse.jdt.internal.core.index.DiskIndex.mergeCategory\n(DiskIndex.java:360)\n\tat org.eclipse.jdt.internal.core.index.DiskIndex.mergeCategories\n(DiskIndex.java:352)\n\tat org.eclipse.jdt.internal.core.index.DiskIndex.mergeWith\n(DiskIndex.java:444)\n\tat org.eclipse.jdt.internal.core.index.Index.save(Index.java:171)\n\tat org.eclipse.jdt.internal.core.search.indexing.IndexManager.saveIndex\n(IndexManager.java:491)\n\tat org.eclipse.jdt.internal.core.search.indexing.SaveIndex.execute\n(SaveIndex.java:40)\n\tat org.eclipse.jdt.internal.core.search.processing.JobManager.run\n(JobManager.java:367)\n\tat java.lang.Thread.run(Thread.java:568)",
+    "*** Bug 63878 has been marked as a duplicate of this bug. ***",
+    "*** Bug 64076 has been marked as a duplicate of this bug. ***",
+    "*** Bug 65769 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2004-04-05T07:42:52+02:00",
+    "2004-04-14T13:14:53+02:00",
+    "2004-04-20T17:31:18+02:00",
+    "2004-04-21T07:35:06+02:00",
+    "2004-04-21T07:37:10+02:00",
+    "2004-04-21T10:00:11+02:00",
+    "2004-04-21T11:01:24+02:00",
+    "2004-04-21T12:34:22+02:00",
+    "2004-04-21T17:45:52+02:00",
+    "2004-04-21T17:46:17+02:00",
+    "2004-04-21T18:50:19+02:00",
+    "2004-04-22T08:23:13+02:00",
+    "2004-04-22T08:49:54+02:00",
+    "2004-04-22T12:06:25+02:00",
+    "2004-04-23T03:06:26+02:00",
+    "2004-04-23T21:35:27+02:00",
+    "2004-04-26T08:33:47+02:00",
+    "2004-04-26T10:27:17+02:00",
+    "2004-04-26T17:26:21+02:00",
+    "2004-04-27T03:25:30+02:00",
+    "2004-05-11T16:43:48+02:00",
+    "2004-05-19T19:58:57+02:00",
+    "2004-05-25T17:53:53+02:00",
+    "2004-05-26T15:53:59+02:00",
+    "2004-06-07T19:32:21+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Buffer size \u003c\u003d 0",
+      "elements": [
+        {
+          "method": "java.io.BufferedInputStream.\u003cinit\u003e",
+          "source": "BufferedInputStream.java(Inlined  Compiled Code)"
+        },
+        {
+          "method": "java.io.BufferedInputStream.\u003cinit\u003e",
+          "source": "BufferedInputStream.java(Inlined  Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.index.DiskIndex.readCategoryTable",
+          "source": "DiskIndex.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.index.DiskIndex.mergeCategory",
+          "source": "DiskIndex.java:360"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.index.DiskIndex.mergeCategories",
+          "source": "DiskIndex.java:352"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.index.DiskIndex.mergeWith",
+          "source": "DiskIndex.java:444"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.index.Index.save",
+          "source": "Index.java:171"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.indexing.IndexManager.saveIndex",
+          "source": "IndexManager.java:491"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.indexing.SaveIndex.execute",
+          "source": "SaveIndex.java:40"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.processing.JobManager.run",
+          "source": "JobManager.java:367"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:568"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 21,
+      "bugId": "57419",
+      "date": "2004-05-19T19:58:57+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "57419",
+  "bugId": "57419",
+  "date": "2004-04-05T07:42:52+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

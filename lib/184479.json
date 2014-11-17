@@ -1,0 +1,220 @@
+{
+  "comments": [
+    "We have a wizard with an operation that sets the primary key on a selected\nEntity:\nIPersistentAttribute attribute \u003d myAttribute;                          \nattribute.setMappingKey(IMappingKeys.ID_ATTRIBUTE_MAPPING_KEY), false);\n\nIf I have that entity open in the Java editor, I get an Invalid Thread Access exception.  If the Java editor is not open, I do not get that error.  Could this be handled in the Annotation editing code to make sure that it happens on the appropriate thread?\n\n!MESSAGE Extended Operation failure: my.package.JpaOperation\n!STACK 0\norg.eclipse.swt.SWTException: Invalid thread access\n\tat org.eclipse.swt.SWT.error(SWT.java:3534)\n\tat org.eclipse.swt.SWT.error(SWT.java:3457)\n\tat org.eclipse.swt.SWT.error(SWT.java:3428)\n\tat org.eclipse.swt.widgets.Widget.error(Widget.java:432)\n\tat org.eclipse.swt.widgets.Widget.checkWidget(Widget.java:326)\n\tat org.eclipse.swt.custom.StyledText.getLinePixel(StyledText.java:3649)\n\tat org.eclipse.swt.custom.StyledText.handleTextChanging(StyledText.java:5330)\n\tat org.eclipse.swt.custom.StyledText$6.textChanging(StyledText.java:4772)\n\tat org.eclipse.jface.text.DefaultDocumentAdapter.fireTextChanging(DefaultDocumentAdapter.java:392)\n\tat org.eclipse.jface.text.DefaultDocumentAdapter.documentAboutToBeChanged(DefaultDocumentAdapter.java:309)\n\tat org.eclipse.jface.text.AbstractDocument.fireDocumentAboutToBeChanged(AbstractDocument.java:602)\n\tat org.eclipse.jface.text.projection.ProjectionDocument.delayedFireDocumentAboutToBeChanged(ProjectionDocument.java:758)\n\tat org.eclipse.jface.text.projection.ProjectionDocument.masterDocumentAboutToBeChanged(ProjectionDocument.java:717)\n\tat org.eclipse.jface.text.projection.ProjectionDocumentManager.fireDocumentEvent(ProjectionDocumentManager.java:121)\n\tat org.eclipse.jface.text.projection.ProjectionDocumentManager.documentAboutToBeChanged(ProjectionDocumentManager.java:138)\n\tat org.eclipse.jface.text.AbstractDocument.fireDocumentAboutToBeChanged(AbstractDocument.java:606)\n\tat org.eclipse.jface.text.AbstractDocument.replace(AbstractDocument.java:1072)\n\tat org.eclipse.core.internal.filebuffers.SynchronizableDocument.replace(SynchronizableDocument.java:151)\n\tat org.eclipse.jface.text.AbstractDocument.replace(AbstractDocument.java:1091)\n\tat org.eclipse.core.internal.filebuffers.SynchronizableDocument.replace(SynchronizableDocument.java:137)\n\tat org.eclipse.text.edits.InsertEdit.performDocumentUpdating(InsertEdit.java:81)\n\tat org.eclipse.text.edits.TextEdit.traverseDocumentUpdating(TextEdit.java:896)\n\tat org.eclipse.text.edits.TextEdit.traverseDocumentUpdating(TextEdit.java:889)\n\tat org.eclipse.text.edits.TextEditProcessor.executeDo(TextEditProcessor.java:186)\n\tat org.eclipse.text.edits.TextEdit.dispatchPerformEdits(TextEdit.java:736)\n\tat org.eclipse.text.edits.TextEditProcessor.performEdits(TextEditProcessor.java:154)\n\tat org.eclipse.text.edits.TextEdit.apply(TextEdit.java:708)\n\tat org.eclipse.jpa.core.internal.jdtutility.AnnotationEditFormatter.apply(AnnotationEditFormatter.java:36)\n\tat org.eclipse.jpa.core.internal.jdtutility.Member.edit_(Member.java:369)\n\tat org.eclipse.jpa.core.internal.jdtutility.Member.edit(Member.java:332)\n\tat org.eclipse.jpa.core.internal.jdtutility.Member.newMarkerAnnotation(Member.java:211)\n\tat org.eclipse.jpa.core.internal.content.java.JavaPersistentAttribute.setSpecifiedMapping(JavaPersistentAttribute.java:317)\n\tat org.eclipse.jpa.core.internal.content.java.JavaPersistentAttribute.setMappingKey(JavaPersistentAttribute.java:341)\n\tat my.package.EntityAnnotationOperation.execute(EntityAnnotationOperation.java:26)",
+    "Brian, can you take a look at this.",
+    "Just a bit more background - we are using the IDataModel framework from our own wizard, and in our operation we are modifying the JPA model objects (such as adding INamedQuery\u0027s to the IEntity, etc).  This operation runs in the background (not in the UI thread).  We often run our operation when the Entity java file is not even open - maybe there\u0027s a way for the AnnotationEditFormatter to not call all of the UI listeners if not running in the UI thread.\n\nHere\u0027s another truncated stacktrace that shows the same scenario when we make a call to: (INamedQuery)query).setName( \"foo\");\n\norg.eclipse.swt.SWTException: Invalid thread access\n\tat org.eclipse.swt.SWT.error(SWT.java:3547)\n\tat org.eclipse.swt.SWT.error(SWT.java:3465)\n\tat org.eclipse.swt.SWT.error(SWT.java:3436)\n\tat org.eclipse.swt.widgets.Widget.error(Widget.java:432)\n\tat org.eclipse.swt.widgets.Widget.checkWidget(Widget.java:326)\n\tat org.eclipse.swt.custom.StyledText.getLinePixel(StyledText.java:3649)\n\tat org.eclipse.swt.custom.StyledText.handleTextChanging(StyledText.java:5330)\n\t. . .\tat org.eclipse.jpt.core.internal.JpaEObject.eNotify(JpaEObject.java:73)\n\tat org.eclipse.jpt.core.internal.content.java.mappings.JavaAbstractQuery.setName(JavaAbstractQuery.java:244)\n. . . org.eclipse.wst.common.frameworks.internal.datamodel.DataModelPausibleOperationImpl$1.run(DataModelPausibleOperationImpl.java:376)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1797)",
+    "Hi there,\n\nDo you know how difficult this one will be to fix?  Currently we have added a bunch of Display.syncExec blocks to wrap all of our various Dali model access in our code.  This probably isn\u0027t the best solution especially since we are running as a non-UI operation, but I don\u0027t know a better way at the moment.",
+    "I added API to IJpaProject that will allow clients to set a ThreadLocal CommandExecutor: IJpaProject#setThreadLocalModifySharedDocumentCommandExecutor(CommandExecutor commandExecutor). When updating a model in a non-UI thread you will need to set this CommandExecutor to one that will execute the command on the UI thread:\nproject.setThreadLocalModifySharedDocumentCommandExecutor(SynchronousUiCommandExecutor.instance()). Then any model object in the project can be modified and, if its currently visible in an editor, it will notify its listeners on the UI thread.",
+    "Hi Brian,\n\nThis mechanism seems to work fine, thanks.  After my code sets the Executor and updates the Dali model, afterwards is it my responsibility to again call setThreadLocalModifySharedDocumentCommandExecutor() and set it back to the original executor? ",
+    "Hi, Tom.\n\nGlad to hear this works for you.\n\nIn response to Comment 5: No, you do not need to reset the executor. It is stored in a ThreadLocal, affects only the code running in the Thread that set it originally, and will be garbage-collected when the Thread is finished and garbage-collected.",
+    "Very cool - thanks!"
+  ],
+  "commentCreationDates": [
+    "2007-04-27T18:59:35+02:00",
+    "2007-05-17T22:55:49+02:00",
+    "2007-05-18T14:25:46+02:00",
+    "2007-06-13T20:03:25+02:00",
+    "2007-07-25T23:09:22+02:00",
+    "2007-11-14T19:51:08+01:00",
+    "2007-11-14T23:43:34+01:00",
+    "2007-11-15T12:49:12+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Invalid thread access",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3534"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3457"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3428"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:432"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java:326"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.getLinePixel",
+          "source": "StyledText.java:3649"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.handleTextChanging",
+          "source": "StyledText.java:5330"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText$6.textChanging",
+          "source": "StyledText.java:4772"
+        },
+        {
+          "method": "org.eclipse.jface.text.DefaultDocumentAdapter.fireTextChanging",
+          "source": "DefaultDocumentAdapter.java:392"
+        },
+        {
+          "method": "org.eclipse.jface.text.DefaultDocumentAdapter.documentAboutToBeChanged",
+          "source": "DefaultDocumentAdapter.java:309"
+        },
+        {
+          "method": "org.eclipse.jface.text.AbstractDocument.fireDocumentAboutToBeChanged",
+          "source": "AbstractDocument.java:602"
+        },
+        {
+          "method": "org.eclipse.jface.text.projection.ProjectionDocument.delayedFireDocumentAboutToBeChanged",
+          "source": "ProjectionDocument.java:758"
+        },
+        {
+          "method": "org.eclipse.jface.text.projection.ProjectionDocument.masterDocumentAboutToBeChanged",
+          "source": "ProjectionDocument.java:717"
+        },
+        {
+          "method": "org.eclipse.jface.text.projection.ProjectionDocumentManager.fireDocumentEvent",
+          "source": "ProjectionDocumentManager.java:121"
+        },
+        {
+          "method": "org.eclipse.jface.text.projection.ProjectionDocumentManager.documentAboutToBeChanged",
+          "source": "ProjectionDocumentManager.java:138"
+        },
+        {
+          "method": "org.eclipse.jface.text.AbstractDocument.fireDocumentAboutToBeChanged",
+          "source": "AbstractDocument.java:606"
+        },
+        {
+          "method": "org.eclipse.jface.text.AbstractDocument.replace",
+          "source": "AbstractDocument.java:1072"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.SynchronizableDocument.replace",
+          "source": "SynchronizableDocument.java:151"
+        },
+        {
+          "method": "org.eclipse.jface.text.AbstractDocument.replace",
+          "source": "AbstractDocument.java:1091"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.SynchronizableDocument.replace",
+          "source": "SynchronizableDocument.java:137"
+        },
+        {
+          "method": "org.eclipse.text.edits.InsertEdit.performDocumentUpdating",
+          "source": "InsertEdit.java:81"
+        },
+        {
+          "method": "org.eclipse.text.edits.TextEdit.traverseDocumentUpdating",
+          "source": "TextEdit.java:896"
+        },
+        {
+          "method": "org.eclipse.text.edits.TextEdit.traverseDocumentUpdating",
+          "source": "TextEdit.java:889"
+        },
+        {
+          "method": "org.eclipse.text.edits.TextEditProcessor.executeDo",
+          "source": "TextEditProcessor.java:186"
+        },
+        {
+          "method": "org.eclipse.text.edits.TextEdit.dispatchPerformEdits",
+          "source": "TextEdit.java:736"
+        },
+        {
+          "method": "org.eclipse.text.edits.TextEditProcessor.performEdits",
+          "source": "TextEditProcessor.java:154"
+        },
+        {
+          "method": "org.eclipse.text.edits.TextEdit.apply",
+          "source": "TextEdit.java:708"
+        },
+        {
+          "method": "org.eclipse.jpa.core.internal.jdtutility.AnnotationEditFormatter.apply",
+          "source": "AnnotationEditFormatter.java:36"
+        },
+        {
+          "method": "org.eclipse.jpa.core.internal.jdtutility.Member.edit_",
+          "source": "Member.java:369"
+        },
+        {
+          "method": "org.eclipse.jpa.core.internal.jdtutility.Member.edit",
+          "source": "Member.java:332"
+        },
+        {
+          "method": "org.eclipse.jpa.core.internal.jdtutility.Member.newMarkerAnnotation",
+          "source": "Member.java:211"
+        },
+        {
+          "method": "org.eclipse.jpa.core.internal.content.java.JavaPersistentAttribute.setSpecifiedMapping",
+          "source": "JavaPersistentAttribute.java:317"
+        },
+        {
+          "method": "org.eclipse.jpa.core.internal.content.java.JavaPersistentAttribute.setMappingKey",
+          "source": "JavaPersistentAttribute.java:341"
+        },
+        {
+          "method": "my.package.EntityAnnotationOperation.execute",
+          "source": "EntityAnnotationOperation.java:26"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "184479",
+      "date": "2007-04-27T18:59:35+02:00",
+      "product": "Dali JPA Tools",
+      "component": "General",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Invalid thread access",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3547"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3465"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3436"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:432"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java:326"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.getLinePixel",
+          "source": "StyledText.java:3649"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.handleTextChanging",
+          "source": "StyledText.java:5330"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 2,
+      "bugId": "184479",
+      "date": "2007-05-18T14:25:46+02:00",
+      "product": "Dali JPA Tools",
+      "component": "General",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "184479",
+  "bugId": "184479",
+  "date": "2007-04-27T18:59:35+02:00",
+  "product": "Dali JPA Tools",
+  "component": "General",
+  "severity": "normal"
+}

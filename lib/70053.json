@@ -1,0 +1,39 @@
+{
+  "comments": [
+    "Latest Cheetah from CVS, JDK 5.0 b57.  I get strange errors\n\nException in thread \"main\" java.lang.VerifyError: (class: xxx/XXX, method:\ngetZZZ signature: (Lxxx/YYY;)Ljava/lang/String;) Incompatible argument to function\n\tat xxx.Main.main(Main.java:8)\n\nwhen adding ``log.info(\"got:\\n\" + trigger.toXML());\u0027\u0027 to method getZZZ (I had to\nobfuscate the package and class and method names).  ``log\u0027\u0027 is a log4j-1.2.8\nstatic Logger variable.\n\nWhen compiling with javac, there\u0027s no problem.\n\nBelow is the problematic method.  Unfortunately, I can\u0027t provide the code and\nwasn\u0027t able to create a small test case to reproduce the problem. \n\n\n\npublic java.lang.String getZZZ(xxx.YYY);\n  Code:\n   0:\tgetstatic\t#23; //Field log:Lorg/apache/log4j/Logger;\n   3:\tnew\t#35; //class java/lang/StringBuilder\n   6:\tdup\n   7:\tldc\t#60; //String triggering getRightsObject() for cid\u003d\n   9:\tinvokespecial\t#40; //Method\njava/lang/StringBuilder.\"\u003cinit\u003e\":(Ljava/lang/String;)V\n   12:\taload_1\n   13:\tinvokevirtual\t#65; //Method xxx/AAA.getCID:()Ljava/lang/String;\n   16:\tinvokevirtual\t#44; //Method\njava/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;\n   19:\tldc\t#67; //String , roid\u003d\n   21:\tinvokevirtual\t#44; //Method\njava/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;\n   24:\taload_1\n   25:\tinvokevirtual\t#71; //Method xxx/AAA.getROIDs:()Ljava/util/List;\n   28:\ticonst_0\n   29:\tinvokeinterface\t#77,  2; //InterfaceMethod\njava/util/List.get:(I)Ljava/lang/Object;\n   34:\tinvokevirtual\t#44; //Method\njava/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;\n   37:\tinvokevirtual\t#50; //Method\njava/lang/StringBuilder.toString:()Ljava/lang/String;\n   40:\tinvokevirtual\t#54; //Method\norg/apache/log4j/Logger.info:(Ljava/lang/Object;)V\n   43:\tgetstatic\t#23; //Field log:Lorg/apache/log4j/Logger;\n   46:\tnew\t#35; //class java/lang/StringBuilder\n   49:\tdup\n   50:\tldc\t#79; //String got:\\n\n   52:\tinvokespecial\t#40; //Method\njava/lang/StringBuilder.\"\u003cinit\u003e\":(Ljava/lang/String;)V\n   55:\taload_1\n   56:\tinvokevirtual\t#82; //Method xxx/AAA.toXML:()Ljava/lang/String;\n   59:\tinvokevirtual\t#44; //Method\njava/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;\n   62:\tinvokevirtual\t#50; //Method\njava/lang/StringBuilder.toString:()Ljava/lang/String;\n   65:\tinvokevirtual\t#54; //Method\norg/apache/log4j/Logger.info:(Ljava/lang/Object;)V\n   68:\taload_0\n   69:\tgetfield\t#84; //Field riContext:Lxxx/BBB;\n   72:\tifnull\t92\n   75:\taload_0\n   76:\tgetfield\t#84; //Field riContext:Lxxx/BBB;\n   79:\tinvokevirtual\t#89; //Method xxx/BBB.getRIID:()Ljava/lang/String;\n   82:\taload_1\n   83:\tinvokevirtual\t#90; //Method xxx/AAA.getRIID:()Ljava/lang/String;\n   86:\tinvokevirtual\t#96; //Method java/lang/String.equals:(Ljava/lang/Object;)Z\n   89:\tifne\t109",
+    "Cannot reproduce. I tried the following testcase inferred from given \ninformation, please advise for reproducing it. \nAlso, can you reproduce the issue with latest HEAD contents ?\n\nimport java.util.*;\npublic class X {\n  public static void main(String[] args) {\n    YYY y \u003d new YYY();\n    System.out.println(\n      new StringBuilder(\"triggering getRightsobject() for cid\u003d\")\n        .append(y.getCID())\n        .append(\", roid\u003d\")\n        .append(y.getROIDs().get(0))\n        .toString());\n    System.out.println(\n      new StringBuilder(\"got:\\n\")\n        .append(y.toXML())\n        .toString());\n  }\n}\n\nclass YYY extends AAA {\n}\n\nclass AAA {\n  String getCID() {\t\n    return \"[cid]\";\n  }\n  List\u003cString\u003e getROIDs() { \n    ArrayList\u003cString\u003e als \u003d new ArrayList\u003cString\u003e(1);\n    als.add(\"[roid]\");\n    return als;\n  }\n  String toXML() {\n    return \"[xml]\";\n  }\n}\n\n\n\n",
+    "Philippe, your code works for me but I managed to modify and further simplify\nthe example and reproduce the problem:\n\n java.lang.VerifyError: (class: A, method: main signature:\n([Ljava/lang/String;)V) Incompatible argument to function\n\nHere\u0027s the faulty code:\n\nimport java.util.*;\n\npublic class A {\n public static void main(String[] args) {\n  A a \u003d new A();\n  System.out.println(\"-\" + a.a() + \"-\" + a.b().get(0) + \"-\" + a.a() + \"-\");\n }\n String a() { return \"\"; }\n List\u003cString\u003e b() { \n  ArrayList\u003cString\u003e als \u003d new ArrayList\u003cString\u003e(1);\n  als.add(a());\n  return als;\n }\n}\n\nUsing latest CVS and 5.0 b57.\n\nIf I remove the \"get(0)\" the code works.\nIf I remove the \"\u003cString\u003e\" from b\u0027s signature, the code works.\n\nIf you decompile the class file\n\n 32:  aload_1\n 33:  invokevirtual   #41; //Method b:()Ljava/util/List;\n 36:  iconst_0\n 37:  invokeinterface #47,  2; //InterfaceMethod\njava/util/List.get:(I)Ljava/lang/Object;\n 42:  invokevirtual   #37; //Method\njava/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;\n\nyou should notice that List#get() returns a Object but the\nStringBuilder#append() method expects a string.  Either a cast is missing or a\ndifferent append() method must be chosen.\n\nHope this helps to fix the bug :)",
+    "String concatenation was indeed missing generic cast generation.\nAdded regression test: GenericTypeTest#test254.\nFixed"
+  ],
+  "commentCreationDates": [
+    "2004-07-14T21:12:23+02:00",
+    "2004-07-20T18:18:00+02:00",
+    "2004-07-21T09:53:37+02:00",
+    "2004-07-21T12:35:24+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.VerifyError",
+      "message": "(class: xxx/XXX, method: getZZZ signature: (Lxxx/YYY;)Ljava/lang/String;) Incompatible argument to function",
+      "elements": [
+        {
+          "method": "xxx.Main.main",
+          "source": "Main.java:8"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "70053",
+      "date": "2004-07-14T21:12:23+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "70053",
+  "bugId": "70053",
+  "date": "2004-07-14T21:12:23+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

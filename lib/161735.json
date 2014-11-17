@@ -1,0 +1,336 @@
+{
+  "comments": [
+    "This has been reported elsewhere, but I could not find this logged anywhere here - I am thus unsure as to whether it is a real bug or a wanted feature (seems unlikely, though).\n\nThis happens in a JSP/Servlet environment, but seem replicable in POJO/Java app too.\n\nRE is initialised as per code in \"Servlet Example\" wikipedia (http://wiki.eclipse.org/index.php/Servlet_Example)\nAfterwards report run / data extracted without any problem\n\nHowever, if the shutdown code is run and then another instance of the RE is obtained, as soon as the following code is executed:\n\ndesign \u003d birtReportEngine.openReportDesign( reportFile );\n\nan exception is thrown:\n\njava.lang.IllegalArgumentException: The extension with ID \u0027org.eclipse.birt.report.data.oda.jdbc\u0027 is not found!\n        at org.eclipse.birt.report.model.plugin.ODAManifestUtil.getDataSourceExtension(ODAManifestUtil.java:50)\n        at org.eclipse.birt.report.model.plugin.OdaExtensibilityProvider.isValidODADataSourceExtensionID(OdaExtensibilityProvider.java:202)\n        at org.eclipse.birt.report.model.parser.OdaDataSourceState.parseODADataSourceExtensionID(OdaDataSourceState.java:125)\n        at org.eclipse.birt.report.model.parser.OdaDataSourceState.parseAttrs(OdaDataSourceState.java:65)\n        at org.eclipse.birt.report.model.parser.ModuleParserHandler.startElement(ModuleParserHandler.java:159)\n        at com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.startElement(AbstractSAXParser.java:533)\n        at com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanStartElement(XMLDocumentFragmentScannerImpl.java:878)\n        at com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch(XMLDocumentFragmentScannerImpl.java:1693)\n        at com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanDocument(XMLDocumentFragmentScannerImpl.java:368)\n        at com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse(XML11Configuration.java:834)\n        at com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse(XML11Configuration.java:764)\n        at com.sun.org.apache.xerces.internal.parsers.XMLParser.parse(XMLParser.java:148)\n        at com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.parse(AbstractSAXParser.java:1242)\n        at javax.xml.parsers.SAXParser.parse(SAXParser.java:375)\n        at org.eclipse.birt.report.model.parser.ModuleReader.readModule(ModuleReader.java:93)\n        at org.eclipse.birt.report.model.parser.ModuleReader.readModule(ModuleReader.java:203)\n        at org.eclipse.birt.report.model.parser.DesignReader.read(DesignReader.java:135)\n        at org.eclipse.birt.report.model.core.DesignSession.openDesign(DesignSession.java:208)\n        at org.eclipse.birt.report.model.api.SessionHandle.openDesign(SessionHandle.java:173)\n        at org.eclipse.birt.report.engine.parser.ReportParser.getDesignHandle(ReportParser.java:133)\n        at org.eclipse.birt.report.engine.api.impl.ReportEngineHelper.openReportDesign(ReportEngineHelper.java:121)\n        at org.eclipse.birt.report.engine.api.impl.ReportEngine.openReportDesign(ReportEngine.java:220)\n        at net.lh.birt.ReportRunner.getStats(ReportRunner.java:58)\n\n\nNow, whilst shutting down / re-opening the engine is an expensive operation and is understandably discouraged, I would assert that the shutdown() operation should cause all references (eg to the JDBC engine) to be closed and cleared so that a subsequent operation, albeit expensive, should not fail.\n\nCan someone please clarify the point and whether I\u0027m missing something?\n\nMany thanks,\n\nMarco\n( admin (at) infinitebw (dot) com )",
+    "This issue seems to be a problem with the shutdown process.  After which, \nthe OSGi framework is no longer able to find the referenced plugin in the registry, and thus the error.\nNeeds further investigation on the shutdown process.\n",
+    "(In reply to comment #1)\n\u003e This issue seems to be a problem with the shutdown process.  After which, \n\u003e the OSGi framework is no longer able to find the referenced plugin in the\n\u003e registry, and thus the error.\n\u003e Needs further investigation on the shutdown process.\n\u003e \n\nIs there anything I can do to help solve the issue?\nWith a few pointers, I suppose I can have a good look at the shutdown/start-up code and try and figure out what goes wrong where?\n\nJust let me know, many thanks,\nMarco\n(admin (at) infinitebw (dot) com",
+    "Hi, Marco:\n\nPlease give me your design file, which you are using to reproduce the problem.\n\nAnd can you help me to make a test:\nRemove the code \"Platform.shutdown();\" from the method \"BirtEngine.destroyBirtEngine()\". Then test it again.\nIf you want execute the code \"Platform.shutdown();\" , please make sure no BirtEngine will be created or used after executing it.  \nPlease let me know the exception happens again or not.\n\nThanks.",
+    "Created an attachment (id\u003d53268)\nJSP / Class files to reproduce bug\n\nI have tried, as suggested, to only close the engine without shutting down the platform and the situation is as follows:\n\n1. Platform.startup(), Engine started --\u003e can run reports ok\n2. Engine stopped - re-started (NO Platform.shutdown()) --\u003e run reports ok\n3. Platform.shutdown() - engine/platform re-started, exception thrown when executing\n\n[ReportRunner.java, line 65]\ndesign \u003d birtReportEngine.openReportDesign( reportFile );\n\n---- stack trace:\nReport file: C:\\Documents and Settings\\Marco Massenzio\\workspace\\DQBirt\\build\\web\\Reports\\stats.rptdesign\njava.lang.IllegalArgumentException: The extension with ID \u0027org.eclipse.birt.report.data.oda.jdbc\u0027 is not found!\n        at org.eclipse.birt.report.model.plugin.ODAManifestUtil.getDataSourceExtension(ODAManifestUtil.java:50)\n        at org.eclipse.birt.report.model.plugin.OdaExtensibilityProvider.isValidODADataSourceExtensionID(OdaExtensibilityProvider.java:202)\n        at org.eclipse.birt.report.model.parser.OdaDataSourceState.parseODADataSourceExtensionID(OdaDataSourceState.java:125)\n        at org.eclipse.birt.report.model.parser.OdaDataSourceState.parseAttrs(OdaDataSourceState.java:65)\n        at org.eclipse.birt.report.model.parser.ModuleParserHandler.startElement(ModuleParserHandler.java:159)\n        at com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.startElement(AbstractSAXParser.java:533)\n        at com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanStartElement(XMLDocumentFragmentScannerImpl.java:878)\n        at com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch(XMLDocumentFragmentScannerImpl.java:1693)\n        at com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanDocument(XMLDocumentFragmentScannerImpl.java:368)\n        at com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse(XML11Configuration.java:834)\n        at com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse(XML11Configuration.java:764)\n        at com.sun.org.apache.xerces.internal.parsers.XMLParser.parse(XMLParser.java:148)\n        at com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.parse(AbstractSAXParser.java:1242)\n        at javax.xml.parsers.SAXParser.parse(SAXParser.java:375)\n        at org.eclipse.birt.report.model.parser.ModuleReader.readModule(ModuleReader.java:93)\n        at org.eclipse.birt.report.model.parser.ModuleReader.readModule(ModuleReader.java:203)\n        at org.eclipse.birt.report.model.parser.DesignReader.read(DesignReader.java:135)\n        at org.eclipse.birt.report.model.core.DesignSession.openDesign(DesignSession.java:208)\n        at org.eclipse.birt.report.model.api.SessionHandle.openDesign(SessionHandle.java:173)\n        at org.eclipse.birt.report.engine.parser.ReportParser.getDesignHandle(ReportParser.java:133)\n        at org.eclipse.birt.report.engine.api.impl.ReportEngineHelper.openReportDesign(ReportEngineHelper.java:121)\n        at org.eclipse.birt.report.engine.api.impl.ReportEngine.openReportDesign(ReportEngine.java:220)\n        at net.lh.birt.ReportRunner.getStats(ReportRunner.java:65)\n        at org.apache.jsp.index_jsp._jspService(index_jsp.java:209)\n        at org.apache.jasper.runtime.HttpJspBase.service(HttpJspBase.java:97)\n        at javax.servlet.http.HttpServlet.service(HttpServlet.java:802)\n        at org.apache.jasper.servlet.JspServletWrapper.service(JspServletWrapper.java:322)\n        at org.apache.jasper.servlet.JspServlet.serviceJspFile(JspServlet.java:291)\n        at org.apache.jasper.servlet.JspServlet.service(JspServlet.java:241)\n        at javax.servlet.http.HttpServlet.service(HttpServlet.java:802)\n        at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:252)\n        at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:173)\n        at org.netbeans.modules.web.monitor.server.MonitorFilter.doFilter(MonitorFilter.java:362)\n        at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:202)\n        at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:173)\n        at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:213)\n        at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:178)\n        at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:126)\n        at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:105)\n        at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:107)\n        at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:148)\n        at org.apache.coyote.http11.Http11Processor.process(Http11Processor.java:856)\n        at org.apache.coyote.http11.Http11Protocol$Http11ConnectionHandler.processConnection(Http11Protocol.java:744)\n        at org.apache.tomcat.util.net.PoolTcpEndpoint.processSocket(PoolTcpEndpoint.java:527)\n        at org.apache.tomcat.util.net.LeaderFollowerWorkerThread.runIt(LeaderFollowerWorkerThread.java:80)\n        at org.apache.tomcat.util.threads.ThreadPool$ControlRunnable.run(ThreadPool.java:684)\n        at java.lang.Thread.run(Thread.java:595)\n--------------------\nA ZIP file with relevant code is included - most of the functionality used is in ReportRunner and I have also implemented a simple \u0027admin\u0027 page (admin.jsp) to conduct a few tests.\nBy default, the code refuses to re-start the platform, but one can use \"Force restart\" to force a restart (and cause the exception).\n\nAll the rest of the files (lib/config/webcontent/birtviewer) are unchanged from the downloads and I have not included them here to avoid muddying the waters, but please do let me know if you wish to have them too.\n\nany other questions, please email to admin (at) infinitebw com\nCheers\nMarco.",
+    "When restaring the BIRT, all plugins will be reloaded and reintialized. In model plugin\u0027s startup(), the org.eclipse.birt.report.model.extension.oda.ODAProviderFactory should be re-intialized also. \nWe need remove the statement \n     if (baseFactory !\u003d null) return; \nfrom the initTheFactory().\n",
+    "Fixed.",
+    "Now when stop model plugin, instance and baseFactory will be reset to null.\nVerified."
+  ],
+  "commentCreationDates": [
+    "2006-10-20T17:38:24+02:00",
+    "2006-10-21T02:56:46+02:00",
+    "2006-10-31T21:24:50+01:00",
+    "2006-11-01T09:50:49+01:00",
+    "2006-11-05T19:34:12+01:00",
+    "2006-12-21T08:00:08+01:00",
+    "2006-12-21T09:36:34+01:00",
+    "2006-12-26T02:24:28+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "The extension with ID \u0027org.eclipse.birt.report.data.oda.jdbc\u0027 is not found!",
+      "elements": [
+        {
+          "method": "org.eclipse.birt.report.model.plugin.ODAManifestUtil.getDataSourceExtension",
+          "source": "ODAManifestUtil.java:50"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.plugin.OdaExtensibilityProvider.isValidODADataSourceExtensionID",
+          "source": "OdaExtensibilityProvider.java:202"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.OdaDataSourceState.parseODADataSourceExtensionID",
+          "source": "OdaDataSourceState.java:125"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.OdaDataSourceState.parseAttrs",
+          "source": "OdaDataSourceState.java:65"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.ModuleParserHandler.startElement",
+          "source": "ModuleParserHandler.java:159"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.startElement",
+          "source": "AbstractSAXParser.java:533"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanStartElement",
+          "source": "XMLDocumentFragmentScannerImpl.java:878"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch",
+          "source": "XMLDocumentFragmentScannerImpl.java:1693"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanDocument",
+          "source": "XMLDocumentFragmentScannerImpl.java:368"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse",
+          "source": "XML11Configuration.java:834"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse",
+          "source": "XML11Configuration.java:764"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.XMLParser.parse",
+          "source": "XMLParser.java:148"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.parse",
+          "source": "AbstractSAXParser.java:1242"
+        },
+        {
+          "method": "javax.xml.parsers.SAXParser.parse",
+          "source": "SAXParser.java:375"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.ModuleReader.readModule",
+          "source": "ModuleReader.java:93"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.ModuleReader.readModule",
+          "source": "ModuleReader.java:203"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.DesignReader.read",
+          "source": "DesignReader.java:135"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.core.DesignSession.openDesign",
+          "source": "DesignSession.java:208"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.api.SessionHandle.openDesign",
+          "source": "SessionHandle.java:173"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.parser.ReportParser.getDesignHandle",
+          "source": "ReportParser.java:133"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.ReportEngineHelper.openReportDesign",
+          "source": "ReportEngineHelper.java:121"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.ReportEngine.openReportDesign",
+          "source": "ReportEngine.java:220"
+        },
+        {
+          "method": "net.lh.birt.ReportRunner.getStats",
+          "source": "ReportRunner.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "161735",
+      "date": "2006-10-20T17:38:24+02:00",
+      "product": "BIRT",
+      "component": "Report Viewer",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "The extension with ID \u0027org.eclipse.birt.report.data.oda.jdbc\u0027 is not found!",
+      "elements": [
+        {
+          "method": "org.eclipse.birt.report.model.plugin.ODAManifestUtil.getDataSourceExtension",
+          "source": "ODAManifestUtil.java:50"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.plugin.OdaExtensibilityProvider.isValidODADataSourceExtensionID",
+          "source": "OdaExtensibilityProvider.java:202"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.OdaDataSourceState.parseODADataSourceExtensionID",
+          "source": "OdaDataSourceState.java:125"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.OdaDataSourceState.parseAttrs",
+          "source": "OdaDataSourceState.java:65"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.ModuleParserHandler.startElement",
+          "source": "ModuleParserHandler.java:159"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.startElement",
+          "source": "AbstractSAXParser.java:533"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanStartElement",
+          "source": "XMLDocumentFragmentScannerImpl.java:878"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch",
+          "source": "XMLDocumentFragmentScannerImpl.java:1693"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanDocument",
+          "source": "XMLDocumentFragmentScannerImpl.java:368"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse",
+          "source": "XML11Configuration.java:834"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse",
+          "source": "XML11Configuration.java:764"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.XMLParser.parse",
+          "source": "XMLParser.java:148"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.parse",
+          "source": "AbstractSAXParser.java:1242"
+        },
+        {
+          "method": "javax.xml.parsers.SAXParser.parse",
+          "source": "SAXParser.java:375"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.ModuleReader.readModule",
+          "source": "ModuleReader.java:93"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.ModuleReader.readModule",
+          "source": "ModuleReader.java:203"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.parser.DesignReader.read",
+          "source": "DesignReader.java:135"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.core.DesignSession.openDesign",
+          "source": "DesignSession.java:208"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.api.SessionHandle.openDesign",
+          "source": "SessionHandle.java:173"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.parser.ReportParser.getDesignHandle",
+          "source": "ReportParser.java:133"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.ReportEngineHelper.openReportDesign",
+          "source": "ReportEngineHelper.java:121"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.ReportEngine.openReportDesign",
+          "source": "ReportEngine.java:220"
+        },
+        {
+          "method": "net.lh.birt.ReportRunner.getStats",
+          "source": "ReportRunner.java:65"
+        },
+        {
+          "method": "org.apache.jsp.index_jsp._jspService",
+          "source": "index_jsp.java:209"
+        },
+        {
+          "method": "org.apache.jasper.runtime.HttpJspBase.service",
+          "source": "HttpJspBase.java:97"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:802"
+        },
+        {
+          "method": "org.apache.jasper.servlet.JspServletWrapper.service",
+          "source": "JspServletWrapper.java:322"
+        },
+        {
+          "method": "org.apache.jasper.servlet.JspServlet.serviceJspFile",
+          "source": "JspServlet.java:291"
+        },
+        {
+          "method": "org.apache.jasper.servlet.JspServlet.service",
+          "source": "JspServlet.java:241"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:802"
+        },
+        {
+          "method": "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter",
+          "source": "ApplicationFilterChain.java:252"
+        },
+        {
+          "method": "org.apache.catalina.core.ApplicationFilterChain.doFilter",
+          "source": "ApplicationFilterChain.java:173"
+        },
+        {
+          "method": "org.netbeans.modules.web.monitor.server.MonitorFilter.doFilter",
+          "source": "MonitorFilter.java:362"
+        },
+        {
+          "method": "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter",
+          "source": "ApplicationFilterChain.java:202"
+        },
+        {
+          "method": "org.apache.catalina.core.ApplicationFilterChain.doFilter",
+          "source": "ApplicationFilterChain.java:173"
+        },
+        {
+          "method": "org.apache.catalina.core.StandardWrapperValve.invoke",
+          "source": "StandardWrapperValve.java:213"
+        },
+        {
+          "method": "org.apache.catalina.core.StandardContextValve.invoke",
+          "source": "StandardContextValve.java:178"
+        },
+        {
+          "method": "org.apache.catalina.core.StandardHostValve.invoke",
+          "source": "StandardHostValve.java:126"
+        },
+        {
+          "method": "org.apache.catalina.valves.ErrorReportValve.invoke",
+          "source": "ErrorReportValve.java:105"
+        },
+        {
+          "method": "org.apache.catalina.core.StandardEngineValve.invoke",
+          "source": "StandardEngineValve.java:107"
+        },
+        {
+          "method": "org.apache.catalina.connector.CoyoteAdapter.service",
+          "source": "CoyoteAdapter.java:148"
+        },
+        {
+          "method": "org.apache.coyote.http11.Http11Processor.process",
+          "source": "Http11Processor.java:856"
+        },
+        {
+          "method": "org.apache.coyote.http11.Http11Protocol$Http11ConnectionHandler.processConnection",
+          "source": "Http11Protocol.java:744"
+        },
+        {
+          "method": "org.apache.tomcat.util.net.PoolTcpEndpoint.processSocket",
+          "source": "PoolTcpEndpoint.java:527"
+        },
+        {
+          "method": "org.apache.tomcat.util.net.LeaderFollowerWorkerThread.runIt",
+          "source": "LeaderFollowerWorkerThread.java:80"
+        },
+        {
+          "method": "org.apache.tomcat.util.threads.ThreadPool$ControlRunnable.run",
+          "source": "ThreadPool.java:684"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 4,
+      "bugId": "161735",
+      "date": "2006-11-05T19:34:12+01:00",
+      "product": "BIRT",
+      "component": "Report Viewer",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "161735",
+  "bugId": "161735",
+  "date": "2006-10-20T17:38:24+02:00",
+  "product": "BIRT",
+  "component": "Report Viewer",
+  "severity": "normal"
+}

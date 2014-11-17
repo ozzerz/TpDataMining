@@ -1,0 +1,177 @@
+{
+  "comments": [
+    "It seems that sporadically when I paste something into a Text object, the entier\napplication will exit with this exception:\n\nException in thread \"main\"\norg.eclipse.core.internal.runtime.AssertionFailedException: assertion failed:\nThe application has not been initialized.\n        at org.eclipse.core.internal.runtime.Assert.isTrue(Assert.java:101)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.assertInitialized(InternalPlatform.java:180)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.getPluginRegistry(InternalPlatform.java:399)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.getRuntimePlugin(InternalPlatform.java:420)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.handleException(InternalPlatform.java:431)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:891)\n        at org.eclipse.core.runtime.Platform.run(Platform.java:413)\n        at org.eclipse.jface.viewers.Viewer.fireSelectionChanged(Viewer.java:157)\n        at\norg.eclipse.jface.viewers.StructuredViewer.updateSelection(StructuredViewer.java:1290)\n        at\norg.eclipse.jface.viewers.StructuredViewer.handleInvalidSelection(StructuredViewer.java:625)\n        at\norg.eclipse.jface.viewers.StructuredViewer.preservingSelection(StructuredViewer.java:813)\n        at\norg.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java:859)\n        at\norg.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java:821)\n        at org.eclipse.jface.viewers.TableViewer.inputChanged(TableViewer.java:398)\n        at org.eclipse.jface.viewers.ContentViewer.setInput(ContentViewer.java:238)\n        at\norg.eclipse.jface.viewers.StructuredViewer.setInput(StructuredViewer.java:991)\n        at net.sourceforge.wohenchan.WoHenChan.clearOutput(WoHenChan.java:645)\n        at net.sourceforge.wohenchan.WoHenChan.autodetect(WoHenChan.java:425)\n        at net.sourceforge.wohenchan.WoHenChan.access$000(WoHenChan.java:101)\n        at net.sourceforge.wohenchan.WoHenChan$4.modifyText(WoHenChan.java:329)\n        at org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:183)\n        at org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:81)\n        at org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:913)\n        at org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:938)\n        at org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:918)\n        at org.eclipse.swt.widgets.Text.gtk_changed(Text.java:801)\n        at org.eclipse.swt.widgets.Widget.windowProc(Widget.java:1127)\n        at org.eclipse.swt.widgets.Display.windowProc(Display.java:2074)\n        at org.eclipse.swt.internal.gtk.OS.gtk_main_do_event(Native Method)\n        at org.eclipse.swt.widgets.Display.eventProc(Display.java:631)\n        at org.eclipse.swt.internal.gtk.OS.gtk_main_iteration(Native Method)\n        at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1428)\n        at net.sourceforge.wohenchan.WoHenChan.main(WoHenChan.java:775)\n\n\nThe main loop of the program looks like this:\n\n      Shell s \u003d new Shell(display);\n...\n      s.pack();\n      s.open();\n      while (!s.isDisposed())\n      {\n         if (!display.readAndDispatch())\n            display.sleep();\n      }\n\nand clearOutput at WoHenChan.java:645 looks like:\n\n   private void clearOutput()\n   {\n      m_results.setSize(0);\n      m_outputList.setInput (null);\n   }",
+    "I assume that an assertion failure is analagous to \"Crash\" as described in the\nSeverity help, so I\u0027m marking this \"critical\".\n\nI should mention that this happens about 30% of the time that I paste something\ninto this text field.  I am pasting with ^V.\n\nIs there some kind of function I can call to ensure that the \"Application\" has\nbeen initialized?  Is there any kind of code that I should add to aid debugging?",
+    "I backed my changes out and re-applied them one by one to find out which one was\nto blame for the onset of this bug\u0027s symptoms.  It was this change. \nm_outputList is an inaccurately named TableViewer -- the one, in fact, that is\nhaving its inputChanged method called through StricturedViewer.setInput().\n\n--- WoHenChan.java      22 May 2003 02:59:51 -0000      1.80\n+++ WoHenChan.java      22 May 2003 04:04:33 -0000\n@@ -341,14 +341,24 @@\n       m_outputList.addSelectionChangedListener(new\n             ISelectionChangedListener()\n       {\n          public void selectionChanged (SelectionChangedEvent evt)\n          {\n-         System.err.println (\"Selected TODO\");\n-//            List widget \u003d (List) evt.widget;\n-//            System.err.println(\n-//               widget.getItem(widget.getSelectionIndex()));\n+            Object selected \u003d ((IStructuredSelection)evt.getSelection())\n+                              .getFirstElement();\n+            try\n+            {\n+               setStatus (((ConverterEntryInterface) selected).getUnicode());\n+            }\n+            catch (NoRepresentationException e)\n+            {\n+               setStatus (\"No Unicode\");\n+            }\n+            catch (UnknownOutputException e)\n+            {\n+               setStatus (\"No Unicode\");\n+            }\n          }\n       });\n",
+    "Looks like JFace to me.",
+    "Is this a plugin you are writing for the Eclipse SDK? Or are you writing a \nstandalone application using only SWT and JFace (and nothing else from the \nEclipse SDK)?",
+    "Got confirmation from Core team that this assertion failure is due to using \nJFace outside of Eclipse (i.e as standalone SWT and JFace app). The problem is \nyour listener is sometimes failing when run, causing the handleException block \nto execute internally. Core requires the Eclipse application to be initialized \nto proceed. That cannot be done when JFace is run outside of Eclipse.\n\nYou can solve this particular problem by determining what is causing the \nexception in your listener. Then fixing your code so it does not fail anymore.\n\nWe have no plans to make JFace not depended on Core runtime services. Nothing \nelse we can do for this issue.",
+    "Hi all, \nI\u0027ve actually probably found a solution (at least works for me!)\n\u003d\u003e when you add a selectionChangeListener to your treeViewer (or structured \nViewer for all it matters),  the tv.setInput(...) generates a \nselectionChangeEvent\n\u003d\u003ein the method do this:\nSeleciontChanged(SelectionChangeEvent event)\n{\n  IStructuredSelection selection \u003d (IStructuredSelection) event.getSelection();\n  //DO NOT FORGET THIS OR IT WILL GENERATE THE ASSERTIONFAILEDEXCEPTION\n  if (!selection.IsEmpty())\n  {\n    (...)\n  }\n}\n\nThis solves it for me in a standalone application using SWT and JFace...\nHope it works for others.\n\nLeroy S?bastien",
+    "tod please verify that this is fixed",
+    "JFace still depends on Core runtime in 3.0."
+  ],
+  "commentCreationDates": [
+    "2003-05-22T00:36:21+02:00",
+    "2003-05-22T00:39:28+02:00",
+    "2003-05-22T06:14:32+02:00",
+    "2003-05-26T15:49:00+02:00",
+    "2003-05-26T19:33:53+02:00",
+    "2003-05-26T19:53:24+02:00",
+    "2004-01-13T13:47:28+01:00",
+    "2004-05-25T20:11:04+02:00",
+    "2004-05-25T20:20:08+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.core.internal.runtime.AssertionFailedException",
+      "message": "assertion failed: The application has not been initialized.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.Assert.isTrue",
+          "source": "Assert.java:101"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.assertInitialized",
+          "source": "InternalPlatform.java:180"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.getPluginRegistry",
+          "source": "InternalPlatform.java:399"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.getRuntimePlugin",
+          "source": "InternalPlatform.java:420"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.handleException",
+          "source": "InternalPlatform.java:431"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:891"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:413"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.Viewer.fireSelectionChanged",
+          "source": "Viewer.java:157"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.updateSelection",
+          "source": "StructuredViewer.java:1290"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.handleInvalidSelection",
+          "source": "StructuredViewer.java:625"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.preservingSelection",
+          "source": "StructuredViewer.java:813"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java:859"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java:821"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TableViewer.inputChanged",
+          "source": "TableViewer.java:398"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ContentViewer.setInput",
+          "source": "ContentViewer.java:238"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.setInput",
+          "source": "StructuredViewer.java:991"
+        },
+        {
+          "method": "net.sourceforge.wohenchan.WoHenChan.clearOutput",
+          "source": "WoHenChan.java:645"
+        },
+        {
+          "method": "net.sourceforge.wohenchan.WoHenChan.autodetect",
+          "source": "WoHenChan.java:425"
+        },
+        {
+          "method": "net.sourceforge.wohenchan.WoHenChan.access$000",
+          "source": "WoHenChan.java:101"
+        },
+        {
+          "method": "net.sourceforge.wohenchan.WoHenChan$4.modifyText",
+          "source": "WoHenChan.java:329"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:183"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:81"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:913"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:938"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:918"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.gtk_changed",
+          "source": "Text.java:801"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.windowProc",
+          "source": "Widget.java:1127"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2074"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.gtk_main_do_event",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.eventProc",
+          "source": "Display.java:631"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.gtk_main_iteration",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1428"
+        },
+        {
+          "method": "net.sourceforge.wohenchan.WoHenChan.main",
+          "source": "WoHenChan.java:775"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "37947",
+      "date": "2003-05-22T00:36:21+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "37947",
+  "bugId": "37947",
+  "date": "2003-05-22T00:36:21+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "critical"
+}

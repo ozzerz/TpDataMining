@@ -1,0 +1,214 @@
+{
+  "comments": [
+    "20071016-1215\n\nGot several of the following expection on startup:\n\n!ENTRY org.eclipse.jdt.ui 4 0 2007-10-18 10:03:07.275\n!MESSAGE Error in JDT Core during AST creation\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.pde.internal.core.PluginModelManager.findModel(PluginModelManager.java:686)\n\tat org.eclipse.pde.core.plugin.PluginRegistry.findModel(PluginRegistry.java:86)\n\tat org.eclipse.pde.internal.core.SourceLocationManager.processExtensions(SourceLocationManager.java:172)\n\tat org.eclipse.pde.internal.core.SourceLocationManager.getExtensionLocations(SourceLocationManager.java:58)\n\tat org.eclipse.pde.internal.core.SourceLocationManager.findSourceLocation(SourceLocationManager.java:104)\n\tat org.eclipse.pde.internal.core.SourceLocationManager.findSourcePath(SourceLocationManager.java:79)\n\tat org.eclipse.pde.internal.core.ClasspathUtilCore.getSourceAnnotation(ClasspathUtilCore.java:195)\n\tat org.eclipse.pde.internal.core.PDEClasspathContainer.addExternalPlugin(PDEClasspathContainer.java:80)\n\tat org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.addPlugin(RequiredPluginsClasspathContainer.java:277)\n\tat org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.addDependency(RequiredPluginsClasspathContainer.java:250)\n\tat org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.addDependency(RequiredPluginsClasspathContainer.java:234)\n\tat org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.computePluginEntries(RequiredPluginsClasspathContainer.java:150)\n\tat org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.getClasspathEntries(RequiredPluginsClasspathContainer.java:109)\n\tat org.eclipse.jdt.internal.core.JavaModelManager.containerPutIfInitializingWithSameEntries(JavaModelManager.java:554)\n\tat org.eclipse.jdt.internal.core.SetContainerOperation.executeOperation(SetContainerOperation.java:49)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:720)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1799)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.runOperation(JavaModelOperation.java:785)\n\tat org.eclipse.jdt.core.JavaCore.setClasspathContainer(JavaCore.java:4655)\n\tat org.eclipse.pde.internal.core.RequiredPluginsInitializer.initialize(RequiredPluginsInitializer.java:33)\n\tat org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer(JavaModelManager.java:2296)\n\tat org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer(JavaModelManager.java:1622)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainer(JavaCore.java:1622)\n\tat org.eclipse.jdt.internal.core.search.JavaSearchScope.add(JavaSearchScope.java:150)\n\tat org.eclipse.jdt.internal.core.search.JavaSearchScope.add(JavaSearchScope.java:93)\n\tat org.eclipse.jdt.internal.core.search.BasicSearchEngine.createJavaSearchScope(BasicSearchEngine.java:139)\n\tat org.eclipse.jdt.internal.core.search.BasicSearchEngine.createJavaSearchScope(BasicSearchEngine.java:125)\n\tat org.eclipse.jdt.internal.core.search.BasicSearchEngine.createJavaSearchScope(BasicSearchEngine.java:114)\n\tat org.eclipse.jdt.internal.core.SearchableEnvironment.\u003cinit\u003e(SearchableEnvironment.java:57)\n\tat org.eclipse.jdt.internal.core.SearchableEnvironment.\u003cinit\u003e(SearchableEnvironment.java:67)\n\tat org.eclipse.jdt.internal.core.CancelableNameEnvironment.\u003cinit\u003e(CancelableNameEnvironment.java:26)\n\tat org.eclipse.jdt.core.dom.CompilationUnitResolver.resolve(CompilationUnitResolver.java:505)\n\tat org.eclipse.jdt.core.dom.ASTParser.internalCreateAST(ASTParser.java:869)\n\tat org.eclipse.jdt.core.dom.ASTParser.createAST(ASTParser.java:653)\n\tat org.eclipse.jdt.internal.ui.javaeditor.ASTProvider$1.run(ASTProvider.java:540)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.jdt.internal.ui.javaeditor.ASTProvider.createAST(ASTProvider.java:533)\n\tat org.eclipse.jdt.internal.ui.javaeditor.ASTProvider.getAST(ASTProvider.java:474)\n\tat org.eclipse.jdt.internal.ui.javaeditor.ASTProvider.getAST(ASTProvider.java:462)\n\tat org.eclipse.jdt.ui.SharedASTProvider.getAST(SharedASTProvider.java:122)\n\tat org.eclipse.jdt.internal.ui.viewsupport.SelectionListenerWithASTManager$PartListenerGroup.calculateASTandInform(SelectionListenerWithASTManager.java:168)\n\tat org.eclipse.jdt.internal.ui.viewsupport.SelectionListenerWithASTManager$3.run(SelectionListenerWithASTManager.java:153)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)",
+    "seems to be fixed with I20071017-1638, closing",
+    "reopen, saw it on I20071017-1638 as well ( with our ZRH plugin-export I20071017-1638.from20071018_1943)\n\nIf it happens, Eclipse is unusable, no project can be expanded anymore.",
+    "With pure I20071017-1638, I get this NPE all the time now. I cannot start the workspace any more.",
+    "I think this is a dup of bug 206440, which is fixed. However, it looks like the fix was not in the 1017 build looking at the pde.ui plug-in timestamp.",
+    "Darin is spot on, this is a duplicate.\n\nAfter further researching the problem, I have come up with a scenario that is reproducible.  Here is some information on the problem.\n\nWhen a model is added to the workspace, PDE registers it with the resolver state and it is assigned a unique (long) id based on the order it was put into the state.  PDE uses this id as the key when looking up information in the extension registry.  Normally, the ids for the workspace models are written to disk so their ids will not change upon restart.  \n\nWe look up a plug-in model based on the id we get from the registry that has the extension/extension point.  If the id changes in the resolver state and not in the extension registry, they are out of sync which will cause our look up for the BundleDescription to be null.\n\nNow the fun part was trying to figure out how these two get out of sync.  I was thinking back to what Eric Jodet told me, that under certain circumstances when PDE thinks the workspace information is corrupted, it will not cache the workspace model information (including bundleId).\n\nWhen this happens, all the bundles are re-resolved through the resolver state giving them a different bundleId.  Since the bundleIds used in the extension registry have not changed, we now have our problem.  When we query the extension registry, we get the object with the old bundleId.  Since this bundleId is no longer valid, many times it would return null.\n\nSo the conditions in which this happens:\n\n1. Eclipse .source project is in the workspace (one of the 15 or so we ship in the SDK).\n2. Create a plug-in project, remove Bundle-SymbolicName (causes PDE to think we have corrupted data).  There are other ways to cause this to happen.\n3. restart\n\nAfter this happens, the workspace becomes useless.  The user can\u0027t do anything until they manually delete PDE\u0027s extension registry cache and restart.\n\nSolution:\n\nLong Term - Dump workspace contents of extension registry and reparse it when PDE recaches workspace models.  For this we need bug 206938.\n\nShort Term - Recache entire extension registry if we have to reparse workspace models.  This is currently the only way we can assure the new model\u0027s ids match the information in the extension registry.\n\nThe short term solution is already checked into HEAD and will be available in the next I-Build on Tuesday.\n\n*** This bug has been marked as a duplicate of bug 206440 ***",
+    "Verified."
+  ],
+  "commentCreationDates": [
+    "2007-10-18T10:05:17+02:00",
+    "2007-10-18T10:43:00+02:00",
+    "2007-10-19T09:49:08+02:00",
+    "2007-10-19T12:35:08+02:00",
+    "2007-10-19T15:58:55+02:00",
+    "2007-10-19T21:47:49+02:00",
+    "2007-10-26T19:29:48+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.pde.internal.core.PluginModelManager.findModel",
+          "source": "PluginModelManager.java:686"
+        },
+        {
+          "method": "org.eclipse.pde.core.plugin.PluginRegistry.findModel",
+          "source": "PluginRegistry.java:86"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.SourceLocationManager.processExtensions",
+          "source": "SourceLocationManager.java:172"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.SourceLocationManager.getExtensionLocations",
+          "source": "SourceLocationManager.java:58"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.SourceLocationManager.findSourceLocation",
+          "source": "SourceLocationManager.java:104"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.SourceLocationManager.findSourcePath",
+          "source": "SourceLocationManager.java:79"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.ClasspathUtilCore.getSourceAnnotation",
+          "source": "ClasspathUtilCore.java:195"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.PDEClasspathContainer.addExternalPlugin",
+          "source": "PDEClasspathContainer.java:80"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.addPlugin",
+          "source": "RequiredPluginsClasspathContainer.java:277"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.addDependency",
+          "source": "RequiredPluginsClasspathContainer.java:250"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.addDependency",
+          "source": "RequiredPluginsClasspathContainer.java:234"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.computePluginEntries",
+          "source": "RequiredPluginsClasspathContainer.java:150"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsClasspathContainer.getClasspathEntries",
+          "source": "RequiredPluginsClasspathContainer.java:109"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.containerPutIfInitializingWithSameEntries",
+          "source": "JavaModelManager.java:554"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SetContainerOperation.executeOperation",
+          "source": "SetContainerOperation.java:49"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.run",
+          "source": "JavaModelOperation.java:720"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1799"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.runOperation",
+          "source": "JavaModelOperation.java:785"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.setClasspathContainer",
+          "source": "JavaCore.java:4655"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsInitializer.initialize",
+          "source": "RequiredPluginsInitializer.java:33"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:2296"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:1622"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1622"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchScope.add",
+          "source": "JavaSearchScope.java:150"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchScope.add",
+          "source": "JavaSearchScope.java:93"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.BasicSearchEngine.createJavaSearchScope",
+          "source": "BasicSearchEngine.java:139"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.BasicSearchEngine.createJavaSearchScope",
+          "source": "BasicSearchEngine.java:125"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.BasicSearchEngine.createJavaSearchScope",
+          "source": "BasicSearchEngine.java:114"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SearchableEnvironment.\u003cinit\u003e",
+          "source": "SearchableEnvironment.java:57"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SearchableEnvironment.\u003cinit\u003e",
+          "source": "SearchableEnvironment.java:67"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CancelableNameEnvironment.\u003cinit\u003e",
+          "source": "CancelableNameEnvironment.java:26"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.CompilationUnitResolver.resolve",
+          "source": "CompilationUnitResolver.java:505"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTParser.internalCreateAST",
+          "source": "ASTParser.java:869"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTParser.createAST",
+          "source": "ASTParser.java:653"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.ASTProvider$1.run",
+          "source": "ASTProvider.java:540"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.ASTProvider.createAST",
+          "source": "ASTProvider.java:533"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.ASTProvider.getAST",
+          "source": "ASTProvider.java:474"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.ASTProvider.getAST",
+          "source": "ASTProvider.java:462"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.SharedASTProvider.getAST",
+          "source": "SharedASTProvider.java:122"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.SelectionListenerWithASTManager$PartListenerGroup.calculateASTandInform",
+          "source": "SelectionListenerWithASTManager.java:168"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.SelectionListenerWithASTManager$3.run",
+          "source": "SelectionListenerWithASTManager.java:153"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "206721",
+      "duplicateId": "206440",
+      "date": "2007-10-18T10:05:17+02:00",
+      "product": "PDE",
+      "component": "UI",
+      "severity": "blocker"
+    }
+  ],
+  "groupId": "206440",
+  "bugId": "206721",
+  "duplicateId": "206440",
+  "date": "2007-10-18T10:05:17+02:00",
+  "product": "PDE",
+  "component": "UI",
+  "severity": "blocker"
+}

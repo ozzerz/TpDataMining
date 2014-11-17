@@ -1,0 +1,84 @@
+{
+  "comments": [
+    "The IVMInstallType.createVMInstall(\u003cid\u003e) method call immediately makes the vm install visible to everyone. I hit a race condition that looked like this:\n\nThread 1\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\nIVMInstall vm \u003d type.createVMInstall(vmId);\nvm.setInstallLocation( vmLocation );\nvm.setName(vmName);\n\nThread 2\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\njava.lang.NullPointerException\nat org.eclipse.jdt.launching.AbstractVMInstallType.findVMInstallByName(AbstractVMInstallType.java:146)\nat org.eclipse.jdt.internal.launching.JREContainerInitializer.resolveVM(JREContainerInitializer.java:82)\nat org.eclipse.jdt.internal.launching.JREContainerInitializer.initialize(JREContainerInitializer.java:52)\nat org.eclipse.jdt.internal.launching.LaunchingPlugin$VMChanges.rebind(LaunchingPlugin.java:279)\nat org.eclipse.jdt.internal.launching.LaunchingPlugin$VMChanges.access$0(LaunchingPlugin.java:244)\nat org.eclipse.jdt.internal.launching.LaunchingPlugin$1.run(LaunchingPlugin.java:232)\nat org.eclipse.jdt.internal.core.BatchOperation.executeOperation(BatchOperation.java:39)\nat org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:720)\nat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\nat org.eclipse.jdt.core.JavaCore.run(JavaCore.java:4024)\nat org.eclipse.jdt.internal.launching.LaunchingPlugin$VMChanges.doit(LaunchingPlugin.java:236)\nat org.eclipse.jdt.internal.launching.LaunchingPlugin$JREUpdateJob.run(LaunchingPlugin.java:316)\nat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\n\tpublic IVMInstall findVMInstallByName(String name) {\n\t\tfor (int i\u003d 0; i \u003c fVMs.size(); i++) {\n\t\t\tIVMInstall vm\u003d (IVMInstall)fVMs.get(i);\n\t\t\tif (vm.getName().equals(name)) {   \u003c-- NPE right here\n\t\t\t\treturn vm;\n\t\t\t}\n\t\t}\n\t\treturn null;\n\t}\n\nThere are two thread safety problems here:\n\n1. IVMInstallType api causes new runtimes to be made available to everyone before they can be fully initialized.\n\n2. AbstractVMInstallType internally does not use synchronization. Most specifically, access to fVMs list member variable is not synchronized.\n\nPotential fix:\n\nCan\u0027t change existing IVMInstallType api, but the AbstractVMInstallType implementation can be changed to synchronize on the vm type object for all getter and setter methods that deal with vm instances. That directly addresses #2 and allows #1 to be worked around by adding a synchronized block around code in Thread 1 above...\n\nsynchronized( type )\n{\n    IVMInstall vm \u003d type.createVMInstall(vmId);\n    vm.setInstallLocation( vmLocation );\n    vm.setName(vmName);\n}",
+    "Move to JDT/Debug",
+    "Nothing planned for 3.3"
+  ],
+  "commentCreationDates": [
+    "2007-03-22T23:20:53+01:00",
+    "2007-03-22T23:23:22+01:00",
+    "2007-05-03T18:32:11+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.launching.AbstractVMInstallType.findVMInstallByName",
+          "source": "AbstractVMInstallType.java:146"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.JREContainerInitializer.resolveVM",
+          "source": "JREContainerInitializer.java:82"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.JREContainerInitializer.initialize",
+          "source": "JREContainerInitializer.java:52"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.LaunchingPlugin$VMChanges.rebind",
+          "source": "LaunchingPlugin.java:279"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.LaunchingPlugin$VMChanges.access$0",
+          "source": "LaunchingPlugin.java:244"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.LaunchingPlugin$1.run",
+          "source": "LaunchingPlugin.java:232"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.BatchOperation.executeOperation",
+          "source": "BatchOperation.java:39"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.run",
+          "source": "JavaModelOperation.java:720"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.run",
+          "source": "JavaCore.java:4024"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.LaunchingPlugin$VMChanges.doit",
+          "source": "LaunchingPlugin.java:236"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.launching.LaunchingPlugin$JREUpdateJob.run",
+          "source": "LaunchingPlugin.java:316"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "178912",
+      "date": "2007-03-22T23:20:53+01:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "178912",
+  "bugId": "178912",
+  "date": "2007-03-22T23:20:53+01:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

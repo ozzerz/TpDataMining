@@ -1,0 +1,135 @@
+{
+  "comments": [
+    "related to bug 117418\n\nIf after the registry is in place (so you can start the preferences without the NPE) you will get the following when you try to stop the bundle.\n\njava.lang.IllegalStateException: BundleContext is no longer valid\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.checkValid(BundleContextImpl.java:1308)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.ungetService(BundleContextImpl.java:918)\n\tat org.osgi.util.tracker.ServiceTracker.removedService(ServiceTracker.java:415)\n\tat org.osgi.util.tracker.ServiceTracker$Tracked.untrack(ServiceTracker.java:1107)\n\tat org.osgi.util.tracker.ServiceTracker.close(ServiceTracker.java:333)\n\tat org.eclipse.core.internal.preferences.PreferencesOSGiUtils.closeServices(PreferencesOSGiUtils.java:98)\n\tat org.eclipse.core.internal.preferences.Activator.stop(Activator.java:49)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl$3.run(BundleContextImpl.java:1035)\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.stop(BundleContextImpl.java:1031)\n\tat org.eclipse.osgi.framework.internal.core.BundleHost.stopWorker(BundleHost.java:397)\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.stop(AbstractBundle.java:399)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkCommandProvider._stop(FrameworkCommandProvider.java:260)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkCommandInterpreter.execute(FrameworkCommandInterpreter.java:145)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkConsole.docommand(FrameworkConsole.java:293)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkConsole.console(FrameworkConsole.java:278)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkConsole.run(FrameworkConsole.java:213)\n\tat java.lang.Thread.run(Thread.java:595)\n\n--\nIn Preferences...\nActivator.stop() calls PreferencesOSGiUtils.getDefault().closeServices() which will close and clear several related ServiceTracker[s]. Currently the problem is that the ServiceTrackers have the invalid bundlecontext from the NPE start attempt associated with them so the ServiceTracker.close() fails.\n\nAfter the NPE bug is fixed the first Bundle.close() will be successful.\n\nHowever, there will still be a problem, as the next time the bundle is restarted the ServiceTracker[s] will not be re-initialized as initServices()is currently only getting called at singleton initialization time.",
+    "Created an attachment (id\u003d30795)\npatch for  PreferencesOSGiUtils and Activator\n\nPreferencesOSGiUtils.getDefault() just create a new singleton if necessary but does not initialize the services.\n\nMoved the initService to the Activator.start() and renamed it openServices()\nActivator.start() calls:\n  PreferencesOSGiUtils.getDefault().openServices();\nActivator.stop() calls:\n  PreferencesOSGiUtils.getDefault().closeServices();\n\n\n\n",
+    "I\u0027ve been working off the proposed M4 cut, however this particular problem is still consistently causing me grief. \nMy environment is non-IDE (and in fact non-RCP) and I recognize that it\u0027s lock down time now for M4. Still... the change is small and I wonder if it or something similar could be considered.",
+    "CC\u0027ing DJ for is thoughts.",
+    "I took at look at the patch.  I think it would be nice to add some safegaurds to PreferenceOSGiUtils so that the service trackers are opened correctly when the preferences bundle is started.\n\n+1 to release, but I really think we should fix the NPE in bug 117418 because that is the root cause of this bug.",
+    "Tom and I chatted about this. \nReleased to HEAD. (thanks, Simon)\nStill need to figure out where we are w.r.t. bug 117418 but that\u0027s a separate issue from this report.\n",
+    "(In reply to comment #5)\nHi DJ,\n\nThat\u0027s great... and yes the problem is a bit deeper.\nIt might be a good idea to do something like an audit through all of the equinox bundles (from the runtime split) just to make sure everything starts, stops, and re-starts correctly. I\u0027ve seen this particular Singleton in a few of the other bundles too.",
+    "Yes, DJ/Oleg, can you take a look through the other bundle to ensure they are not similarly problematic?",
+    "[contributed patch applied] ",
+    "adding \"contributed\" keyword to patches contributed by the community."
+  ],
+  "commentCreationDates": [
+    "2005-11-29T18:35:12+01:00",
+    "2005-11-29T18:53:43+01:00",
+    "2005-12-13T14:57:55+01:00",
+    "2005-12-13T15:14:55+01:00",
+    "2006-01-05T21:06:11+01:00",
+    "2006-02-07T20:54:07+01:00",
+    "2006-02-07T21:01:38+01:00",
+    "2006-02-12T02:37:40+01:00",
+    "2006-04-18T20:41:45+02:00",
+    "2006-08-23T21:20:19+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalStateException",
+      "message": "BundleContext is no longer valid",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.checkValid",
+          "source": "BundleContextImpl.java:1308"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.ungetService",
+          "source": "BundleContextImpl.java:918"
+        },
+        {
+          "method": "org.osgi.util.tracker.ServiceTracker.removedService",
+          "source": "ServiceTracker.java:415"
+        },
+        {
+          "method": "org.osgi.util.tracker.ServiceTracker$Tracked.untrack",
+          "source": "ServiceTracker.java:1107"
+        },
+        {
+          "method": "org.osgi.util.tracker.ServiceTracker.close",
+          "source": "ServiceTracker.java:333"
+        },
+        {
+          "method": "org.eclipse.core.internal.preferences.PreferencesOSGiUtils.closeServices",
+          "source": "PreferencesOSGiUtils.java:98"
+        },
+        {
+          "method": "org.eclipse.core.internal.preferences.Activator.stop",
+          "source": "Activator.java:49"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$3.run",
+          "source": "BundleContextImpl.java:1035"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.stop",
+          "source": "BundleContextImpl.java:1031"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.stopWorker",
+          "source": "BundleHost.java:397"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.stop",
+          "source": "AbstractBundle.java:399"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkCommandProvider._stop",
+          "source": "FrameworkCommandProvider.java:260"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkCommandInterpreter.execute",
+          "source": "FrameworkCommandInterpreter.java:145"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.docommand",
+          "source": "FrameworkConsole.java:293"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.console",
+          "source": "FrameworkConsole.java:278"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.run",
+          "source": "FrameworkConsole.java:213"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "118471",
+      "date": "2005-11-29T18:35:12+01:00",
+      "product": "Equinox",
+      "component": "Bundles",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "118471",
+  "bugId": "118471",
+  "date": "2005-11-29T18:35:12+01:00",
+  "product": "Equinox",
+  "component": "Bundles",
+  "severity": "normal"
+}

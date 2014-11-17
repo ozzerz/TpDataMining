@@ -1,0 +1,150 @@
+{
+  "comments": [
+    "RC2\n\nAll manipulations are done using the build path actions from the context menu\n\n- create project Test with source folder src\n- add to package p and q\n- exclude q from build path\n- make src/q a source folder\n- remove it as a source folder\n- include q\n\nobserve: exception below and all source folders in the project are now normal\nfolders.\njava.lang.NullPointerException\nat\norg.eclipse.jdt.internal.core.ClasspathEntry.equalPatterns(ClasspathEntry.java:735)\nat org.eclipse.jdt.internal.core.ClasspathEntry.equals(ClasspathEntry.java:686)\nat\norg.eclipse.jdt.internal.core.JavaProject.isClasspathEqualsTo(JavaProject.java:2225)\nat\norg.eclipse.jdt.internal.core.JavaProject.forceClasspathReload(JavaProject.java:1219)\nat\norg.eclipse.jdt.internal.core.DeltaProcessor.reconcileClasspathFileUpdate(DeltaProcessor.java:1689)\nat\norg.eclipse.jdt.internal.core.DeltaProcessor.checkProjectsBeingAddedOrRemoved(DeltaProcessor.java:473)\nat\norg.eclipse.jdt.internal.core.DeltaProcessor.checkProjectsBeingAddedOrRemoved(DeltaProcessor.java:482)\nat\norg.eclipse.jdt.internal.core.DeltaProcessor.checkProjectsBeingAddedOrRemoved(DeltaProcessor.java:482)\nat\norg.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged(DeltaProcessor.java:1789)\nat\norg.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged(DeltaProcessingState.java:432)\nat\norg.eclipse.core.internal.events.NotificationManager$2.run(NotificationManager.java:276)\nat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1038)\nat org.eclipse.core.runtime.Platform.run(Platform.java:775)\nat\norg.eclipse.core.internal.events.NotificationManager.notify(NotificationManager.java:270)\nat\norg.eclipse.core.internal.events.NotificationManager.broadcastChanges(NotificationManager.java:144)\nat\norg.eclipse.core.internal.resources.Workspace.broadcastPostChange(Workspace.java:180)\nat org.eclipse.core.internal.resources.Workspace.endOperation(Workspace.java:914)\nat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1728)\nat\norg.eclipse.jdt.internal.core.JavaModelOperation.runOperation(JavaModelOperation.java:782)\nat org.eclipse.jdt.internal.core.JavaProject.setRawClasspath(JavaProject.java:2834)\nat org.eclipse.jdt.internal.core.JavaProject.setRawClasspath(JavaProject.java:2799)\nat\norg.eclipse.jdt.internal.corext.buildpath.ClasspathModifier.updateClasspath(ClasspathModifier.java:1603)\nat\norg.eclipse.jdt.internal.corext.buildpath.ClasspathModifier.unExclude(ClasspathModifier.java:622)\nat\norg.eclipse.jdt.internal.corext.buildpath.UnexcludeOperation.run(UnexcludeOperation.java:69)\nat\norg.eclipse.jdt.internal.ui.wizards.buildpaths.newsourcepage.BuildPathAction$1.run(BuildPathAction.java:121)\nat\norg.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)",
+    "Pls investigate for RC3",
+    "Reproduced with N20050615-0010.",
+    "Cause is a duplicate in exclusion patterns, that leads to a null being generated\nin an IPath array.\nNote that org.eclipse.jdt.internal.corext.buildpath.ClasspathModifier does not\noperated as described in this case, since remove(\"q\", {\"q\",\"q\"}} results into\n{null} instead of {\"q\"} - which would be in line with its comments. (Patch for\nremove could be to add a test in the inner loop:\nif (!paths[i].equals(path) || i !\u003d j /* FIX: if we already have removed one,\nkeep the others */)\n  newPaths[j++]\u003d paths[i];)\nFixing remove gets rid of the NPE, but not of the duplicate. Which triggers\nanother problem: q does not get included at the latest step of the initial bug\ndescription.",
+    "Duplication happens because exclusion pattern presence detection is fooled by\nthe use of an absolute path against relative ones in the present scenario.\nI would suggest that BuildPathBasePage.addToExclusions(IPath entryPath,\nCPListElement curr) be amended to cope with the case in which entryPath would be\nabsolute. Seems to me that in this case the prefix would match curr (not one\nhundred percent sure), but this could be tested for anyway.",
+    "Moving to UI for further action.\n\nIn the future, we may want to detect these inconsistencies during validation\nstage, but this is a separate debate. For now, we need the inconsistency to not\nhappen.\n\nLeaving the RC3 target in, as it was on UI whishlist.",
+    "Created an attachment (id\u003d23428)\npatch\n\nThe bug is that either include or exclude pattern enties can be set to \u0027null\u0027.\n\nDirk, fix is trivial and method remove is used in various scenarios. It assumes\nthat an entry is only found once, which of course is not true, due to our buggy\ncode that introduces duplicated entries, but this one is not for 3.1. Also\nusers could introduce duplicated entries.\n",
+    "Double check patch with Dani. Since Philippe already vote the patch can be released.",
+    "released \u003e 20050617",
+    "Verified in I20050617-1227"
+  ],
+  "commentCreationDates": [
+    "2005-06-14T11:50:42+02:00",
+    "2005-06-14T21:46:40+02:00",
+    "2005-06-15T19:31:10+02:00",
+    "2005-06-16T12:56:15+02:00",
+    "2005-06-16T13:23:23+02:00",
+    "2005-06-16T15:47:17+02:00",
+    "2005-06-17T12:11:53+02:00",
+    "2005-06-17T13:46:55+02:00",
+    "2005-06-17T14:08:38+02:00",
+    "2005-06-17T20:03:19+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.core.ClasspathEntry.equalPatterns",
+          "source": "ClasspathEntry.java:735"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.ClasspathEntry.equals",
+          "source": "ClasspathEntry.java:686"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.isClasspathEqualsTo",
+          "source": "JavaProject.java:2225"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.forceClasspathReload",
+          "source": "JavaProject.java:1219"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.reconcileClasspathFileUpdate",
+          "source": "DeltaProcessor.java:1689"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.checkProjectsBeingAddedOrRemoved",
+          "source": "DeltaProcessor.java:473"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.checkProjectsBeingAddedOrRemoved",
+          "source": "DeltaProcessor.java:482"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.checkProjectsBeingAddedOrRemoved",
+          "source": "DeltaProcessor.java:482"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged",
+          "source": "DeltaProcessor.java:1789"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged",
+          "source": "DeltaProcessingState.java:432"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager$2.run",
+          "source": "NotificationManager.java:276"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:1038"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:775"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.notify",
+          "source": "NotificationManager.java:270"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.broadcastChanges",
+          "source": "NotificationManager.java:144"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.broadcastPostChange",
+          "source": "Workspace.java:180"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.endOperation",
+          "source": "Workspace.java:914"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1728"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.runOperation",
+          "source": "JavaModelOperation.java:782"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.setRawClasspath",
+          "source": "JavaProject.java:2834"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.setRawClasspath",
+          "source": "JavaProject.java:2799"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.buildpath.ClasspathModifier.updateClasspath",
+          "source": "ClasspathModifier.java:1603"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.buildpath.ClasspathModifier.unExclude",
+          "source": "ClasspathModifier.java:622"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.buildpath.UnexcludeOperation.run",
+          "source": "UnexcludeOperation.java:69"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.wizards.buildpaths.newsourcepage.BuildPathAction$1.run",
+          "source": "BuildPathAction.java:121"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:113"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "99919",
+      "date": "2005-06-14T11:50:42+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "99919",
+  "bugId": "99919",
+  "date": "2005-06-14T11:50:42+02:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "normal"
+}

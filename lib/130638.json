@@ -1,0 +1,245 @@
+{
+  "comments": [
+    "20060306\n\nWhen I try and create a simple project using the zip example plug-in I get a CoreException from the local manager\n\norg.eclipse.core.runtime.CoreException: Cannot create file because existing file of wrong type exists: D:\\temp\\115791.zip.\n\tat org.eclipse.core.internal.filesystem.Policy.error(Policy.java:60)\n\tat org.eclipse.core.internal.filesystem.Policy.error(Policy.java:55)\n\tat org.eclipse.core.internal.filesystem.local.LocalFile.mkdir(LocalFile.java:253)\n\tat org.eclipse.core.internal.localstore.FileSystemResourceManager.write(FileSystemResourceManager.java:868)\n\tat org.eclipse.core.internal.localstore.FileSystemResourceManager.internalWrite(FileSystemResourceManager.java:435)\n\tat org.eclipse.core.internal.resources.Project.writeDescription(Project.java:1099)\n\tat org.eclipse.core.internal.resources.Project.writeDescription(Project.java:1080)\n\tat org.eclipse.core.internal.resources.Project.create(Project.java:302)\n\tat org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard.createProject(BasicNewProjectResourceWizard.java:269)\n\tat org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard$1.execute(BasicNewProjectResourceWizard.java:202)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation$1.run(WorkspaceModifyOperation.java:101)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1736)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:113)\n\tat org.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)",
+    "Created an attachment (id\u003d35785)\nThe zip I used in the test\n\n",
+    "Bogdan also reported this error:\n\njava.lang.NullPointerException\nat org.eclipse.core.internal.localstore.FileSystemResourceManager.getStore(FileSystemResourceManager.java:324)\nat org.eclipse.core.internal.resources.Resource.getStore(Resource.java:1066)\nat org.eclipse.core.internal.localstore.UnifiedTree.createChildForLinkedResource(UnifiedTree.java:238)\nat org.eclipse.core.internal.localstore.UnifiedTree.addChildren(UnifiedTree.java:144)\nat org.eclipse.core.internal.localstore.UnifiedTree.addNodeChildrenToQueue(UnifiedTree.java:210)\nat org.eclipse.core.internal.localstore.UnifiedTree.accept(UnifiedTree.java:94)\nat org.eclipse.core.internal.localstore.FileSystemResourceManager.refreshResource(FileSystemResourceManager.java:697)\nat org.eclipse.core.internal.localstore.FileSystemResourceManager.refresh(FileSystemResourceManager.java:681)\nat org.eclipse.core.internal.resources.Resource.refreshLocal(Resource.java:1400)\nat org.eclipse.jdt.ui.actions.RefreshAction$1.run(RefreshAction.java:131)\nat org.eclipse.jdt.internal.core.BatchOperation.executeOperation(BatchOperation.java:39)\nat org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:720)\nat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1736)\nat org.eclipse.jdt.core.JavaCore.run(JavaCore.java:3997)\nat org.eclipse.jdt.internal.ui.actions.WorkbenchRunnableAdapter.run(WorkbenchRunnableAdapter.java:87)\nat org.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)\n",
+    "The problem is that:\n\nBasicNewProjectResourceWizard.createProject\n\nUses an IPath to represent the project location. It calls IProjectDescription.setLocation(IPath), which is only valid for a local file system location.  For a solution that works with any kind of file system, IProjectDescription.setLocationURI(URI) needs to be used instead. The problem is, there is no API to get the location URI back from WizardNewProjectCreationPage.\n\nI will attach a patch with a potential fix, but it requires a new API method to get the project location URI.",
+    "Created an attachment (id\u003d36251)\nProposed fix\n\n",
+    "Created an attachment (id\u003d36252)\ntest zip\n\nThe first zip won\u0027t work because the project is in a sub-directory within the zip, and it won\u0027t be found.  This new zip has the project content at the root directory within the zip.",
+    "After applying the patch I can import the supplied zip.  Autobuild should be turned off, or else the java builder will try to delete files in the output directory, and the zip file system doesn\u0027t handle deletion.",
+    "John your patch results in the following exception when I load the zip I am about to attach\n\njava.lang.NullPointerException\n\tat org.eclipse.core.internal.localstore.FileStoreRoot.toLocalPath(FileStoreRoot.java:119)\n\tat org.eclipse.core.internal.localstore.FileStoreRoot.\u003cinit\u003e(FileStoreRoot.java:56)\n\tat org.eclipse.core.internal.localstore.FileSystemResourceManager.setLocation(FileSystemResourceManager.java:777)\n\tat org.eclipse.core.internal.resources.Project.internalSetDescription(Project.java:671)\n\tat org.eclipse.core.internal.resources.Project.create(Project.java:287)\n\tat org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard.createProject(BasicNewProjectResourceWizard.java:268)\n\tat org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard$1.execute(BasicNewProjectResourceWizard.java:201)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation$1.run(WorkspaceModifyOperation.java:101)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1736)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:113)\n\tat org.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)\n",
+    "Created an attachment (id\u003d36441)\nZip that causes the exception\n\n",
+    "Tod, that NPE is fixed in org.eclipse.core.resources in HEAD. It didn\u0027t make it into this week\u0027s I-build.",
+    "Created an attachment (id\u003d36514)\nPatch to cover this and 130398\n\nHere is a patch for this and 130398. ",
+    "CCing Mcq for PMC approval on the new API.  The new API is a method on WizardNewProjectCreationPage that returns the URI of the location entered/selected by the user:\n\n    /**\n     * Returns the current project location URI as entered by \n     * the user, or \u003ccode\u003enull\u003c/code\u003e if a valid project location\n     * has not been entered.\n     *\n     * @return the project location URI, or \u003ccode\u003enull\u003c/code\u003e\n     * @since 3.2\n     */\n    public URI getLocationURI()\n\nTod: Can you add this javadoc to your patch? The previous doc referred to \"paths\" rather than URI and didn\u0027t mention that null could be returned.",
+    "+1. ok to proceed.\n",
+    "Fixed in build \u003e20060317",
+    "Verified in 20060328-0100"
+  ],
+  "commentCreationDates": [
+    "2006-03-06T21:05:01+01:00",
+    "2006-03-06T21:05:37+01:00",
+    "2006-03-06T21:50:06+01:00",
+    "2006-03-14T17:06:36+01:00",
+    "2006-03-14T17:07:48+01:00",
+    "2006-03-14T17:12:19+01:00",
+    "2006-03-14T17:13:50+01:00",
+    "2006-03-16T20:41:33+01:00",
+    "2006-03-16T20:42:02+01:00",
+    "2006-03-16T23:16:53+01:00",
+    "2006-03-17T18:48:05+01:00",
+    "2006-03-17T19:04:16+01:00",
+    "2006-03-17T19:12:21+01:00",
+    "2006-03-17T19:52:32+01:00",
+    "2006-03-28T19:59:56+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.core.runtime.CoreException",
+      "message": "Cannot create file because existing file of wrong type exists: D:\\temp\\115791.zip.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.filesystem.Policy.error",
+          "source": "Policy.java:60"
+        },
+        {
+          "method": "org.eclipse.core.internal.filesystem.Policy.error",
+          "source": "Policy.java:55"
+        },
+        {
+          "method": "org.eclipse.core.internal.filesystem.local.LocalFile.mkdir",
+          "source": "LocalFile.java:253"
+        },
+        {
+          "method": "org.eclipse.core.internal.localstore.FileSystemResourceManager.write",
+          "source": "FileSystemResourceManager.java:868"
+        },
+        {
+          "method": "org.eclipse.core.internal.localstore.FileSystemResourceManager.internalWrite",
+          "source": "FileSystemResourceManager.java:435"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Project.writeDescription",
+          "source": "Project.java:1099"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Project.writeDescription",
+          "source": "Project.java:1080"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Project.create",
+          "source": "Project.java:302"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard.createProject",
+          "source": "BasicNewProjectResourceWizard.java:269"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard$1.execute",
+          "source": "BasicNewProjectResourceWizard.java:202"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation$1.run",
+          "source": "WorkspaceModifyOperation.java:101"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1736"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:113"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:113"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "130638",
+      "date": "2006-03-06T21:05:01+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.localstore.FileSystemResourceManager.getStore",
+          "source": "FileSystemResourceManager.java:324"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.getStore",
+          "source": "Resource.java:1066"
+        },
+        {
+          "method": "org.eclipse.core.internal.localstore.UnifiedTree.createChildForLinkedResource",
+          "source": "UnifiedTree.java:238"
+        },
+        {
+          "method": "org.eclipse.core.internal.localstore.UnifiedTree.addChildren",
+          "source": "UnifiedTree.java:144"
+        },
+        {
+          "method": "org.eclipse.core.internal.localstore.UnifiedTree.addNodeChildrenToQueue",
+          "source": "UnifiedTree.java:210"
+        },
+        {
+          "method": "org.eclipse.core.internal.localstore.UnifiedTree.accept",
+          "source": "UnifiedTree.java:94"
+        },
+        {
+          "method": "org.eclipse.core.internal.localstore.FileSystemResourceManager.refreshResource",
+          "source": "FileSystemResourceManager.java:697"
+        },
+        {
+          "method": "org.eclipse.core.internal.localstore.FileSystemResourceManager.refresh",
+          "source": "FileSystemResourceManager.java:681"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.refreshLocal",
+          "source": "Resource.java:1400"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.RefreshAction$1.run",
+          "source": "RefreshAction.java:131"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.BatchOperation.executeOperation",
+          "source": "BatchOperation.java:39"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.run",
+          "source": "JavaModelOperation.java:720"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1736"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.run",
+          "source": "JavaCore.java:3997"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.actions.WorkbenchRunnableAdapter.run",
+          "source": "WorkbenchRunnableAdapter.java:87"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:113"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 2,
+      "bugId": "130638",
+      "date": "2006-03-06T21:50:06+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.localstore.FileStoreRoot.toLocalPath",
+          "source": "FileStoreRoot.java:119"
+        },
+        {
+          "method": "org.eclipse.core.internal.localstore.FileStoreRoot.\u003cinit\u003e",
+          "source": "FileStoreRoot.java:56"
+        },
+        {
+          "method": "org.eclipse.core.internal.localstore.FileSystemResourceManager.setLocation",
+          "source": "FileSystemResourceManager.java:777"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Project.internalSetDescription",
+          "source": "Project.java:671"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Project.create",
+          "source": "Project.java:287"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard.createProject",
+          "source": "BasicNewProjectResourceWizard.java:268"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.newresource.BasicNewProjectResourceWizard$1.execute",
+          "source": "BasicNewProjectResourceWizard.java:201"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation$1.run",
+          "source": "WorkspaceModifyOperation.java:101"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1736"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:113"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:113"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 7,
+      "bugId": "130638",
+      "date": "2006-03-16T20:41:33+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "130638",
+  "bugId": "130638",
+  "date": "2006-03-06T21:05:01+01:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

@@ -1,0 +1,167 @@
+{
+  "comments": [
+    "After pasting text into source code editor and saving the changes I got the\nMessage IWAV0138E:\nRemote VM terminated too soon. See .log file for trace of output. For VM\n\"Project (Simulation1)-VM for Simulation1\".\na few times. And then also a null pointer exception occured. After closing and\nrestarting eclipse the message and error rised again. Eclipse hangs up completly.",
+    "Created an attachment (id\u003d22497)\nJava source code file with which error occured\n\nafter pasting line\n\u003e\u003e\u003e public native void initialisiereNativeCode(); \u003c\u003c\u003c\nand saving the message and error occured",
+    "Is this is still valid in the latest build?",
+    "yes, this is still very much valid... hosed everything several times over.  i\u0027ll\ntry to narrow down what exactly it is, all i hadd to do was open the attached\nfile with the VE.",
+    "problem is here:\n\nstatic {\n\ttry {\n\t\tSystem.loadLibrary(\"Simulation\");\n\t} catch (UnsatisfiedLinkError e) {\n\t\tSystem.out.println(\"\u003e\u003e\u003e Die Datei Simulation.dll konnte nicht gefunden werden!\");\n\t\tSystem.exit(1);\n\t}\n}",
+    "Created an attachment (id\u003d24840)\nlog file\n\nthis is the log you get after uncommenting the above mentioned lines and\nreloading the file.",
+    "Its pretty obvious that the remote VM is dead if an instance of this class is\ncreated on it. There might as well be  \nstatic{\n  System.exit(1);\n} \ncode in the class. \n\nThe question arises as to why an instance of this class was created? It turns\nout that codegen tries to determine if it needs to create a THIS bean using\nintrospection at \n-----------------------------------\nThisReferenceRule.useInheritance(ThisReferenceRule.java:114)\n-----------------------------------\nand introspection for some reason might be trying to create an instance. \n\nThe stacktrace of the codegen call is :\n----------------------------------------------\njava.net.SocketException: Connection reset by peer: socket write error\n\tat java.net.SocketOutputStream.socketWrite0(Native Method)\n\tat java.net.SocketOutputStream.socketWrite(SocketOutputStream.java:92)\n\tat java.net.SocketOutputStream.write(SocketOutputStream.java:136)\n\tat java.io.BufferedOutputStream.flushBuffer(BufferedOutputStream.java:66)\n\tat java.io.BufferedOutputStream.flush(BufferedOutputStream.java:124)\n\tat java.io.DataOutputStream.flush(DataOutputStream.java:101)\n\tat\norg.eclipse.jem.internal.proxy.common.remote.Commands.sendGetClassCommand(Commands.java:1282)\n\tat\norg.eclipse.jem.internal.proxy.remote.REMConnection.getClass(REMConnection.java:135)\n\tat\norg.eclipse.jem.internal.proxy.remote.REMStandardBeanTypeProxyFactory.getClassReturn(REMStandardBeanTypeProxyFactory.java:389)\n\tat\norg.eclipse.jem.internal.proxy.remote.REMStandardBeanTypeProxyFactory.createBeanTypeProxy(REMStandardBeanTypeProxyFactory.java:202)\n\tat\norg.eclipse.jem.internal.proxy.remote.REMStandardBeanTypeProxyFactory.getBeanTypeProxy(REMStandardBeanTypeProxyFactory.java:368)\n\tat\norg.eclipse.jem.internal.proxy.remote.REMStandardBeanTypeProxyFactory.getBeanTypeProxy(REMStandardBeanTypeProxyFactory.java:271)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.BeaninfoClassAdapter.introspect(BeaninfoClassAdapter.java:754)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.BeaninfoClassAdapter.introspectIfNecessary(BeaninfoClassAdapter.java:472)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.BeaninfoClassAdapter.introspectIfNecessary(BeaninfoClassAdapter.java:459)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.BeaninfoClassAdapter.getEStructuralFeatures(BeaninfoClassAdapter.java:1073)\n\tat\norg.eclipse.jem.java.impl.JavaClassImpl.getEStructuralFeatures(JavaClassImpl.java:394)\n\tat org.eclipse.jem.java.impl.JavaClassImpl.getProperties(JavaClassImpl.java:1308)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.BeaninfoClassAdapter.allProperties(BeaninfoClassAdapter.java:1202)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.BeaninfoClassAdapter.getAllProperties(BeaninfoClassAdapter.java:1081)\n\tat\norg.eclipse.jem.java.impl.JavaClassImpl.getAllProperties(JavaClassImpl.java:1349)\n\tat\norg.eclipse.ve.internal.java.codegen.java.rules.ThisReferenceRule.useInheritance(ThisReferenceRule.java:114)\n\tat\norg.eclipse.ve.internal.java.codegen.java.TypeVisitor.createThisIfNecessary(TypeVisitor.java:115)\n\tat\norg.eclipse.ve.internal.java.codegen.java.TypeVisitor.visit(TypeVisitor.java:210)\n\tat\norg.eclipse.ve.internal.java.codegen.java.JavaBeanModelBuilder.visitType(JavaBeanModelBuilder.java:512)\n\tat\norg.eclipse.ve.internal.java.codegen.java.JavaBeanModelBuilder.build(JavaBeanModelBuilder.java:417)\n\tat\norg.eclipse.ve.internal.java.codegen.core.JavaSourceTranslator.reverseParse(JavaSourceTranslator.java:830)\n\tat\norg.eclipse.ve.internal.java.codegen.core.JavaSourceTranslator.decodeDocument(JavaSourceTranslator.java:910)\n\tat\norg.eclipse.ve.internal.java.codegen.core.JavaSourceTranslator.loadModel(JavaSourceTranslator.java:576)\n\tat\norg.eclipse.ve.internal.java.codegen.editorpart.JavaVisualEditorPart$Setup.run(JavaVisualEditorPart.java:1977)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)\n\n---------------------------------------\n\n\nFor me the IDE is still working, but VE becomes useless as remote VM dies\nconstantly. Assigning to Joe to determine why introspection might be loading the\nclass. If I comment out the static{} block, everything works fine.",
+    "The class is loaded by the VM for the Project that does introspection to \ndetermine its shape. Istatic blocks are called on class load and during this \nit fails to load the library and exits the VM.\nIdeally you should put your dll (or lib on Linux/Unix) into the library path.  \nThe only way to do this right now is for you to update the /lib directory of \nthe JRE/SDK that you are using for the Project that you are working in.\nAnother thing that might work is to stop the exit, so try something like\n} catch {\n  if (!java.beans.Beans.isDesignTime()){\n    System.exit(0);\n  }\n}\nHaving said that we should not freeze up quite so badly when the BeanInfo VM \ndies so rather than close this I will leave it open and defer to 1.2 so we can \nthink of making the BeanInfo VM death more graceful"
+  ],
+  "commentCreationDates": [
+    "2005-06-07T11:43:54+02:00",
+    "2005-06-07T11:54:17+02:00",
+    "2005-07-15T16:47:27+02:00",
+    "2005-07-15T17:07:56+02:00",
+    "2005-07-15T17:21:40+02:00",
+    "2005-07-15T17:23:06+02:00",
+    "2005-07-15T23:29:00+02:00",
+    "2005-07-20T01:34:18+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.net.SocketException",
+      "message": "Connection reset by peer: socket write error",
+      "elements": [
+        {
+          "method": "java.net.SocketOutputStream.socketWrite0",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.net.SocketOutputStream.socketWrite",
+          "source": "SocketOutputStream.java:92"
+        },
+        {
+          "method": "java.net.SocketOutputStream.write",
+          "source": "SocketOutputStream.java:136"
+        },
+        {
+          "method": "java.io.BufferedOutputStream.flushBuffer",
+          "source": "BufferedOutputStream.java:66"
+        },
+        {
+          "method": "java.io.BufferedOutputStream.flush",
+          "source": "BufferedOutputStream.java:124"
+        },
+        {
+          "method": "java.io.DataOutputStream.flush",
+          "source": "DataOutputStream.java:101"
+        },
+        {
+          "method": "org.eclipse.jem.internal.proxy.common.remote.Commands.sendGetClassCommand",
+          "source": "Commands.java:1282"
+        },
+        {
+          "method": "org.eclipse.jem.internal.proxy.remote.REMConnection.getClass",
+          "source": "REMConnection.java:135"
+        },
+        {
+          "method": "org.eclipse.jem.internal.proxy.remote.REMStandardBeanTypeProxyFactory.getClassReturn",
+          "source": "REMStandardBeanTypeProxyFactory.java:389"
+        },
+        {
+          "method": "org.eclipse.jem.internal.proxy.remote.REMStandardBeanTypeProxyFactory.createBeanTypeProxy",
+          "source": "REMStandardBeanTypeProxyFactory.java:202"
+        },
+        {
+          "method": "org.eclipse.jem.internal.proxy.remote.REMStandardBeanTypeProxyFactory.getBeanTypeProxy",
+          "source": "REMStandardBeanTypeProxyFactory.java:368"
+        },
+        {
+          "method": "org.eclipse.jem.internal.proxy.remote.REMStandardBeanTypeProxyFactory.getBeanTypeProxy",
+          "source": "REMStandardBeanTypeProxyFactory.java:271"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.BeaninfoClassAdapter.introspect",
+          "source": "BeaninfoClassAdapter.java:754"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.BeaninfoClassAdapter.introspectIfNecessary",
+          "source": "BeaninfoClassAdapter.java:472"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.BeaninfoClassAdapter.introspectIfNecessary",
+          "source": "BeaninfoClassAdapter.java:459"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.BeaninfoClassAdapter.getEStructuralFeatures",
+          "source": "BeaninfoClassAdapter.java:1073"
+        },
+        {
+          "method": "org.eclipse.jem.java.impl.JavaClassImpl.getEStructuralFeatures",
+          "source": "JavaClassImpl.java:394"
+        },
+        {
+          "method": "org.eclipse.jem.java.impl.JavaClassImpl.getProperties",
+          "source": "JavaClassImpl.java:1308"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.BeaninfoClassAdapter.allProperties",
+          "source": "BeaninfoClassAdapter.java:1202"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.BeaninfoClassAdapter.getAllProperties",
+          "source": "BeaninfoClassAdapter.java:1081"
+        },
+        {
+          "method": "org.eclipse.jem.java.impl.JavaClassImpl.getAllProperties",
+          "source": "JavaClassImpl.java:1349"
+        },
+        {
+          "method": "org.eclipse.ve.internal.java.codegen.java.rules.ThisReferenceRule.useInheritance",
+          "source": "ThisReferenceRule.java:114"
+        },
+        {
+          "method": "org.eclipse.ve.internal.java.codegen.java.TypeVisitor.createThisIfNecessary",
+          "source": "TypeVisitor.java:115"
+        },
+        {
+          "method": "org.eclipse.ve.internal.java.codegen.java.TypeVisitor.visit",
+          "source": "TypeVisitor.java:210"
+        },
+        {
+          "method": "org.eclipse.ve.internal.java.codegen.java.JavaBeanModelBuilder.visitType",
+          "source": "JavaBeanModelBuilder.java:512"
+        },
+        {
+          "method": "org.eclipse.ve.internal.java.codegen.java.JavaBeanModelBuilder.build",
+          "source": "JavaBeanModelBuilder.java:417"
+        },
+        {
+          "method": "org.eclipse.ve.internal.java.codegen.core.JavaSourceTranslator.reverseParse",
+          "source": "JavaSourceTranslator.java:830"
+        },
+        {
+          "method": "org.eclipse.ve.internal.java.codegen.core.JavaSourceTranslator.decodeDocument",
+          "source": "JavaSourceTranslator.java:910"
+        },
+        {
+          "method": "org.eclipse.ve.internal.java.codegen.core.JavaSourceTranslator.loadModel",
+          "source": "JavaSourceTranslator.java:576"
+        },
+        {
+          "method": "org.eclipse.ve.internal.java.codegen.editorpart.JavaVisualEditorPart$Setup.run",
+          "source": "JavaVisualEditorPart.java:1977"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 6,
+      "bugId": "98645",
+      "date": "2005-07-15T23:29:00+02:00",
+      "product": "VE",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "98645",
+  "bugId": "98645",
+  "date": "2005-06-07T11:43:54+02:00",
+  "product": "VE",
+  "component": "SWT",
+  "severity": "normal"
+}

@@ -1,0 +1,154 @@
+{
+  "comments": [
+    "When updating from the Callisto Discovery Site, I get the following error. Other update sites appear to work ok.\n\njava.lang.NullPointerException\nat org.eclipse.update.internal.search.SiteSearchCategory$FeatureDownloader.run(SiteSearchCategory.java:229)\nat org.eclipse.update.internal.search.SiteSearchCategory$Query.run(SiteSearchCategory.java:90)\nat org.eclipse.update.search.UpdateSearchRequest.searchOneSite(UpdateSearchRequest.java:502)\nat org.eclipse.update.search.UpdateSearchRequest.performSearch(UpdateSearchRequest.java:318)\nat org.eclipse.update.ui.UpdateJob.runSearchForNew(UpdateJob.java:182)\nat org.eclipse.update.ui.UpdateJob.run(UpdateJob.java:170)\nat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)",
+    "I\u0027m still seeing this in RC6 (or is this bug wrongly marked M6 instead of RC6).",
+    "Sorry, I meant RC6.",
+    "I am also seeing this bug in RC6, but in Windows.",
+    "E3.2RC7 - I\u0027m getting this bug too.\n\n!SESSION 2006-06-05 12:20:34.034 -----------------------------------------------\neclipse.buildId\u003dI20060602-1317\njava.version\u003d1.5.0_06\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments:  -os win32 -ws win32 -arch x86\n\n!ENTRY org.eclipse.core.jobs 4 2 2006-06-05 12:21:45.097\n!MESSAGE An internal error occurred during: \"Update Manager\".\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.update.internal.search.SiteSearchCategory$FeatureDownloader.run(SiteSearchCategory.java:229)\n\tat org.eclipse.update.internal.search.SiteSearchCategory$Query.run(SiteSearchCategory.java:90)\n\tat org.eclipse.update.search.UpdateSearchRequest.searchOneSite(UpdateSearchRequest.java:502)\n\tat org.eclipse.update.search.UpdateSearchRequest.searchOneSite(UpdateSearchRequest.java:473)\n\tat org.eclipse.update.search.UpdateSearchRequest.performSearch(UpdateSearchRequest.java:318)\n\tat org.eclipse.update.ui.UpdateJob.runSearchForNew(UpdateJob.java:182)\n\tat org.eclipse.update.ui.UpdateJob.run(UpdateJob.java:170)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)",
+    "The code in question has a line that is sensitive to null feature:\n\nif (filter.accept(siteFeatureReference)) {\n\tIFeature feature \u003d null;\n\tif(liteFeaturesAreOK) {\n\t   feature \u003d (IFeature)liteFeatures.get(siteFeatureReference.getVersionedIdentifier());\n\t} else {\n\t   feature \u003d siteFeatureReference.getFeature(null);\n\t}\n\tsynchronized(siteFeatureReferences) {\n\t   if ( (feature !\u003d null) \u0026\u0026 (filter.accept(feature)) ) \t\t      collector.accept(feature);\t\t\t\t\n\t   monitor.subTask(feature.getLabel()); \u003c---- PROBLEM\n\t}\n}\n\nThe \u0027accept\u0027 method of the collecter is guarded for feature\u003d\u003dnull but not the monitor directly below it.",
+    "true, i saw that, too. But, i don\u0027t think we can do anything before 3.2.1.",
+    "How often can it happen i.e. what conditions need to be set?",
+    "I was unable to perform any download from the Calisto update site at all.  I always received the NullPointerException.  I had to manually download all of the individual components separately.\n\n",
+    "This seems to be happening when digest is missing some feature listed in site.xml or when site.xml lists feature that is no available on the site at all.  This should not happen, however we still should handle this gracefully. To do this we should change:\nif(liteFeaturesAreOK) {\n     feature \u003d\n(IFeature)liteFeatures.get(siteFeatureReference.getVersionedIdentifier());\n} else {\n     feature \u003d siteFeatureReference.getFeature(null);\n}\nTo: \nif(liteFeaturesAreOK) {\n    feature \u003d\n(IFeature)liteFeatures.get(siteFeatureReference.getVersionedIdentifier());\nif (feature \u003d\u003d null){\n    feature \u003d siteFeatureReference.getFeature(null);\n}\n\nAs well as change later code just in case site.xml lists feature that is not available on the site, from:\nif ( (feature !\u003d null) \u0026\u0026 (filter.accept(feature)) )                \n   collector.accept(feature);                                \nmonitor.subTask(feature.getLabel())\n\nTo:\nif ( (feature !\u003d null) \u0026\u0026 (filter.accept(feature)) ) {                 \n   collector.accept(feature);                                \n   monitor.subTask(feature.getLabel())\n}",
+    "An important point above is that the error happens because digest is out of sync with site.xml. David, any comments?",
+    "There was a few hours, on 6/1 I believe, that the digest was out of synch with the site.xml file, due to my error. But ... not after that? Unless someone beside me is modifying one or the other. \n\nAre people still seeing this? They shouldn\u0027t be, as far as I know. \n\nAnd, I\u0027ve voiced my concern before about how sensitive update manager would be to all being \"in synch\" ... seems there could be more built in to at least check if \"in synch\" (currently, as jsut one example, there\u0027 no identifying information in the digest file to signify when it was created, which version of update\u0027s siteOptimizer produced it, etc.). ",
+    "There is no disagreement that Update Manager needs to be more forgiving in these cases particularly because it can easily ignore the missing information in the digest and go for the hard feature instead. The debate is simply if we can put this off by 3.2.1 by making sure the update site and digest are in sync.",
+    "(In reply to comment #12)\n\u003e There is no disagreement that Update Manager needs to be more forgiving in\n\u003e these cases particularly because it can easily ignore the missing information\n\u003e in the digest and go for the hard feature instead. The debate is simply if we\n\u003e can put this off by 3.2.1 by making sure the update site and digest are in\n\u003e sync.\n\u003e \n\nYes, as far as I\u0027m concerned. Assuming people are not still currently seeing this, I guess even when I fixed Thursday, might have taken some mirrors a while to pick up the change. \n\nI have just now fixed my script to copy site files and digest at same time. \n(My error last thursday was thinking I had already automated that, but since \nhad not, did not notice the error until a few hours later). \n\nSo, fixed for Callisto :) \n\n\n",
+    "Scheduling for 3.2.1",
+    "I am still seeing this error today (06/06/06). Here are the steps and when the thing breaks...\n\n- Help \u003e Software updates \u003e Find and Install...\n- Select radio button: Search for new features to install\n- Click: [Next \u003e]\n- In the Sites to include in search: I select \u0027Callisto Discovery Site\u0027 only.\n- Click: [Finish]\n- In the \u0027Update Site Mirrors\u0027 dialog I select \u0027Calliso Discovery Site\u0027.\n- Click: [OK]\n\nThat\u0027s when the NullPointerException occurs.\n\n-\u003dmirko\u003d-\n\n",
+    "(In reply to comment #15)\n\u003e I am still seeing this error today (06/06/06). Here are the steps and when the\n\u003e thing breaks...\n\u003e \n\nMirko .. thanks for your persistence on this ... I was assuming you were crazy :) \nbut sure enough, thanks to your test and report I tried it again, immediately saw same error, went back to my scripts and found the error (I was building digest before updating the feature version id\u0027s in the site.xml file ... sort of amazing that worked with previous version of site optimizer :) \n\nBut ... keep your fingers crossed, and please try again. I think it (/callisto/staging) is correct now with RC7 base, and the new and improved digest (and, I have checked by fixed scripts into cvs! ) \n\nThanks much. \n",
+    "It\u0027s great that Callisto has this problem fixed, however we still need to make update more robust. The idea should be to report the problem and fall back to getting the whole feature jar from the update site. If we can not get the jar than we should probably have GUI based report that user can see instantly and make decision on how to proceed.",
+    "David,\n\nyes, using http://download.eclipse.org/callisto/staging/ does work for RC7. This is the first time that I tried using that update site URL. \n\nThe http://download.eclipse.org/callisto/releases/ URL still does not work for RC6(eclipse.buildId\u003dI20060526-0010) or RC7(eclipse.buildId\u003dI20060602-1317). I would think that this URL would at least work for RC6. \n\nCrazy...maybe :)\n\nThanx,\n-\u003dmirko\u003d-",
+    "Thanks Mirko, I didn\u0027t realize you had been trying the /callisto/releases one. \nI did try that one, several times (the most recent right after I saw the staging problem last night). \n\nAnd it worked fine for me. I was not using a mirror? Were you? \nI was starting with \"plain\" RC7, platform runtime binary, using \na 1.5 JRE (IBM\u0027s I think). \n\nWhat\u0027s your setup? Using a mirror? \n\nSounds like we may need an update manager fix for this after all!? \n",
+    "I too tried it \"release\" from home yesterday, and had no problems (RC7, XP, 1.5vm). I also tried one of the other mirrors without any problems. \nMirko, is it possible that somehow you have cached site. Maybe you are going through a proxy that is caching. This is purely a speculation, I am just trying to figure out how it is that we can not reproduce this problem. Can you also tell us what is your locale(fr_FR, en_US....)?\n",
+    "Also ... hope this isn\u0027t stating the obvious ... certain information is cached on the client end ... so, if you once see an error, you do have to stop and re-start eclipse client to get \"fresh\" copy of digest, etc. Are you like me and leave your\u0027s running all the time? :) \n\n\n\n",
+    "I am using the \"plain\" Eclipse 3.2 RC7 platform install. I set it up for testing...meaning i\u0027m not using this install for my development work. I even have the test install point to a blank workspace while testing. This is also a new install. \n\nI tried download.eclipse.org as well as some of the mirrors from around the world. All failing.\n\nYes, my \u0027development\u0027 Eclipse is always up. :) Well that is unless I get an out of memory error suggesting that I restart Eclispe. I think it has something to do with WTP, but that\u0027s another bug. Anyway, the test install was just started up then I did the find updates which failed.\n\nFor Java I use Sun\u0027s JDK...\njava version \"1.5.0_06\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.5.0_06-b05)\nJava HotSpot(TM) Client VM (build 1.5.0_06-b05, mixed mode)\n\nI know my name dosen\u0027t sound like it, but my local is en_US.\n\nI\u0027m not sure if our internet proxy server is cacheing or not, but we have multiple proxies. I pointed to a different internet proxy, and I still get the NullPointerException.\n\nI\u0027m going to try this from home too.\n\nHope I answered all the questions.\n\n-\u003dmirko\u003d-",
+    "I asked about your locale not because of your name but because we sort mirrors based on locale. Since people usually pick first mirror from the list I was \"hoping\" that you might be hitting some mirror that we did not test against and that is still not in sync.",
+    "Ti works now...\n\nThe http://download.eclipse.org/callisto/releases/ URL now WORKS for\nRC6(eclipse.buildId\u003dI20060526-0010) or RC7(eclipse.buildId\u003dI20060602-1317).\n\nThank you!\n-\u003dmirko\u003d-",
+    "I got the same NullPointerException with eclipse 3.2 and the same test case as comment 15.\nIs there a workaround to be able to install Callisto with the eclipse Software Update ?",
+    "fixed",
+    "Changing OS from Mac OS to Mac OS X as per bug 185991"
+  ],
+  "commentCreationDates": [
+    "2006-06-01T17:52:24+02:00",
+    "2006-06-01T20:19:24+02:00",
+    "2006-06-01T22:01:17+02:00",
+    "2006-06-02T19:48:40+02:00",
+    "2006-06-05T18:27:59+02:00",
+    "2006-06-05T19:39:22+02:00",
+    "2006-06-05T20:11:54+02:00",
+    "2006-06-05T20:12:53+02:00",
+    "2006-06-05T20:15:31+02:00",
+    "2006-06-05T20:32:36+02:00",
+    "2006-06-05T20:40:52+02:00",
+    "2006-06-05T21:00:47+02:00",
+    "2006-06-05T21:06:39+02:00",
+    "2006-06-05T22:53:27+02:00",
+    "2006-06-05T23:02:21+02:00",
+    "2006-06-06T14:41:11+02:00",
+    "2006-06-07T09:41:28+02:00",
+    "2006-06-07T16:26:50+02:00",
+    "2006-06-07T18:28:25+02:00",
+    "2006-06-07T18:43:37+02:00",
+    "2006-06-07T19:11:01+02:00",
+    "2006-06-07T19:17:47+02:00",
+    "2006-06-07T22:27:44+02:00",
+    "2006-06-07T22:36:58+02:00",
+    "2006-06-12T16:26:02+02:00",
+    "2006-07-04T12:02:28+02:00",
+    "2006-08-08T06:56:10+02:00",
+    "2007-07-29T15:20:08+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.update.internal.search.SiteSearchCategory$FeatureDownloader.run",
+          "source": "SiteSearchCategory.java:229"
+        },
+        {
+          "method": "org.eclipse.update.internal.search.SiteSearchCategory$Query.run",
+          "source": "SiteSearchCategory.java:90"
+        },
+        {
+          "method": "org.eclipse.update.search.UpdateSearchRequest.searchOneSite",
+          "source": "UpdateSearchRequest.java:502"
+        },
+        {
+          "method": "org.eclipse.update.search.UpdateSearchRequest.performSearch",
+          "source": "UpdateSearchRequest.java:318"
+        },
+        {
+          "method": "org.eclipse.update.ui.UpdateJob.runSearchForNew",
+          "source": "UpdateJob.java:182"
+        },
+        {
+          "method": "org.eclipse.update.ui.UpdateJob.run",
+          "source": "UpdateJob.java:170"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "144904",
+      "date": "2006-06-01T17:52:24+02:00",
+      "product": "Platform",
+      "component": "Update",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.update.internal.search.SiteSearchCategory$FeatureDownloader.run",
+          "source": "SiteSearchCategory.java:229"
+        },
+        {
+          "method": "org.eclipse.update.internal.search.SiteSearchCategory$Query.run",
+          "source": "SiteSearchCategory.java:90"
+        },
+        {
+          "method": "org.eclipse.update.search.UpdateSearchRequest.searchOneSite",
+          "source": "UpdateSearchRequest.java:502"
+        },
+        {
+          "method": "org.eclipse.update.search.UpdateSearchRequest.searchOneSite",
+          "source": "UpdateSearchRequest.java:473"
+        },
+        {
+          "method": "org.eclipse.update.search.UpdateSearchRequest.performSearch",
+          "source": "UpdateSearchRequest.java:318"
+        },
+        {
+          "method": "org.eclipse.update.ui.UpdateJob.runSearchForNew",
+          "source": "UpdateJob.java:182"
+        },
+        {
+          "method": "org.eclipse.update.ui.UpdateJob.run",
+          "source": "UpdateJob.java:170"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 4,
+      "bugId": "144904",
+      "date": "2006-06-05T18:27:59+02:00",
+      "product": "Platform",
+      "component": "Update",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "144904",
+  "bugId": "144904",
+  "date": "2006-06-01T17:52:24+02:00",
+  "product": "Platform",
+  "component": "Update",
+  "severity": "normal"
+}

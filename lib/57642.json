@@ -1,0 +1,168 @@
+{
+  "comments": [
+    "I20040406\n\nSome of the varible resolution tests that depend on a selected resource fail \ndue to an empty selection. The failures are intermitent - a sample is shown \nbelow. Not certain if this is a problem with our test, or the workbench. \nRunning the tests locally, I get no failures.\n\nVariable references empty selection: ${project_loc} \n\norg.eclipse.core.runtime.CoreException: Variable references empty selection: \n${project_loc}\nat org.eclipse.debug.internal.ui.stringsubstitution.ResourceResolver.abort\n(ResourceResolver.java:104)\nat \norg.eclipse.debug.internal.ui.stringsubstitution.ResourceResolver.getSelectedRe\nsource(ResourceResolver.java:117)\nat \norg.eclipse.debug.internal.ui.stringsubstitution.ResourceResolver.resolveValue\n(ResourceResolver.java:40)\nat org.eclipse.core.internal.variables.DynamicVariable.getValue\n(DynamicVariable.java:49)\nat org.eclipse.core.internal.variables.StringSubstitutionEngine.resolve\n(StringSubstitutionEngine.java:256)\nat org.eclipse.core.internal.variables.StringSubstitutionEngine.substitute\n(StringSubstitutionEngine.java:180)\nat \norg.eclipse.core.internal.variables.StringSubstitutionEngine.performStringSubst\nitution(StringSubstitutionEngine.java:87)\nat \norg.eclipse.core.internal.variables.StringVariableManager.performStringSubstitu\ntion(StringVariableManager.java:534)\nat \norg.eclipse.core.internal.variables.StringVariableManager.performStringSubstitu\ntion(StringVariableManager.java:327)\nat org.eclipse.jdt.debug.tests.core.StringSubstitutionTests.doSubs\n(StringSubstitutionTests.java:172)\nat \norg.eclipse.jdt.debug.tests.core.StringSubstitutionTests.testProjectLocSelectFo\nlder(StringSubstitutionTests.java:454)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\nat org.eclipse.jdt.debug.tests.AutomatedSuite$1.run(AutomatedSuite.java:177)\nat java.lang.Thread.run(Thread.java:534)",
+    "This looks like a UI bug. The test opens a view, sets the selection, and then \nattempts to retrieve the selection, which is empty (via \nSelectedResourceManager).",
+    "Darin, which view is this?\nDoes the view have a setFocus() method with appropriate implementation, and is\nit getting called?  Does it take focus if the view is opened manually?\n",
+    "It\u0027s the Resource navigator, and this is what our test does to set the \nselection:\n\n/**\n * Sets the selected resource in the navigator view.\n * \n * @param resource resource to select\n */\nprotected void setSelection(final IResource resource) {\n\tRunnable r \u003d new Runnable() {\n\t\tpublic void run() {\n\t\t\tIWorkbenchPage page \u003d \nDebugUIPlugin.getActiveWorkbenchWindow().getActivePage();\n\t\t\tIViewPart part;\n\t\t\ttry {\n\t\t\t\tpart \u003d page.showView\n(\"org.eclipse.ui.views.ResourceNavigator\");\n\t\t\t\tpart.getSite().getSelectionProvider\n().setSelection(new StructuredSelection(resource));\n\t\t\t} catch (PartInitException e) {\n\t\t\t\tassertNotNull(\"Failed to open navigator view\", \nnull);\n\t\t\t}\n\t\t\t\n\t\t}\n\t};\n\tDebugUIPlugin.getStandardDisplay().syncExec(r);\n}",
+    "Adding Nick as CC for previous comment",
+    "Will investigate.",
+    "We have our own test, ISelectionServiceTest.testGetSelection(), which does\nessentially the same thing.  Although it calls setSelection on the view, this is\nequivalent to view.getSite().getSelectionProvider().setSelection.  I\u0027ve tried it\nwith this change too, and it still passes.\n\nThe test is:\n\n\tpublic void testGetSelection() throws Throwable {\n\t\t// From Javadoc: \"Returns the current selection in the active part.  \n\t\t// If the selection in the active part is \u003cem\u003eundefined\u003c/em\u003e (the \n\t\t// active part has no selection provider) the result will be \n\t\t// \u003ccode\u003enull\u003c/code\u003e\"\n\t\tObject actualSel, sel1 \u003d \"Selection 1\", sel2 \u003d \"Selection 2\";\n\t\t\n\t\t// Open view.\n\t\tSelectionProviderView view \u003d (SelectionProviderView)\n\t\t\tfPage.showView(SelectionProviderView.ID);\n\t\t\t\n\t\t// Fire selection and verify.\n\t\tview.setSelection(sel1);\n\t\tactualSel \u003d unwrapSelection(fPage.getSelection());\n\t\tassertEquals(\"Selection\", sel1, actualSel);\n\t\t\n\t\t// Fire selection and verify.\n\t\tview.setSelection(sel2);\n\t\tactualSel \u003d unwrapSelection(fPage.getSelection());\n\t\tassertEquals(\"Selection\", sel2, actualSel);\n\t\t\n\t\t// Close view and verify.\n\t\tfPage.hideView(view);\n\t\tassertNull(\"getSelection\", fPage.getSelection());\n\t}\n\nIs it possible that Debug was getting thrown off by the change for 57384?\n",
+    "Looking at bug 57384, it might have been the problem. We require it to \nproperly initialize the \"SelectedResourceManager\" in the debug UI.",
+    "My original change for that bug was to make getActiveWorkbenchWindow throw an\nexception if called from a non-UI thread (actually an SWTException, thrown from\nwithin SWT).  Did you see any evidence of exceptions being thrown, or does the\nDebug code handle them?\n",
+    "There was no evidence of an exception. We start the \"selected resource \nmanager\" in a Display async exec",
+    "Hmm.  If it was due to 57384, then I\u0027d expect it to fail on Windows too, not\njust Linux.\n\n",
+    "Darin, how can I run these tests manually?",
+    "Bug 57384 is not the problem here since SelectedResourceManager.getDefault() is\ninitialized in the UI thread, in DebugUIPlugin.startup().\n\nI\u0027m at a loss to explain this one.  I\u0027ve tried it on my machine, on the test\nmachine, running using both PDE and the automated harness, using both direct\ninvocation from the shell and RSH, and I can\u0027t reproduce the failure.\nTracing through it in the debugger, all looks correct.\n\nCan you add some trace statements?\nI suggest:\n- in StringSubstitutionTests.setUp, set a DEBUG flag in SelectedResourceManager\n- optionally clear the flag in tearDown\n- have StringSubstitutionTests remember the window it thinks is active, and\nprint this out when DEBUG is turned on\n- in SelectedResourceManager, generate console output showing the invoked method\nand its parameters for all methods, if DEBUG is true\n- in selectionChanged, also print out the resource it found\n- in getSelectedResource(), print out the resource it\u0027s returning\n- plus, in its constructor, trace whether it\u0027s getting created in the UI thread:\n  System.out.println(\"SelectedResourceManager() -- Display is: \" +\nDisplay.getCurrent());\n",
+    "I will add your suggested tracing later today. Will be in place for the nightly \nbuild this evening.",
+    "Tracing has been added and released.",
+    "So the tracing shows:\n     [echo] Running org.eclipse.jdt.debug.tests.AutomatedSuite\n     [java] SelectedResourceManager() -- Display is: \norg.eclipse.swt.widgets.Display@1fbc355\n     [java] setDebug; active window is: null\n     [java] setDebug; active window is: null\n...\nand occasionally:\n     [java] getSelectedResource; fSelectedResource: null\n\nSo this shows that selectionChanged is never getting called, at least not \nduring a test, which it should for the tests that set the selection.  This \nwould be the case if it didn\u0027t think any window was active.\n\nHowever, the tracing is incomplete.  In windowActivated, fActiveWindow is only \nset if DEBUG is true, however windowActivated may be getting called outside a \ntest before DEBUG is set or after it is cleared.  That\u0027s certainly the case \nfor the initial call from the constructor.   See the linux console logs -- \nalthough the tests pass, the console output shows fActiveWindow as null.\nCan windowActivated be changed to always assign fActiveWindow?\n\nAlthough it certainly looks like the window is never set, or is cleared before \nthe tests run, could we also broaden the tracing by setting DEBUG to always be \ntrue, or at least true for the entire jdt debug test run? E.g. add a command \nline arg in test.xml and check it when initializing DEBUG?  Alternatively, set \nDEBUG\u003dtrue in a static initializer in AutomatedTests.  Either way, this should \nreplace the setDebug calls in setUp/tearDown\n\nIt would also help to print the result of getActiveWorkbenchWindow in \nSelectedResourceManager\u0027s constructor (unconditionally).\n\nAt least SelectedResourceManager is getting initialized in the UI thread -- \nDisplay.getCurrent() returns the display.  So it\u0027s not hitting the case where \ngetActiveWorkbenchWindow returns null due to being called in a non-UI thread.\n\nI suspect that some other window or dialog is coming up in front of the \nworkbench window, causing it to send windowDeactivated.  But this may happen \nwell before the tests run.  One candidate is the new modal dialog for \nbackground job progress, the first cut of which went in on April 2, which is \naround when this bug first appeared (the nightly build of April 4th had this \nbug, but this is the last set of results I can see).  If that\u0027s the culprit, I \nhave no idea why it\u0027s not reproduceable when running the tests manually.\n\nCan we also add Thread.dumpStack calls in addition to the System.out\u0027s?  This \nmay let us see what\u0027s triggering a windowDeactivated, if any.\n\n\n",
+    "Does debug or anything triggered by the debug tests use jobs with setUser\n(true)?\n",
+    "Static initializer added to AutomatedSuite to set debug to true.\nRemoved setUp/tearDown setting of debug\n\nSystem.out added in constructor to show activeWindow\nfActiveWindow is always assigned\n\nThread.dumpStack() added throughout\n",
+    "The console output for last night\u0027s build indicates that an error dialog (for a\nhot code replace failure) caused the main window to be deactivated while the\nsubstitution tests ran.\n\nThs console output in question is as follows.  \n\nwindowDeactivated(IWorkbenchWindow); window:\norg.eclipse.ui.internal.WorkbenchWindow@194df96\n     [java] java.lang.Exception: Stack trace\n     [java] \tat java.lang.Thread.dumpStack(Thread.java:1064)\n     [java] \tat\norg.eclipse.debug.internal.ui.stringsubstitution.SelectedResourceManager.windowDeactivated(SelectedResourceManager.java:113)\n     [java] \tat org.eclipse.ui.internal.Workbench$7.run(Workbench.java:372)\n     [java] \tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:599)\n     [java] \tat org.eclipse.core.runtime.Platform.run(Platform.java:541)\n     [java] \tat\norg.eclipse.ui.internal.Workbench.fireWindowDeactivated(Workbench.java:370)\n     [java] \tat\norg.eclipse.ui.internal.WorkbenchWindow$8.shellDeactivated(WorkbenchWindow.java:1955)\n     [java] \tat\norg.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:167)\n     [java] \tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n     [java] \tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:796)\n     [java] \tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:820)\n     [java] \tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:801)\n     [java] \tat\norg.eclipse.swt.widgets.Decorations.WM_ACTIVATE(Decorations.java:1494)\n     [java] \tat org.eclipse.swt.widgets.Shell.WM_ACTIVATE(Shell.java:1327)\n     [java] \tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2951)\n     [java] \tat\norg.eclipse.swt.widgets.Decorations.windowProc(Decorations.java:1451)\n     [java] \tat org.eclipse.swt.widgets.Display.windowProc(Display.java:3158)\n     [java] \tat org.eclipse.swt.internal.win32.OS.BringWindowToTop(Native Method)\n     [java] \tat org.eclipse.swt.widgets.Decorations.bringToTop(Decorations.java:206)\n     [java] \tat org.eclipse.swt.widgets.Shell.open(Shell.java:738)\n     [java] \tat org.eclipse.jface.window.Window.open(Window.java:644)\n     [java] \tat org.eclipse.jface.dialogs.ErrorDialog.open(ErrorDialog.java:307)\n     [java] \tat\norg.eclipse.jdt.internal.debug.ui.JavaHotCodeReplaceListener$1.run(JavaHotCodeReplaceListener.java:83)\n     [java] \tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n     [java] \tat\norg.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:106)\n     [java] \tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2569)\n     [java] \tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2274)\n     [java] \tat\norg.eclipse.jdt.debug.tests.AutomatedSuite.run(AutomatedSuite.java:196)\n     [java] \tat org.eclipse.test.EclipseTestRunner.run(EclipseTestRunner.java:320)\n     [java] \tat org.eclipse.test.EclipseTestRunner.run(EclipseTestRunner.java:199)\n     [java] \tat org.eclipse.test.EclipseTestRunner.main(EclipseTestRunner.java:134)\n     [java] \tat org.eclipse.test.UITestApplication$3.run(UITestApplication.java:180)\n     [java] \tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n     [java] \tat\norg.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:106)\n     [java] \tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2569)\n     [java] \tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2274)\n     [java] \tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1353)\n     [java] \tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1324)\n     [java] \tat\norg.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:240)\n     [java] \tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:140)\n     [java] \tat\norg.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:90)\n     [java] \tat\norg.eclipse.test.UITestApplication.runApplication(UITestApplication.java:123)\n     [java] \tat org.eclipse.test.UITestApplication.run(UITestApplication.java:55)\n     [java] \tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:283)\n     [java] \tat\norg.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:240)\n     [java] \tat\norg.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:117)\n     [java] \tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n     [java] \tat\nsun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n     [java] \tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n     [java] \tat java.lang.reflect.Method.invoke(Method.java:324)\n     [java] \tat org.eclipse.core.launcher.Main.basicRun(Main.java:269)\n     [java] \tat org.eclipse.core.launcher.Main.run(Main.java:700)\n     [java] \tat org.eclipse.core.launcher.Main.main(Main.java:684)\n     [java] getSelectedResource; fSelectedResource: null\n\n\nNotice the call to ErrorDialog.open from JavaHotCodeReplaceListener$1.run.  \nIt\u0027s not clear which test caused this.  Should add a trace statement to setUp\nprinting out the test case name, for all debug tests, not just the string\nsubstitution tests.  It would help to have a parent class for this.  E.g. see\nUITestCase which has the following (you can ignore the call to addWindowListener()):\n\n\t/**\n\t * Simple implementation of setUp. Subclasses are prevented \n\t * from overriding this method to maintain logging consistency.\n\t * doSetUp() should be overriden instead.\n\t */\n\tprotected final void setUp() throws Exception {\n\t\ttrace(\"----- \" + this.getName()); //$NON-NLS-1$\n\t\ttrace(this.getName() + \": setUp...\"); //$NON-NLS-1$\n\t\taddWindowListener();\n\t\tdoSetUp();\n\t}\n\n\t/**\n\t * Sets up the fixture, for example, open a network connection.\n\t * This method is called before a test is executed.\n\t * The default implementation does nothing.\n\t * Subclasses may extend.\n\t */\n\tprotected void doSetUp() throws Exception {\n\t\t// do nothing.\n\t}\n\nIf the hot code replace problem can\u0027t be addressed, then I suggest moving the\nStringSubstitutionTests to be the first test class in the suite (I\u0027m assuming\nit\u0027s not the one attempting a hot code replace).  But the error dialog may still\nthrow off other tests.\n\nAlso, I\u0027m still not sure why in some test runs we get different, non-null,\nresults for the selected resource in the string substitution tests (e.g.\nN20040425).  It might depend on the exact timing of when the error dialog comes\nup.  Since SelectedResourceManager.windowDeactivated does not clear the\nremembered selection, the following sequence could explain it:\n- some previous view is active and sets the selection, possibly in a different\nview than the Navigator (e.g. Debug view)\n- SelectedResourceManager sees this and remembers it\n- window gets deactivated due to hot code replace error dialog\n- string substitution tests run\n- their setSelection calls don\u0027t notify SelectedResourceManager because the\nwindow is inactive\n- SelectedResourceManager.getSelectedResource returns a stale result\n",
+    "Thanks Nick",
+    "The console log shows the error dialog being opened at two different times, both\nfrom JavaHotCodeReplaceListener$1.run. \n\nI had seen the hot code replace error dialog up when running the tests manually.\n Not sure why it didn\u0027t cause the string substitution tests to fail then.  If\nit\u0027s timing dependent, then perhaps it can come up after the string subsitution\ntests have run.  Or possibly earlier, with some other test before the string\nsubstitution tests opening a second workbench window.  There\u0027s evidence of this\nhappening -- one of the calls to windowActivated is triggered by a\nWorkbench.showPerspective opening a new window (in WatchExpressionTests).\n\n\nAlso, in addition to adding tracing of the test method names, I recommend\nchanging the existing trace statements to use System.err rather than System.out,\nsince Thread.dumpStack writes to System.err.  Otherwise, the output and err\nstreams can get interleaved in confusing ways.\n\n",
+    "DarinS was able to debug this to figure out what was happening. The HCR was being caused by a \ntest that built a file to generate compiler errors. This behavior isn\u0027t believed to be a problem.\n\nThe only problem is that we\u0027re opening the warning dialog, which we can easily prevent.",
+    "Fixed in ProjectCreationDecorator. Please verify, DarinS.",
+    "I backed out the tracing in AutomatedSuite and SelectedResourceManager.\n\nVerified on my machine. I will check the build tonight as well.",
+    "AbstractDebugTest(String) has:\n\t// set error dialog to non-blocking to avoid hanging the UI during test\n\tErrorDialog.AUTOMATED_MODE \u003d true;\n\nand ErrorDialog.open() has:\n\tif(AUTOMATED_MODE)\n\t\tsetBlockOnOpen(false);\t\t\t\n\nIt seems like during an automated test, it should not bother opening the dialog\nat all, and just return as if the user had hit OK.\nThis flag should also be set by the test harness, not by each test suite.\n\nThoughts?",
+    "Seem like good thoughts to me :-)\nAn error dialog intended for a user is of no interest during automated \ntesting. As we have seen this can only cause problems (in some unexpected \nways).",
+    "I\u0027ve made the necessary changes to ErrorDialog and WorkbenchTestable (this guy\nkicks of the test suites).\n",
+    "I think the really confusing behaviour was that it was changed to be modeless\ninstead of a modal dialog.  If it was left as modal, the tests would have hung\nand we would have known the problem, without it impacting on downstream tests\n(other than preventing them from running of course).\n\nIn any case, it definitely seems better to not bring it up at all, and that\u0027s\nwhat it now does.\n\n",
+    "This bug, or a variation of it, is still present in Eclipse 3.2.2 on FC6.\n\nI\u0027m getting \"variable references empty selection: ${project_loc}\" error if I select \"Build Project\" without having selected the project.\n\nWhat\u0027s worse is that even after selecting the project, subsequent attempts at rebuilding fail silently. Only after I select \"Refresh Project\" will eclipse forget that the build failed, and only after that will clicking Build actually build it.\n",
+    "Godmar, this bug is for automated test suite failures. But I don\u0027t think your problem is a bug... the variale requires a selection to be able to resolve a value. I\u0027m not sure about the problem with refresh before re-build works - that\u0027s a question for platform/resources."
+  ],
+  "commentCreationDates": [
+    "2004-04-06T21:52:11+02:00",
+    "2004-04-11T16:52:55+02:00",
+    "2004-04-13T22:57:44+02:00",
+    "2004-04-14T03:13:46+02:00",
+    "2004-04-14T03:14:10+02:00",
+    "2004-04-14T16:51:18+02:00",
+    "2004-04-15T22:21:53+02:00",
+    "2004-04-15T22:28:42+02:00",
+    "2004-04-16T15:17:53+02:00",
+    "2004-04-16T15:27:04+02:00",
+    "2004-04-16T18:20:39+02:00",
+    "2004-04-17T17:11:18+02:00",
+    "2004-04-23T22:49:52+02:00",
+    "2004-04-23T23:26:20+02:00",
+    "2004-04-24T01:50:40+02:00",
+    "2004-04-25T07:16:54+02:00",
+    "2004-04-25T07:21:53+02:00",
+    "2004-04-25T18:08:15+02:00",
+    "2004-04-26T17:15:25+02:00",
+    "2004-04-26T17:20:50+02:00",
+    "2004-04-26T17:34:34+02:00",
+    "2004-04-26T23:36:36+02:00",
+    "2004-04-26T23:46:58+02:00",
+    "2004-04-26T23:59:08+02:00",
+    "2004-04-27T01:05:27+02:00",
+    "2004-04-27T01:10:02+02:00",
+    "2004-04-27T01:23:57+02:00",
+    "2004-04-27T01:26:56+02:00",
+    "2007-03-29T20:17:51+02:00",
+    "2007-03-29T20:35:25+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.core.runtime.CoreException",
+      "message": "Variable references empty selection:  ${project_loc}",
+      "elements": [
+        {
+          "method": "org.eclipse.debug.internal.ui.stringsubstitution.ResourceResolver.abort",
+          "source": "ResourceResolver.java:104"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.stringsubstitution.ResourceResolver.getSelectedResource",
+          "source": "ResourceResolver.java:117"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.stringsubstitution.ResourceResolver.resolveValue",
+          "source": "ResourceResolver.java:40"
+        },
+        {
+          "method": "org.eclipse.core.internal.variables.DynamicVariable.getValue",
+          "source": "DynamicVariable.java:49"
+        },
+        {
+          "method": "org.eclipse.core.internal.variables.StringSubstitutionEngine.resolve",
+          "source": "StringSubstitutionEngine.java:256"
+        },
+        {
+          "method": "org.eclipse.core.internal.variables.StringSubstitutionEngine.substitute",
+          "source": "StringSubstitutionEngine.java:180"
+        },
+        {
+          "method": "org.eclipse.core.internal.variables.StringSubstitutionEngine.performStringSubstitution",
+          "source": "StringSubstitutionEngine.java:87"
+        },
+        {
+          "method": "org.eclipse.core.internal.variables.StringVariableManager.performStringSubstitution",
+          "source": "StringVariableManager.java:534"
+        },
+        {
+          "method": "org.eclipse.core.internal.variables.StringVariableManager.performStringSubstitution",
+          "source": "StringVariableManager.java:327"
+        },
+        {
+          "method": "org.eclipse.jdt.debug.tests.core.StringSubstitutionTests.doSubs",
+          "source": "StringSubstitutionTests.java:172"
+        },
+        {
+          "method": "org.eclipse.jdt.debug.tests.core.StringSubstitutionTests.testProjectLocSelectFolder",
+          "source": "StringSubstitutionTests.java:454"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "org.eclipse.jdt.debug.tests.AutomatedSuite$1.run",
+          "source": "AutomatedSuite.java:177"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:534"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "57642",
+      "date": "2004-04-06T21:52:11+02:00",
+      "product": "Platform",
+      "component": "Debug",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.Exception",
+      "message": "Stack trace      [java]",
+      "elements": [
+        {
+          "method": "java.lang.Thread.dumpStack",
+          "source": "Thread.java:1064"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 18,
+      "bugId": "57642",
+      "date": "2004-04-26T17:15:25+02:00",
+      "product": "Platform",
+      "component": "Debug",
+      "severity": "major"
+    }
+  ],
+  "groupId": "57642",
+  "bugId": "57642",
+  "date": "2004-04-06T21:52:11+02:00",
+  "product": "Platform",
+  "component": "Debug",
+  "severity": "major"
+}

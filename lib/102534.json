@@ -1,0 +1,122 @@
+{
+  "comments": [
+    "Trying to inline:\n\n    DirectedExpect addRespExpect(\n        final GlobalTxnRecord txn,\n        final PktNodeInfo fromNode,\n        final PktNodeInfo toNode,\n        final String description,\n        final RoutedPacket pkt,\n        final BitVector matchBits,\n        final BitVector checkBits,\n        final PacketHandler destHandler)\n    {\n        final DirectedExpect expect \u003d new DirectedExpect(expectMgr, txn,\n            fromNode, toNode, description, pkt, matchBits, destHandler);\n        expect.setCheckPacket(checkBits);\n        expect.activate();\n        return expect;\n    }\n\ninto:\n\n    final PacketHandler srcRespHandler \u003d new PacketHandler()\n    {\n        public void execute(final FullExpect expect, final PacketRecord pktRec)\n        {\n            final GlobalTxnRecord txn \u003d expect.getTxn();\n            if (pktRec.toNode.contains(txn.tgtNode))\n            {\n                // ...\n            }\n            else\n            {\n                final DirectedPacket fwdPkt;\n                final PktNodeInfo localTgtNode;\n                final BitVector matchBits;\n                // ...\n                addRespExpect(txn, pktRec.toNode, localTgtNode,\n                    \"forwarded source response\", fwdPkt, matchBits, null, this);\n            }\n        }\n    };\n\nresults in:\n\nError 2005-07-01 15:21:42.842 Internal Error\njava.lang.reflect.InvocationTargetException\nat org.eclipse.jface.operation.ModalContext.run(ModalContext.java:327)\nat\norg.eclipse.ltk.internal.ui.refactoring.RefactoringWizardDialog2.run(RefactoringWizardDialog2.java:293)\nat\norg.eclipse.ltk.ui.refactoring.RefactoringWizard.internalPerformFinish(RefactoringWizard.java:547)\nat\norg.eclipse.ltk.ui.refactoring.UserInputWizardPage.performFinish(UserInputWizardPage.java:153)\nat\norg.eclipse.ltk.ui.refactoring.RefactoringWizard.performFinish(RefactoringWizard.java:613)\nat\norg.eclipse.ltk.internal.ui.refactoring.RefactoringWizardDialog2.okPressed(RefactoringWizardDialog2.java:417)\n...\nCaused by: java.lang.NullPointerException\nat\norg.eclipse.jdt.internal.corext.refactoring.code.CallInliner.replaceCall(CallInliner.java:599)\nat\norg.eclipse.jdt.internal.corext.refactoring.code.CallInliner.perform(CallInliner.java:471)\nat\norg.eclipse.jdt.internal.corext.refactoring.code.InlineMethodRefactoring.checkFinalConditions(InlineMethodRefactoring.java:238)\nat\norg.eclipse.ltk.core.refactoring.CheckConditionsOperation.run(CheckConditionsOperation.java:84)\nat\norg.eclipse.ltk.core.refactoring.CreateChangeOperation.run(CreateChangeOperation.java:114)\nat\norg.eclipse.ltk.core.refactoring.PerformChangeOperation.run(PerformChangeOperation.java:189)\nat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1719)\nat\norg.eclipse.ltk.internal.ui.refactoring.WorkbenchRunnableAdapter.run(WorkbenchRunnableAdapter.java:86)\nat\norg.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)\n\neclipse.buildId\u003dI20050627-1435\njava.version\u003d1.5.0_02\njava.vendor\u003dSun Microsystems Inc.",
+    "To investigate for 3.1.1.",
+    "Trevor,\n\nI tried to reproduce the problem using the test case below and generated stubs\nfor the additional types. However, I was not able to produce the NPE. Do you\nstill have the code around. Can you provide the complete code of the else part\nof the outer if statement that contains the call to addRespExpect. There must be\nsomething that got replaced by //... that causes the refactoring to misinterpret\nthe context.\n\npackage p102534;\n\npublic class TestCase {\n\tprivate Manager expectMgr;\n\t\n    DirectedExpect addRespExpect(\n            final GlobalTxnRecord txn,\n            final PktNodeInfo fromNode,\n            final PktNodeInfo toNode,\n            final String description,\n            final RoutedPacket pkt,\n            final BitVector matchBits,\n            final BitVector checkBits,\n            final PacketHandler destHandler)\n        {\n            final DirectedExpect expect \u003d new DirectedExpect(expectMgr, txn,\n                fromNode, toNode, description, pkt, matchBits, destHandler);\n            expect.setCheckPacket(checkBits);\n            expect.activate();\n            return expect;\n        }\n\n    private void testCase() {\n        final PacketHandler srcRespHandler \u003d new PacketHandler()\n        {\n            public void execute(final FullExpect expect, final PacketRecord pktRec)\n            {\n                final GlobalTxnRecord txn \u003d expect.getTxn();\n                if (pktRec.toNode.contains(txn.tgtNode))\n                {\n                    // ...\n                }\n                else\n                {\n                    final DirectedPacket fwdPkt\u003d null;\n                    final PktNodeInfo localTgtNode\u003d null;\n                    final BitVector matchBits\u003d null;\n                    // ...\n                    addRespExpect(txn, pktRec.toNode, localTgtNode,\n                        \"forwarded source response\", fwdPkt, matchBits, null, this);\n                }\n            }\n        };    \t\n    }\n}",
+    "I think I found it. Could it be that there was a label in front of the\naddRespExpect call ?",
+    "The full fix is too risky for 3.1.1. The problem is that not all statements can\nbe  labeled. For example a local declaration can\u0027t be labeled. The fix for 3.1.1\nwill be to introduce a block like in other control statements that can have a\nsingle statement as a body.",
+    "Created an attachment (id\u003d24543)\nCode patch\n",
+    "Created an attachment (id\u003d24544)\nAdditional test resources\n",
+    "Created an attachment (id\u003d24545)\nAdditional test methods\n",
+    "Fix reviewed by Martin Aeschlimann and Tom Eicher. Fix released for 3.1.1.\nOpened PR 105168 to track the issue in the 3.2 stream.",
+    "Added two additional test cases TestLabelOne and TestLabelTwo.",
+    "start verifying...",
+    "verified in I20050808-2000 (3.2) and M20050804-1200 (3.1.1)"
+  ],
+  "commentCreationDates": [
+    "2005-07-01T22:32:21+02:00",
+    "2005-07-02T19:29:57+02:00",
+    "2005-07-11T15:59:42+02:00",
+    "2005-07-11T16:10:12+02:00",
+    "2005-07-11T17:03:50+02:00",
+    "2005-07-11T17:05:59+02:00",
+    "2005-07-11T17:06:50+02:00",
+    "2005-07-11T17:07:38+02:00",
+    "2005-07-26T17:32:23+02:00",
+    "2005-07-26T17:33:06+02:00",
+    "2005-08-09T15:46:51+02:00",
+    "2005-08-09T15:59:40+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.reflect.InvocationTargetException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.run",
+          "source": "ModalContext.java:327"
+        },
+        {
+          "method": "org.eclipse.ltk.internal.ui.refactoring.RefactoringWizardDialog2.run",
+          "source": "RefactoringWizardDialog2.java:293"
+        },
+        {
+          "method": "org.eclipse.ltk.ui.refactoring.RefactoringWizard.internalPerformFinish",
+          "source": "RefactoringWizard.java:547"
+        },
+        {
+          "method": "org.eclipse.ltk.ui.refactoring.UserInputWizardPage.performFinish",
+          "source": "UserInputWizardPage.java:153"
+        },
+        {
+          "method": "org.eclipse.ltk.ui.refactoring.RefactoringWizard.performFinish",
+          "source": "RefactoringWizard.java:613"
+        },
+        {
+          "method": "org.eclipse.ltk.internal.ui.refactoring.RefactoringWizardDialog2.okPressed",
+          "source": "RefactoringWizardDialog2.java:417"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "102534",
+      "date": "2005-07-01T22:32:21+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.code.CallInliner.replaceCall",
+          "source": "CallInliner.java:599"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.code.CallInliner.perform",
+          "source": "CallInliner.java:471"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.code.InlineMethodRefactoring.checkFinalConditions",
+          "source": "InlineMethodRefactoring.java:238"
+        },
+        {
+          "method": "org.eclipse.ltk.core.refactoring.CheckConditionsOperation.run",
+          "source": "CheckConditionsOperation.java:84"
+        },
+        {
+          "method": "org.eclipse.ltk.core.refactoring.CreateChangeOperation.run",
+          "source": "CreateChangeOperation.java:114"
+        },
+        {
+          "method": "org.eclipse.ltk.core.refactoring.PerformChangeOperation.run",
+          "source": "PerformChangeOperation.java:189"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1719"
+        },
+        {
+          "method": "org.eclipse.ltk.internal.ui.refactoring.WorkbenchRunnableAdapter.run",
+          "source": "WorkbenchRunnableAdapter.java:86"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:113"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "102534",
+      "date": "2005-07-01T22:32:21+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "102534",
+  "bugId": "102534",
+  "date": "2005-07-01T22:32:21+02:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "normal"
+}

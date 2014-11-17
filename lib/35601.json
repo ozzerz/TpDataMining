@@ -1,0 +1,63 @@
+{
+  "comments": [
+    "Some change has happened between the version of EMF that ran under M4 and the\nversion that runs under RC2, which has caused URI handling to be broken under\nLinux (Redhat 8)\n\nThe end result is that I get FileNotFound exceptions when trying to load or save\na file.  \n\nHere is my sequence of events that gets me an error:\n\n(from a class that extends  XMIResourceImpl )\n\nInputStream input \u003d\t\tgetURIConverter().createInputStream(getURIConfigFile());\n\nMy method getURIConfigFile looks like this:\n\nprotected URI getURIConfigFile() {\n\treturn getURI()\n\t\t.trimFileExtension()\n\t\t.trimSegments(1)\n\t\t.appendSegment(\"settings\")\n\t\t.appendFileExtension(\"xml\");\n\t}\n\n\nI have not been able to track down the offending code yet, but here are some\nthings that I have noticed.\n\nWhen org.eclipse.emf.ecore.recource.impl.ReourceImpl.getURI() is called, the URI\nunder windows that is returned has null set for every single one of its\nattributes except for segments.\n\nWhen run under Linux, the attribute \"scheme\" of URI is \"file\".  \nThe call to createInputStream then ends up with a FileNotFoundException.\n\nIf I create a new URI, setting scheme to null on Linux, and use that URI, I can\nthen load my file fine without getting a FileNotFoundException.\n\nI don\u0027t know if the error is in the createInputStream code, or in the getURI code.\n\nFurthermore, if I use my stated fix of manually mucking the URI to remove the\n\"scheme\", and get past this point, I toss this exception when emf tries to save.\n\njava.io.FileNotFoundException: /test/sfe/Published.lgp (No such file or directory)\n\tat java.io.FileOutputStream.open(Native Method)\n\tat java.io.FileOutputStream.\u003cinit\u003e(FileOutputStream.java:176)\n\tat java.io.FileOutputStream.\u003cinit\u003e(FileOutputStream.java:131)\n\tat\norg.eclipse.emf.ecore.resource.impl.URIConverterImpl.createFileOutputStream(URIConverterImpl.java:302)\n\tat\norg.eclipse.emf.ecore.resource.impl.URIConverterImpl.createOutputStream(URIConverterImpl.java:263)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.save(ResourceImpl.java:733)\n\tat lexgridSchemaV21.persistence.EptPubResource.doLoad(EptPubResource.java:93)\n\n\nThe URI that my XMIResourceImpl was created with was constructed like so:\n\nIFile tempFile \u003d folder.getFile(new Path(\"Published.lgp\"));\nURI uri \u003d URI.createFileURI(tempFile.getFullPath().toOSString());\n\nThis works fine under Windows, but fails under Linux.\n\nIf I change my code to this:\nURI uri \u003d\t\t\t\t\t\tURI.createFileURI(tempFile.getFullPath().toOSString());\nURI tempURI \u003d URI.createHierarchicalURI(null, null, null, uri.segments(), null,\nnull);\n\n\nAnd then use tempURI to construct my XMIResourceImpl, it works under both\nWindows and Linux.\n\nSorry this bug report is so hard to follow... I don\u0027t know how to explain it\nmuch clearer, since I don\u0027t entirely understand what is going on.",
+    "Daniel,\n\nThis line of code is bogus:\n\n  URI uri \u003d URI.createFileURI(tempFile.getFullPath().toOSString());\n\nYou should either do this\n\n  URI uri \u003d URI.createFileURI(tempFile.getLocation().toOSString());\n\nor this\n\n  URI uri \u003d URI.createPlatformURI(tempFile.getFullPath());\n\nThe first one will give you a \"file:\" URI that points to the actual file \nlocation on the system.  The second one will give you a \"platform:/resource\" URI \nthat points to a resource in the workbench. Since you are running within the \nworkbench, the later would be recommended because it will use the Eclipse \nresource APIs to access the file contents whereas the former will access the \nfile system directly.\n\nNote that EMF also recognizes this URI\n\n  URI uri \u003d URI.createURI(tempFile.getFullPath());\n\nas equivalent to a \"platform:/resource\" URI, but because it is not absolute \n(i.e., it has no scheme) any contained references cannot be made relative, so I \nwouldn\u0027t recommend this approach.  (This equivalence is why your approach of \nremoving the scheme produces a URI that works on both platforms.)\n\nI\u0027ll ask Frank to return this defect (or you could cancel it).",
+    "User error.",
+    "I\u0027m still having problems with this - probably still user error, but I\u0027d\nappreciate a further tip.\n\nUsing method 1,\nURI uri \u003d URI.createFileURI(tempFile.getLocation().toOSString());\n\nI end up tossing synchronization exceptions.\n\nThe preferred method you listed:\nURI uri \u003d URI.createPlatformURI(tempFile.getFullPath());\ndidn\u0027t exist as a method... I assumed that you meant this:\n\nURI uri \u003d URI.createPlatformResourceURI(tempFile.getFullPath().toOSString());\n\nbut then when I call\n\ngetURIConverter().createInputStream(getURIConfigFile())\n\nprotected URI getURIConfigFile() {\n\treturn getURI()\n\t\t.trimFileExtension()\n\t\t.trimSegments(1)\n\t\t.appendSegment(\"settings\")\n\t\t.appendFileExtension(\"xml\");\n\t}\n\ncreateInputStream tosses this Exception:\njava.lang.IllegalArgumentException: Path must include project and resource name:\n/settings.xml\n\n\nThanks for the help, \n\nDan"
+  ],
+  "commentCreationDates": [
+    "2003-03-24T20:33:35+01:00",
+    "2003-03-26T11:50:48+01:00",
+    "2003-03-26T12:55:11+01:00",
+    "2003-03-27T16:45:36+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.FileNotFoundException",
+      "message": "/test/sfe/Published.lgp (No such file or directory)",
+      "elements": [
+        {
+          "method": "java.io.FileOutputStream.open",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.io.FileOutputStream.\u003cinit\u003e",
+          "source": "FileOutputStream.java:176"
+        },
+        {
+          "method": "java.io.FileOutputStream.\u003cinit\u003e",
+          "source": "FileOutputStream.java:131"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.URIConverterImpl.createFileOutputStream",
+          "source": "URIConverterImpl.java:302"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.URIConverterImpl.createOutputStream",
+          "source": "URIConverterImpl.java:263"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.save",
+          "source": "ResourceImpl.java:733"
+        },
+        {
+          "method": "lexgridSchemaV21.persistence.EptPubResource.doLoad",
+          "source": "EptPubResource.java:93"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "35601",
+      "date": "2003-03-24T20:33:35+01:00",
+      "product": "EMF",
+      "component": "Core",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "35601",
+  "bugId": "35601",
+  "date": "2003-03-24T20:33:35+01:00",
+  "product": "EMF",
+  "component": "Core",
+  "severity": "critical"
+}

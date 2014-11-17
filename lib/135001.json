@@ -1,0 +1,130 @@
+{
+  "comments": [
+    "java.lang.NullPointerException\nat org.aspectj.weaver.bcel.BcelShadow.weaveAroundInline(BcelShadow.java:2109)\nat org.aspectj.weaver.bcel.BcelAdvice.implementOn(BcelAdvice.java:232)\nat org.aspectj.weaver.Shadow.implementMungers(Shadow.java:639)\nat org.aspectj.weaver.Shadow.implement(Shadow.java:456)\nat org.aspectj.weaver.bcel.BcelClassWeaver.implement(BcelClassWeaver.java:2236)\nat org.aspectj.weaver.bcel.BcelClassWeaver.weave(BcelClassWeaver.java:491)\nat org.aspectj.weaver.bcel.BcelClassWeaver.weave(BcelClassWeaver.java:109)\nat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:1560)\nat org.aspectj.weaver.bcel.BcelWeaver.weaveWithoutDump(BcelWeaver.java:1511)\nat org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify(BcelWeaver.java:1291)\nat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:1113)\nat org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave(AjCompilerAdapter.java:311)\nat org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling(AjCompilerAdapter.java:183)\nat org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspectj_ajdt_internal_compiler_CompilerAdapter$2$f9cc9ca0(CompilerAdapter.aj:70)\nat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:367)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation(AjBuildManager.java:862)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:242)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild(AjBuildManager.java:161)\nat org.aspectj.ajde.internal.CompilerAdapter.compile(CompilerAdapter.java:122)\nat org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run(AspectJBuildManager.java:191)",
+    "Passing over to the compiler.\nPlease can you add your exact AJDT and AspectJ version numbers.",
+    "org.aspectj.weaver_1.5.0.20060405045058\norg.eclipse.aspectj_1.3.1.20060405045058",
+    "*** Bug 135213 has been marked as a duplicate of this bug. ***",
+    "Antti, can you possibly try something for me on your scenario that might help me narrow things down?\n\nCan you remove the -XnoInline workaround I asked you to use and instead try \u0027-Xset:activateLightweightDelegates\u003dfalse\u0027 - does it still fail?\n\nthanks.",
+    "Also Antti, can you tell me if your aspects are compiled from source in this build or are they coming from a jar file in binary form?",
+    "whilst waiting for feedback from Antti - I\u0027ve put in a guard so the NPE can\u0027t happen - a message will be reported that we cant implement inlining and we\u0027ll fall back on closure - THIS WILL AFFECT PERFORMANCE OF THE GENERATED CODE - and so hopefully we can resolve what is leading to the NPE.",
+    "(In reply to comment #4)\n\u003e Antti, can you possibly try something for me on your scenario that might help\n\u003e me narrow things down?\n\u003e \n\u003e Can you remove the -XnoInline workaround I asked you to use and instead try\n\u003e \u0027-Xset:activateLightweightDelegates\u003dfalse\u0027 - does it still fail?\n\n  Yes, this seems to fix the problem:\n\nD:\\work\\napa\\jnapa\\core\u003eajc -nowarn -Xlint:ignore -Xset:activateLightweightDelegates\u003dfalse -source 1.5 -target 1.5 -d bu\nild\\classes -cp ..\\commons\\utils\\build\\napa_utils.jar;lib\\aspectjrt.jar;lib\\dom4j-1.5.2.jar;lib\\groovy-all-1.0-jsr-05.ja\nr;..\\commons\\test_commons\\lib\\junit.jar -sourceroots src;gen_src;test_src\n\nD:\\work\\napa\\jnapa\\core\u003e\n\n  I added the -nowarn and -Xlint:ignore, but also tried w/out them, so they do not seem to affect this bug.\n\n\n  As for your other question, some aspects are in source form and some come from a jar, though not via inpath but via aspects in this project extending abstract aspects contained in one of the jars.\n\n",
+    "thanks for responding quickly! I think that description tells me what it is - i\u0027ll write a test program to verify.",
+    "yey! recreated",
+    "thanks to Antti I have recreated this and fixed it.  The problem is due to the fast delegates we support that are based on the ASM bytecode toolkit.  Fast delegates don\u0027t have any instructions loaded for methods within them - this causes a problem if the weaver attempts to inline around advice.  Normally we know which types it is safe to create fast delegates for but this was a case we hadn\u0027t been testing, you need to have:\n- an abstract super aspect containing *inlinable around advice*\n- a concrete sub aspect\n\nThe abstract super aspect needs to be on the classpath, not on the aspectpath or in source form.\n\nIn this situation when the super aspect is resolved we see it on the classpath and think we can create a fast delegate - but we can\u0027t because we may want to extract the instructions from the around advice and inline them at some matched join point.\n\nThe fix is a little ugly right now but this is quite serious and I wanted to get something minimal through so AJDT can ship its 1.3.1 version.  The fix is to fallback to BCEL if we create a fast delegate and discover it is an aspect, ideally we could know if we were loading the supertype for an aspect and ensure it was loaded via BCEL but that\u0027s a little messier as when the resolution occurs we don\u0027t know the context in which it is occurring.\n\ncouple of tests are failing now due to expecting ASM types for aspects sometimes, I\u0027m working on fixing those then i\u0027ll commit.",
+    "fix available in latest dev build."
+  ],
+  "commentCreationDates": [
+    "2006-04-05T13:10:58+02:00",
+    "2006-04-05T13:12:54+02:00",
+    "2006-04-05T18:59:39+02:00",
+    "2006-04-06T10:29:56+02:00",
+    "2006-04-06T11:22:48+02:00",
+    "2006-04-06T11:26:38+02:00",
+    "2006-04-06T12:38:52+02:00",
+    "2006-04-06T12:44:57+02:00",
+    "2006-04-06T12:56:01+02:00",
+    "2006-04-06T13:01:21+02:00",
+    "2006-04-06T13:20:32+02:00",
+    "2006-04-06T16:04:29+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.bcel.BcelShadow.weaveAroundInline",
+          "source": "BcelShadow.java:2109"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelAdvice.implementOn",
+          "source": "BcelAdvice.java:232"
+        },
+        {
+          "method": "org.aspectj.weaver.Shadow.implementMungers",
+          "source": "Shadow.java:639"
+        },
+        {
+          "method": "org.aspectj.weaver.Shadow.implement",
+          "source": "Shadow.java:456"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.implement",
+          "source": "BcelClassWeaver.java:2236"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:491"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:109"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:1560"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveWithoutDump",
+          "source": "BcelWeaver.java:1511"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify",
+          "source": "BcelWeaver.java:1291"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:1113"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave",
+          "source": "AjCompilerAdapter.java:311"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling",
+          "source": "AjCompilerAdapter.java:183"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspectj_ajdt_internal_compiler_CompilerAdapter$2$f9cc9ca0",
+          "source": "CompilerAdapter.aj:70"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:367"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:862"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:242"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:161"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:122"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:191"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "135001",
+      "date": "2006-04-05T13:10:58+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "135001",
+  "bugId": "135001",
+  "date": "2006-04-05T13:10:58+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

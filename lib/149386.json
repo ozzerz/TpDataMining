@@ -1,0 +1,90 @@
+{
+  "comments": [
+    "Provide support for querying Trac repositories. \n\nThe query wizard could resemble the interface of Trac\u0027s custom query page: https://oss.steffenpingel.de/mylar-trac-connector/query . Search criteria can be added as needed which avoids a cluttered ui.",
+    "Steffen, in doing this I think we should consider generalizing the current search facilities and UI so that we don\u0027t end up with 3 different UIs and implementations.  This is bug 142783.  It could be good to use Trac as a driver.",
+    "Regarding comment#1, don\u0027t let this stop you from coming up with a very basic query UI, and base it on the way Bugzilla does it.",
+    "I will try to have something ready by tomorrow so you can have a look at the UI and we can discuss a common look and feel for all connectors.",
+    "Created an attachment (id\u003d45901)\nQuery support\n\nThe patch contains query support and a first proto-type of the query dialog. I\u0027ll provide test cases (and fixes) tomorrow.\n\nMik, could you please have a look at the dialog and provide some feedback wether you like the way search filters are added on-demand similar to the Trac web interface?\n",
+    "Created an attachment (id\u003d45902)\nmylar/context/zip\n\n",
+    "Patch applied.  However, I couldn\u0027t make a query work on edgewall since with the various ones I tried caused the following exception.  I\u0027ll take Trac out of the dev build for tonight, but let\u0027s try to get it into a dev build for people to try out next week since it seems that you are almost there.\n\nRegarding the on-demand appearence of parameters, I think that it is too unclear when first opened and results in too many clicks for a typical query.  You should assume that you have as much space as the Bugzilla dialog to fill with useful query paramter setting, and it looks like that\u0027s all you\u0027ll need.  Only if that much were filled would we need an adapting UI for toggling more/less parameters.  Having it be static also helps users become accustomed to the layout.  \n\njava.lang.NullPointerException\nat org.eclipse.mylar.internal.trac.TracRepositoryConnector.updateTaskDetails(TracRepositoryConnector.java:261)\nat org.eclipse.mylar.internal.trac.TracRepositoryConnector.performQuery(TracRepositoryConnector.java:194)\nat org.eclipse.mylar.provisional.tasklist.SynchronizeQueryJob.run(SynchronizeQueryJob.java:75)\nat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n",
+    "Created an attachment (id\u003d45979)\nFix for NullPointerException and test cases\n\nLooks like Edgewall uses customized priorities which weren\u0027t correctly handled and caused the exception.",
+    "So there\u0027s an interesting question about how you could handle customized priorities... in Bugzilla we simply rely on the order in which they are returned, thereby supporting any names for them (unlike JIRA).  In the meantime make the failure failure mode be setting the default priority and write a test that issues a priority you can\u0027t prase.\n\nIs there another test server I should use?  ",
+    "(In reply to comment #6)\n\u003e Patch applied.  However, I couldn\u0027t make a query work on edgewall since with\n\u003e the various ones I tried caused the following exception.  I\u0027ll take Trac out of\n\u003e the dev build for tonight, but let\u0027s try to get it into a dev build for people\n\u003e to try out next week since it seems that you are almost there.\n\nMaybe we should change the url hint that is displayed on the repository properties page to something other than the edgewall repository. They have many tasks and I wouldn\u0027t want to cause a heavy load on their server by many people testing queries.\n\n\u003e Regarding the on-demand appearence of parameters, I think that it is too\n\u003e unclear when first opened and results in too many clicks for a typical query. \n\nTrue, it would be better to display most commonly used search filters by default. \n\n\u003e You should assume that you have as much space as the Bugzilla dialog to fill\n\u003e with useful query paramter setting, and it looks like that\u0027s all you\u0027ll need. \n\u003e Only if that much were filled would we need an adapting UI for toggling\n\u003e more/less parameters.  Having it be static also helps users become accustomed\n\u003e to the layout.  \n\nAlright. I\u0027ll try to figure out what can be reused in terms of look and feel from the Bugzilla search dialog and commit a patch at the beginning of next week.",
+    "(In reply to comment #8)\n\u003e So there\u0027s an interesting question about how you could handle customized\n\u003e priorities... in Bugzilla we simply rely on the order in which they are\n\u003e returned, thereby supporting any names for them (unlike JIRA).  \n\nWhen XML-RPC is used a list of priorities can be queried that contains a name and an integer value for each priority. When Trac\u0027s query script is used there is no way to find out about the order of priorities unless some HTML parsing is done. I am thinking about parsing the \"New Ticket\" page (e.g. http://trac.steffenpingel.de/mylar-test/newticket) which has all information needed.\n\nI certainly want to implement this for XML-RPC first and have the query dialog combo boxes and lists with priorities, milestones etc. instead of just text fields.\n\n\u003e Is there another test server I should use?  \n\nYou can try the test repository at bug 146334 comment #19 which can be accessed through XML-RPC.\n\n",
+    "I think that it\u0027s good to leave their repository as an example and don\u0027t imagine that people would add queries unless they were interested in something there.  Also, it\u0027s key that the connector support the Trac repository itself.\n\nI tried that repository but did not find any tickets either via the connector or via the web UI.\n\nSo what\u0027s left before we can get this out for people to try?  Seems like:\n1) fixing the crash with priorities (parsing just newticket is OK if that will make this work, but ignoring priorities for now is fine too)\n2) flattening the query page as per comment#6\n\nRegarding the two \u0027capabilities\u0027, just to make sure I have this straight the Trac XML-RPC stuff is version 0.10 only, and Edgewall has not updated to this version yet?  Any idea when they will?",
+    "(In reply to comment #11)\n\u003e I tried that repository but did not find any tickets either via the connector\n\u003e or via the web UI.\n\nEdgewall moved their repository to http://trac.edgewall.org on Monday. The redirect from the old location may not be handled correctly. I just tried a query \"Milestone is 0.10\" which returns a bunch of tickets. Did you apply the patch submitted in comment #7 before running the query?\n\n\u003e So what\u0027s left before we can get this out for people to try?  Seems like:\n\u003e 1) fixing the crash with priorities (parsing just newticket is OK if that will\n\u003e make this work, but ignoring priorities for now is fine too)\n\nSince priorities are stored as strings by ITask, would it be okay to set the value returned by the repository (e.g. \"high\")? Or do these always need to mapped to Mylar priorites (\"P1\", \"P2\"...)?\n\n\u003e 2) flattening the query page as per comment#6\n\nI am currently working on that. I am basing the new version on BugzillaSearchPage. So far it looks like there is some potential for a common abstract implementation.\n \n\u003e Regarding the two \u0027capabilities\u0027, just to make sure I have this straight the\n\u003e Trac XML-RPC stuff is version 0.10 only, and Edgewall has not updated to this\n\u003e version yet?  Any idea when they will?\n\nAs far as I know the Edgewall repository runs some current trunk version of Trac but they don\u0027t have the XML-RPC plugin installed in their repository. I don\u0027t think they would do that without good reason. Even if they did this would still require special privileges probably only granted to registered users (i.e. Trac comitters).\n\n",
+    "I failed to notice the patch from comment#7, applied now, and queries to edgewall are working very nicely :)\n\nRegarding priorities, you need to do what JIRA does, which means doing the mapping (at least for now).  The Px values are just used for externalization and identifying the order, and the Trac UI could show the actual values.\n\nIs the natural split for this connector not to support advanced integration (e.g. rich editor) without the XML RPC plug-in being enabled?  That seems like a fine split.\n\nCould you create a new bug report for Edgewall to enable the XML-RPC plug-in, citing the Trac Connector as the driver, and CC me?  \n\nProblem: the connector is making way too many calls to:\n     MylarTaskListPlugin.getTaskListManager().getTaskList().notifyLocalInfoChanged(task);\nfrom updateTaskDetails(..).  Each one of these calls causes the task list to get saved and a refresh of the list, hence the flickering you see when synchronizing a Trac query.  It will also cause errors in the log when a query is still running during shutdown.\n\nNits:\n1) on the Add Task Repository page the Trac icon should show up (add via extension point, image is already in CVS)\n2) on the same page the support versions should be listed as with the other plug-ins\n3) update the Example URL on the Trac settings page.\n4) synching Trac queries causes a lot of Task List refresh (notice blinking), please investigate and let me know where it\u0027s happening so I can point you at the right way of triggering refresh \n5) I get the following test failure (1 failed out of 71)\njunit.framework.ComparisonFailure: expected:\u003c456: mysummary\u003e but was:\u003c\u003e\n\tat junit.framework.Assert.assertEquals(Assert.java:81)\n\tat junit.framework.Assert.assertEquals(Assert.java:87)\n\tat org.eclipse.mylar.trac.tests.TracRepositoryConnectorTest.testUpdateTaskDetailsSummaryOnly(TracRepositoryConnectorTest.java:202)\n\nOnce the above is done I think we should be ready to put out a dev build and announce this on mylar-dev for people to try out.",
+    "Hi,\n\n\u003e Regarding priorities, you need to do what JIRA does, which means doing the\n\u003e mapping (at least for now).  The Px values are just used for externalization\n\u003e and identifying the order, and the Trac UI could show the actual values.\n\nOkay. I\u0027ll use P3 as a default priority in case the priority can\u0027t be mapped. \n\n\u003e Is the natural split for this connector not to support advanced integration\n\u003e (e.g. rich editor) without the XML RPC plug-in being enabled?  \n\nYes.\n \n\u003e Problem: the connector is making way too many calls to\n\u003e [...]notifyLocalInfoChanged(task);\n\nOops. I have added boolen flag that will skip the nofication when retrieving query results.\n\n\u003e 4) synching Trac queries causes a lot of Task List refresh (notice blinking),\n\u003e please investigate and let me know where it\u0027s happening so I can point you at\n\u003e the right way of triggering refresh \n\nI guess this is caused by the superfluous calls to notifyLocalInfoChanged() and should be easy to fix.\n\nI will submit a patch with the updated query dialog and fixes for issues mentioned in comment #13 later today.",
+    "Created an attachment (id\u003d46199)\nQuery dialog based on Bugzilla\u0027s query dialog and fixes\n\nThe patch contains the new query dialog. Updating of repository attributes (milestones, versions...) has only implemented for XML-RPC so far. I\u0027ll look into getting the neccessary information for query script access. I am also thinking about implementing support for URL based queries (similiar to the Bugzilla connector). That way existing queries could be easily \"imported\" into Mylar.\n\nThe patch also includes fixes for issues mentioned in comment #13.",
+    "Created an attachment (id\u003d46218)\nEnhanced query dialog based on Bugzilla\u0027s query dialog and fixes\n\nAttribute fetching now also works for query script repositories. The information still is not cached. Once this patch has been merged I\u0027ll work on that. ",
+    "Created an attachment (id\u003d46274)\nUpdated patch\n\n",
+    "There are few minor fixes you need to make due to the refactoring to get rid of conflicts in this patch (e.g. MylarTaskListPlugin -\u003e TasksUiPlugin).  I\u0027ll apply it right away after you post so that we can try to get this out today.\n\nYes, storing queries in URL-based form is definitely the way to go because it is a concise and robust form, and enables interoperability with the Web UI.",
+    "Created an attachment (id\u003d46298)\nUpdated patch\n\n",
+    "*Very* nice Steffen.  I did some manual testing and everything works.  Search attributes don\u0027t get persisted on reopening the query so \"Update\" has to be pressed again, but don\u0027t fix this yet because we should generalize Bugzilla\u0027s support for saving those attributes.  Please create a new but report for that.  \n\nI will try to cut a developer build soon, you should do some testing on that, and then we\u0027ll announce it.  I assume that we should point people to the edgewall repository as the example?",
+    "I have opened bug 150670 (persist attributes). I will submit a small patch for that bug report which will at least cache the information through Eclipse sessions and we can add on-disk persistance later.\n\nYes, the Edgewall repository should be fine. I could also add a template to the repository settings page for that.",
+    "Yes, do that once Rob has bug 150430 resolved.",
+    "I have opened bug 150677 for adding the repository templates."
+  ],
+  "commentCreationDates": [
+    "2006-07-02T02:55:58+02:00",
+    "2006-07-05T00:17:32+02:00",
+    "2006-07-05T07:47:14+02:00",
+    "2006-07-05T15:15:47+02:00",
+    "2006-07-07T03:47:32+02:00",
+    "2006-07-07T03:57:15+02:00",
+    "2006-07-08T02:52:13+02:00",
+    "2006-07-08T03:30:17+02:00",
+    "2006-07-08T03:40:24+02:00",
+    "2006-07-08T03:44:18+02:00",
+    "2006-07-08T03:53:54+02:00",
+    "2006-07-12T03:21:07+02:00",
+    "2006-07-12T03:46:39+02:00",
+    "2006-07-12T04:14:22+02:00",
+    "2006-07-12T22:04:55+02:00",
+    "2006-07-12T22:12:32+02:00",
+    "2006-07-13T01:35:10+02:00",
+    "2006-07-14T00:02:01+02:00",
+    "2006-07-14T17:05:58+02:00",
+    "2006-07-14T17:06:36+02:00",
+    "2006-07-14T17:46:35+02:00",
+    "2006-07-14T18:14:08+02:00",
+    "2006-07-14T19:42:51+02:00",
+    "2006-07-14T19:50:22+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.mylar.internal.trac.TracRepositoryConnector.updateTaskDetails",
+          "source": "TracRepositoryConnector.java:261"
+        },
+        {
+          "method": "org.eclipse.mylar.internal.trac.TracRepositoryConnector.performQuery",
+          "source": "TracRepositoryConnector.java:194"
+        },
+        {
+          "method": "org.eclipse.mylar.provisional.tasklist.SynchronizeQueryJob.run",
+          "source": "SynchronizeQueryJob.java:75"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 6,
+      "bugId": "149386",
+      "date": "2006-07-08T02:52:13+02:00",
+      "product": "Mylyn",
+      "component": "Core",
+      "severity": "enhancement"
+    }
+  ],
+  "groupId": "149386",
+  "bugId": "149386",
+  "date": "2006-07-02T02:55:58+02:00",
+  "product": "Mylyn",
+  "component": "Core",
+  "severity": "enhancement"
+}

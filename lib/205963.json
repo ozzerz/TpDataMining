@@ -1,0 +1,128 @@
+{
+  "comments": [
+    "I am getting the following error when updating repository attributes from jira query dialog for jira repository at https://issues.apache.org/jira\n\nError updating attributes: java.lang.reflect.InvocationTargetException\nPlease check repository settings in the Task Repositories view.\n\nUpdate action in popup menu in the repository view don\u0027t work either.",
+    "Stacktrace:\n\norg.eclipse.mylyn.internal.jira.core.service.JiraServiceUnavailableException: java.lang.reflect.InvocationTargetException\n\tat org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.call(JiraRpcClient.java:533)\n\tat org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.call(JiraRpcClient.java:540)\n\tat org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.getIssueTypesRemote(JiraRpcClient.java:324)\n\tat org.eclipse.mylyn.internal.jira.core.service.AbstractJiraClient.initializeIssueTypes(AbstractJiraClient.java:194)\n\tat org.eclipse.mylyn.internal.jira.core.service.AbstractJiraClient.refreshDetails(AbstractJiraClient.java:87)\n\tat org.eclipse.mylyn.internal.jira.ui.JiraRepositoryConnector.updateAttributes(JiraRepositoryConnector.java:496)\n\tat org.eclipse.mylyn.internal.tasks.ui.views.ResetRepositoryConfigurationAction.performUpdate(ResetRepositoryConfigurationAction.java:75)\n\tat org.eclipse.mylyn.internal.tasks.ui.views.ResetRepositoryConfigurationAction$1.run(ResetRepositoryConfigurationAction.java:57)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)\n",
+    "It seems that the Apache JIRA uses a patched version of the RPC plug-in that is broken. The exception is a remote InvocationTargetException that can only be fixed in their JIRA instance. \n\nApparently they have experienced high loads on their JIRA server and are in the process of taking steps to partially disable the SOAP plug-in:\n\nhttps://issues.apache.org/jira/browse/INFRA-1334\n\nThis might be caused by updates of the repository configuration by Mylyn. The change they have proposed in the bug report will break Mylyn for the Apache JIRA. Mik, we should discuss this ASAP.\n",
+    "Created an attachment (id\u003d80622)\nwork in progress: patch that fetches issue types per project\n\n",
+    "Created an attachment (id\u003d80623)\nmylyn/context/zip\n\n",
+    "As per conference call it was decided to disable automatic updating of attributes for repositories with more than 10 projects. I suggest that we add a check box in the advanced section of the repository settings dialog to make it visible and allow the user to renable automatic updating.",
+    "For the record, I still believe that it would be a good idea to turn off refresh by default and provide UI to configure how often settings should be refreshed.",
+    "Is there a chance to get this fix (backported) for Europa?",
+    "This will be released on the weekly update site and we are considering to push a maintenance release to the extras update site that is automatically added by the Mylyn Europa releases. Unfortunately disabling automatic updating will not fix the underlying problem. ",
+    "Tammo: note that the JIRA Connector is not part of the Europa bundling, largely because the connector is still in incuabation status and has bugs of this sort.  The fix for this bug will be available in the weekly builds (http://www.eclipse.org/mylyn/downloads/ ) the Wednesday after the bug is resolved, and then become part of the upcoming 2.2M and then Dec 2.2 release.  Will that be easy enough for you to consume?\n\nSteffen: please add an \"Automatic Attribute Update\" check box to the Additional Settings of the JIRA repository configuration page.  If there are more than 10 projects available, set it to off by default, probably after Validate Settings is run.",
+    "-1 for adding implicit rules (like \u003e10 projects). Mik, also note that validate don\u0027t currently check how many projects is out there.",
+    "I don\u0027t like the implicit rules if we don\u0027t give the user feedback of them.  However, I am opposed to adding a non-boolean user setting for this, and I want to make sure that we do the right thing for the user in the common case without requiring additional settings from them.  Added a Task Repositories section to: http://wiki.eclipse.org/Mylyn_Focused_UI_Design#Avoid_Preferences\n\nSteffen: if you are able to do this on Validate Settings, you could give the user feedback on the implicit choice by making the info message look like:\n\n    (i) Credentials validated.  More than [10] projects exist and attributes refresh has been turned to minimize network usage (see Advanced Settings)",
+    "Just leave it disabled by default.",
+    "How about that: disable by default, check the number of projects when settings are validated and enable when number of projects \u003c 10?",
+    "Let me ask a few questions? Where this arbitrary number 10 came from? Is 10 better then 5 or 20? What is the number of projects that average jira install has and what is the deviation from that number?",
+    "The number should be a constant that we consider to be a reasonable threshold for what a large repository is.  10 seems conservative, but in this case being conservative is probably good.  If people have data points on what else it should be we can adjust accordingly.",
+    "(In reply to comment #15)\n\u003e The number should be a constant that we consider to be a reasonable threshold\n\u003e for what a large repository is.  10 seems conservative, but in this case being\n\u003e conservative is probably good.  If people have data points on what else it\n\u003e should be we can adjust accordingly.\n\nIt sounds like 10 been taken out of the blue...\n\nAnyways, what is wrong with disabling automatic refresh by default without cumbersome logic? I would think that most of the users will ignore or miss that warning and then will be puzzled why the hack they have refresh disabled after they explicitly turned it on and then clicked \"Verify\".",
+    "(In reply to comment #16)\n\u003e Anyways, what is wrong with disabling automatic refresh by default without\n\u003e cumbersome logic? I would think that most of the users will ignore or miss that\n\u003e warning and then will be puzzled why the hack they have refresh disabled after\n\u003e they explicitly turned it on and then clicked \"Verify\".\n\nI have explained this both on this bug (comment#11 and others) and during the conference call.  If there\u0027s any particular point of my explanation that\u0027s not clear I can elaborate.  It\u0027s fine for us to disagree as long as that\u0027s noted somewhere should we want to go back on a decision.  It\u0027s not fine for us to waste time repeating arguments.",
+    "\u003e I want to make sure that we do the right thing for the user in the common \n\u003e case without requiring additional settings from them.\n\nThat is all I found in your comment #11 that can be interpreted related to \"why\" question, but you just admitted that you don\u0027t know what the common case is. On the other hand, from what i heard from user feedback, most commonly they want to disable automatic sync.",
+    "There are two common cases:\n1) OSS developers and those working on large internal repositories\n2) Developers working on small project-specific repositories\n\nI don\u0027t want us to penalize (2) for the purpose of support the much louder (1).  I\u0027ve sent an email to Atlassian asking what their sense of the average number of projects per installed repository is.",
+    "(In reply to comment #19)\n\u003e I don\u0027t want us to penalize (2) for the purpose of support the much louder (1).\n\u003e  I\u0027ve sent an email to Atlassian asking what their sense of the average number\n\u003e of projects per installed repository is.\n\nWhy call it penaltize? After all it is configurable.\n\nI think number of projects is probably less critical then number of users. Look at the Atlassian\u0027s Open Source page [1], it lists few JIRA instances that have close to 10 projects, but number of users (and potentially number of Mylyn instances connected to that JIRA) for those should be really big (Spring - 11 projects, Hibernate - 9 projects); it also have few instances with much more then 10 projects, but much lower number of actual users.\n\nAnyways, you are the boss, but I bet you going to see confused users once this feature is implemented.\n\n[1] http://www.atlassian.com/opensource/",
+    "(In reply to comment #9)\n\u003e Tammo: note that the JIRA Connector is not part of the Europa bundling, largely\n\u003e because the connector is still in incuabation status and has bugs of this sort.\n\u003e  The fix for this bug will be available in the weekly builds\n\u003e (http://www.eclipse.org/mylyn/downloads/ ) the Wednesday after the bug is\n\u003e resolved, and then become part of the upcoming 2.2M and then Dec 2.2 release. \n\u003e Will that be easy enough for you to consume?\nSure, I thought for some reason that 2.2 would be only working with Eclipse 3.4 - the website knew it better. Thanks.",
+    "(In reply to comment #16)\n\u003e (In reply to comment #15)\n\u003e \u003e The number should be a constant that we consider to be a reasonable threshold\n\u003e \u003e for what a large repository is.  10 seems conservative, but in this case being\n\u003e \u003e conservative is probably good.  If people have data points on what else it\n\u003e \u003e should be we can adjust accordingly.\n\u003e \n\u003e It sounds like 10 been taken out of the blue...\n\u003e \n\u003e Anyways, what is wrong with disabling automatic refresh by default without\n\u003e cumbersome logic? I would think that most of the users will ignore or miss that\n\u003e warning and then will be puzzled why the hack they have refresh disabled after\n\u003e they explicitly turned it on and then clicked \"Verify\".\n\u003e \n\nYou\u0027re the devs and perhaps I should not comment on that, anyhow I\u0027d like to share my 2 cents:\nIn my understanding Mylyn abstracts the developer\u0027s desktop and decides what elements are currently displayed to me (i.e. which are important for the current task). Thus, the main functionality is about providing the user \"smart defaults\" without asking for 20+ configuration parameters. Mylyn is doing that very well for  views, editors, etc. For me thats key and not some strange behavior. So if you can provide more of these defaults, even better (as long as they are still configurable, like in Mik\u0027s proposal).",
+    "Added an options to the repository properties page to disable automatic refreshing of the configuration data (the default is off for all repositories). While this will reduce the load on repositories it will cause users to run into the problems more frequently where an out-dated repository configuration causes strange errors (bug 189689). ",
+    "Another possibility that could be worth investigating is the use of the XML-RPC interface. I remember Jason van Zyl mentioning that it is much faster and uses much less resources.",
+    "3rd possibility is to write own xml-rpc plugin optimized for Mylyn interactions.",
+    "\u003e 3rd possibility is to write own xml-rpc plugin optimized for Mylyn interactions.\n\nThis could be considered but it would not work with any of the existing installations. We could consider offering this for optimizing the repository load when that service is installed.\n\nI ran a quick test that calls getProjects() through SOAP and through XML-RPC on mylyn.eclipse.org:\n\n XML-RPC: never took longer than 160 ms\n SOAP: varied between 300 ms and 3000 ms \n\nOn a another machine with plenty of memory I saw consistent results yielding a 20x increase in speed when using XML-RPC over SOAP.",
+    "Created an attachment (id\u003d82381)\nJIRA XML-RPC service implementation (called on validate settings)\n\n",
+    "Created an attachment (id\u003d82382)\nmylyn/context/zip\n\n",
+    "Tammo: Thanks, those are useful comments.  We consider user comments very valuable, so please never be shy about adding to a discussion or voicing them even if you\u0027re unsure of a topic\u0027s history.  \n\n(In reply to comment #20)\n\u003e Why call it penaltize? After all it is configurable.\n\nUnlike advanced users, average users want fewer preferences and configuration settings, not more.  As such sacrificing optimization or automation of default settings penalizes them by making them do more work in the case where they are willing to learn about or discover the UI, but in the common case it means that the average user will just have whatever default we leave them with.   http://wiki.eclipse.org/Mylyn_Focused_UI_Design#Avoid_Preferences  \n\n(In reply to comment #25)\n\u003e 3rd possibility is to write own xml-rpc plugin optimized for Mylyn interactions.\n\nAgreed that this should be considered further.  Can we switch to this for repository update only?\n\nRegarding project size and user size being both important, I agree.  I got some feedback from Atlassian about repository sizes.  Some of that may be confidential so I won\u0027t share numbers, but as suspected their installs appear to match the profile of software company sizes, where the smaller companies dominate in numbers.",
+    "(In reply to comment #26)\n\u003e I ran a quick test that calls getProjects() through SOAP and through XML-RPC on\n\u003e mylyn.eclipse.org:\n\u003e \n\u003e XML-RPC: never took longer than 160 ms\n\u003e SOAP: varied between 300 ms and 3000 ms\n\u003e \n\u003e On a another machine with plenty of memory I saw consistent results yielding a\n\u003e 20x increase in speed when using XML-RPC over SOAP.\n\nThis is very cool, Steffen, one concern that may need to be verified or simply reviewed is what JIRA version xml-rpc require and if there is any difference in data we can get trough that api. So, prereqs for JIRA connector may be affected by this.",
+    "The problem of server load with large config updates also occurred with eclipse.org and the bugzilla connector, where overloaded webmaster turned of support for mylyn :-(  see bug 205249\n\nI\u0027m working on bug 207498: [patch] stop automatic configuration retrieval if already done, where the default AbstractRepositoryConnector.isRepositoryConfigurationStale() will persists last check date and only update config once every 24 hours, instead of the current true default.\nAlso the BugzillaRepositoryConnector.isRepositoryConfigurationStale()  uses Last-Modified headers to special case for the patched bugzilla on eclipse.org: see bug 196056.\n\nThese two options can also be added to the Jira connector, the 24 hour one will be automatic if isRepositoryConfigurationStale is used!\n\nIn bug 205213 and bug 206496 more specific information about Mylyn is added to the user agent string, thus a Jira webmaster can discriminate between newer, \u0027well-behaved\u0027 Mylyn and and the rather loud adolescent version using mod_rewrite rules.\n\nIn addition to reduced frequency, it was observed that bugzilla config data is about 30% whitespace, so action in the server is taken with special code that strips whitespace and gzips the config on a reduced frequency: bug 196056, bug 205416\nFinally in bug 205708 two new classes were added to mylyn.web.core: GzipGetMethod and GzipPostMethod that try to get gzip encoded data. \nThese are used in the bugzilla client, but not trac and jira. I\u0027m running with these on my own bugzilla with mod_gzip and have average bandwidth savings of 80-90%, XML is very repetitive so excellent for compression,  but that may also be because bugzilla is generating lots of whitespace.  \n\nIt will be wise for Atlassian to work with the Mylyn community to optimize available functions to reduce query frequency, size and bandwidth use, as Mylyn is fast becoming the connector of choice: just look at the number of bug reports concerning [connector]!",
+    "(In reply to comment #31)\n\u003e It will be wise for Atlassian to work with the Mylyn community to optimize\n\u003e available functions to reduce query frequency, size and bandwidth use, as Mylyn\n\u003e is fast becoming the connector of choice: just look at the number of bug\n\u003e reports concerning [connector]!\nDefinitely. Perhaps you guys could convince them to provide a REST-style interface. Plain-old HTTP basically provides all things needed for a scalable remote access (since it enables for caching, different representations, unique IDs, simple access (aka unified operations), SSL, GZip, etc) and is IMHO thus the perfect match since issues tracking is inherently resource-oriented (projects, issues, resolutions, components,.. everything is a resource). Before considering a new XML-RPC interface, a RESTful API is way more interesting."
+  ],
+  "commentCreationDates": [
+    "2007-10-10T19:29:48+02:00",
+    "2007-10-18T03:15:13+02:00",
+    "2007-10-18T04:31:32+02:00",
+    "2007-10-18T04:35:34+02:00",
+    "2007-10-18T04:35:37+02:00",
+    "2007-10-27T10:11:51+02:00",
+    "2007-10-27T10:53:08+02:00",
+    "2007-10-28T22:52:01+01:00",
+    "2007-10-29T18:17:30+01:00",
+    "2007-10-31T19:55:29+01:00",
+    "2007-10-31T19:58:09+01:00",
+    "2007-10-31T20:11:03+01:00",
+    "2007-10-31T20:19:20+01:00",
+    "2007-10-31T21:06:14+01:00",
+    "2007-10-31T22:17:41+01:00",
+    "2007-11-01T23:28:42+01:00",
+    "2007-11-01T23:37:02+01:00",
+    "2007-11-02T01:25:43+01:00",
+    "2007-11-02T05:47:49+01:00",
+    "2007-11-03T01:08:16+01:00",
+    "2007-11-03T01:23:47+01:00",
+    "2007-11-05T07:15:08+01:00",
+    "2007-11-05T07:54:51+01:00",
+    "2007-11-07T21:37:12+01:00",
+    "2007-11-07T21:41:22+01:00",
+    "2007-11-07T21:46:29+01:00",
+    "2007-11-07T22:15:07+01:00",
+    "2007-11-07T22:17:39+01:00",
+    "2007-11-07T22:17:44+01:00",
+    "2007-11-07T22:24:11+01:00",
+    "2007-11-07T22:52:51+01:00",
+    "2007-11-08T09:46:38+01:00",
+    "2007-11-08T10:10:58+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.reflect.InvocationTargetException",
+      "elements": [
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.call",
+          "source": "JiraRpcClient.java:533"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.call",
+          "source": "JiraRpcClient.java:540"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.getIssueTypesRemote",
+          "source": "JiraRpcClient.java:324"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.AbstractJiraClient.initializeIssueTypes",
+          "source": "AbstractJiraClient.java:194"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.AbstractJiraClient.refreshDetails",
+          "source": "AbstractJiraClient.java:87"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.ui.JiraRepositoryConnector.updateAttributes",
+          "source": "JiraRepositoryConnector.java:496"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.tasks.ui.views.ResetRepositoryConfigurationAction.performUpdate",
+          "source": "ResetRepositoryConfigurationAction.java:75"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.tasks.ui.views.ResetRepositoryConfigurationAction$1.run",
+          "source": "ResetRepositoryConfigurationAction.java:57"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "205963",
+      "date": "2007-10-18T03:15:13+02:00",
+      "product": "Mylyn",
+      "component": "Jira",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "205963",
+  "bugId": "205963",
+  "date": "2007-10-10T19:29:48+02:00",
+  "product": "Mylyn",
+  "component": "Jira",
+  "severity": "critical"
+}

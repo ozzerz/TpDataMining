@@ -1,0 +1,54 @@
+{
+  "comments": [
+    "In a Javadoc, we I modify the Text content in a javadoc. The end-lines are \nmissing in the output. For example, I have the orginale code:\n\n/**\n * @author eric\n * \n * Line1\n * Line2\n * @param arg1\n */\n\nAfter the modification or clone, when I rewite the code via\n\tDocument document \u003d new Document(targetSource);\n\tTextEdit mods \u003d compilationUnit.rewrite(document, null);\n\tmods.apply(document);\n\nI get the following results: \n/**\n * @author  eric Line1 Line2\n * @param arg1\n */\n\nThere are two issue:\n   1. one more space before the \"eric\"(rf: 88126)\n   2. end-lines are missing\n\nBut in debug when I select the TagElement, it is displayed correctly. What I \nfound is the following codes in ASTRewriteFlattener:\n\tpublic boolean visit(TagElement node) {\n\t\tObject tagName\u003d getAttribute(node, \nTagElement.TAG_NAME_PROPERTY);\n\t\tif (tagName !\u003d null) {\n\t\t\tthis.result.append((String) tagName);\n\t\t}\n\t\tList list\u003d getChildList(node, TagElement.FRAGMENTS_PROPERTY);\n\t\tfor (int i\u003d 0; i \u003c list.size(); i++) {\n\t\t\tif (i \u003e 0 || tagName !\u003d null) {\n\t\t\t\tthis.result.append(\u0027 \u0027);\n\t\t\t}\n\t\t\tASTNode curr\u003d (ASTNode) list.get(i);\n\t\t\tif (curr instanceof TagElement) {\n\t\t\t\tthis.result.append(\u0027{\u0027);\n\t\t\t\tcurr.accept(this);\n\t\t\t\tthis.result.append(\u0027}\u0027);\n\t\t\t} else {\n\t\t\t\tcurr.accept(this);\n\t\t\t}\n\t\t}\n\t\treturn false;\n\t}\n\nI guess it should be:\n\n\tpublic boolean visit(TagElement node) {\n\t\tObject tagName\u003d getAttribute(node, \nTagElement.TAG_NAME_PROPERTY);\n\t\tif (tagName !\u003d null) {\n\t\t\tthis.result.append((String) tagName);\n\t\t}\n\t\tList list\u003d getChildList(node, TagElement.FRAGMENTS_PROPERTY);\n\t\tfor (int i\u003d 0; i \u003c list.size(); i++) {\n                        if (i \u003d\u003d 0)\n                        {\n\t\t\t    if (tagName !\u003d null)\n\t\t\t         this.result.append(\u0027 \u0027);\n                        }\n                        else\n\t\t\t    this.result.append(\"\\n * \")\n\n\t\t\tASTNode curr\u003d (ASTNode) list.get(i);\n\t\t\tif (curr instanceof TagElement) {\n\t\t\t\tthis.result.append(\u0027{\u0027);\n\t\t\t\tcurr.accept(this);\n\t\t\t\tthis.result.append(\u0027}\u0027);\n\t\t\t} else {\n\t\t\t\tcurr.accept(this);\n\t\t\t}\n\t\t}\n\t\treturn false;\n\t}",
+    "It seems that cloning a node looses all format information. The cloned node is\nsimilar to a node that you constructed yourself (with ast.newXY).\n\nThe modifying rewrite approach doesn\u0027t give you the full possibilities, so I\nsuggest you to use the describing approach -\u003e ASTRewrite\n\nuse createCopyTarget to copy a node (including all the modifications inside) or\ncreateMoveTarget to move.\n\nI\u0027ll discuss with David if cloning should do a copy\n\n",
+    "It seems we cannot use the ASTRewrite to copy a node into another \nCompilationUnit since the AST are different. I get an exception during the add:\nCaused by: java.lang.IllegalArgumentException\n\tat org.eclipse.jdt.core.dom.ASTNode.checkNewChild(ASTNode.java:1852)\n\tat org.eclipse.jdt.core.dom.ASTNode.preReplaceChild(ASTNode.java:1918)\n\nthe exception is raised in the following codes:\n\tstatic void checkNewChild(ASTNode node, ASTNode newChild,\n\t\t\tboolean cycleCheck, Class nodeType) {\n\t\tif (newChild.ast !\u003d node.ast) {\n\t\t\t// new child is from a different AST\n\t\t\tthrow new IllegalArgumentException();\n\t\t}\t\t\n",
+    "That\u0027s correct, you can\u0027t copy to a different AST.\nIn that case it\u0027s best to copy it in a string placeholder\n(ASTRewrite#createStringPlaceholder).\nThat\u0027s the only way to not loose any special formatting.\n\nIf you don\u0027t care about that, thing should work as soon as I fix the AST\nrewriter to correctly format Javadoc comments.",
+    "    ASTRewrite rewrite \u003d ASTRewrite.create(target.getAST());\n    value \u003d (Javadoc) rewrite.createStringPlaceholder(value.toString(), \nASTNode.JAVADOC);\n    target.setJavadoc(value);\n\nFinally, i get an empty Javadoc:\n/**\n */\n",
+    "value.toString() doesn\u0027t work here, you have to get it from the source of the\ncompilation unit (The AST doesn\u0027t know its source anymore).\n\nI know it\u0027s nasty, but after getting the comment from the source you have to\nremove the indents of the Javadoc comment as the string placeholder requires an\nunindented string.\n\n\n",
+    "In debug, I check the toString() content. I get a correct value. I have the \nsame problem with a constant string:\n      String content \u003d \"/** \\n * test\\n */\"; \n      value \u003d (Javadoc) rewrite.createStringPlaceholder(content, \nASTNode.JAVADOC);\n",
+    "what\u0027s the state here?\n\nas said, if you want to copy nodes to a different AST, it has to be done on a\nstring basis.\n\nPlease reopen if I missed a problem.\n",
+    "reopening to close properly as no further action is planned there.",
+    "no further action planned, assuming it is fine as reporter didn\u0027t comment in 10 months."
+  ],
+  "commentCreationDates": [
+    "2005-05-04T12:59:30+02:00",
+    "2005-05-04T15:18:23+02:00",
+    "2005-05-04T16:12:05+02:00",
+    "2005-05-04T16:21:46+02:00",
+    "2005-05-04T17:32:50+02:00",
+    "2005-05-04T18:37:17+02:00",
+    "2005-05-04T18:48:08+02:00",
+    "2005-05-24T17:13:13+02:00",
+    "2006-03-27T12:49:33+02:00",
+    "2006-03-27T12:51:06+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.checkNewChild",
+          "source": "ASTNode.java:1852"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.preReplaceChild",
+          "source": "ASTNode.java:1918"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "93631",
+      "date": "2005-05-04T16:12:05+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "93631",
+  "bugId": "93631",
+  "date": "2005-05-04T12:59:30+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

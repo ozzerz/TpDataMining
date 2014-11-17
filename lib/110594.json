@@ -1,0 +1,191 @@
+{
+  "comments": [
+    "3.1.1\n\nI started to infer some type arguments myself, but then realized that the\nrefactoring might do this better.\nHowever, on my already modified (but compiling code) the refactoring failed with\na ClassCastException\n\n- get jdt.core from the 3.2 stream (I20050922), set 5.0 comoliance, change PDE\ntarget location to a M2 build\n- replace ASTNode with the attached file\n- run \u0027 Infer type argument \u0027 on the \u0027dom\u0027 source folder in jdt.core\n\njava.lang.ClassCastException:\norg.eclipse.jdt.internal.corext.refactoring.typeconstraints.types.StandardType\n\tat\norg.eclipse.jdt.internal.corext.refactoring.typeconstraints.types.RawType.initialize(RawType.java:30)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.typeconstraints.types.TypeEnvironment.createRawType(TypeEnvironment.java:388)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.typeconstraints.types.TypeEnvironment.create(TypeEnvironment.java:177)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsTCModel.createTType(InferTypeArgumentsTCModel.java:299)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsTCModel.getBoxedType(InferTypeArgumentsTCModel.java:309)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsTCModel.makeTypeVariable(InferTypeArgumentsTCModel.java:375)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsConstraintCreator.endVisit(InferTypeArgumentsConstraintCreator.java:124)\n\tat\norg.eclipse.jdt.internal.corext.dom.HierarchicalASTVisitor.endVisit(HierarchicalASTVisitor.java:707)\n\tat org.eclipse.jdt.core.dom.SimpleType.accept0(SimpleType.java:138)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChild(ASTNode.java:2497)\n\tat\norg.eclipse.jdt.core.dom.VariableDeclarationStatement.accept0(VariableDeclarationStatement.java:271)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat org.eclipse.jdt.core.dom.Block.accept0(Block.java:135)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChild(ASTNode.java:2497)\n\tat org.eclipse.jdt.core.dom.MethodDeclaration.accept0(MethodDeclaration.java:501)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat org.eclipse.jdt.core.dom.TypeDeclaration.accept0(TypeDeclaration.java:483)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat org.eclipse.jdt.core.dom.CompilationUnit.accept0(CompilationUnit.java:299)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsRefactoring$2.run(InferTypeArgumentsRefactoring.java:194)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1044)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:783)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsRefactoring$1.acceptAST(InferTypeArgumentsRefactoring.java:183)\n\tat\norg.eclipse.jdt.core.dom.CompilationUnitResolver.resolve(CompilationUnitResolver.java:691)\n\tat\norg.eclipse.jdt.core.dom.CompilationUnitResolver.resolve(CompilationUnitResolver.java:455)\n\tat org.eclipse.jdt.core.dom.ASTParser.createASTs(ASTParser.java:664)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsRefactoring.checkFinalConditions(InferTypeArgumentsRefactoring.java:178)\n\tat\norg.eclipse.ltk.core.refactoring.CheckConditionsOperation.run(CheckConditionsOperation.java:84)\n\tat\norg.eclipse.ltk.core.refactoring.CreateChangeOperation.run(CreateChangeOperation.java:114)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1719)\n\tat\norg.eclipse.ltk.internal.ui.refactoring.WorkbenchRunnableAdapter.run(WorkbenchRunnableAdapter.java:86)\n\tat\norg.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)",
+    "Created an attachment (id\u003d27511)\nupdated ASTNode.java\n",
+    "Self-contained example:\n\npackage dom;\nimport java.util.AbstractList;\nimport java.util.Iterator;\npublic class ASTNode {\n\tabstract class NodeList\u003cE extends ASTNode\u003e extends AbstractList\u003cE\u003e {\n\t\tabstract class Cursor implements Iterator {\n\t\t\t\n\t\t}\n\t}\n\tfinal void acceptChildren(ASTNode.NodeList children) {\n\t\tNodeList.Cursor cursor;\n\t}\n}\n\nThe problem is that the reference NodeList.Cursor is raw, but its\ntypeDeclaration is not generic as expected, but a standard type. I\u0027ll\ninvestigate, but I don\u0027t think that\u0027s for 3.1.1.",
+    "An even smaller example:\n\npublic class NodeList\u003cE\u003e {\n    class Cursor { } // type declaration is a standard type\n    {\n        NodeList.Cursor cursor; // NodeList.Cursor is raw!\n        NodeList\u003cString\u003e.Cursor c2; // NodeList\u003cString\u003e.Cursor is standard type\n    }\n}\n\nTTypes currently assume that the type declaration of a raw type is a generic\ntype, which is not the case here. I think that\u0027s against the current spec:\n    For parameterized types and raw types, getTypeDeclaration() returns the\n    binding for the corresponding generic type.\n\nWe have to sort out whether the spec or the implementation should be corrected.",
+    "*** Bug 134761 has been marked as a duplicate of this bug. ***",
+    "Fixed CCE in HEAD.\n\nTreating non-generic member type of generic type like other non-generic types for now. Opened bug 149541 for the full fix."
+  ],
+  "commentCreationDates": [
+    "2005-09-26T16:22:28+02:00",
+    "2005-09-26T16:23:23+02:00",
+    "2005-09-26T19:25:38+02:00",
+    "2005-09-27T13:29:55+02:00",
+    "2006-07-03T15:23:23+02:00",
+    "2006-07-04T11:45:45+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.eclipse.jdt.internal.corext.refactoring.typeconstraints.types.StandardType",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.typeconstraints.types.RawType.initialize",
+          "source": "RawType.java:30"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.typeconstraints.types.TypeEnvironment.createRawType",
+          "source": "TypeEnvironment.java:388"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.typeconstraints.types.TypeEnvironment.create",
+          "source": "TypeEnvironment.java:177"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsTCModel.createTType",
+          "source": "InferTypeArgumentsTCModel.java:299"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsTCModel.getBoxedType",
+          "source": "InferTypeArgumentsTCModel.java:309"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsTCModel.makeTypeVariable",
+          "source": "InferTypeArgumentsTCModel.java:375"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsConstraintCreator.endVisit",
+          "source": "InferTypeArgumentsConstraintCreator.java:124"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.HierarchicalASTVisitor.endVisit",
+          "source": "HierarchicalASTVisitor.java:707"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.SimpleType.accept0",
+          "source": "SimpleType.java:138"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChild",
+          "source": "ASTNode.java:2497"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.VariableDeclarationStatement.accept0",
+          "source": "VariableDeclarationStatement.java:271"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.Block.accept0",
+          "source": "Block.java:135"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChild",
+          "source": "ASTNode.java:2497"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.MethodDeclaration.accept0",
+          "source": "MethodDeclaration.java:501"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.TypeDeclaration.accept0",
+          "source": "TypeDeclaration.java:483"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.CompilationUnit.accept0",
+          "source": "CompilationUnit.java:299"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsRefactoring$2.run",
+          "source": "InferTypeArgumentsRefactoring.java:194"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:1044"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:783"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsRefactoring$1.acceptAST",
+          "source": "InferTypeArgumentsRefactoring.java:183"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.CompilationUnitResolver.resolve",
+          "source": "CompilationUnitResolver.java:691"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.CompilationUnitResolver.resolve",
+          "source": "CompilationUnitResolver.java:455"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTParser.createASTs",
+          "source": "ASTParser.java:664"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.generics.InferTypeArgumentsRefactoring.checkFinalConditions",
+          "source": "InferTypeArgumentsRefactoring.java:178"
+        },
+        {
+          "method": "org.eclipse.ltk.core.refactoring.CheckConditionsOperation.run",
+          "source": "CheckConditionsOperation.java:84"
+        },
+        {
+          "method": "org.eclipse.ltk.core.refactoring.CreateChangeOperation.run",
+          "source": "CreateChangeOperation.java:114"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1719"
+        },
+        {
+          "method": "org.eclipse.ltk.internal.ui.refactoring.WorkbenchRunnableAdapter.run",
+          "source": "WorkbenchRunnableAdapter.java:86"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:113"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "110594",
+      "date": "2005-09-26T16:22:28+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "110594",
+  "bugId": "110594",
+  "date": "2005-09-26T16:22:28+02:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "normal"
+}

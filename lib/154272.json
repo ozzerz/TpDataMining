@@ -1,0 +1,1121 @@
+{
+  "comments": [
+    "When the Birt Viewer Application is deployed to WebSphere 6.1, and you hit the URL \"http://localhost:9080/birt/frameset\" the following stack is produced:\n\n[8/17/06 13:37:23:031 EDT] 00000020 SystemErr R Caused by: java.lang.IllegalStateException: Platform already running\nat org.eclipse.core.runtime.adaptor.EclipseStarter.startup(EclipseStarter.java:255)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:64)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\nat java.lang.reflect.Method.invoke(Method.java:615)\nat org.eclipse.birt.core.framework.osgi.OSGILauncher.startup(OSGILauncher.java:131)\nat org.eclipse.birt.core.framework.Platform.startup(Platform.java:78)\nat org.eclipse.birt.report.service.ReportEngineService.setEngineContext(Unknown Source)\nat org.eclipse.birt.report.service.BirtViewerReportService.setContext(Unknown Source)\nat org.eclipse.birt.report.servlet.ViewerServlet.__getContext(Unknown Source)\nat org.eclipse.birt.report.servlet.BirtSoapMessageDispatcherServlet.doGet(Unknown Source)\nat javax.servlet.http.HttpServlet.service(HttpServlet.java:743)\nat org.apache.axis.transport.http.AxisServletBase.service(AxisServletBase.java:327)\nat javax.servlet.http.HttpServlet.service(HttpServlet.java:856)\nat com.ibm.ws.webcontainer.servlet.ServletWrapper.service(ServletWrapper.java:966)\nat com.ibm.ws.webcontainer.servlet.ServletWrapper.handleRequest(ServletWrapper.java:478)\nat com.ibm.ws.wswebcontainer.servlet.ServletWrapper.handleRequest(ServletWrapper.java:463)\nat com.ibm.ws.webcontainer.webapp.WebApp.handleRequest(WebApp.java:3107)\nat com.ibm.ws.webcontainer.webapp.WebGroup.handleRequest(WebGroup.java:238)\nat com.ibm.ws.webcontainer.WebContainer.handleRequest(WebContainer.java:811)\nat com.ibm.ws.wswebcontainer.WebContainer.handleRequest(WebContainer.java:1425)\nat com.ibm.ws.webcontainer.channel.WCChannelLink.ready(WCChannelLink.java:92)\nat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleDiscrimination(HttpInboundLink.java:465)\nat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleNewInformation(HttpInboundLink.java:394)\nat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.ready(HttpInboundLink.java:274)\nat com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.sendToDiscriminators(NewConnectionInitialReadCallback.java:214)\nat com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.complete(NewConnectionInitialReadCallback.java:113)\nat com.ibm.ws.tcp.channel.impl.AioReadCompletionListener.futureCompleted(AioReadCompletionListener.java:152)\nat com.ibm.io.async.AbstractAsyncFuture.invokeCallback(AbstractAsyncFuture.java:213)\nat com.ibm.io.async.AbstractAsyncFuture.fireCompletionActions(AbstractAsyncFuture.java:195)\nat com.ibm.io.async.AsyncFuture.completed(AsyncFuture.java:136)\nat com.ibm.io.async.ResultHandler.complete(ResultHandler.java:193)\nat com.ibm.io.async.ResultHandler.runEventProcessingLoop(ResultHandler.java:725)\nat com.ibm.io.async.ResultHandler$2.run(ResultHandler.java:847)\nat com.ibm.ws.util.ThreadPool$Worker.run(ThreadPool.java:1498)",
+    "the WebSphere 6.1 contains eclipse 3.1 as its OSGi framework. The BIRT need loads its own OSGi framework inside it.",
+    "CC\u0027ing Simon since I\u0027m pretty sure we address the same issue in the server-side work.\n\nI think the issue here is they are using the EclipseStarter from the outside \"container\" of WAS which is Eclipse 3.1.  This is because the WebApp classloader is using parent first so it finds the class from the \"outer\" Equinox framework.  In order to launch multiple instances of Equinox in the same VM the Equinox framework must be loaded with separate classloaders for each instance.  In this case it looks like you are using the EclipseStarter class which started WAS to attempt to launch another instance of Equinox but it has already launched Equinox once so it fails the second time you try to launch Equinox.\n\nThe servlet bridge in the server-side work sets up a classloader for the framework that does not delegate to the parent for the framework classes.  This allows it to use a completely separate instance of the EclipseStarter class than the one from WAS to launch another instance of Equinox from the application.\n",
+    "Tom\u0027s on the mark here --\n\nI think there are three areas that need to be addressed:\n\n1) As mentioned, you need to use a child-first classloader to avoid accidentally loading the Eclipse 3.1 framework classes.\n\n2) The System properties used to configure Eclipse 3.1 will conflict with your newly launched Equinox instance. Your instance should use \"osgi.framework.useSystemProperties \u003d false\" and then directly set properties using \"setInitialProperties\" in EclipseStarter. In some cases you might have to null out existing properties that are inherited from WS 6.1.\n\n3) osgi.parentClassLoader\u003dfwk \"might\" still cause problems. We\u0027re better off to use \"boot\" or \"ext\" here and selectively expose those parts of the webapp needed.\n\n--\nThe org.eclipse.equinox.servletbridge project in the main Eclipse depot has a FrameworkLauncher that comes very close to meeting your needs. It\u0027s probably worth taking a look to see if we can\u0027t tweak it to allow launching the BIRT Report Engine. I\u0027m game for helping out here if there\u0027s interest.",
+    "This would be a great thing to add on the Wiki or server website around getting started or running Equinox in a container.  If the container happens to be OSGi/Equinox based people may have these issues.  Are there ways of making this real easy?  Just flip a switch (or even autodetect?)",
+    "the eclipse platform startup with exception:\n!SESSION 2006-10-23 18:17:42.906 -----------------------------------------------\neclipse.buildId\u003dunknown\njava.fullversion\u003dJ2RE 1.5.0 IBM J9 2.3 Windows XP x86-32 j9vmwi3223-20060504 (JIT disabled)\nJ9VM - 20060501_06428_lHdSMR\nJIT  - 20060428_1800_r8\nGC   - 20060501_AA\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments:  -clean\n\n!ENTRY system.bundle 4 0 2006-10-23 18:17:42.906\n!MESSAGE FrameworkEvent.ERROR\n!STACK 0\norg.osgi.framework.BundleException: Exception in org.eclipse.osgi.framework.internal.core.SystemBundleActivator.start() of bundle system.bundle.\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:1010)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.start(BundleContextImpl.java:966)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles(StartLevelManager.java:549)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL(StartLevelManager.java:484)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel(StartLevelManager.java:275)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.launch(StartLevelManager.java:245)\n\tat org.eclipse.osgi.framework.internal.core.SystemBundle.resume(SystemBundle.java:155)\n\tat org.eclipse.osgi.framework.internal.core.Framework.launch(Framework.java:503)\n\tat org.eclipse.osgi.framework.internal.core.OSGi.launch(OSGi.java:51)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.startup(EclipseStarter.java)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:64)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n\tat java.lang.reflect.Method.invoke(Method.java:615)\n\tat org.eclipse.birt.core.framework.osgi.OSGILauncher.startup(OSGILauncher.java)\n\tat org.eclipse.birt.core.framework.Platform.startup(Platform.java:78)\n\tat org.eclipse.birt.report.service.ReportEngineService.setEngineContext(Unknown Source)\n\tat org.eclipse.birt.report.service.BirtViewerReportService.setContext(Unknown Source)\n\tat org.eclipse.birt.report.servlet.ViewerServlet.__getContext(Unknown Source)\n\tat org.eclipse.birt.report.servlet.BirtSoapMessageDispatcherServlet.doGet(Unknown Source)\n\tat javax.servlet.http.HttpServlet.service(HttpServlet.java:743)\n\tat org.apache.axis.transport.http.AxisServletBase.service(AxisServletBase.java:327)\n\tat javax.servlet.http.HttpServlet.service(HttpServlet.java:856)\n\tat com.ibm.ws.webcontainer.servlet.ServletWrapper.service(ServletWrapper.java:966)\n\tat com.ibm.ws.webcontainer.servlet.ServletWrapper.handleRequest(ServletWrapper.java:478)\n\tat com.ibm.ws.wswebcontainer.servlet.ServletWrapper.handleRequest(ServletWrapper.java:463)\n\tat com.ibm.ws.webcontainer.webapp.WebApp.handleRequest(WebApp.java:3107)\n\tat com.ibm.ws.webcontainer.webapp.WebGroup.handleRequest(WebGroup.java:238)\n\tat com.ibm.ws.webcontainer.WebContainer.handleRequest(WebContainer.java:811)\n\tat com.ibm.ws.wswebcontainer.WebContainer.handleRequest(WebContainer.java:1425)\n\tat com.ibm.ws.webcontainer.channel.WCChannelLink.ready(WCChannelLink.java:92)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleDiscrimination(HttpInboundLink.java:465)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleNewInformation(HttpInboundLink.java:394)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.ready(HttpInboundLink.java:274)\n\tat com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.sendToDiscriminators(NewConnectionInitialReadCallback.java:214)\n\tat com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.complete(NewConnectionInitialReadCallback.java:113)\n\tat com.ibm.ws.tcp.channel.impl.AioReadCompletionListener.futureCompleted(AioReadCompletionListener.java:152)\n\tat com.ibm.io.async.AbstractAsyncFuture.invokeCallback(AbstractAsyncFuture.java:213)\n\tat com.ibm.io.async.AbstractAsyncFuture.fireCompletionActions(AbstractAsyncFuture.java:195)\n\tat com.ibm.io.async.AsyncFuture.completed(AsyncFuture.java:136)\n\tat com.ibm.io.async.ResultHandler.complete(ResultHandler.java:193)\n\tat com.ibm.io.async.ResultHandler.runEventProcessingLoop(ResultHandler.java:725)\n\tat com.ibm.io.async.ResultHandler$2.run(ResultHandler.java:847)\n\tat com.ibm.ws.util.ThreadPool$Worker.run(ThreadPool.java:1498)\nCaused by: java.lang.IllegalStateException\n\tat org.eclipse.osgi.internal.baseadaptor.BaseStorage.checkSystemState(BaseStorage.java:654)\n\tat org.eclipse.osgi.internal.baseadaptor.BaseStorage.getStateManager(BaseStorage.java:634)\n\tat org.eclipse.osgi.baseadaptor.BaseAdaptor.getPlatformAdmin(BaseAdaptor.java:385)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAdaptorHook.frameworkStart(EclipseAdaptorHook.java:80)\n\tat org.eclipse.osgi.baseadaptor.BaseAdaptor.frameworkStart(BaseAdaptor.java:260)\n\tat org.eclipse.osgi.framework.internal.core.SystemBundleActivator.start(SystemBundleActivator.java:55)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run(BundleContextImpl.java:991)\n\tat java.security.AccessController.doPrivileged(AccessController.java:241)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:985)\n\t... 43 more\nRoot exception:\njava.lang.IllegalStateException\n\tat org.eclipse.osgi.internal.baseadaptor.BaseStorage.checkSystemState(BaseStorage.java:654)\n\tat org.eclipse.osgi.internal.baseadaptor.BaseStorage.getStateManager(BaseStorage.java:634)\n\tat org.eclipse.osgi.baseadaptor.BaseAdaptor.getPlatformAdmin(BaseAdaptor.java:385)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAdaptorHook.frameworkStart(EclipseAdaptorHook.java:80)\n\tat org.eclipse.osgi.baseadaptor.BaseAdaptor.frameworkStart(BaseAdaptor.java:260)\n\tat org.eclipse.osgi.framework.internal.core.SystemBundleActivator.start(SystemBundleActivator.java:55)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run(BundleContextImpl.java:991)\n\tat java.security.AccessController.doPrivileged(AccessController.java:241)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:985)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.start(BundleContextImpl.java:966)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles(StartLevelManager.java:549)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL(StartLevelManager.java:484)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel(StartLevelManager.java:275)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.launch(StartLevelManager.java:245)\n\tat org.eclipse.osgi.framework.internal.core.SystemBundle.resume(SystemBundle.java:155)\n\tat org.eclipse.osgi.framework.internal.core.Framework.launch(Framework.java:503)\n\tat org.eclipse.osgi.framework.internal.core.OSGi.launch(OSGi.java:51)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.startup(EclipseStarter.java)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:64)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n\tat java.lang.reflect.Method.invoke(Method.java:615)\n\tat org.eclipse.birt.core.framework.osgi.OSGILauncher.startup(OSGILauncher.java)\n\tat org.eclipse.birt.core.framework.Platform.startup(Platform.java:78)\n\tat org.eclipse.birt.report.service.ReportEngineService.setEngineContext(Unknown Source)\n\tat org.eclipse.birt.report.service.BirtViewerReportService.setContext(Unknown Source)\n\tat org.eclipse.birt.report.servlet.ViewerServlet.__getContext(Unknown Source)\n\tat org.eclipse.birt.report.servlet.BirtSoapMessageDispatcherServlet.doGet(Unknown Source)\n\tat javax.servlet.http.HttpServlet.service(HttpServlet.java:743)\n\tat org.apache.axis.transport.http.AxisServletBase.service(AxisServletBase.java:327)\n\tat javax.servlet.http.HttpServlet.service(HttpServlet.java:856)\n\tat com.ibm.ws.webcontainer.servlet.ServletWrapper.service(ServletWrapper.java:966)\n\tat com.ibm.ws.webcontainer.servlet.ServletWrapper.handleRequest(ServletWrapper.java:478)\n\tat com.ibm.ws.wswebcontainer.servlet.ServletWrapper.handleRequest(ServletWrapper.java:463)\n\tat com.ibm.ws.webcontainer.webapp.WebApp.handleRequest(WebApp.java:3107)\n\tat com.ibm.ws.webcontainer.webapp.WebGroup.handleRequest(WebGroup.java:238)\n\tat com.ibm.ws.webcontainer.WebContainer.handleRequest(WebContainer.java:811)\n\tat com.ibm.ws.wswebcontainer.WebContainer.handleRequest(WebContainer.java:1425)\n\tat com.ibm.ws.webcontainer.channel.WCChannelLink.ready(WCChannelLink.java:92)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleDiscrimination(HttpInboundLink.java:465)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleNewInformation(HttpInboundLink.java:394)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.ready(HttpInboundLink.java:274)\n\tat com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.sendToDiscriminators(NewConnectionInitialReadCallback.java:214)\n\tat com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.complete(NewConnectionInitialReadCallback.java:113)\n\tat com.ibm.ws.tcp.channel.impl.AioReadCompletionListener.futureCompleted(AioReadCompletionListener.java:152)\n\tat com.ibm.io.async.AbstractAsyncFuture.invokeCallback(AbstractAsyncFuture.java:213)\n\tat com.ibm.io.async.AbstractAsyncFuture.fireCompletionActions(AbstractAsyncFuture.java:195)\n\tat com.ibm.io.async.AsyncFuture.completed(AsyncFuture.java:136)\n\tat com.ibm.io.async.ResultHandler.complete(ResultHandler.java:193)\n\tat com.ibm.io.async.ResultHandler.runEventProcessingLoop(ResultHandler.java:725)\n\tat com.ibm.io.async.ResultHandler$2.run(ResultHandler.java:847)\n\tat com.ibm.ws.util.ThreadPool$Worker.run(ThreadPool.java:1498)\n",
+    "Excuse my naivete here, but I have some questions (embedded in your comments below), about your suggestions Simon.  \n\n(In reply to comment #3)\n\u003e Tom\u0027s on the mark here --\n\u003e I think there are three areas that need to be addressed:\n\u003e 1) As mentioned, you need to use a child-first classloader to avoid\n\u003e accidentally loading the Eclipse 3.1 framework classes.\n\nCan this be set during the deployment of the BIRT web viewer application in WAS?  I know the WAS deployment console allows for this, but I was not sure if this needed to be set somewhere else.\n\n\u003e 2) The System properties used to configure Eclipse 3.1 will conflict with your\n\u003e newly launched Equinox instance. Your instance should use\n\u003e \"osgi.framework.useSystemProperties \u003d false\" and then directly set properties\n\u003e using \"setInitialProperties\" in EclipseStarter. In some cases you might have to\n\u003e null out existing properties that are inherited from WS 6.1.\n\nI noticed in the org.eclipse.birt.core.framework.osgi.OSGILauncher class in the 2.2M2 version of BIRT the osgi.framework.useSystemProperties has been set to false, and the setInitialProperties method of EclipseStarter is being used.\nDo you know which properties need to be \u0027nulled out\u0027 from WAS 6.1?\n\n\u003e 3) osgi.parentClassLoader\u003dfwk \"might\" still cause problems. We\u0027re better off to\n\u003e use \"boot\" or \"ext\" here and selectively expose those parts of the webapp\n\u003e needed.\n\nIt appears that osgi.parentClassLoader is still set to \"fwk\".  When you say it would be better off to use \"boot\" or \"ext\", is this true when using any app server to deploy the BIRT vieweer app that might include the osgi framework (ones other than WAS)?\n\nIf so, could you comment on why, and could a BIRT committer also comment on why it is currently set to \"fwk\"?\n\nAlso, I concur with Jeff, it would be extremely helpful if the code is not changed to allow this to at least have a wiki entry, or something that folks can change to allow for deployment in environments that launch the osgi framework.\n\nThanks for your help.\n\nSusan\n\u003e --\n\u003e The org.eclipse.equinox.servletbridge project in the main Eclipse depot has a\n\u003e FrameworkLauncher that comes very close to meeting your needs. It\u0027s probably\n\u003e worth taking a look to see if we can\u0027t tweak it to allow launching the BIRT\n\u003e Report Engine. I\u0027m game for helping out here if there\u0027s interest.\n\n",
+    "Hi Susan,\n\n\u003e Excuse my naivete here, but I have some questions (embedded in your comments\n\u003e below), about your suggestions Simon.  \n-- no problem.\n\n\u003e \u003e 1) As mentioned, you need to use a child-first classloader to avoid\n\u003e \u003e accidentally loading the Eclipse 3.1 framework classes.\n\u003e Can this be set during the deployment of the BIRT web viewer application in\n\u003e WAS?  I know the WAS deployment console allows for this, but I was not sure if\n\u003e this needed to be set somewhere else.\nWAS provides the ability to set child-first for the webapp class loader however in this case we\u0027re creating a URLClassloader to load resources from the jars in WEB-INF/platform/plugins. In other words we still are required to manually create a child-first classloader as WAS is unaware of the class loaders created inside the webapp.\n\n\u003e I noticed in the org.eclipse.birt.core.framework.osgi.OSGILauncher class in the\n\u003e 2.2M2 version of BIRT the osgi.framework.useSystemProperties has been set to\n\u003e false, and the setInitialProperties method of EclipseStarter is being used.\n\u003e Do you know which properties need to be \u0027nulled out\u0027 from WAS 6.1?\nThat\u0027s great. Off the top of my head the most important properties to either null out or set are:\nosgi.bundles (null)\nosgi.bundles.defaultStartLevel (null)\nosgi.parentClassloader\nosgi.contextClassLoaderParent\nosgi.framework\nosgi.instance.area\nosgi.configuration.area\nosgi.install.area\n\nThere might be others in the context of running BIRT however these are the ones I\u0027d most worry about.\n\n\u003e It appears that osgi.parentClassLoader is still set to \"fwk\".  When you say it\n\u003e would be better off to use \"boot\" or \"ext\", is this true when using any app\n\u003e server to deploy the BIRT vieweer app that might include the osgi framework\n\u003e (ones other than WAS)?\n\u003e If so, could you comment on why, and could a BIRT committer also comment on why\n\u003e it is currently set to \"fwk\"?\nFirst, this is not just a WAS thing (although the associated problems are particularly bad there). The problem with setting parentClassLoader to \"fwk\" is that your OSGi instance is no longer isolated.  The child-first classloader will apply to resources in org.eclipse.osgi however for all other resources the webapp classloader will be visible to every bundle. Some of the problems associated with this are version mismatches on package imports and unexpected results when working with singletons. On WAS you\u0027ll definitely have problems as for example the resources you think are loading from your org.eclipse.equinox.common in WEB-INF/platform/plugins are actually coming from the App Server.\n\nThe best way I\u0027ve found in terms of integrating with OSGi is to use either \"boot\" or \"ext\" and then selectively expose resources from the webapp using framework extension bundles. In this way your resources from the webapp will participate properly in the bundle resolution process -- a good thing.\n\n\u003e Also, I concur with Jeff, it would be extremely helpful if the code is not\n\u003e changed to allow this to at least have a wiki entry, or something that folks\n\u003e can change to allow for deployment in environments that launch the osgi\n\u003e framework.\nYep. I agree and this is on the TODO list.\n",
+    "Thanks Simon.  I appreciate the explanation and will watch this bug for more info.\n\nRegards,\n\nSusan",
+    "One of the must thing to do while deploying BIRT in WAS 6.0.x is one has\nto change the class loading scheme from Parent_First to Parent_Last and\nthe WAR Classloader Policy to Application. This may be not possible in all\ncases and mainly when the EAR also packages other applications along with\nBIRT, which may report weired errors while changing this scheme.\n\nWell, the main reason to change the class loading scheme is WAS (infact\nany application server, I guess) do not support loading of the same\nclasses (mozilla rhino js.jar) with different versions.\n\nBut while moving to WAS 6.1 would this madatory changing of class loading scheme be avoided, as the core for WAS 6.1 is OSGi runtime, which supports loading\nof the same classes with different versions.\n\nThanks,\nRavi Chamarthy.",
+    "*** Bug 160311 has been marked as a duplicate of this bug. ***",
+    "*** Bug 157199 has been marked as a duplicate of this bug. ***",
+    "1. create an framework fragment org.eclipse.birt.api which exports all the BIRT APIs \n2. set osgi.framework.extension to that fragment\n3. set the parent classloader to ext.\n\nNow the BIRT can run under WAS 6.1\n\nIt is the different case for js.jar. As the JS.jar is part of the BIRT APIs, it can\u0027t be included into the OSGi plugins. So the problem is can a J2EE server to load different version JARs for different web applications.\n\nWe need add a new enhancement to remove the third party JARs from the BIRT API.",
+    "IMPORTANT: WAS Version 6.0.x!\n\nWe have exactly this problem in our WAS 6.0.x runtime, we are not able to \nchange the Classloading policy, because of some other apps and dependencies \nin our EAR.\n\nOur solution:\nWe renamed the js.jar and the icu-jar in the WASruntime\\lib to .bak, so that \nthis are not loaded from WAS, only the version which comes with BIRT are \nloaded in the deployed EAR file.\n\nConfig Summary:\nClassloading Policy: left Default (Parent_first, Module)\nLibs:.../IBM/Rational/SDP/6.0/runtimes/base_v6/lib:\nremoved jars:\nicu4j_3_2.jar\njs.jar\n\nEAR:\npacked all the libs coming with BIRT\n\nThis config works fine, it seems, that WAS 6.0.x does not need js and icu \nfor its own :-)\n",
+    "To use the 2.1.1 in the WAS6.1, please patch the 2.1.1 as following:\n1. download the the org.eclipse.birt.core.framework.osgi.OSGiLauncher from the main branch, replace the classes in the coreapi.jar.\n2. download patches, replace the config.ini in the /configuration/config.ini.\n3. add the org.eclipse.birt.api_1.0.0.jar into the /plugin folder.\n\n\n",
+    "Created an attachment (id\u003d58231)\nconfig.ini\n\n",
+    "Created an attachment (id\u003d58232)\norg.eclipse.birt.api.jar\n\n",
+    "Reopen this bug to backport to 2.1.3",
+    "(In reply to comment #14)\n\u003e To use the 2.1.1 in the WAS6.1, please patch the 2.1.1 as following:\n\u003e 1. download the the org.eclipse.birt.core.framework.osgi.OSGiLauncher from the\n\u003e main branch, replace the classes in the coreapi.jar.\n\u003e 2. download patches, replace the config.ini in the /configuration/config.ini.\n\u003e 3. add the org.eclipse.birt.api_1.0.0.jar into the /plugin folder.\n\nThanks for putting these instructions here.  I\u0027d like to verify if what I have done to apply this patch is correct, and to explain one problem I had running the patched version of 2.1.1 with WAS 6.1.  Based on the above instructions, this is what I did:\n\nFrom my version BIRT_2_1_1_Release_20060927 workspace,\nChecked out the following files, using the methodology shown below:\n\norg.eclipse.birt.core.framework.osgi.OSGILauncher.java\norg.eclipse.birt.core.framework.PlatformConfig.java\norg.eclipse.birt.core.framework.IPlatformConfig.java\n\nTeam \u003e Switch to another branch or version \u003e Select the tag from the following list \u003e selected HEAD\n\nRebuilt coreapi.jar using the BuildCore.xml file\n\nPut the coreapi.jar here:\nC:\\projects\\BIRT\\downloads\\birt-runtime-2_1_1\\ReportEngine\\lib\n\nconfig.ini here:\nC:\\projects\\BIRT\\downloads\\birt-runtime-2_1_1\\ReportEngine\\configuration\n\nThen I put the org.eclipse.birt.api_1.0.0.jar into:\nC:\\projects\\BIRT\\downloads\\birt-runtime-2_1_1\\ReportEngine\\plugins\n\nI can now view a vanilla report in WAS 6.1 - Yippee!\n\nI can preview a report that has a chart in it using my runtime Eclipse workbench (launched from the project where I just added the above files)\nand see the chart successfully.\n\nHowever, when I try to view the same report with a chart in it in WAS, I get \nthis error message in the BIRT log file.\n\nC:\\projects\\BIRT\\WAS6.1\\WebSphere\\AppServer\\profiles\\AppSrv01\\installedApps\\eliza2Node03Cell\\birtEARFeb.ear\\birt.war\\chart.rptdesign\nFeb 5, 2007 1:03:16 PM org.eclipse.birt.report.engine.api.impl.ReportEngineHelper\nSEVERE: invalid design file \n\nCan you tell me if a) I applied the patch correctly - it seems so, since at least I can view reports, and b) have you tested the patch when generating charts with WAS 6.1?\n\nThanks,\n\nSusan",
+    "fix the bug in 2.1.3. \n\nSusan Cline,\nI have tested the patch it works in the 2.1.2. Perhaps the chart design contains the wrong version (the design must be created using BIRT before 2.1.2).\n",
+    "Hi Wei,\n\nThanks for the comment.  I\u0027m a little bit confused.  I believe I created the design and the chart using 2.1.1 and it did not appear in WAS 6.1.  I\u0027ll recreate a report design including a chart using 2.1.1 and test again and let you know the results.\n\nThanks,\n\nSusan",
+    "(In reply to comment #14)\n\u003e To use the 2.1.1 in the WAS6.1, please patch the 2.1.1 as following:\n\u003e 1. download the the org.eclipse.birt.core.framework.osgi.OSGiLauncher from the\n\u003e main branch, replace the classes in the coreapi.jar.\n\u003e 2. download patches, replace the config.ini in the /configuration/config.ini.\n\u003e 3. add the org.eclipse.birt.api_1.0.0.jar into the /plugin folder.\n\nHi Wei,\nI am getting a ICU(com.ibm.icu) classes related errors after applying this patch.\n\nThere are problems related  to \"com/ibm/icu/util/UResourceBundle\" class and \"org.eclipse.birt.core.data.DataTypeUtil\" class. \n\nWhen trying to run a BIRT report (simple BIRT report without chart),  I get  NoSuchMethodError for one of the method in UResourceBundle and class not found for DataTypeUtil.\n\n\nI checked jars in birt-viewer.But the jars (org.eclipse.birt.core_2.1.1.v20060926-0959.jar and com.ibm.icu_3.4.4.1.jar) seem to be OK.\nSo I thought that this might be classloading issue. I changed classloading mechanism for birt-viewer to PARENT_LAST. \nBut this too doesn\u0027t seem to work.I\u0027m getting same exception.\n\n\nComplete stack trace -----\n\n[2/15/07 21:17:35:740 IST] 0000006b DataEngineImp I   Data Engine starts up\n[2/15/07 21:17:35:755 IST] 0000006b odaconsumer   I org.eclipse.birt.data.engine.odaconsumer.Driver setLogConfiguration ODA driver does not have valid trace logging defined in the plug-in .options or plugin.xml file.\n[2/15/07 21:17:35:786 IST] 0000006b EngineTask    E   Error happened while running the report.\n                                 java.lang.NoClassDefFoundError: org.eclipse.birt.core.data.DataTypeUtil (initialization failure)\n\tat java.lang.J9VMInternals.initialize(J9VMInternals.java:123)\n\tat org.eclipse.birt.data.engine.odaconsumer.DataTypeUtil.toTypeClass(DataTypeUtil.java:67)\n\tat org.eclipse.birt.data.engine.odaconsumer.ResultSetMetaData.getColumnTypeAsJavaClass(ResultSetMetaData.java:230)\n\tat org.eclipse.birt.data.engine.odaconsumer.ProjectedColumns.\u003cinit\u003e(ProjectedColumns.java:57)\n\tat org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.doGetProjectedColumns(PreparedStatement.java:400)\n\tat org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.getProjectedColumns(PreparedStatement.java:340)\n\tat org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.addColumnHint(PreparedStatement.java:882)\n\tat org.eclipse.birt.data.engine.executor.DataSourceQuery.addColumnHints(DataSourceQuery.java:420)\n\tat org.eclipse.birt.data.engine.executor.DataSourceQuery.prepare(DataSourceQuery.java:257)\n\tat org.eclipse.birt.data.engine.impl.PreparedOdaDSQuery$OdaDSQueryExecutor.prepareOdiQuery(PreparedOdaDSQuery.java:344)\n\tat org.eclipse.birt.data.engine.impl.QueryExecutor.prepareExecution(QueryExecutor.java:212)\n\tat org.eclipse.birt.data.engine.impl.PreparedQuery.doPrepare(PreparedQuery.java:397)\n\tat org.eclipse.birt.data.engine.impl.PreparedDataSourceQuery.execute(PreparedDataSourceQuery.java:147)\n\tat org.eclipse.birt.data.engine.impl.PreparedOdaDSQuery.execute(PreparedOdaDSQuery.java:135)\n\tat org.eclipse.birt.data.engine.impl.PreparedDataSourceQuery.execute(PreparedDataSourceQuery.java:127)\n\tat org.eclipse.birt.report.engine.data.dte.DteDataEngine.doExecuteQuery(DteDataEngine.java:114)\n\tat org.eclipse.birt.report.engine.data.dte.AbstractDataEngine.execute(AbstractDataEngine.java:208)\n\tat org.eclipse.birt.report.engine.executor.ExecutionContext.executeQuery(ExecutionContext.java:1640)\n\tat org.eclipse.birt.report.engine.executor.QueryItemExecutor.executeQuery(QueryItemExecutor.java:62)\n\tat org.eclipse.birt.report.engine.executor.TableItemExecutor.execute(TableItemExecutor.java:74)\n\tat org.eclipse.birt.report.engine.internal.executor.l18n.LocalizedReportItemExecutor.execute(LocalizedReportItemExecutor.java:35)\n\tat org.eclipse.birt.report.engine.layout.html.HTMLPageLM.layoutChildren(HTMLPageLM.java:123)\n\tat org.eclipse.birt.report.engine.layout.html.HTMLPageLM.layout(HTMLPageLM.java:81)\n\tat org.eclipse.birt.report.engine.layout.html.HTMLReportLayoutEngine.layout(HTMLReportLayoutEngine.java:80)\n\tat org.eclipse.birt.report.engine.api.impl.RunAndRenderTask.run(RunAndRenderTask.java:194)\n\tat com.ibm._jsp._28033._jspService(_28033.java:134)\n\tat com.ibm.ws.jsp.runtime.HttpJspBase.service(HttpJspBase.java:85)\n\tat javax.servlet.http.HttpServlet.service(HttpServlet.java:856)\n\tat com.ibm.ws.webcontainer.servlet.ServletWrapper.service(ServletWrapper.java:966)\n\tat com.ibm.ws.webcontainer.servlet.ServletWrapper.handleRequest(ServletWrapper.java:478)\n\tat com.ibm.ws.wswebcontainer.servlet.ServletWrapper.handleRequest(ServletWrapper.java:463)\n\tat com.ibm.wsspi.webcontainer.servlet.GenericServletWrapper.handleRequest(GenericServletWrapper.java:115)\n\tat com.ibm.ws.jsp.webcontainerext.AbstractJSPExtensionServletWrapper.handleRequest(AbstractJSPExtensionServletWrapper.java:168)\n\tat com.ibm.ws.webcontainer.servlet.CacheServletWrapper.handleRequest(CacheServletWrapper.java:92)\n\tat com.ibm.ws.webcontainer.WebContainer.handleRequest(WebContainer.java:744)\n\tat com.ibm.ws.wswebcontainer.WebContainer.handleRequest(WebContainer.java:1425)\n\tat com.ibm.ws.webcontainer.channel.WCChannelLink.ready(WCChannelLink.java:92)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleDiscrimination(HttpInboundLink.java:465)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleNewInformation(HttpInboundLink.java:394)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.ready(HttpInboundLink.java:274)\n\tat com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.sendToDiscriminators(NewConnectionInitialReadCallback.java:214)\n\tat com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.complete(NewConnectionInitialReadCallback.java:113)\n\tat com.ibm.ws.tcp.channel.impl.AioReadCompletionListener.futureCompleted(AioReadCompletionListener.java:152)\n\tat com.ibm.io.async.AbstractAsyncFuture.invokeCallback(AbstractAsyncFuture.java:213)\n\tat com.ibm.io.async.AbstractAsyncFuture.fireCompletionActions(AbstractAsyncFuture.java:195)\n\tat com.ibm.io.async.AsyncFuture.completed(AsyncFuture.java:136)\n\tat com.ibm.io.async.ResultHandler.complete(ResultHandler.java:193)\n\tat com.ibm.io.async.ResultHandler.runEventProcessingLoop(ResultHandler.java:725)\n\tat com.ibm.io.async.ResultHandler$2.run(ResultHandler.java:847)\n\tat com.ibm.ws.util.ThreadPool$Worker.run(ThreadPool.java:1498)\nCaused by: java.lang.Throwable: java.lang.NoSuchMethodError: com/ibm/icu/util/UResourceBundle.getBundleInstance(Ljava/lang/String;Lcom/ibm/icu/util/ULocale;Ljava/lang/ClassLoader;)Lcom/ibm/icu/util/UResourceBundle;\n\tat org.eclipse.birt.core.i18n.ResourceHandle.\u003cinit\u003e(ResourceHandle.java:82)\n\tat org.eclipse.birt.core.data.DataTypeUtil.\u003cclinit\u003e(DataTypeUtil.java:58)\n\tat java.lang.J9VMInternals.initializeImpl(Native Method)\n\tat java.lang.J9VMInternals.initialize(J9VMInternals.java:177)\n\tat org.eclipse.birt.data.engine.odaconsumer.DataTypeUtil.toTypeClass(DataTypeUtil.java:67)\n\tat org.eclipse.birt.data.engine.odaconsumer.ResultSetMetaData.getColumnTypeAsJavaClass(ResultSetMetaData.java:230)\n\tat org.eclipse.birt.data.engine.odaconsumer.ProjectedColumns.\u003cinit\u003e(ProjectedColumns.java:57)\n\tat org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.doGetProjectedColumns(PreparedStatement.java:400)\n\tat org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.getProjectedColumns(PreparedStatement.java:340)\n\tat org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.addColumnHint(PreparedStatement.java:882)\n\tat org.eclipse.birt.data.engine.executor.DataSourceQuery.addColumnHints(DataSourceQuery.java:420)\n\tat org.eclipse.birt.data.engine.executor.DataSourceQuery.prepare(DataSourceQuery.java:257)\n\tat org.eclipse.birt.data.engine.impl.PreparedOdaDSQuery$OdaDSQueryExecutor.prepareOdiQuery(PreparedOdaDSQuery.java:344)\n\tat org.eclipse.birt.data.engine.impl.QueryExecutor.prepareExecution(QueryExecutor.java:212)\n\tat org.eclipse.birt.data.engine.impl.PreparedQuery.doPrepare(PreparedQuery.java:397)\n\tat org.eclipse.birt.data.engine.impl.PreparedDataSourceQuery.execute(PreparedDataSourceQuery.java:147)\n\tat org.eclipse.birt.data.engine.impl.PreparedOdaDSQuery.execute(PreparedOdaDSQuery.java:135)\n\tat org.eclipse.birt.data.engine.impl.PreparedDataSourceQuery.execute(PreparedDataSourceQuery.java:127)\n\tat org.eclipse.birt.report.engine.data.dte.DteDataEngine.doExecuteQuery(DteDataEngine.java:114)\n\tat org.eclipse.birt.report.engine.data.dte.AbstractDataEngine.execute(AbstractDataEngine.java:208)\n\tat org.eclipse.birt.report.engine.executor.ExecutionContext.executeQuery(ExecutionContext.java:1640)\n\tat org.eclipse.birt.report.engine.executor.QueryItemExecutor.executeQuery(QueryItemExecutor.java:62)\n\tat org.eclipse.birt.report.engine.executor.TableItemExecutor.execute(TableItemExecutor.java:74)\n\tat org.eclipse.birt.report.engine.internal.executor.l18n.LocalizedReportItemExecutor.execute(LocalizedReportItemExecutor.java:35)\n\tat org.eclipse.birt.report.engine.layout.html.HTMLPageLM.layoutChildren(HTMLPageLM.java:123)\n\tat org.eclipse.birt.report.engine.layout.html.HTMLPageLM.layout(HTMLPageLM.java:81)\n\tat org.eclipse.birt.report.engine.layout.html.HTMLReportLayoutEngine.layout(HTMLReportLayoutEngine.java:80)\n\tat org.eclipse.birt.report.engine.api.impl.RunAndRenderTask.run(RunAndRenderTask.java:194)\n\tat com.ibm._jsp._28033._jspService(_28033.java:134)\n\tat com.ibm.ws.jsp.runtime.HttpJspBase.service(HttpJspBase.java:85)\n\tat javax.servlet.http.HttpServlet.service(HttpServlet.java:856)\n\tat com.ibm.ws.webcontainer.servlet.ServletWrapper.service(ServletWrapper.java:966)\n\tat com.ibm.ws.webcontainer.servlet.ServletWrapper.handleRequest(ServletWrapper.java:478)\n\tat com.ibm.ws.wswebcontainer.servlet.ServletWrapper.handleRequest(ServletWrapper.java:463)\n\tat com.ibm.wsspi.webcontainer.servlet.GenericServletWrapper.handleRequest(GenericServletWrapper.java:115)\n\tat com.ibm.ws.jsp.webcontainerext.AbstractJSPExtensionServletWrapper.handleRequest(AbstractJSPExtensionServletWrapper.java:168)\n\tat com.ibm.ws.webcontainer.webapp.WebApp.handleRequest(WebApp.java:3107)\n\tat com.ibm.ws.webcontainer.webapp.WebGroup.handleRequest(WebGroup.java:238)\n\tat com.ibm.ws.webcontainer.WebContainer.handleRequest(WebContainer.java:811)\n\tat com.ibm.ws.wswebcontainer.WebContainer.handleRequest(WebContainer.java:1425)\n\tat com.ibm.ws.webcontainer.channel.WCChannelLink.ready(WCChannelLink.java:92)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleDiscrimination(HttpInboundLink.java:465)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleNewInformation(HttpInboundLink.java:394)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpICLReadCallback.complete(HttpICLReadCallback.java:102)\n\t... 8 more\n\n",
+    "(In reply to comment #21)\nHi Sunil,\n\nOdd .. I thought I commented on this bug yesterday, but I don\u0027t see my comments today.\n\nAnyway, it appears from the stack trace that you are using the IBM J9 JVM.  This jvm is not suitable for the J2EE platform.  Can you try running WAS with a JDK or JRE 1.4 or higher?\n\njava.lang.NoClassDefFoundError:\norg.eclipse.birt.core.data.DataTypeUtil (initialization failure)\n        at java.lang.J9VMInternals.initialize(J9VMInternals.java:123)\n\n\nAlso, the CLASSLOADER needs to be set to PARENT_LAST for both the enterprise application and the Web module.\n\nDid you look at some of the hints in the deployment section on the BIRT wiki?\n\nhttp://wiki.eclipse.org/index.php/BIRT/FAQ/Deployment#Q:_How_do_I_install_BIRT_in_WebSphere.3F\n\nPlease let me know how it goes.\n\nThanks,\n\nSusan\n",
+    "(In reply to comment #22)\n\n  Hi Susan,\n  I tried out the fixes you mentioned, but it didnt work for me.\n\n\u003e java.lang.NoClassDefFoundError:\n\u003e org.eclipse.birt.core.data.DataTypeUtil (initialization failure)\n\u003e         at java.lang.J9VMInternals.initialize(J9VMInternals.java:123)\n\u003e Also, the CLASSLOADER needs to be set to PARENT_LAST for both the enterprise\n\u003e application and the Web module.\n\n   The classes which cause this exception \"com.ibm.icu\" are present in one of the  jar of websphere (com.ibm.ws.runtime_6.1.0.jar).\nI changed classloading mechanism of the enterprise application and web module but still it picked the classes from websphere\u0027s jar.\n\n\u003e Anyway, it appears from the stack trace that you are using the IBM J9 JVM. \n\u003e This jvm is not suitable for the J2EE platform.  Can you try running WAS with a\n\u003e JDK or JRE 1.4 or higher?\nAlso, I tried changing the JVM to JDK 1.5.I changed the Websphere variable JAVA_HOME(Present in server.xml).\nBut i got this error \"Unrecognized option: -Xshareclasses:name\u003dwebspherev61,nonFatal. Could not create the Java virtual machine\".\n\n\nThanks,\nSunil\n\n\n",
+    "(In reply to comment #14)\n\nAfter I made the required fixes in BIRT 2.1.1 to run it on WAS 6.1, I am not able to run\nsame birt war on JBOSS 4.0.3.\nI get a \"Cannot load JDBC Driver class:\" while running the reports.\nI tried different drivers but I get same error.\n(Please note that I am able to run these reports successfully without applying fix).\n \nWhat could be the problem?Is this fix expected to work with JBOSS also?\n",
+    "This fix works with WAS61 (Birt can be run). \nBut classes that were available thanks to parent class loader, are not now.\n\nIn a custom plugin, with the previous OSGILauncher, i access to HtppServletRequest (in a setAppContext to cast HttpServletRequest).\nBut now, the Class.forName doesn\u0027t work (with WAS61, Tomcat  and I suppose it\u0027s the same with JBOSS).\n\nThe new OSGILaucher, which is more \u0027tight\u0027, can have other side effects (can not load JDBC Driver) and I think that HttpServletRequest is also access in BIRT plugins.\n\nSo, is the new OSGILauncher the final fix, and we have to load external classes in an another way (with parent ClassLoader or an another suggested method) or is this a side effect that you\u0027re gonna resolved ?",
+    "reopen this bug to address the issue in comment #25.",
+    "If the user\u0027s plug-in needs use the classes which doesn\u0027t exist in the OSGi framework, such as javax packages, the user must use the system fragment to import those packages into the OSGi framework.\n\nTo do so, the user needs:\n1. create a system fragment to include the imported packages. You can use the org.eclipse.birt.api plugin as example.\n2. copy the fragment into the /plugin folder.\n3. add the fragment in the configuration/config.ini, as:\nosgi.framework.extensions\u003dorg.eclipse.birt.api,user-defined-fragmment.\n\nyou can reference the servlet bridge to see how to use the plug-in in server side.\n",
+    "BIRT should add the servlet package to the system fragment it contains as the javax package is used by an BIRT API.\n\nThe system fragment is only used by BIRT in web application, so it is safe to always use the classes in the J2EE container.",
+    "Fixed.\n\nAdded packages under javax to system fragment in Runtime package.",
+    "In case anyone cares, I\u0027ve checked the latest stable build of 2.1.3 in WAS 6.1 and it appears to work fine.  Now all we need is a release date :-)",
+    "Is this fix also in 2.2 or is 2.1.3 a separate branch?",
+    "(In reply to comment #31)\n\u003e Is this fix also in 2.2 or is 2.1.3 a separate branch?\n\u003e \n\nIt is in 2.2 as well.  2.1.3 is a separate branch, but fixes are ported to 2.2."
+  ],
+  "commentCreationDates": [
+    "2006-08-17T20:22:03+02:00",
+    "2006-08-18T09:08:47+02:00",
+    "2006-10-12T19:09:06+02:00",
+    "2006-10-12T20:31:17+02:00",
+    "2006-10-13T22:53:24+02:00",
+    "2006-11-14T23:07:35+01:00",
+    "2007-01-03T00:20:05+01:00",
+    "2007-01-03T05:00:15+01:00",
+    "2007-01-04T22:55:30+01:00",
+    "2007-01-24T05:38:46+01:00",
+    "2007-01-24T08:36:15+01:00",
+    "2007-01-24T09:29:42+01:00",
+    "2007-01-25T07:52:25+01:00",
+    "2007-01-30T15:24:04+01:00",
+    "2007-02-05T02:57:54+01:00",
+    "2007-02-05T02:59:07+01:00",
+    "2007-02-05T02:59:40+01:00",
+    "2007-02-05T22:41:56+01:00",
+    "2007-02-05T23:40:57+01:00",
+    "2007-02-13T03:42:46+01:00",
+    "2007-02-13T16:17:05+01:00",
+    "2007-02-20T06:46:43+01:00",
+    "2007-02-21T17:16:59+01:00",
+    "2007-02-22T16:08:30+01:00",
+    "2007-03-05T15:22:53+01:00",
+    "2007-03-28T10:37:09+02:00",
+    "2007-03-28T21:03:06+02:00",
+    "2007-03-29T04:37:22+02:00",
+    "2007-03-30T03:51:49+02:00",
+    "2007-03-30T08:18:12+02:00",
+    "2007-05-29T10:52:09+02:00",
+    "2007-06-18T17:04:29+02:00",
+    "2007-06-18T23:29:25+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalStateException",
+      "message": "Platform already running",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.startup",
+          "source": "EclipseStarter.java:255"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:64"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:43"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:615"
+        },
+        {
+          "method": "org.eclipse.birt.core.framework.osgi.OSGILauncher.startup",
+          "source": "OSGILauncher.java:131"
+        },
+        {
+          "method": "org.eclipse.birt.core.framework.Platform.startup",
+          "source": "Platform.java:78"
+        },
+        {
+          "method": "org.eclipse.birt.report.service.ReportEngineService.setEngineContext",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.service.BirtViewerReportService.setContext",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.servlet.ViewerServlet.__getContext",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.servlet.BirtSoapMessageDispatcherServlet.doGet",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:743"
+        },
+        {
+          "method": "org.apache.axis.transport.http.AxisServletBase.service",
+          "source": "AxisServletBase.java:327"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:856"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.ServletWrapper.service",
+          "source": "ServletWrapper.java:966"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.ServletWrapper.handleRequest",
+          "source": "ServletWrapper.java:478"
+        },
+        {
+          "method": "com.ibm.ws.wswebcontainer.servlet.ServletWrapper.handleRequest",
+          "source": "ServletWrapper.java:463"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.webapp.WebApp.handleRequest",
+          "source": "WebApp.java:3107"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.webapp.WebGroup.handleRequest",
+          "source": "WebGroup.java:238"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.WebContainer.handleRequest",
+          "source": "WebContainer.java:811"
+        },
+        {
+          "method": "com.ibm.ws.wswebcontainer.WebContainer.handleRequest",
+          "source": "WebContainer.java:1425"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.channel.WCChannelLink.ready",
+          "source": "WCChannelLink.java:92"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleDiscrimination",
+          "source": "HttpInboundLink.java:465"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleNewInformation",
+          "source": "HttpInboundLink.java:394"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.ready",
+          "source": "HttpInboundLink.java:274"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.sendToDiscriminators",
+          "source": "NewConnectionInitialReadCallback.java:214"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.complete",
+          "source": "NewConnectionInitialReadCallback.java:113"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.AioReadCompletionListener.futureCompleted",
+          "source": "AioReadCompletionListener.java:152"
+        },
+        {
+          "method": "com.ibm.io.async.AbstractAsyncFuture.invokeCallback",
+          "source": "AbstractAsyncFuture.java:213"
+        },
+        {
+          "method": "com.ibm.io.async.AbstractAsyncFuture.fireCompletionActions",
+          "source": "AbstractAsyncFuture.java:195"
+        },
+        {
+          "method": "com.ibm.io.async.AsyncFuture.completed",
+          "source": "AsyncFuture.java:136"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler.complete",
+          "source": "ResultHandler.java:193"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler.runEventProcessingLoop",
+          "source": "ResultHandler.java:725"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler$2.run",
+          "source": "ResultHandler.java:847"
+        },
+        {
+          "method": "com.ibm.ws.util.ThreadPool$Worker.run",
+          "source": "ThreadPool.java:1498"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "154272",
+      "date": "2006-08-17T20:22:03+02:00",
+      "product": "BIRT",
+      "component": "Build",
+      "severity": "blocker"
+    },
+    {
+      "exceptionType": "org.osgi.framework.BundleException",
+      "message": "Exception in org.eclipse.osgi.framework.internal.core.SystemBundleActivator.start() of bundle system.bundle.",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:1010"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "BundleContextImpl.java:966"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles",
+          "source": "StartLevelManager.java:549"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL",
+          "source": "StartLevelManager.java:484"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel",
+          "source": "StartLevelManager.java:275"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.launch",
+          "source": "StartLevelManager.java:245"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.SystemBundle.resume",
+          "source": "SystemBundle.java:155"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.launch",
+          "source": "Framework.java:503"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.OSGi.launch",
+          "source": "OSGi.java:51"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.startup",
+          "source": "EclipseStarter.java"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:64"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:43"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:615"
+        },
+        {
+          "method": "org.eclipse.birt.core.framework.osgi.OSGILauncher.startup",
+          "source": "OSGILauncher.java"
+        },
+        {
+          "method": "org.eclipse.birt.core.framework.Platform.startup",
+          "source": "Platform.java:78"
+        },
+        {
+          "method": "org.eclipse.birt.report.service.ReportEngineService.setEngineContext",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.service.BirtViewerReportService.setContext",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.servlet.ViewerServlet.__getContext",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.servlet.BirtSoapMessageDispatcherServlet.doGet",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:743"
+        },
+        {
+          "method": "org.apache.axis.transport.http.AxisServletBase.service",
+          "source": "AxisServletBase.java:327"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:856"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.ServletWrapper.service",
+          "source": "ServletWrapper.java:966"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.ServletWrapper.handleRequest",
+          "source": "ServletWrapper.java:478"
+        },
+        {
+          "method": "com.ibm.ws.wswebcontainer.servlet.ServletWrapper.handleRequest",
+          "source": "ServletWrapper.java:463"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.webapp.WebApp.handleRequest",
+          "source": "WebApp.java:3107"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.webapp.WebGroup.handleRequest",
+          "source": "WebGroup.java:238"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.WebContainer.handleRequest",
+          "source": "WebContainer.java:811"
+        },
+        {
+          "method": "com.ibm.ws.wswebcontainer.WebContainer.handleRequest",
+          "source": "WebContainer.java:1425"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.channel.WCChannelLink.ready",
+          "source": "WCChannelLink.java:92"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleDiscrimination",
+          "source": "HttpInboundLink.java:465"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleNewInformation",
+          "source": "HttpInboundLink.java:394"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.ready",
+          "source": "HttpInboundLink.java:274"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.sendToDiscriminators",
+          "source": "NewConnectionInitialReadCallback.java:214"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.complete",
+          "source": "NewConnectionInitialReadCallback.java:113"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.AioReadCompletionListener.futureCompleted",
+          "source": "AioReadCompletionListener.java:152"
+        },
+        {
+          "method": "com.ibm.io.async.AbstractAsyncFuture.invokeCallback",
+          "source": "AbstractAsyncFuture.java:213"
+        },
+        {
+          "method": "com.ibm.io.async.AbstractAsyncFuture.fireCompletionActions",
+          "source": "AbstractAsyncFuture.java:195"
+        },
+        {
+          "method": "com.ibm.io.async.AsyncFuture.completed",
+          "source": "AsyncFuture.java:136"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler.complete",
+          "source": "ResultHandler.java:193"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler.runEventProcessingLoop",
+          "source": "ResultHandler.java:725"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler$2.run",
+          "source": "ResultHandler.java:847"
+        },
+        {
+          "method": "com.ibm.ws.util.ThreadPool$Worker.run",
+          "source": "ThreadPool.java:1498"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.IllegalStateException",
+        "elements": [
+          {
+            "method": "org.eclipse.osgi.internal.baseadaptor.BaseStorage.checkSystemState",
+            "source": "BaseStorage.java:654"
+          },
+          {
+            "method": "org.eclipse.osgi.internal.baseadaptor.BaseStorage.getStateManager",
+            "source": "BaseStorage.java:634"
+          },
+          {
+            "method": "org.eclipse.osgi.baseadaptor.BaseAdaptor.getPlatformAdmin",
+            "source": "BaseAdaptor.java:385"
+          },
+          {
+            "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAdaptorHook.frameworkStart",
+            "source": "EclipseAdaptorHook.java:80"
+          },
+          {
+            "method": "org.eclipse.osgi.baseadaptor.BaseAdaptor.frameworkStart",
+            "source": "BaseAdaptor.java:260"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.SystemBundleActivator.start",
+            "source": "SystemBundleActivator.java:55"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run",
+            "source": "BundleContextImpl.java:991"
+          },
+          {
+            "method": "java.security.AccessController.doPrivileged",
+            "source": "AccessController.java:241"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+            "source": "BundleContextImpl.java:985"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 1,
+      "commentIndex": 5,
+      "bugId": "154272",
+      "date": "2006-11-14T23:07:35+01:00",
+      "product": "BIRT",
+      "component": "Build",
+      "severity": "blocker"
+    },
+    {
+      "exceptionType": "java.lang.IllegalStateException",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.BaseStorage.checkSystemState",
+          "source": "BaseStorage.java:654"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.BaseStorage.getStateManager",
+          "source": "BaseStorage.java:634"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.BaseAdaptor.getPlatformAdmin",
+          "source": "BaseAdaptor.java:385"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAdaptorHook.frameworkStart",
+          "source": "EclipseAdaptorHook.java:80"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.BaseAdaptor.frameworkStart",
+          "source": "BaseAdaptor.java:260"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.SystemBundleActivator.start",
+          "source": "SystemBundleActivator.java:55"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run",
+          "source": "BundleContextImpl.java:991"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "AccessController.java:241"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:985"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "BundleContextImpl.java:966"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles",
+          "source": "StartLevelManager.java:549"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL",
+          "source": "StartLevelManager.java:484"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel",
+          "source": "StartLevelManager.java:275"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.launch",
+          "source": "StartLevelManager.java:245"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.SystemBundle.resume",
+          "source": "SystemBundle.java:155"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.launch",
+          "source": "Framework.java:503"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.OSGi.launch",
+          "source": "OSGi.java:51"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.startup",
+          "source": "EclipseStarter.java"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:64"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:43"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:615"
+        },
+        {
+          "method": "org.eclipse.birt.core.framework.osgi.OSGILauncher.startup",
+          "source": "OSGILauncher.java"
+        },
+        {
+          "method": "org.eclipse.birt.core.framework.Platform.startup",
+          "source": "Platform.java:78"
+        },
+        {
+          "method": "org.eclipse.birt.report.service.ReportEngineService.setEngineContext",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.service.BirtViewerReportService.setContext",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.servlet.ViewerServlet.__getContext",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.birt.report.servlet.BirtSoapMessageDispatcherServlet.doGet",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:743"
+        },
+        {
+          "method": "org.apache.axis.transport.http.AxisServletBase.service",
+          "source": "AxisServletBase.java:327"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:856"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.ServletWrapper.service",
+          "source": "ServletWrapper.java:966"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.ServletWrapper.handleRequest",
+          "source": "ServletWrapper.java:478"
+        },
+        {
+          "method": "com.ibm.ws.wswebcontainer.servlet.ServletWrapper.handleRequest",
+          "source": "ServletWrapper.java:463"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.webapp.WebApp.handleRequest",
+          "source": "WebApp.java:3107"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.webapp.WebGroup.handleRequest",
+          "source": "WebGroup.java:238"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.WebContainer.handleRequest",
+          "source": "WebContainer.java:811"
+        },
+        {
+          "method": "com.ibm.ws.wswebcontainer.WebContainer.handleRequest",
+          "source": "WebContainer.java:1425"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.channel.WCChannelLink.ready",
+          "source": "WCChannelLink.java:92"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleDiscrimination",
+          "source": "HttpInboundLink.java:465"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleNewInformation",
+          "source": "HttpInboundLink.java:394"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.ready",
+          "source": "HttpInboundLink.java:274"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.sendToDiscriminators",
+          "source": "NewConnectionInitialReadCallback.java:214"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.complete",
+          "source": "NewConnectionInitialReadCallback.java:113"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.AioReadCompletionListener.futureCompleted",
+          "source": "AioReadCompletionListener.java:152"
+        },
+        {
+          "method": "com.ibm.io.async.AbstractAsyncFuture.invokeCallback",
+          "source": "AbstractAsyncFuture.java:213"
+        },
+        {
+          "method": "com.ibm.io.async.AbstractAsyncFuture.fireCompletionActions",
+          "source": "AbstractAsyncFuture.java:195"
+        },
+        {
+          "method": "com.ibm.io.async.AsyncFuture.completed",
+          "source": "AsyncFuture.java:136"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler.complete",
+          "source": "ResultHandler.java:193"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler.runEventProcessingLoop",
+          "source": "ResultHandler.java:725"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler$2.run",
+          "source": "ResultHandler.java:847"
+        },
+        {
+          "method": "com.ibm.ws.util.ThreadPool$Worker.run",
+          "source": "ThreadPool.java:1498"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 5,
+      "bugId": "154272",
+      "date": "2006-11-14T23:07:35+01:00",
+      "product": "BIRT",
+      "component": "Build",
+      "severity": "blocker"
+    },
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "org.eclipse.birt.core.data.DataTypeUtil (initialization failure)",
+      "elements": [
+        {
+          "method": "java.lang.J9VMInternals.initialize",
+          "source": "J9VMInternals.java:123"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.DataTypeUtil.toTypeClass",
+          "source": "DataTypeUtil.java:67"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.ResultSetMetaData.getColumnTypeAsJavaClass",
+          "source": "ResultSetMetaData.java:230"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.ProjectedColumns.\u003cinit\u003e",
+          "source": "ProjectedColumns.java:57"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.doGetProjectedColumns",
+          "source": "PreparedStatement.java:400"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.getProjectedColumns",
+          "source": "PreparedStatement.java:340"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.addColumnHint",
+          "source": "PreparedStatement.java:882"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.executor.DataSourceQuery.addColumnHints",
+          "source": "DataSourceQuery.java:420"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.executor.DataSourceQuery.prepare",
+          "source": "DataSourceQuery.java:257"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedOdaDSQuery$OdaDSQueryExecutor.prepareOdiQuery",
+          "source": "PreparedOdaDSQuery.java:344"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.QueryExecutor.prepareExecution",
+          "source": "QueryExecutor.java:212"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedQuery.doPrepare",
+          "source": "PreparedQuery.java:397"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedDataSourceQuery.execute",
+          "source": "PreparedDataSourceQuery.java:147"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedOdaDSQuery.execute",
+          "source": "PreparedOdaDSQuery.java:135"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedDataSourceQuery.execute",
+          "source": "PreparedDataSourceQuery.java:127"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.data.dte.DteDataEngine.doExecuteQuery",
+          "source": "DteDataEngine.java:114"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.data.dte.AbstractDataEngine.execute",
+          "source": "AbstractDataEngine.java:208"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.ExecutionContext.executeQuery",
+          "source": "ExecutionContext.java:1640"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.QueryItemExecutor.executeQuery",
+          "source": "QueryItemExecutor.java:62"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.TableItemExecutor.execute",
+          "source": "TableItemExecutor.java:74"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.internal.executor.l18n.LocalizedReportItemExecutor.execute",
+          "source": "LocalizedReportItemExecutor.java:35"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.layout.html.HTMLPageLM.layoutChildren",
+          "source": "HTMLPageLM.java:123"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.layout.html.HTMLPageLM.layout",
+          "source": "HTMLPageLM.java:81"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.layout.html.HTMLReportLayoutEngine.layout",
+          "source": "HTMLReportLayoutEngine.java:80"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.RunAndRenderTask.run",
+          "source": "RunAndRenderTask.java:194"
+        },
+        {
+          "method": "com.ibm._jsp._28033._jspService",
+          "source": "_28033.java:134"
+        },
+        {
+          "method": "com.ibm.ws.jsp.runtime.HttpJspBase.service",
+          "source": "HttpJspBase.java:85"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:856"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.ServletWrapper.service",
+          "source": "ServletWrapper.java:966"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.ServletWrapper.handleRequest",
+          "source": "ServletWrapper.java:478"
+        },
+        {
+          "method": "com.ibm.ws.wswebcontainer.servlet.ServletWrapper.handleRequest",
+          "source": "ServletWrapper.java:463"
+        },
+        {
+          "method": "com.ibm.wsspi.webcontainer.servlet.GenericServletWrapper.handleRequest",
+          "source": "GenericServletWrapper.java:115"
+        },
+        {
+          "method": "com.ibm.ws.jsp.webcontainerext.AbstractJSPExtensionServletWrapper.handleRequest",
+          "source": "AbstractJSPExtensionServletWrapper.java:168"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.CacheServletWrapper.handleRequest",
+          "source": "CacheServletWrapper.java:92"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.WebContainer.handleRequest",
+          "source": "WebContainer.java:744"
+        },
+        {
+          "method": "com.ibm.ws.wswebcontainer.WebContainer.handleRequest",
+          "source": "WebContainer.java:1425"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.channel.WCChannelLink.ready",
+          "source": "WCChannelLink.java:92"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleDiscrimination",
+          "source": "HttpInboundLink.java:465"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleNewInformation",
+          "source": "HttpInboundLink.java:394"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.ready",
+          "source": "HttpInboundLink.java:274"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.sendToDiscriminators",
+          "source": "NewConnectionInitialReadCallback.java:214"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.complete",
+          "source": "NewConnectionInitialReadCallback.java:113"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.AioReadCompletionListener.futureCompleted",
+          "source": "AioReadCompletionListener.java:152"
+        },
+        {
+          "method": "com.ibm.io.async.AbstractAsyncFuture.invokeCallback",
+          "source": "AbstractAsyncFuture.java:213"
+        },
+        {
+          "method": "com.ibm.io.async.AbstractAsyncFuture.fireCompletionActions",
+          "source": "AbstractAsyncFuture.java:195"
+        },
+        {
+          "method": "com.ibm.io.async.AsyncFuture.completed",
+          "source": "AsyncFuture.java:136"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler.complete",
+          "source": "ResultHandler.java:193"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler.runEventProcessingLoop",
+          "source": "ResultHandler.java:725"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler$2.run",
+          "source": "ResultHandler.java:847"
+        },
+        {
+          "method": "com.ibm.ws.util.ThreadPool$Worker.run",
+          "source": "ThreadPool.java:1498"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 21,
+      "bugId": "154272",
+      "date": "2007-02-20T06:46:43+01:00",
+      "product": "BIRT",
+      "component": "Build",
+      "severity": "blocker"
+    },
+    {
+      "exceptionType": "java.lang.NoSuchMethodError",
+      "message": "com/ibm/icu/util/UResourceBundle.getBundleInstance(Ljava/lang/String;Lcom/ibm/icu/util/ULocale;Ljava/lang/ClassLoader;)Lcom/ibm/icu/util/UResourceBundle;",
+      "elements": [
+        {
+          "method": "org.eclipse.birt.core.i18n.ResourceHandle.\u003cinit\u003e",
+          "source": "ResourceHandle.java:82"
+        },
+        {
+          "method": "org.eclipse.birt.core.data.DataTypeUtil.\u003cclinit\u003e",
+          "source": "DataTypeUtil.java:58"
+        },
+        {
+          "method": "java.lang.J9VMInternals.initializeImpl",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.J9VMInternals.initialize",
+          "source": "J9VMInternals.java:177"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.DataTypeUtil.toTypeClass",
+          "source": "DataTypeUtil.java:67"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.ResultSetMetaData.getColumnTypeAsJavaClass",
+          "source": "ResultSetMetaData.java:230"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.ProjectedColumns.\u003cinit\u003e",
+          "source": "ProjectedColumns.java:57"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.doGetProjectedColumns",
+          "source": "PreparedStatement.java:400"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.getProjectedColumns",
+          "source": "PreparedStatement.java:340"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.addColumnHint",
+          "source": "PreparedStatement.java:882"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.executor.DataSourceQuery.addColumnHints",
+          "source": "DataSourceQuery.java:420"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.executor.DataSourceQuery.prepare",
+          "source": "DataSourceQuery.java:257"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedOdaDSQuery$OdaDSQueryExecutor.prepareOdiQuery",
+          "source": "PreparedOdaDSQuery.java:344"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.QueryExecutor.prepareExecution",
+          "source": "QueryExecutor.java:212"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedQuery.doPrepare",
+          "source": "PreparedQuery.java:397"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedDataSourceQuery.execute",
+          "source": "PreparedDataSourceQuery.java:147"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedOdaDSQuery.execute",
+          "source": "PreparedOdaDSQuery.java:135"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedDataSourceQuery.execute",
+          "source": "PreparedDataSourceQuery.java:127"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.data.dte.DteDataEngine.doExecuteQuery",
+          "source": "DteDataEngine.java:114"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.data.dte.AbstractDataEngine.execute",
+          "source": "AbstractDataEngine.java:208"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.ExecutionContext.executeQuery",
+          "source": "ExecutionContext.java:1640"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.QueryItemExecutor.executeQuery",
+          "source": "QueryItemExecutor.java:62"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.TableItemExecutor.execute",
+          "source": "TableItemExecutor.java:74"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.internal.executor.l18n.LocalizedReportItemExecutor.execute",
+          "source": "LocalizedReportItemExecutor.java:35"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.layout.html.HTMLPageLM.layoutChildren",
+          "source": "HTMLPageLM.java:123"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.layout.html.HTMLPageLM.layout",
+          "source": "HTMLPageLM.java:81"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.layout.html.HTMLReportLayoutEngine.layout",
+          "source": "HTMLReportLayoutEngine.java:80"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.RunAndRenderTask.run",
+          "source": "RunAndRenderTask.java:194"
+        },
+        {
+          "method": "com.ibm._jsp._28033._jspService",
+          "source": "_28033.java:134"
+        },
+        {
+          "method": "com.ibm.ws.jsp.runtime.HttpJspBase.service",
+          "source": "HttpJspBase.java:85"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:856"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.ServletWrapper.service",
+          "source": "ServletWrapper.java:966"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.ServletWrapper.handleRequest",
+          "source": "ServletWrapper.java:478"
+        },
+        {
+          "method": "com.ibm.ws.wswebcontainer.servlet.ServletWrapper.handleRequest",
+          "source": "ServletWrapper.java:463"
+        },
+        {
+          "method": "com.ibm.wsspi.webcontainer.servlet.GenericServletWrapper.handleRequest",
+          "source": "GenericServletWrapper.java:115"
+        },
+        {
+          "method": "com.ibm.ws.jsp.webcontainerext.AbstractJSPExtensionServletWrapper.handleRequest",
+          "source": "AbstractJSPExtensionServletWrapper.java:168"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.webapp.WebApp.handleRequest",
+          "source": "WebApp.java:3107"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.webapp.WebGroup.handleRequest",
+          "source": "WebGroup.java:238"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.WebContainer.handleRequest",
+          "source": "WebContainer.java:811"
+        },
+        {
+          "method": "com.ibm.ws.wswebcontainer.WebContainer.handleRequest",
+          "source": "WebContainer.java:1425"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.channel.WCChannelLink.ready",
+          "source": "WCChannelLink.java:92"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleDiscrimination",
+          "source": "HttpInboundLink.java:465"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleNewInformation",
+          "source": "HttpInboundLink.java:394"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpICLReadCallback.complete",
+          "source": "HttpICLReadCallback.java:102"
+        }
+      ],
+      "number": 4,
+      "commentIndex": 21,
+      "bugId": "154272",
+      "date": "2007-02-20T06:46:43+01:00",
+      "product": "BIRT",
+      "component": "Build",
+      "severity": "blocker"
+    },
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "org.eclipse.birt.core.data.DataTypeUtil (initialization failure)",
+      "elements": [
+        {
+          "method": "java.lang.J9VMInternals.initialize",
+          "source": "J9VMInternals.java:123"
+        }
+      ],
+      "number": 5,
+      "commentIndex": 22,
+      "bugId": "154272",
+      "date": "2007-02-21T17:16:59+01:00",
+      "product": "BIRT",
+      "component": "Build",
+      "severity": "blocker"
+    },
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "\u003e org.eclipse.birt.core.data.DataTypeUtil (initialization failure) \u003e",
+      "elements": [
+        {
+          "method": "java.lang.J9VMInternals.initialize",
+          "source": "J9VMInternals.java:123"
+        }
+      ],
+      "number": 6,
+      "commentIndex": 23,
+      "bugId": "154272",
+      "date": "2007-02-22T16:08:30+01:00",
+      "product": "BIRT",
+      "component": "Build",
+      "severity": "blocker"
+    }
+  ],
+  "groupId": "154272",
+  "bugId": "154272",
+  "date": "2006-08-17T20:22:03+02:00",
+  "product": "BIRT",
+  "component": "Build",
+  "severity": "blocker"
+}

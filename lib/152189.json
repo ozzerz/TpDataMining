@@ -1,0 +1,73 @@
+{
+  "comments": [
+    "I keep getting this in my log (see below). It only happens when I include a bundle of mine that has a peculiar behavior. The bundle adds itself as a BundleListener in start(BundleContext).  The start(BundleContext) method returns, so it\u0027s NOT blocking that thread.  A little later, when the bundle gets notified by the framework that it is BundleEvent.STARTED, it *uninstalls* itself.  The bundle removes itself as a BundleListener in the stop(BundleContext) method. Only when this bundle is included in my config.ini do I consistently get this (overly cryptic, ya think?) message:\n\n!SESSION 2006-07-28 13:45:53.269 -----------------------------------------------\neclipse.buildId\u003dunknown\njava.version\u003d1.5.0_02\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments:  -console -clean\n\n!ENTRY org.eclipse.osgi 4 0 2006-07-28 13:45:56.835\n!MESSAGE Startup error\n!STACK 1\njava.lang.IllegalArgumentException: Bundle \"{0}\" has been uninstalled\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.getBundleStartLevel(StartLevelManager.java:337)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelImpl.getBundleStartLevel(StartLevelImpl.java:180)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.ensureBundlesActive(EclipseStarter.java:445)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.startup(EclipseStarter.java:312)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:173)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.main(EclipseStarter.java:150)",
+    "This message looks like the placeholder was not populated:\n    Bundle \"{0}\" has been uninstalled\n\nBut, of course, this could be a side effect of the bug, since the bundle\u0027s been uninstalled.\n",
+    "(In reply to comment #0)\n\u003e I keep getting this in my log (see below). It only happens when I include a\n\u003e bundle of mine that has a peculiar behavior. The bundle adds itself as a\n\u003e BundleListener in start(BundleContext).  The start(BundleContext) method\n\u003e returns, so it\u0027s NOT blocking that thread.  A little later, when the bundle\n\u003e gets notified by the framework that it is BundleEvent.STARTED, it *uninstalls*\n\u003e itself.  \n\nBundles are not allowed to modify their own state. That is a bundle may not stop itself or update itself or uninstall itself. The reason being that the Bundle methods for these actions are synchronous and return to the caller when complete. So a bundle that stops itself will still be executing when Bundle.stop() returns to the bundle code.",
+    "The reality of this is that Paul\u0027s description of the problem was abstracted away from the implementation details to make it easier to explain!  The bundle doing the uninstalling is not *actually* the bundle in question, but another management bundle.  \n\nNevertheless, I am not sure I agree with what you claim about a bundle not being able to uninstall itself.  In this case the bundle is NOT calling the Bundle uninstall() method from either its start(BundleContext) method or\nits stop(BundleContext) method, but rather is calling it while handling a BundleEvent that was fired to it by the framework as a result of being a BundleListener.\n",
+    "I will claim to be an expert on the OSGi spec :-), so you will have to take my word on this. The lifecycle design was made with the view that bundle are not permitted to perform lifecycle operations upon themselves. That is the perview of another bundle, e.g. a so called management bundle.\n\nThe framework is not responsible to detecting bundles manipulating their own state, but it is poor form on the part of the bundle.\n\nI will note that there is an unfulfilled requirement in OSGi to provide some means for a bundle to request a change in its lifecycle, eg. suicide. I opened up OSGi internal bug 356 to track this for a future OSGi spec release.",
+    "Please understand that my bundle is NOT uninstalling itself. Rather, my management bundle is uninstalling it. Are you saying that I cannot have my own management bundle? Only the OSGi implementation can do that? How do I make my own management bundle?",
+    "(In reply to comment #5)\nNo, I was responding to Simon\u0027s statement:\n\n\u003e Nevertheless, I am not sure I agree with what you claim about a bundle not\n\u003e being able to uninstall itself.\n\nYou certainly can write your own management bundle. Bundle A can perform lifecycle operations on bundle B for any  A!\u003dB. The only care that must be taken is to avoid threads returning to the stopped/uninstalled bundle.\n\nI only started commenting upon this because the original description has a bundle uninstalling itself. I just wanted to point out that that is bad form. It has since been pointed out that this is not the case and a second bundle is uninstalling the first.",
+    "Thanks for your help BJ.  We were not trying to out-spec you!  ;-)  So, we now have to just wait for Tom to chime in with his comments.",
+    "Pretty nice discussion you all have been having ... ;-)\n\nIt looks to me like you are included a bundle on the osgi.bundles list and marking that bundle to be started, then during the coarse of setting the framework start-level you are uninstalling the bundle which you stated you wanted started on the osgi.bundles list.  After the bootstrap code (EclipseStarter) sets the start-level it checks to makes sure that all the bundles that should be started are infact still active.  If it finds one that is not active but should be according to its start-level then it logs an error (maybe this is not valid for your scenario!!).\n\nObviously there is a bug in the error message, we are not binding the bundle to the error msg so we get a {0} inserted instead of the bundle id or location.  I will released a fix for that.\n\nAs for the actual behavior.  I think it is valid for us to report this as an error.  This is working as designed.  Bundles on the osgi.bundles list are intended to be always installed and always active if they are marked for activation.\n\nIf you need some sort of enhancement to this design please open a separate enhancement bug with your requirements.  Thanks.",
+    "Oh, you know us Tom, we like to keep it real.  Bug reports are a great place to document a discussion such as ours.  ;-)\n\nIn this scenario the bundle was indeed started and became active, which is why it got uninstalled by our management bundle; this is the behavior we intended.  \n\nMaybe the ensureBundlesActive method should simply ignore cases where a bundle has been uninstalled, since it seems that it really is only looking for bundles that have been installed but are not yet active.  It is my opinion that reporting an error in this case is a little over zealous, but I don\u0027t expect anyone to agree!\n\nThanks for considering this.\n",
+    "As usual it is not that simple.  The ensureBundlesActive method checks for currently active bundles.  It is simply checking that the state of the system is consistent with what you specified in the osgi.bundles list.  In your scenario it is valid that one of the bundles on the list got uninstalled.  In other usecases this would clearly be invalid and would warrent an error.\n\nThe current design of the osgi.bundles list is not fulfilling your requirements.  But why do you need to put the bundle you are going to uninstall on the osgi.bundles list?  Why can this bundle not be installed/uninstalled by your \"agent\" bundle.  Placing this bundle on the osgi.bundles list forces it to be re-installed each time you restart the framework.  Is that desired?"
+  ],
+  "commentCreationDates": [
+    "2006-07-28T20:24:26+02:00",
+    "2006-07-28T20:27:56+02:00",
+    "2006-07-28T21:45:24+02:00",
+    "2006-07-28T21:54:59+02:00",
+    "2006-07-28T22:20:49+02:00",
+    "2006-07-28T22:30:24+02:00",
+    "2006-07-28T22:43:45+02:00",
+    "2006-07-28T22:47:44+02:00",
+    "2006-07-29T19:26:09+02:00",
+    "2006-07-29T20:26:36+02:00",
+    "2006-07-30T15:29:18+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Bundle \"{0}\" has been uninstalled",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.getBundleStartLevel",
+          "source": "StartLevelManager.java:337"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelImpl.getBundleStartLevel",
+          "source": "StartLevelImpl.java:180"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.ensureBundlesActive",
+          "source": "EclipseStarter.java:445"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.startup",
+          "source": "EclipseStarter.java:312"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:173"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.main",
+          "source": "EclipseStarter.java:150"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "152189",
+      "date": "2006-07-28T20:24:26+02:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "152189",
+  "bugId": "152189",
+  "date": "2006-07-28T20:24:26+02:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "normal"
+}

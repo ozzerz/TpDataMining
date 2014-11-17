@@ -1,0 +1,242 @@
+{
+  "comments": [
+    "To recreate:\n\n- Check out the QuickFix project from ajdt.test project\n- Open TestAspect.java in the Java Editor (right click \u003e open with \u003e Java \nEditor)\n- Click on the lightbulb with the error marker (the same line as File f \u003d new \nFile(\"tmp\");\n- An Internal Error appear in the Error log with the following stack trace:\n\n\n\njava.lang.NullPointerException\nat \norg.eclipse.jdt.internal.ui.text.correction.UnresolvedElementsSubProcessor.getT\nypeProposals(UnresolvedElementsSubProcessor.java:395)\nat org.eclipse.jdt.internal.ui.text.correction.QuickFixProcessor.process\n(QuickFixProcessor.java:270)\nat org.eclipse.jdt.internal.ui.text.correction.QuickFixProcessor.getCorrections\n(QuickFixProcessor.java:202)\nat \norg.eclipse.jdt.internal.ui.text.correction.JavaCorrectionProcessor.collectCorr\nections(JavaCorrectionProcessor.java:240)\nat \norg.eclipse.jdt.internal.ui.text.correction.JavaCorrectionProcessor.processAnno\ntations(JavaCorrectionProcessor.java:208)\nat \norg.eclipse.jdt.internal.ui.text.correction.JavaCorrectionProcessor.computeComp\nletionProposals(JavaCorrectionProcessor.java:177)\nat \norg.eclipse.jface.text.contentassist.ContentAssistant.computeCompletionProposal\ns(ContentAssistant.java:1472)\nat \norg.eclipse.jface.text.contentassist.CompletionProposalPopup.computeProposals\n(CompletionProposalPopup.java:242)\nat org.eclipse.jface.text.contentassist.CompletionProposalPopup.access$7\n(CompletionProposalPopup.java:238)\nat org.eclipse.jface.text.contentassist.CompletionProposalPopup$1.run\n(CompletionProposalPopup.java:197)\nat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\nat org.eclipse.jface.text.contentassist.CompletionProposalPopup.showProposals\n(CompletionProposalPopup.java:192)\nat \norg.eclipse.jface.text.contentassist.ContentAssistant.showPossibleCompletions\n(ContentAssistant.java:1320)\nat \norg.eclipse.jdt.internal.ui.text.correction.JavaCorrectionAssistant.showPossibl\neCompletions(JavaCorrectionAssistant.java:159)\nat \norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$AdaptedSourceViewe\nr.doOperation(CompilationUnitEditor.java:184)\nat org.eclipse.jdt.internal.ui.javaeditor.JavaSelectAnnotationRulerAction.run\n(JavaSelectAnnotationRulerAction.java:78)\nat org.eclipse.ui.texteditor.AbstractRulerActionDelegate.run\n(AbstractRulerActionDelegate.java:99)\nat org.eclipse.ui.internal.PluginAction.runWithEvent(PluginAction.java:276)\nat org.eclipse.ui.internal.PluginAction.run(PluginAction.java:238)\nat org.eclipse.ui.texteditor.AbstractTextEditor$11.triggerAction\n(AbstractTextEditor.java:2110)\nat org.eclipse.ui.texteditor.AbstractTextEditor$11.mouseUp\n(AbstractTextEditor.java:2117)\nat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:136)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:796)\nat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2772)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2431)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1377)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1348)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:254)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\nat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:96)\nat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:335)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:273)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:129)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\nat java.lang.reflect.Method.invoke(Method.java:324)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:183)\nat org.eclipse.core.launcher.Main.run(Main.java:644)\nat org.eclipse.core.launcher.Main.main(Main.java:628)\n\n\nLooking at the jdt code in UnresolvedElementsSubProcessor.java, at line 395, \nthe parent field is null:\n\n\tASTNode parent\u003d selectedNode.getParent();\n\twhile (parent.getLength() \u003d\u003d selectedNode.getLength()) { // line 395\n\t\t\tparent\u003d parent.getParent(); \n\t}\n\nThere just needs to be a null check as there is above:\n\n\n\tASTNode selectedNode\u003d problem.getCoveringNode(context.getASTRoot());\n\tif (selectedNode \u003d\u003d null) {\n\t\treturn;\n\t}\n\tint kind\u003d SimilarElementsRequestor.ALL_TYPES;\n\t\t\n\tASTNode parent\u003d selectedNode.getParent();\n\twhile (parent.getLength() \u003d\u003d selectedNode.getLength()) { \t\n\t\tparent\u003d parent.getParent(); \n\t}\n\nshould become:\n\n\n\tASTNode selectedNode\u003d problem.getCoveringNode(context.getASTRoot());\n\tif (selectedNode \u003d\u003d null) {\n\t\treturn;\n\t}\n\tint kind\u003d SimilarElementsRequestor.ALL_TYPES;\n\t\t\n\tASTNode parent\u003d selectedNode.getParent();\n\tif (parent \u003d\u003d null) {\n\t\treturn;\n\t}\n\twhile (parent.getLength() \u003d\u003d selectedNode.getLength()) { \t\n\t\tparent\u003d parent.getParent(); \n\t}\n\n\nThis needs to be raised as a jdt bug, since we don\u0027t pass through any ajdt \ncode in order to get here.\n\nRaising this bug against ajdt is just for tracking.\n\n(note this happens on 1.1.12, but also on the latest AJDT dev build).",
+    "The problem still exists with the latest dev build of AJDT 1.3.0 on Eclipse 3.1,\nalthough the stack trace is now slightly different:\n\njava.lang.NullPointerException\nat\norg.eclipse.jdt.internal.ui.text.correction.ASTResolving.internalGetPossibleTypeKinds(ASTResolving.java:700)\nat\norg.eclipse.jdt.internal.ui.text.correction.ASTResolving.getPossibleTypeKinds(ASTResolving.java:663)\nat\norg.eclipse.jdt.internal.ui.text.correction.UnresolvedElementsSubProcessor.evauateTypeKind(UnresolvedElementsSubProcessor.java:493)\nat\norg.eclipse.jdt.internal.ui.text.correction.UnresolvedElementsSubProcessor.getTypeProposals(UnresolvedElementsSubProcessor.java:506)\nat\norg.eclipse.jdt.internal.ui.text.correction.QuickFixProcessor.process(QuickFixProcessor.java:268)\nat\norg.eclipse.jdt.internal.ui.text.correction.QuickFixProcessor.getCorrections(QuickFixProcessor.java:213)\nat\norg.eclipse.jdt.internal.ui.text.correction.JavaCorrectionProcessor$SafeCorrectionCollector.safeRun(JavaCorrectionProcessor.java:310)\nat\norg.eclipse.jdt.internal.ui.text.correction.JavaCorrectionProcessor$SafeCorrectionProcessorAccess.run(JavaCorrectionProcessor.java:275)\nat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1044)"
+  ],
+  "commentCreationDates": [
+    "2004-10-13T10:51:25+02:00",
+    "2005-08-15T18:14:19+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.UnresolvedElementsSubProcessor.getTypeProposals",
+          "source": "UnresolvedElementsSubProcessor.java:395"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.QuickFixProcessor.process",
+          "source": "QuickFixProcessor.java:270"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.QuickFixProcessor.getCorrections",
+          "source": "QuickFixProcessor.java:202"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.JavaCorrectionProcessor.collectCorrections",
+          "source": "JavaCorrectionProcessor.java:240"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.JavaCorrectionProcessor.processAnnotations",
+          "source": "JavaCorrectionProcessor.java:208"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.JavaCorrectionProcessor.computeCompletionProposals",
+          "source": "JavaCorrectionProcessor.java:177"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant.computeCompletionProposals",
+          "source": "ContentAssistant.java:1472"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.computeProposals",
+          "source": "CompletionProposalPopup.java:242"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.access$7",
+          "source": "CompletionProposalPopup.java:238"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup$1.run",
+          "source": "CompletionProposalPopup.java:197"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.showProposals",
+          "source": "CompletionProposalPopup.java:192"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant.showPossibleCompletions",
+          "source": "ContentAssistant.java:1320"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.JavaCorrectionAssistant.showPossibleCompletions",
+          "source": "JavaCorrectionAssistant.java:159"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$AdaptedSourceViewer.doOperation",
+          "source": "CompilationUnitEditor.java:184"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.JavaSelectAnnotationRulerAction.run",
+          "source": "JavaSelectAnnotationRulerAction.java:78"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractRulerActionDelegate.run",
+          "source": "AbstractRulerActionDelegate.java:99"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PluginAction.runWithEvent",
+          "source": "PluginAction.java:276"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PluginAction.run",
+          "source": "PluginAction.java:238"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$11.triggerAction",
+          "source": "AbstractTextEditor.java:2110"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$11.mouseUp",
+          "source": "AbstractTextEditor.java:2117"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:136"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:796"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2772"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2431"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1377"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1348"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:254"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:335"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:129"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:183"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:644"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:628"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "76146",
+      "date": "2004-10-13T10:51:25+02:00",
+      "product": "AJDT",
+      "component": "UI",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.ASTResolving.internalGetPossibleTypeKinds",
+          "source": "ASTResolving.java:700"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.ASTResolving.getPossibleTypeKinds",
+          "source": "ASTResolving.java:663"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.UnresolvedElementsSubProcessor.evauateTypeKind",
+          "source": "UnresolvedElementsSubProcessor.java:493"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.UnresolvedElementsSubProcessor.getTypeProposals",
+          "source": "UnresolvedElementsSubProcessor.java:506"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.QuickFixProcessor.process",
+          "source": "QuickFixProcessor.java:268"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.QuickFixProcessor.getCorrections",
+          "source": "QuickFixProcessor.java:213"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.JavaCorrectionProcessor$SafeCorrectionCollector.safeRun",
+          "source": "JavaCorrectionProcessor.java:310"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.correction.JavaCorrectionProcessor$SafeCorrectionProcessorAccess.run",
+          "source": "JavaCorrectionProcessor.java:275"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:1044"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 1,
+      "bugId": "76146",
+      "date": "2005-08-15T18:14:19+02:00",
+      "product": "AJDT",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "76146",
+  "bugId": "76146",
+  "date": "2004-10-13T10:51:25+02:00",
+  "product": "AJDT",
+  "component": "UI",
+  "severity": "normal"
+}

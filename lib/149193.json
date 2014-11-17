@@ -1,0 +1,1260 @@
+{
+  "comments": [
+    "3.2\n\nWe currently do not support asynchonous events from SWT at the JFace level well. In particular we do not currently handle tooltips and owner draw.\n\nGenerally whenever there is another feature added to SWT we add some sort of new provider interface for it but this is becoming untenable (Tables for instance have\nILabelProvider, ITableLabelProvider, IColorProvider,  ITableColorProvider, IFontProvider, ITableColorProvider and IViewerLabelProvider as possible way to currently display content).\n\nWe need a solution that is extensible for future SWT features without adding yet another interface. My suggestion is to take IViewerLabelProvider and create an implementation that can handle all of the current functionality of the other providers and add the new required features as well.\n\nI\u0027ll attach a rough pass when I get it worked out.",
+    "That\u0027s a good idea because when reading mailling-list people simply have no idea about all those optional interfaces ;-)\n\nI think it\u0027s time to clean up more JFace code there are so many duplications between TreeViewer/TableViewer most of them because we need to cast to TableItem/TreeItem in those classes but we use the same methods getBounds(), ... .\n\nI tried in my last patches (#83200,#142655) to provide classes which can be used by both controls. I think we also need a concept how to deal with this. JFace code would get much less complicated if there would exists ITableTreeItem holding the interface definition both widgets share but because I think we SWT will never provide this interface we should think about an intelligent wrapper.\n\nAnother thing we need to correct is to make features configurable from the outside look at #142655 (configure from outside how tabbing works) and #87733 (configure activation for CellEditors)",
+    "Tom we might be able to talk the SWT guys into a common superclass if we can come up with a good name. Any suggestions?\n\nLet me have a start on this and I\u0027ll post some code soon - I just want to be sure my ideas aren\u0027t half baked \u003cgrin\u003e...",
+    "(In reply to comment #2)\n\u003e Tom we might be able to talk the SWT guys into a common superclass if we can\n\u003e come up with a good name. Any suggestions?\n\u003e \n\nWell not at the moment but I\u0027ll think about a good name and let you know.\n\n\u003e Let me have a start on this and I\u0027ll post some code soon - I just want to be\n\u003e sure my ideas aren\u0027t half baked \u003cgrin\u003e...\n\u003e \n\nTell me if you need any input from me you besides this bug #142655 addresses JFace-Viewers also in a global context maybe we should sync those efforts. ",
+    "(In reply to comment #2)\n\u003e Tom we might be able to talk the SWT guys into a common superclass if we can\n\u003e come up with a good name. Any suggestions?\n\u003e \n\u003e Let me have a start on this and I\u0027ll post some code soon - I just want to be\n\u003e sure my ideas aren\u0027t half baked \u003cgrin\u003e...\n\u003e \nWhat\u0027s with one of these:\n- IColumnItem \n- ITableItem (because used in TreeTables)\n\nThe reasons why this would be needed:\na) Reduce amount of code duplication in JFace (see TableEditorImpl,...)\nb) When implementing Viewers for Components outside of JFace e.g. Nebula\u0027s \n   grid-control (see #146945) JFace does have to have a dependency to this \n   project without that the Viewer needs to live in the nebula project which is \n   in my opion not the right place for it.",
+    "Is it TableTree you are talking about? We are likely not going to do anything interesting as it a deprecated Viewer.\n\nBut Boris was also keen on the concept of a column.\n\nI assume you are suggesting that we have a abstract class like\n\nJFaceItem \n\nwith a subclass of ColumnItem and JFaceItem?",
+    "(In reply to comment #5)\n\u003e Is it TableTree you are talking about? We are likely not going to do anything\n\u003e interesting as it a deprecated Viewer.\n\u003e \n\nWell not exactly I think about having TableItem and TreeItem, GridItem (nebula-grid), ... implementing an interface holding the methods both have in common.  In those cases it\u0027s always the same story that the item is split into \"Columns\" hence methods like item.getBounds(i) that\u0027s why I named the interface IColumnItem. \n\nThis would make our/your job easier when dealing with Column-Widget like Table is and Tree is too. What I have already thought about is wrapping SWT-Columns like shown in bug #142655 (https://bugs.eclipse.org/bugs/attachment.cgi?id\u003d42561) see \n\n- AbstractEditingColumn\n- AbstractEditableTableColumn\n- AbstractEditableTreeColumn\n\nWhich addresses many many things we are talking about and people requested in the past.\n\n\u003e But Boris was also keen on the concept of a column.\n\u003e \n\u003e I assume you are suggesting that we have a abstract class like\n\u003e \n\u003e JFaceItem \n\u003e \n\u003e with a subclass of ColumnItem and JFaceItem?\n\u003e \n\nI not sure I can follow you here or rather I think you got me wrong. How do you think this would work technically the items are provided by the Tree/Table/Grid/.... Do you want to wrap them when request by any Viewer-method instead of returning the original Items? That\u0027s not what I had in mind.",
+    "OK I think I might see where you are going with this - let me elaborate on what I was thinking about.\n\nBasically we have two types of interfaces for viewers - those for a whole row and those for inidividual entries (i.e. IColorProvider vs. ITableColorProvider).\n\nThese are effectively both IColorProviders - the one for the table just has the column as a parameter. If instead ITableColorProvider was an IColorProvider applied to a column (i.e. we would have a method setColorProvider(IColorProvider provider, int columnIndex) that would reduce the need for parallel interfaces all of the time.\n\nWe could then express everything in terms of the base interfaces without a need for table and tree versions of them that take an index. When we add a new one (like the tooltip support)we create one provider and apply it to either the whole table or tree or just one column.\n\nInternally we might create the idea of StructuredViewerColumn with subclasses of  TableViewerColumn and TreeViewerColumn to implement this but I will have to play around to see what I think we need.",
+    "(In reply to comment #7)\n\u003e Internally we might create the idea of StructuredViewerColumn with subclasses\n\u003e of  TableViewerColumn and TreeViewerColumn to implement this but I will have to\n\u003e play around to see what I think we need.\n\nI would like to see an abstraction like this in the API so that clients can call viewerColumn.setLabelProvider(...) and similar methods for cell editors, cell modifier etc. instead of the index-based calls.\n",
+    "(In reply to comment #8)\n\u003e (In reply to comment #7)\n\u003e \u003e Internally we might create the idea of StructuredViewerColumn with subclasses\n\u003e \u003e of  TableViewerColumn and TreeViewerColumn to implement this but I will have to\n\u003e \u003e play around to see what I think we need.\n\u003e \n\u003e I would like to see an abstraction like this in the API so that clients can\n\u003e call viewerColumn.setLabelProvider(...) and similar methods for cell editors,\n\u003e cell modifier etc. instead of the index-based calls.\n\u003e \n\nWell I\u0027d go one step further we let the user create the ViewerColumn instead of create the TableColumn/TreeColumn at the moment. \n\nThis would give us the possibility to remove all those ITableFontProvider, ITableColorProvider and replace them through methods in our ViewerColumn (getForegroundColor(),getFont(),getTooltip(),...). By default it would return null and users could overwrite it to get custom behaviour. As already said I\u0027ve started this for CellEditors in my above mentionned concept for Viewers. \n\nIn short at the moment we add the concept of Columns we don\u0027t need any LabelProvider, ICellModifier, ... stuff any more. My point moreover is that we only need ViewerColumn if we could convince SWT folks to provide interfaces for TableColumn/TreeColumn and TableItem/TreeItem.",
+    "This is the direction that I am thinking as well - I would like to deprecate ITableXProvider at the end of this work.\n\nColumnViewer should just be another viewer. ColumnViewer would have a TreeColumn or TableColumn as a widget just like a Viewer has a Table or a Tree. \n\nIt is a bit of a departure as we have nowhere else where a Viewer has other Viewers in it but I think this fits our ViewerModel nicely. By making the column a first class viewer like the Table is we can implement all of the functionality you are after.\n\nThanks for your input Tom - I think we are going in a good direction here.",
+    "(Just noticed this bug from the planning notes)\n\nAs the owner of the Nebula Grid, if theres some possibility to allow Grid to\nreuse the standard JFace table/tree viewers that would make me extremely happy.\n I (and others) have taken to copying/modify the viewer code to support Grid\nand its been difficult because of the access levels for the classes.  \n\nRather than requiring SWT to create a new interface shared between Tables/Trees\nand potentially Grid, a proxy interface could be created in JFace.  The viewers would be refactored to act against the interface, but also\nJFace would include implementations of the interface that wrapped existing\nTable and Tree.  This would allow the existing API constructor to remain the\nsame.  The constructor code would look something like:\n\npublic TableViewer(Table table)\n{\n    this(new TableProxy(table));\n}\n\npublic TableViewer(ITableProxy table)\n{\n   //...\n}\n\nBut thats only if the SWT guys decide against a common interface.\n\nI realize the focus of this bug report isn\u0027t this kind of change, but it would\nbe much appreciated.\n",
+    "I have been playing around with a ColumnViewer and it is not as simple as I thought at first.\n\nFirst of all let me ask you what you expect in a grid. The current implementation of tables and trees assumes that the same item is used for all of the columns in a particualr row. Are you looking ofr a viewer where every element could be different (i.e. two sequential cells would have different elements behind them)? If so then I am not sure if we are looking to do quite so radical a change to how a row of a tree or table is represented.\n\nSecondly my original idea of ColumnViewers does not make sense with the current implementation. If each row represents an element the Column can\u0027t be a viewer as we would be hacking it pretty hard to make it fit the viewer API. ",
+    "Created an attachment (id\u003d46241)\nFirst pass of the new API\n\nJust so that you can see where I am going with this here is a patch that shows what I am suggesting.\n\nTableColumnViewerPart (I am not attached to the name so suggestions are welcome) is the JFace representation of the TableColumn. The whole provider mechanism is simplified into the ViewerLabelProvider which can be subclassed for anyone who want to do anything custom.\n\nTableColumnViewerPart (which can also be subclassed) is responsible for supplying the TableItem and the element when refresh is required.It asks ViewerLabelProvider to build the label and then updates the TableItem when the label is built.",
+    "I\u0027ve taken a look at it and form my point of view it looks good but as already said I\u0027d more like to see that instead of creating TableColumn/TreeColumn from the outside I\u0027d like to have a see another constructor TableColumnViewerPart(TableViewer,ViewerLabelProvider), I would not give the user the possibility any more to create a TableColumn simply by deprecating getTable()/getTree(). \n\nWhat do you for example do if the user access the getTable().setColumnOrder()? I don\u0027t think that you could recognize this, can you?\n\nMy dream would be do hide the underlying SWT-Control completely from the user. This way the user wouldn\u0027t event recognize if we would replace the underlying Table/Tree through e.g. the Grid-Control because of what ever reason (although we won\u0027t do that ever).\n\nAnother great thing would be if we could merge my replacement ICellModifier,... from bug 142655 into it.\n\n(In reply to comment #13)\n\u003e Created an attachment (id\u003d46241) [edit]\n\u003e First pass of the new API\n\u003e \n\u003e Just so that you can see where I am going with this here is a patch that shows\n\u003e what I am suggesting.\n\u003e \n\u003e TableColumnViewerPart (I am not attached to the name so suggestions are\n\u003e welcome) is the JFace representation of the TableColumn. The whole provider\n\u003e mechanism is simplified into the ViewerLabelProvider which can be subclassed\n\u003e for anyone who want to do anything custom.\n\u003e \n\u003e TableColumnViewerPart (which can also be subclassed) is responsible for\n\u003e supplying the TableItem and the element when refresh is required.It asks\n\u003e ViewerLabelProvider to build the label and then updates the TableItem when the\n\u003e label is built.\n\u003e \n\n",
+    "Created an attachment (id\u003d46254)\nNew patch\n\nHere is a patch based on what I have done since the first one today (with a lot of tidy up).\n\nI like your idea of the constructor - I did a similar thing in TableViewer - setColumnPart(ColumnViewerPart viewerPart, int columnIndex). ColumnViewerPart has no controls associated with it.\n\nI am reluctant to hide the SWT widget as I would like this to be extensible and so if there something you want to do that JFace does not permit you would be out of luck if we didn\u0027t give it access. Many of the people interested in this have expressed that having the widget is a requirement.\n\nWe of course want to have your work as part of the final solution for this Tom - I just want to have the groundwork done before the feature work.\n\nThanks again for all of your input",
+    "Created an attachment (id\u003d46263)\nPatch that passes the test suites\n\nHere is a version of the previous patch that does not break the JFace suites",
+    "Maybe we should also add the concept of Cells into Tables/Trees not provided my SWT. This came to my mind creating the patch for bug 151377",
+    "(In reply to comment #17)\n\u003e Maybe we should also add the concept of Cells into Tables/Trees not provided my\n\u003e SWT. This came to my mind creating the patch for bug 151377\n\u003e \n\nThe new listener added by this bug-report can be used to refactor TableEditorImpl/TreeEditorImpl who extract the column themselfs at the moment.",
+    "Created an attachment (id\u003d46677)\nCorrects problems with column-index\n\nToday I had the chance to take a closer look at your implementation and found some major problems with your approach of fixing the column-index. I think this has to stay be dynamic because if you add/remove columns you may have problems with multiple columns having the same index.\n\nI also added a new class named TableColumnViewerPart which can be used to created new TableColumns, ... ",
+    "(In reply to comment #19)\n\u003e Created an attachment (id\u003d46677) [edit]\n\u003e Corrects problems with column-index\n\u003e \n\u003e Today I had the chance to take a closer look at your implementation and found\n\u003e some major problems with your approach of fixing the column-index. I think this\n\u003e has to stay be dynamic because if you add/remove columns you may have problems\n\u003e with multiple columns having the same index.\n\u003e \n\u003e I also added a new class named TableColumnViewerPart which can be used to\n\u003e created new TableColumns, ... \n\u003e \n\nAnother problem just came to my mind is the way you call hasNewBackground(), ...  you can not reset a background to the default color if you have set it once or am I wrong here?\n",
+    "Created an attachment (id\u003d46686)\nRevised patch\n\nThis patch does the following changes to the one Tod:\n- Add new WrapperClasses for TreeColumn and TableColumn\n- Renames TreeViewerPart to TreeColumnViewerPart\n- Moves ColumViewerPart \u003c\u003d\u003e ColumnOwner relationship to ColumnViewerPart\u0027s contructor\n- Add editing support to ColumViewPart and therefore refactors TableEditor/TreeEditorImpl",
+    "FYI - I\u0027ve submitted bug 151644 seperately to investigate the possibility of a shared interface between Table and Tree.",
+    "To whom it may interest today I had time and thought I it give a try and started a TableViewer from scratch.\n\nMy interest was not to provide anything that is backward compatible but rather try out some ideas I had in mind. The ideas I used came from Tod\u0027s code and some of the existing feature requests.\n\nInteresting ideas:\n- Tod\u0027s ViewerPart\n- Wrapper for TableItem (should give possiblity to exchange Table) named RowPart\n  maybe can be addressed from the jface side bug 151644 whether or not this\n  request is fullfilled or not doesn\u0027t harm this implementation and could be \n  extented by every Grid/TableProvider\n- Concept of Cells(CellPart) in conjunction with TableCursor\n\nAt the moment the following bugs can be addressed with this viewer:\n- bug 151377: [Viewers] Listeners for CellSelections\n- bug 151205: [Viewers] More efficient addFilter-Method\n- bug  83200: [Viewers] Support to define custom tooltips for elements in viewers\n- bug 143789: [EditorMgmt] Add possibility to customize table-editor activation\n- bug 151295: [CellEditors] table viewer needs to provide a key combination to activate the celleditors\n- bug  87733: [CellEditors] Double click behavior for tableviewer\n- bug 142655: [Viewers] Rethink Viewer Concept of ICellModifier, columnProperties, CellEditor\n- bug 149193: [Viewers] JFace Table and Tree Viewers need to handle SWT events in an extensible way\n- bug 151644: to some extend that maybe the interfaces are not needed\n\nThe concept of Custom-Tooltips also got many new features:\n- useNativeTooltip\n- getTooltipTimeDisplayed\n- getTooltipDisplayDelayTime\n- getTooltipImage\n- getTooltipFont\n\nThe most outstandings things are at the moment:\n- Tab-Editing support to jump from CellEditor to CellEditor\n- Support for DecorationLabelProvider\n\nIdeas, suggestions, ... are welcome. I wanted to post this code to show you my way of thinking some parts of them can easily backported e.g. Tooltip things, ... .\n\n(In reply to comment #22)\n\u003e FYI - I\u0027ve submitted bug 151644 seperately to investigate the possibility of a\n\u003e shared interface between Table and Tree.\n\u003e ",
+    "Created an attachment (id\u003d47008)\nTest implementation\n\n",
+    "Tod/Boris is there anything new about what you guys think about the current implementation provided by Tod. I\u0027m going to have time this week and if this is the way to go for future of Viewers I\u0027d incooperate all my work into this.\n\nWhat I\u0027d like to see merged in:\n- handling of editing by ColumnViewerPart\n- intergration of Tooltips like in my Test-Impl\n- KeyBoard-Navigation (we need to discuss how this can be done, I\u0027m not sure\n  the impl I\u0027ve tried to use in my Test-Impl)\n- possiblity to Track-Clicks on cell \"addCellSelectionListener\"",
+    "Sorry Tom - both of us were on vacation for the last two weeks so I haven\u0027t had a chance to look over anything yet. I\u0027ll try to get to it this week.",
+    "I can see the sense in dumping the column indices - we don\u0027t keep them in item mappings either so this is a consistent implementation.\n\nI think Toms patch is on the right track so I am happy to keep working from here. I ran our suites and it doesn\u0027t appear to break anything.\n\nI of course can\u0027t speak for Boris - he will be back on Tuesday IIRC.",
+    "The current patch has this exception when you import a project from a plug-in\n\n!ENTRY org.eclipse.jface 4 2 2006-08-03 12:05:39.671\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.jface\".\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.jface.viewers.ViewerLabelProvider.getFont(ViewerLabelProvider.java:143)\n\tat org.eclipse.jface.viewers.ViewerLabelProvider.updateLabel(ViewerLabelProvider.java:78)\n\tat org.eclipse.jface.viewers.ViewerLabelProvider.updateLabel(ViewerLabelProvider.java:90)\n\tat org.eclipse.jface.viewers.ColumnViewerPart.refresh(ColumnViewerPart.java:87)\n\tat org.eclipse.jface.viewers.TreeViewer.doUpdateItem(TreeViewer.java:156)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer$UpdateItemSafeRunnable.run(AbstractTreeViewer.java:95)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:843)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(AbstractTreeViewer.java:849)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem(ProblemTreeViewer.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem(ResourceToItemsMapper.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged(ResourceToItemsMapper.java:63)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged(ProblemTreeViewer.java:127)\n\tat org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged(ContentViewer.java:74)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged(ProblemsLabelDecorator.java:380)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0(ProblemsLabelDecorator.java:375)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged(ProblemsLabelDecorator.java:355)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run(ProblemMarkerManager.java:177)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3354)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3000)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:820)\n\tat org.eclipse.jface.window.Window.open(Window.java:796)\n\tat org.eclipse.jface.dialogs.MessageDialog.openError(MessageDialog.java:322)\n\tat org.eclipse.jface.util.SafeRunnable.handleException(SafeRunnable.java:60)\n\tat org.eclipse.core.runtime.SafeRunner.handleException(SafeRunner.java:68)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:39)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:843)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(AbstractTreeViewer.java:849)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem(ProblemTreeViewer.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem(ResourceToItemsMapper.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged(ResourceToItemsMapper.java:63)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged(ProblemTreeViewer.java:127)\n\tat org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged(ContentViewer.java:74)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged(ProblemsLabelDecorator.java:380)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0(ProblemsLabelDecorator.java:375)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged(ProblemsLabelDecorator.java:355)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run(ProblemMarkerManager.java:177)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3354)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3000)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:820)\n\tat org.eclipse.jface.window.Window.open(Window.java:796)\n\tat org.eclipse.jface.dialogs.MessageDialog.openError(MessageDialog.java:322)\n\tat org.eclipse.jface.util.SafeRunnable.handleException(SafeRunnable.java:60)\n\tat org.eclipse.core.runtime.SafeRunner.handleException(SafeRunner.java:68)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:39)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:843)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(AbstractTreeViewer.java:849)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem(ProblemTreeViewer.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem(ResourceToItemsMapper.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged(ResourceToItemsMapper.java:63)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged(ProblemTreeViewer.java:127)\n\tat org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged(ContentViewer.java:74)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged(ProblemsLabelDecorator.java:380)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0(ProblemsLabelDecorator.java:375)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged(ProblemsLabelDecorator.java:355)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run(ProblemMarkerManager.java:177)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3354)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3000)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:820)\n\tat org.eclipse.jface.window.Window.open(Window.java:796)\n\tat org.eclipse.jface.dialogs.MessageDialog.openError(MessageDialog.java:322)\n\tat org.eclipse.jface.util.SafeRunnable.handleException(SafeRunnable.java:60)\n\tat org.eclipse.core.runtime.SafeRunner.handleException(SafeRunner.java:68)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:39)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:843)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(AbstractTreeViewer.java:849)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem(ProblemTreeViewer.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem(ResourceToItemsMapper.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged(ResourceToItemsMapper.java:63)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged(ProblemTreeViewer.java:127)\n\tat org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged(ContentViewer.java:74)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged(ProblemsLabelDecorator.java:380)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0(ProblemsLabelDecorator.java:375)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged(ProblemsLabelDecorator.java:355)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run(ProblemMarkerManager.java:177)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3354)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3000)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:820)\n\tat org.eclipse.jface.window.Window.open(Window.java:796)\n\tat org.eclipse.jface.dialogs.MessageDialog.openError(MessageDialog.java:322)\n\tat org.eclipse.jface.util.SafeRunnable.handleException(SafeRunnable.java:60)\n\tat org.eclipse.core.runtime.SafeRunner.handleException(SafeRunner.java:68)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:39)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:843)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(AbstractTreeViewer.java:849)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem(ProblemTreeViewer.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem(ResourceToItemsMapper.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged(ResourceToItemsMapper.java:63)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged(ProblemTreeViewer.java:127)\n\tat org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged(ContentViewer.java:74)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged(ProblemsLabelDecorator.java:380)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0(ProblemsLabelDecorator.java:375)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged(ProblemsLabelDecorator.java:355)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run(ProblemMarkerManager.java:177)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3354)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3000)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:820)\n\tat org.eclipse.jface.window.Window.open(Window.java:796)\n\tat org.eclipse.jface.dialogs.MessageDialog.openError(MessageDialog.java:322)\n\tat org.eclipse.jface.util.SafeRunnable.handleException(SafeRunnable.java:60)\n\tat org.eclipse.core.runtime.SafeRunner.handleException(SafeRunner.java:68)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:39)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:843)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(AbstractTreeViewer.java:849)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem(ProblemTreeViewer.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem(ResourceToItemsMapper.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged(ResourceToItemsMapper.java:63)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged(ProblemTreeViewer.java:127)\n\tat org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged(ContentViewer.java:74)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged(ProblemsLabelDecorator.java:380)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0(ProblemsLabelDecorator.java:375)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged(ProblemsLabelDecorator.java:355)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run(ProblemMarkerManager.java:177)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3354)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3000)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:820)\n\tat org.eclipse.jface.window.Window.open(Window.java:796)\n\tat org.eclipse.jface.dialogs.MessageDialog.openError(MessageDialog.java:322)\n\tat org.eclipse.jface.util.SafeRunnable.handleException(SafeRunnable.java:60)\n\tat org.eclipse.core.runtime.SafeRunner.handleException(SafeRunner.java:68)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:39)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:843)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(AbstractTreeViewer.java:849)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem(ProblemTreeViewer.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem(ResourceToItemsMapper.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged(ResourceToItemsMapper.java:63)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged(ProblemTreeViewer.java:127)\n\tat org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged(ContentViewer.java:74)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged(ProblemsLabelDecorator.java:380)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0(ProblemsLabelDecorator.java:375)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged(ProblemsLabelDecorator.java:355)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run(ProblemMarkerManager.java:177)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3354)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3000)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:820)\n\tat org.eclipse.jface.window.Window.open(Window.java:796)\n\tat org.eclipse.jface.dialogs.MessageDialog.openError(MessageDialog.java:322)\n\tat org.eclipse.jface.util.SafeRunnable.handleException(SafeRunnable.java:60)\n\tat org.eclipse.core.runtime.SafeRunner.handleException(SafeRunner.java:68)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:39)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:843)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(AbstractTreeViewer.java:849)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem(ProblemTreeViewer.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem(ResourceToItemsMapper.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged(ResourceToItemsMapper.java:63)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged(ProblemTreeViewer.java:127)\n\tat org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged(ContentViewer.java:74)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged(ProblemsLabelDecorator.java:380)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0(ProblemsLabelDecorator.java:375)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged(ProblemsLabelDecorator.java:355)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run(ProblemMarkerManager.java:177)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3354)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3000)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:820)\n\tat org.eclipse.jface.window.Window.open(Window.java:796)\n\tat org.eclipse.jface.dialogs.MessageDialog.openError(MessageDialog.java:322)\n\tat org.eclipse.jface.util.SafeRunnable.handleException(SafeRunnable.java:60)\n\tat org.eclipse.core.runtime.SafeRunner.handleException(SafeRunner.java:68)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:39)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:843)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(AbstractTreeViewer.java:849)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem(ProblemTreeViewer.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem(ResourceToItemsMapper.java:74)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged(ResourceToItemsMapper.java:63)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged(ProblemTreeViewer.java:127)\n\tat org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged(ContentViewer.java:74)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged(ProblemsLabelDecorator.java:380)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0(ProblemsLabelDecorator.java:375)\n\tat org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged(ProblemsLabelDecorator.java:355)\n\tat org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run(ProblemMarkerManager.java:177)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3354)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3000)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:820)\n\tat org.eclipse.jface.window.Window.open(Window.java:796)\n\tat org.eclipse.jface.dialogs.MessageDialog.openError(MessageDialog.java:322)\n\tat org.eclipse.jface.util.SafeRunnable.handleException(SafeRunnable.java:60)\n\tat org.eclipse.core.runtime.SafeRunner.handleException(SafeRunner.java:68)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:39)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:843)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(AbstractTreeViewer.java:849)\n\tat org.eclipse.jface.viewers.StructuredViewer$UpdateItemSafeRunnable.run(StructuredViewer.java:465)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:843)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.StructuredViewer.updateItem(StructuredViewer.java:1955)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.createTreeItem(AbstractTreeViewer.java:753)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.createAddedElements(AbstractTreeViewer.java:313)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.internalAdd(AbstractTreeViewer.java:257)\n\tat org.eclipse.jface.viewers.TreeViewer.internalAdd(TreeViewer.java:810)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.add(AbstractTreeViewer.java:136)\n\tat org.eclipse.jdt.internal.ui.packageview.PackageExplorerPart$PackageExplorerProblemTreeViewer.add(PackageExplorerPart.java:260)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.add(AbstractTreeViewer.java:602)\n\tat org.eclipse.jdt.internal.ui.packageview.PackageExplorerContentProvider$4.run(PackageExplorerContentProvider.java:629)\n\tat org.eclipse.jdt.internal.ui.packageview.PackageExplorerContentProvider$7.run(PackageExplorerContentProvider.java:666)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3354)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3000)\n\tat org.eclipse.jface.operation.ModalContext$ModalContextThread.block(ModalContext.java:158)\n\tat org.eclipse.jface.operation.ModalContext.run(ModalContext.java:326)\n\tat org.eclipse.jface.wizard.WizardDialog.run(WizardDialog.java:854)\n\tat org.eclipse.pde.internal.ui.wizards.imports.PluginImportWizard.performFinish(PluginImportWizard.java:90)\n\tat org.eclipse.jface.wizard.WizardDialog.finishPressed(WizardDialog.java:683)\n\tat org.eclipse.jface.wizard.WizardDialog.buttonPressed(WizardDialog.java:355)\n\tat org.eclipse.jface.dialogs.Dialog$3.widgetSelected(Dialog.java:660)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:90)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:928)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3377)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2997)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:820)\n\tat org.eclipse.jface.window.Window.open(Window.java:796)\n\tat org.eclipse.ui.actions.ImportResourcesAction.run(ImportResourcesAction.java:159)\n\tat org.eclipse.ui.actions.BaseSelectionListenerAction.runWithEvent(BaseSelectionListenerAction.java:168)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:539)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:488)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:400)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:928)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3377)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2997)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1914)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1878)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:400)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:177)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)\n",
+    "If you have sometime you can look at what I\u0027m trying out by a completely custom TableViewer-Implementation from my SVN-Repository at:\nhttp://publicsvn.bestsolution.at/repos/java/at.bestsolution.jface.custom/trunk",
+    "Created an attachment (id\u003d47350)\nFix NLP\n\nThat\u0027s strange are we self the I*Provider? This seems to be the case because the line in ViewerLabelProvider.java:78 reads like this:\n\n77 if (fontProvider !\u003d null) {\n78    label.setFont(fontProvider.getFont(element));\n79 }\n\nBecause ViewerLabelProvider implements all interfaces we mimic to have a IFontProvider and without any checks whether we have a IFontProvider, ... is set. \n\nChecking against null before calling the viewer should cure the problem and isn\u0027t a bad idea in any case.\n\nCould you give this patch a try or tell me exactly how I can provoke the NLP myself.",
+    "You can get this by loading a project from a CVS repository into an empty workspace",
+    "(In reply to comment #22)\n\u003e FYI - I\u0027ve submitted bug 151644 seperately to investigate the possibility of a\n\u003e shared interface between Table and Tree.\n\u003e \n\nNow that this feature request was refused by the SWT-Team I think we should think about a Proxy mechanism provided by JFace to make it easy for other to use JFace-Viewers without providing too much custom code.\n\nWhat I think about is the following:\n\npublic abstract class RowPart {\n   public abstract getBounds(int columnIndex);\n   // and some more\n}\n\npublic class StructuredViewer {\n   // Subclasses have to implement\n   public RowPart createNewRowPart() {\n      return null;\n   }\n\n   // Subclasses have to implement\n   public RowPart createRowPartFromItem(Item item) {\n      return(RowPart)item.getData(\"ROWDATA\");\n   }\n}\n\npublic class TableViewer extends StructuredViewer {\n   public RowPart createNewRowPart() {\n       return new TableRowPart(this,SWT.NONE);\n   }\n   public RowPart createRowPartFromItem(Item item) {\n       RowPart part \u003d super.createRowPartFromItem(Item item);\n\n       if( part \u003d\u003d null ) {\n           part \u003d new TableRowPart((TableItem)item);\n       }\n\n       return part;\n   }\n}\n\npublic class TableRowPart extends RowPart {\n   private TableItem item;\n\n   public TableRowPart(TableViewer viewer, int style) {\n       this(new TableItem(viewer.getTable(),style));\n   }\n\n   public TableRowPart(TableItem item) {\n       this.item \u003d item;\n       // should we cache the RowPart\n       // this.item.setData(\"ROWPART\",this);\n   }\n   \n   public Rectangle getBounds(int columnIndex) {\n       return item.getBounds(columnIndex);\n   }\n}",
+    "Created an attachment (id\u003d47453)\nNew Patch to add Tooltip-Support\n\nThis patch adds:\n----------------\n- Tooltip-Support\n- Wrappers for TableItem/TreeItem \u003d\u003e possibility for other Widget providers than \n  SWT to use Viewers with very little custom code\n\nBecause of the wrappers I was able to move some portions of the code from TableViewer/TreeViewer to StructuredViewer. I think this implementation gives us  more flexiblity and we can start to reduce code in many other places of JFace-Viewers.",
+    "Created an attachment (id\u003d47454)\nExample script to show tooltips usage\n\n",
+    "One more thing I want to add is that I move some of the Interfaces (likely to change in future maybe) into internal.viewers and the only possiblity from for external users is to use public abstract classes:\n- ITooltipAddonsProvider      \u003d\u003e AbstractTooltipProvider\n- ITableTooltipAddonsProvider \u003d\u003e AbstractTableTooltipProvider\n- RowPart                     \u003d\u003e DefaultRowPartImpl\n\nFor e.g. Nebula this would mean that they need to provide an implementation ontop of DefaultRowPartImpl instead of RowPart.\n\nAnother action which needs to be done by e.g. Nebula is to subclass TableViewer/TreeViewer\n\nprotected RowPart getRowPartFromItem(Widget item);\nprotected RowPart createNewRowPart(RowPart parent, int style, int rowIndex);\nprotected ColumnViewerPart createColumnViewer(Widget columnOwner, ViewerLabelProvider labelProvider);\n\n\n\n(In reply to comment #33)\n\u003e Created an attachment (id\u003d47453) [edit]\n\u003e New Patch to add Tooltip-Support\n\u003e \n\u003e This patch adds:\n\u003e ----------------\n\u003e - Tooltip-Support\n\u003e - Wrappers for TableItem/TreeItem \u003d\u003e possibility for other Widget providers\n\u003e than \n\u003e   SWT to use Viewers with very little custom code\n\u003e \n\u003e Because of the wrappers I was able to move some portions of the code from\n\u003e TableViewer/TreeViewer to StructuredViewer. I think this implementation gives\n\u003e us  more flexiblity and we can start to reduce code in many other places of\n\u003e JFace-Viewers.\n\u003e \n\n",
+    "Oh one more thing to add. I think we need to add new abstract classes between\nStructuredViewer -\u003e TableViewer\nStructuredViewer -\u003e AbstractTreeViewer\n\nWho are able are not dependent on Table/Tree-Widget. What do you think is this worth the effort? \n\nAlthough I think 1st priority should be to finalize provider support and then go-on with Widget independency. Maybe another bug should be filed for this?\n\n\n\n(In reply to comment #35)\n\u003e One more thing I want to add is that I move some of the Interfaces (likely to\n\u003e change in future maybe) into internal.viewers and the only possiblity from for\n\u003e external users is to use public abstract classes:\n\u003e - ITooltipAddonsProvider      \u003d\u003e AbstractTooltipProvider\n\u003e - ITableTooltipAddonsProvider \u003d\u003e AbstractTableTooltipProvider\n\u003e - RowPart                     \u003d\u003e DefaultRowPartImpl\n\u003e \n\u003e For e.g. Nebula this would mean that they need to provide an implementation\n\u003e ontop of DefaultRowPartImpl instead of RowPart.\n\u003e \n\u003e Another action which needs to be done by e.g. Nebula is to subclass\n\u003e TableViewer/TreeViewer\n\u003e \n\u003e protected RowPart getRowPartFromItem(Widget item);\n\u003e protected RowPart createNewRowPart(RowPart parent, int style, int rowIndex);\n\u003e protected ColumnViewerPart createColumnViewer(Widget columnOwner,\n\u003e ViewerLabelProvider labelProvider);\n\u003e \n\u003e \n\u003e \n\u003e (In reply to comment #33)\n\u003e \u003e Created an attachment (id\u003d47453) [edit]\n\u003e \u003e New Patch to add Tooltip-Support\n\u003e \u003e \n\u003e \u003e This patch adds:\n\u003e \u003e ----------------\n\u003e \u003e - Tooltip-Support\n\u003e \u003e - Wrappers for TableItem/TreeItem \u003d\u003e possibility for other Widget providers\n\u003e \u003e than \n\u003e \u003e   SWT to use Viewers with very little custom code\n\u003e \u003e \n\u003e \u003e Because of the wrappers I was able to move some portions of the code from\n\u003e \u003e TableViewer/TreeViewer to StructuredViewer. I think this implementation gives\n\u003e \u003e us  more flexiblity and we can start to reduce code in many other places of\n\u003e \u003e JFace-Viewers.\n\u003e \u003e \n\u003e \n\n",
+    "Created an attachment (id\u003d47472)\nFixing backwards compatility problems\n\nBy moving methods to StructuredViewer I introduced a NLP-Exception, the same is true for EditorImpls where those bugs are also fixed now",
+    "Tod one more question is there a reason why TreeColumnViewerLabelProvider extends ViewerLabelProvider and not TableColumnViewerLabelProvider?",
+    "Because I wanted to keep the tree and table metaphor seperate so as not to confuse developers. I would it if as much of our API as possible was Tree/Table independant.",
+    "Well that doesn\u0027t make sense because the TreeColumnViewerLabelProvider doesn\u0027t has the possiblity to work with ITable*-Interfaces it can at the moment.\n\n(In reply to comment #39)\n\u003e Because I wanted to keep the tree and table metaphor seperate so as not to\n\u003e confuse developers. I would it if as much of our API as possible was Tree/Table\n\u003e independant.\n\u003e \n\n",
+    "Also TreeColumnViewerLabelProvider supports TreePaths which the TableColumnViewerLabelProvider does not. I see your point though as Trees support ITableLabelProvider we should make thier label provider support it too.\n\nBoris and I will be going through this today and we hope to start committing it as as experimental API early next week.",
+    "That\u0027s great. Then we have a starting point and continue to integrate all those very nifty things although many of the things depend on the SWT-Team providing the Base-Classes to Tree/Table TableItem/TreeItem. I think I have to hold off all my work (Tooltips,....) until its clear what way to go.\n\n(In reply to comment #41)\n\u003e Also TreeColumnViewerLabelProvider supports TreePaths which the\n\u003e TableColumnViewerLabelProvider does not. I see your point though as Trees\n\u003e support ITableLabelProvider we should make thier label provider support it too.\n\u003e \n\u003e Boris and I will be going through this today and we hope to start committing it\n\u003e as as experimental API early next week.\n\u003e ",
+    "Tom here is the patch that I am planning to submit to HEAD on Monday . Note all all new API has been marked experimental as I am sure we are all going to want changes.\n\nThe highlights to my changes are\n\n1) Removed the new tooltip interfaces and added the methods to ViewerLabelProvider. One of the goals of this work was to reduce the proliferation of interfaces we have\n\n2) Removed the internal package. I used package visibility where possible. JFace currently doesn\u0027t use internal packages so I would just as soon not add one unless we had a strong reason\n\n3) Made RowPart a class and removed DefaultRowPartImpl\n\n4) Added ColumnViewer between StructuredViewer and the Tree and Table classes and  pushed your additions there. You suggested this before and it looks like you were onto the right thing.\n\n5) Added comments to all new API\n\n6) Added Toms name to a bunch of classes he has touched\n\n7) TreeColumnViewerLabelProvider extends  TableColumnViewerLabelProvider as suggested.\n\nI am going to also suggest that we mark this fixed after I commit as we are up to comment 44 now and 10 attachments so this bug will be impossible to follow.",
+    "Created an attachment (id\u003d47722)\nPatch August 10\n\n",
+    "(In reply to comment #43)\n\u003e Tom here is the patch that I am planning to submit to HEAD on Monday . Note all\n\u003e all new API has been marked experimental as I am sure we are all going to want\n\u003e changes.\n\u003e \n\nGreate news I\u0027ll look at them tomorrow its late in the evening in Europe.\n\nTom",
+    "(In reply to comment #43)\n\u003e Tom here is the patch that I am planning to submit to HEAD on Monday . Note all\n\u003e all new API has been marked experimental as I am sure we are all going to want\n\u003e changes.\n\u003e \n\u003e The highlights to my changes are\n\u003e \n\u003e 1) Removed the new tooltip interfaces and added the methods to\n\u003e ViewerLabelProvider. One of the goals of this work was to reduce the\n\u003e proliferation of interfaces we have\n\nYou are right but we don\u0027t need the methods getTooltip*(Object object, int columnIndex) because users can access the columnIndex they are working for from getColumnIndex() besides that they get never called from within Viewers and user may get confused.\n\n\u003e \n\u003e 2) Removed the internal package. I used package visibility where possible.\n\u003e JFace currently doesn\u0027t use internal packages so I would just as soon not add\n\u003e one unless we had a strong reason\n\nAccepted.\n\n\u003e \n\u003e 3) Made RowPart a class and removed DefaultRowPartImpl\n\nAccepted. If SWT-Team will continue to work on common interface this could maybe be removed.\n\n\u003e \n\u003e 4) Added ColumnViewer between StructuredViewer and the Tree and Table classes\n\u003e and  pushed your additions there. You suggested this before and it looks like\n\u003e you were onto the right thing.\n\u003e \n\nGreat. But I think this is only the first part of the story. I think now that we introduced the concept of RowPart we should provided TableViewer and TreeViewer which are free from Table/Tree, TableItem/TreeItem, TableColumn/TreeColumn. But this has to be addressed in future patches.\n\n\u003e 5) Added comments to all new API\n\u003e \n\nAccepted. I hope you\u0027ve corrected my language mistakes where I had provided an comment ;-)\n\n\u003e 6) Added Toms name to a bunch of classes he has touched\n\u003e \n\nAccepted ;-)\n\n\u003e 7) TreeColumnViewerLabelProvider extends  TableColumnViewerLabelProvider as\n\u003e suggested.\n\nAccepted.\n\n\u003e \n\u003e I am going to also suggest that we mark this fixed after I commit as we are up\n\u003e to comment 44 now and 10 attachments so this bug will be impossible to follow.\n\u003e \n\nAccepted.\n\nOther things I found:\n- TableViewer.createNewRowPart(RowPart parent, int style, int rowIndex) should \n  use the passed style same is true for TreeViewer.createRowPart\n\n- TableViewer.createNewRowPart(RowPart parent, int style, int rowIndex) and \n  TreeViewer.createNewRowPart(RowPart parent, int style, int rowIndex) should \n  have different visibilities and should defined as an abstract method in\n  ColumnViewer\n\n- Rename ViewerLabelProvider.getTooltipImageStyle(Object object) \u003d\u003e \n  getTooltipStyle(Object object)\n\n- Cell should be renamed to CellPart to stay consitent.\n\nThe rest looks good and I\u0027m looking forward to your submit. \n\nThe things on my todo list for future bugs or already active ones:\n- finish TooltipSupport (\u003d\u003e Delays not used at the moment)\n- finish editor activation customization (e.g. activate on double-click)\n- finish tab navigation from cell-editor to cell-editor\n- provide generic TableViewer and TreeViewer Baseclasses free from Tree/Table, \n  ... . No bug report exists for this. What do you think about this? \n  It would provide Viewers \"automatically\" for e.g. Nebula-Widgets)",
+    "And one more thing I just found:\nViewerLabel doesn\u0027t need to restore the Tooltip-Infos because they are accessed directly from the ViewerLabelProvider.\n\nNot that I really mind but my name is missing in some of the Files:\n\n- TableColumnViewerLabelProvider.java \u003d\u003e use column-index\n- TableColumnViewPart.java \u003d\u003e initial API\n- TreeColumnViewerPart \u003d\u003e initial API\n- TableEditorImpl.java \u003d\u003e usage EditingSupport\n- TreeEditorImpl.java \u003d\u003e usage EditingSupport\n- TableViewer.java \u003d\u003e comment wrong because bug 8200 is addressed in \n  ColumnViewer (\u003d\u003e concept of RowPart)\n- TreeViewer.java \u003d\u003e concept of RowPart\n- EditingSupport.java \u003d\u003e comment in class JavaDoc?",
+    "Patch has been released to HEAD with updated comments. Tom if you could double check that I got you everywhere I would be grateful.\n\nI am going to close this bug now - we can open new ones for other issues/discussions.",
+    "(In reply to comment #48)\n\u003e Patch has been released to HEAD with updated comments. Tom if you could double\n\u003e check that I got you everywhere I would be grateful.\n\u003e \n\u003e I am going to close this bug now - we can open new ones for other\n\u003e issues/discussions.\n\u003e \n\n(In reply to comment #48)\n\u003e Patch has been released to HEAD with updated comments. Tom if you could double\n\u003e check that I got you everywhere I would be grateful.\n\u003e \n\u003e I am going to close this bug now - we can open new ones for other\n\u003e issues/discussions.\n\u003e \n\nHi Tod I cann\u0027t help but somehow the comments are mixed up some of them are in the Javadoc of the class like e.g. TableColumnViewerPart and in some of them e.g. TreeColumnViewerLabelProvider in the copyright part. It somehow seems to be mixed up. I always thought the standard is to mentionned all contributors in the Copyright header but if I\u0027m wrong here please correct me. \n\nWhat do you think about my comments in comment 46 e.g. \n\"public Point getTooltipShift(Object object, int columnIndex)\" is still part of ViewerLabelProvider-API but its not needed  and our Viewers won\u0027t call. \nI\u0027ve one subclasses it an uses it as a Provider for more than one Column he/she can use getColumnIndex() to distinguish between rows.\n\nDo you think I should open new bugs for this?",
+    "\n\u003e ViewerLabelProvider-API but its not needed  and our Viewers won\u0027t call. \n\u003e I\u0027ve one subclasses it an uses it as a Provider for more than one Column he/she\n\u003e can use getColumnIndex() to distinguish between rows.\n\u003e \n\nsorry I meant columns not rows.\n\n\u003e Do you think I should open new bugs for this?\n\u003e \n\n",
+    "That is a mistake. It should be in the copyright as you say - I got caught out by code folding I think. Let me know if there are any others.\n\nThe tooltip work is largely being driven by you so if you think we should change the visibility of a method here and there by all means attach a patch and I\u0027ll apply it.",
+    "Created an attachment (id\u003d47944)\nFix Tooltip-Methods and Comments\n\nThis patch fixes the following things:\n- ViewerLabelProvider\n  - remove api-methods with column-index\n  - rename getTooltipImageStyle \u003d\u003e getTooltipStyle\n- TreeViewer\n  - fixed copyright comment (added myself)\n  - fixed createNewRowPart to use passed style\n- TreeEditorImpl\n  - fixed copyright comment (added myself)\n- TreeColumnViewerPart\n  - fixed copyright comment (added myself)\n- TooltipSupport\n  - getTooltipImageStyle \u003d\u003e getTooltipStyle\n- TableViewer\n  - fixed copyright comment (added myself)\n  - createNewRowPart use passed style\n- TableEditorImpl\n  - fixed copyright comment (added myself)\n- TableColumnViewerLabelProvider\n  - fixed copyright comment (moved from Javadoc to header)",
+    "Patch released - thanks.",
+    "Created an attachment (id\u003d48028)\nExample how to use Tooltips\n\n",
+    "Created an attachment (id\u003d48089)\nOne more wrong copyright ;-)\n\n",
+    "Released patch. I took the liberty of spelling your name correctly as well \u003cgrin\u003e...",
+    "Will the changes to the editor activation allow for an editor to activate when a user starts typing?",
+    "(In reply to comment #57)\n\u003e Will the changes to the editor activation allow for an editor to activate when\n\u003e a user starts typing?\n\u003e \n\nThis is not really defined at the moment and hasn\u0027t been my primary focus. I think editor activation is better discussed in https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d87733 maybe the label should be changed to \"Customizeable Editor Activation\". \n\nA problem I can think of with KeyActivation is that you don\u0027t really know which Cell in the row the user wants to edit. To provide this Table\u0027s need to provide the possibility to grab the cell under focus or we need to track it our own in jface, some where I have code that does that but it\u0027s not really usable at the moment.\n",
+    "The APIs added with this bug need some cleanup:\n\n* all new APIs (ViewerLabel, ViewerLabelProvider, etc.) needs \"@since 3.3\" tags\n\n* SWT uses \"ToolTip\" (camel case) in APIs and \"tool tip\" (lowercase, two words) in javadocs. JFace should follow that convention and\n  - change APIs to use camel case\n    (e.g. ViewerLabel.setTooltipText(..) -\u003e setToolTipText(..))\n  - adapt text in javadocs (\n\n* APIs in ViewerLabel are too terse, e.g.\n \t/** \n\t * @return Returns the tooltipShift.\n\t */\n\tpublic Point getTooltipShift() {\n  - should explain what the \"shift\" is (or link to\n    ViewerLabelProvider.getTooltipShift(..), ...)\n  - terms like \"tooltipShift\" are inconsistently used and look like internal\n    names. Should be \"tool tip shift\", etc.\n\n* Javadocs should be spell- and grammar-checked, e.g. ViewerLabelProvider.getTooltipShift(..) (\"This is the amount the used [..]\") or ViewerLabelProvider.useNativeTooltip(..) need some polish.\n\nShall I open a new bug, or do you want to reopen this one?",
+    "Verified in 20060919-0100"
+  ],
+  "commentCreationDates": [
+    "2006-06-29T19:03:56+02:00",
+    "2006-06-29T19:22:42+02:00",
+    "2006-06-29T19:36:26+02:00",
+    "2006-06-29T19:53:57+02:00",
+    "2006-07-07T15:18:00+02:00",
+    "2006-07-07T16:04:43+02:00",
+    "2006-07-07T18:12:21+02:00",
+    "2006-07-07T21:58:06+02:00",
+    "2006-07-10T14:12:48+02:00",
+    "2006-07-10T14:45:39+02:00",
+    "2006-07-10T15:39:24+02:00",
+    "2006-07-11T23:02:18+02:00",
+    "2006-07-12T21:09:17+02:00",
+    "2006-07-13T16:21:36+02:00",
+    "2006-07-13T20:12:47+02:00",
+    "2006-07-13T20:47:55+02:00",
+    "2006-07-13T22:33:12+02:00",
+    "2006-07-21T10:52:49+02:00",
+    "2006-07-21T11:04:59+02:00",
+    "2006-07-22T20:41:49+02:00",
+    "2006-07-23T13:16:37+02:00",
+    "2006-07-23T16:18:07+02:00",
+    "2006-07-24T23:22:35+02:00",
+    "2006-07-29T21:35:26+02:00",
+    "2006-07-29T21:36:46+02:00",
+    "2006-08-01T13:39:06+02:00",
+    "2006-08-01T14:15:04+02:00",
+    "2006-08-03T16:31:26+02:00",
+    "2006-08-03T18:04:40+02:00",
+    "2006-08-03T18:07:05+02:00",
+    "2006-08-03T19:31:46+02:00",
+    "2006-08-03T22:06:58+02:00",
+    "2006-08-04T20:28:21+02:00",
+    "2006-08-06T21:04:22+02:00",
+    "2006-08-06T21:06:28+02:00",
+    "2006-08-06T21:15:51+02:00",
+    "2006-08-06T23:36:14+02:00",
+    "2006-08-07T13:04:20+02:00",
+    "2006-08-07T13:16:34+02:00",
+    "2006-08-08T14:02:58+02:00",
+    "2006-08-08T14:08:05+02:00",
+    "2006-08-09T15:11:02+02:00",
+    "2006-08-09T17:47:55+02:00",
+    "2006-08-10T22:28:50+02:00",
+    "2006-08-10T22:29:48+02:00",
+    "2006-08-10T22:55:30+02:00",
+    "2006-08-11T07:31:52+02:00",
+    "2006-08-11T08:27:10+02:00",
+    "2006-08-15T15:01:27+02:00",
+    "2006-08-15T19:18:29+02:00",
+    "2006-08-15T19:21:18+02:00",
+    "2006-08-15T19:28:30+02:00",
+    "2006-08-15T20:05:12+02:00",
+    "2006-08-15T20:14:09+02:00",
+    "2006-08-16T18:04:04+02:00",
+    "2006-08-17T15:22:48+02:00",
+    "2006-08-17T17:23:03+02:00",
+    "2006-08-29T14:50:28+02:00",
+    "2006-08-29T15:02:13+02:00",
+    "2006-09-04T13:02:56+02:00",
+    "2006-09-19T15:09:07+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.viewers.ViewerLabelProvider.getFont",
+          "source": "ViewerLabelProvider.java:143"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ViewerLabelProvider.updateLabel",
+          "source": "ViewerLabelProvider.java:78"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ViewerLabelProvider.updateLabel",
+          "source": "ViewerLabelProvider.java:90"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewerPart.refresh",
+          "source": "ColumnViewerPart.java:87"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TreeViewer.doUpdateItem",
+          "source": "TreeViewer.java:156"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer$UpdateItemSafeRunnable.run",
+          "source": "AbstractTreeViewer.java:95"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:843"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:849"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem",
+          "source": "ProblemTreeViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem",
+          "source": "ResourceToItemsMapper.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged",
+          "source": "ResourceToItemsMapper.java:63"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged",
+          "source": "ProblemTreeViewer.java:127"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged",
+          "source": "ContentViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged",
+          "source": "ProblemsLabelDecorator.java:380"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0",
+          "source": "ProblemsLabelDecorator.java:375"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged",
+          "source": "ProblemsLabelDecorator.java:355"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run",
+          "source": "ProblemMarkerManager.java:177"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3354"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3000"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:820"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:796"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.MessageDialog.openError",
+          "source": "MessageDialog.java:322"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.handleException",
+          "source": "SafeRunnable.java:60"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.handleException",
+          "source": "SafeRunner.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:39"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:843"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:849"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem",
+          "source": "ProblemTreeViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem",
+          "source": "ResourceToItemsMapper.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged",
+          "source": "ResourceToItemsMapper.java:63"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged",
+          "source": "ProblemTreeViewer.java:127"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged",
+          "source": "ContentViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged",
+          "source": "ProblemsLabelDecorator.java:380"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0",
+          "source": "ProblemsLabelDecorator.java:375"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged",
+          "source": "ProblemsLabelDecorator.java:355"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run",
+          "source": "ProblemMarkerManager.java:177"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3354"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3000"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:820"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:796"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.MessageDialog.openError",
+          "source": "MessageDialog.java:322"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.handleException",
+          "source": "SafeRunnable.java:60"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.handleException",
+          "source": "SafeRunner.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:39"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:843"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:849"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem",
+          "source": "ProblemTreeViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem",
+          "source": "ResourceToItemsMapper.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged",
+          "source": "ResourceToItemsMapper.java:63"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged",
+          "source": "ProblemTreeViewer.java:127"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged",
+          "source": "ContentViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged",
+          "source": "ProblemsLabelDecorator.java:380"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0",
+          "source": "ProblemsLabelDecorator.java:375"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged",
+          "source": "ProblemsLabelDecorator.java:355"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run",
+          "source": "ProblemMarkerManager.java:177"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3354"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3000"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:820"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:796"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.MessageDialog.openError",
+          "source": "MessageDialog.java:322"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.handleException",
+          "source": "SafeRunnable.java:60"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.handleException",
+          "source": "SafeRunner.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:39"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:843"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:849"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem",
+          "source": "ProblemTreeViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem",
+          "source": "ResourceToItemsMapper.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged",
+          "source": "ResourceToItemsMapper.java:63"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged",
+          "source": "ProblemTreeViewer.java:127"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged",
+          "source": "ContentViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged",
+          "source": "ProblemsLabelDecorator.java:380"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0",
+          "source": "ProblemsLabelDecorator.java:375"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged",
+          "source": "ProblemsLabelDecorator.java:355"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run",
+          "source": "ProblemMarkerManager.java:177"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3354"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3000"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:820"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:796"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.MessageDialog.openError",
+          "source": "MessageDialog.java:322"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.handleException",
+          "source": "SafeRunnable.java:60"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.handleException",
+          "source": "SafeRunner.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:39"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:843"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:849"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem",
+          "source": "ProblemTreeViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem",
+          "source": "ResourceToItemsMapper.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged",
+          "source": "ResourceToItemsMapper.java:63"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged",
+          "source": "ProblemTreeViewer.java:127"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged",
+          "source": "ContentViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged",
+          "source": "ProblemsLabelDecorator.java:380"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0",
+          "source": "ProblemsLabelDecorator.java:375"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged",
+          "source": "ProblemsLabelDecorator.java:355"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run",
+          "source": "ProblemMarkerManager.java:177"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3354"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3000"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:820"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:796"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.MessageDialog.openError",
+          "source": "MessageDialog.java:322"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.handleException",
+          "source": "SafeRunnable.java:60"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.handleException",
+          "source": "SafeRunner.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:39"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:843"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:849"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem",
+          "source": "ProblemTreeViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem",
+          "source": "ResourceToItemsMapper.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged",
+          "source": "ResourceToItemsMapper.java:63"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged",
+          "source": "ProblemTreeViewer.java:127"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged",
+          "source": "ContentViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged",
+          "source": "ProblemsLabelDecorator.java:380"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0",
+          "source": "ProblemsLabelDecorator.java:375"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged",
+          "source": "ProblemsLabelDecorator.java:355"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run",
+          "source": "ProblemMarkerManager.java:177"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3354"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3000"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:820"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:796"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.MessageDialog.openError",
+          "source": "MessageDialog.java:322"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.handleException",
+          "source": "SafeRunnable.java:60"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.handleException",
+          "source": "SafeRunner.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:39"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:843"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:849"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem",
+          "source": "ProblemTreeViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem",
+          "source": "ResourceToItemsMapper.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged",
+          "source": "ResourceToItemsMapper.java:63"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged",
+          "source": "ProblemTreeViewer.java:127"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged",
+          "source": "ContentViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged",
+          "source": "ProblemsLabelDecorator.java:380"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0",
+          "source": "ProblemsLabelDecorator.java:375"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged",
+          "source": "ProblemsLabelDecorator.java:355"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run",
+          "source": "ProblemMarkerManager.java:177"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3354"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3000"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:820"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:796"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.MessageDialog.openError",
+          "source": "MessageDialog.java:322"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.handleException",
+          "source": "SafeRunnable.java:60"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.handleException",
+          "source": "SafeRunner.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:39"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:843"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:849"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem",
+          "source": "ProblemTreeViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem",
+          "source": "ResourceToItemsMapper.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged",
+          "source": "ResourceToItemsMapper.java:63"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged",
+          "source": "ProblemTreeViewer.java:127"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged",
+          "source": "ContentViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged",
+          "source": "ProblemsLabelDecorator.java:380"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0",
+          "source": "ProblemsLabelDecorator.java:375"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged",
+          "source": "ProblemsLabelDecorator.java:355"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run",
+          "source": "ProblemMarkerManager.java:177"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3354"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3000"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:820"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:796"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.MessageDialog.openError",
+          "source": "MessageDialog.java:322"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.handleException",
+          "source": "SafeRunnable.java:60"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.handleException",
+          "source": "SafeRunner.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:39"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:843"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:849"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.doUpdateItem",
+          "source": "ProblemTreeViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.updateItem",
+          "source": "ResourceToItemsMapper.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ResourceToItemsMapper.resourceChanged",
+          "source": "ResourceToItemsMapper.java:63"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemTreeViewer.handleLabelProviderChanged",
+          "source": "ProblemTreeViewer.java:127"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ContentViewer$1.labelProviderChanged",
+          "source": "ContentViewer.java:74"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.fireProblemsChanged",
+          "source": "ProblemsLabelDecorator.java:380"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator.access$0",
+          "source": "ProblemsLabelDecorator.java:375"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.ProblemsLabelDecorator$1.problemsChanged",
+          "source": "ProblemsLabelDecorator.java:355"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.viewsupport.ProblemMarkerManager$1.run",
+          "source": "ProblemMarkerManager.java:177"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3354"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3000"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:820"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:796"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.MessageDialog.openError",
+          "source": "MessageDialog.java:322"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.handleException",
+          "source": "SafeRunnable.java:60"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.handleException",
+          "source": "SafeRunner.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:39"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:843"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:849"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$UpdateItemSafeRunnable.run",
+          "source": "StructuredViewer.java:465"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:843"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.updateItem",
+          "source": "StructuredViewer.java:1955"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.createTreeItem",
+          "source": "AbstractTreeViewer.java:753"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.createAddedElements",
+          "source": "AbstractTreeViewer.java:313"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalAdd",
+          "source": "AbstractTreeViewer.java:257"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TreeViewer.internalAdd",
+          "source": "TreeViewer.java:810"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.add",
+          "source": "AbstractTreeViewer.java:136"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerPart$PackageExplorerProblemTreeViewer.add",
+          "source": "PackageExplorerPart.java:260"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.add",
+          "source": "AbstractTreeViewer.java:602"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerContentProvider$4.run",
+          "source": "PackageExplorerContentProvider.java:629"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerContentProvider$7.run",
+          "source": "PackageExplorerContentProvider.java:666"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3354"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3000"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.block",
+          "source": "ModalContext.java:158"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.run",
+          "source": "ModalContext.java:326"
+        },
+        {
+          "method": "org.eclipse.jface.wizard.WizardDialog.run",
+          "source": "WizardDialog.java:854"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.wizards.imports.PluginImportWizard.performFinish",
+          "source": "PluginImportWizard.java:90"
+        },
+        {
+          "method": "org.eclipse.jface.wizard.WizardDialog.finishPressed",
+          "source": "WizardDialog.java:683"
+        },
+        {
+          "method": "org.eclipse.jface.wizard.WizardDialog.buttonPressed",
+          "source": "WizardDialog.java:355"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.Dialog$3.widgetSelected",
+          "source": "Dialog.java:660"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:90"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:928"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3377"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2997"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:820"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:796"
+        },
+        {
+          "method": "org.eclipse.ui.actions.ImportResourcesAction.run",
+          "source": "ImportResourcesAction.java:159"
+        },
+        {
+          "method": "org.eclipse.ui.actions.BaseSelectionListenerAction.runWithEvent",
+          "source": "BaseSelectionListenerAction.java:168"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:539"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:488"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:928"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3377"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2997"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1914"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1878"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:400"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:177"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 28,
+      "bugId": "149193",
+      "date": "2006-08-03T18:04:40+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "149193",
+  "bugId": "149193",
+  "date": "2006-06-29T19:03:56+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

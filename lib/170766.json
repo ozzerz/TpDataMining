@@ -1,0 +1,122 @@
+{
+  "comments": [
+    "Build ID: M20060629-1905\n\nSteps To Reproduce:\nI\u0027m developing some Eclipse plugins and I\u0027m testing those plugins in a minimal environment (ie not all default Eclipse plugins enabled in the launch configuration).\n\nOnce in this reduced Eclipse instance, I open the Preferences, then select Run/Debug \u003e Launching \u003e Launch Configurations. I get an error message \"The current displayed page contains invalid values\". The stack trace logged in the .log file follows.\n\nMore information:\nA quick look under the debbuger shows that LaunchConfigurationsPreferencePage.createTypeFiltering() contains the following code:\n\n[...]\nLaunchGroupExtension[] groups \u003d new LaunchGroupExtension[] {\t\t\t\t   DebugUIPlugin.getDefault().getLaunchConfigurationManager().getLaunchGroup(DEBUG_LAUNCH_GROUP),\tDebugUIPlugin.getDefault().getLaunchConfigurationManager().getLaunchGroup(EXT_BUILDER_GROUP)};\ntviewer.addFilter(new MultiLaunchGroupFilter(groups));\n[...]\n\nThe MultiLaunchGroupFilter is thus initialized with an array of two elements. In my case the second element is null. The comment of getLaunchGroup() indicates that it can returns null, so it looks like a possible configuration.\n\nHowever, MultiLaunchGroupFilter.equalModes() seems to assume that all groups are not null (when accessing \u0027fGroups[i].getMode()\u0027):\n\nprivate boolean equalModes(ILaunchConfigurationType type) {\n   for(int i \u003d 0; i \u003c fGroups.length; i++) {\n\tif(type.supportsMode(fGroups[i].getMode())) {\n\t\treturn true;\n\t}\n   }\n   return false;\n}\n\n\nWhen looking at the content of LaunchConfigurationManager.fLaunchGroups, I see only three entries in the hashtable: \n  org.eclipse.debug.ui.launchGroup.profile \n  org.eclipse.debug.ui.launchGroup.run\n  org.eclipse.debug.ui.launchGroup.debug\n\nbut not org.eclipse.ui.externaltools.launchGroup. \n\nOf course I suspect that the plugin responsible for the \"Extenal Tools\" was not loaded (don\u0027t know exactly which plugin it is, but I cannot see the icon in the UI). I\u0027d however expect the code not to assume that this plugin is present if this plugin is not required (\"Validate Plug-in Set\" in the launch configuration does not complain).\n\n\njava.lang.NullPointerException\n\tat org.eclipse.debug.internal.ui.launchConfigurations.MultiLaunchGroupFilter.equalModes(MultiLaunchGroupFilter.java:73)\n\tat org.eclipse.debug.internal.ui.launchConfigurations.MultiLaunchGroupFilter.select(MultiLaunchGroupFilter.java:61)\n\tat org.eclipse.jface.viewers.ViewerFilter.filter(ViewerFilter.java:51)\n\tat org.eclipse.jface.viewers.StructuredViewer.getFilteredChildren(StructuredViewer.java:872)\n\tat org.eclipse.jface.viewers.StructuredViewer.getSortedChildren(StructuredViewer.java:984)\n\tat org.eclipse.jface.viewers.TableViewer.internalRefreshAll(TableViewer.java:870)\n\tat org.eclipse.jface.viewers.TableViewer.internalRefresh(TableViewer.java:818)\n\tat org.eclipse.jface.viewers.TableViewer.internalRefresh(TableViewer.java:807)\n\tat org.eclipse.jface.viewers.StructuredViewer$7.run(StructuredViewer.java:1388)\n\tat org.eclipse.jface.viewers.StructuredViewer.preservingSelection(StructuredViewer.java:1323)\n\tat org.eclipse.jface.viewers.CheckboxTableViewer.preservingSelection(CheckboxTableViewer.java:295)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java:1386)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java:1345)\n\tat org.eclipse.jface.viewers.TableViewer.inputChanged(TableViewer.java:767)\n\tat org.eclipse.jface.viewers.ContentViewer.setInput(ContentViewer.java:250)\n\tat org.eclipse.jface.viewers.StructuredViewer.setInput(StructuredViewer.java:1542)\n\tat org.eclipse.debug.internal.ui.preferences.LaunchConfigurationsPreferencePage.createTypeFiltering(LaunchConfigurationsPreferencePage.java:260)\n\tat org.eclipse.debug.internal.ui.preferences.LaunchConfigurationsPreferencePage.createContents(LaunchConfigurationsPreferencePage.java:196)\n\tat org.eclipse.jface.preference.PreferencePage.createControl(PreferencePage.java:233)\n\tat org.eclipse.debug.internal.ui.preferences.LaunchConfigurationsPreferencePage.createControl(LaunchConfigurationsPreferencePage.java:168)\n\tat org.eclipse.jface.preference.PreferenceDialog.createPageControl(PreferenceDialog.java:1403)\n\tat org.eclipse.jface.preference.PreferenceDialog$12.run(PreferenceDialog.java:1162)\n[...]",
+    "fixed in HEAD, we were optimistically adding launch group extensions to the filter listing without checking to see if they were null or not (possibly passing an array full of nulls). As getLaunchGroup(..) is spec\u0027d to return null we should be checking for it.",
+    "please verify Curtis W",
+    "Verified"
+  ],
+  "commentCreationDates": [
+    "2007-01-17T14:15:15+01:00",
+    "2007-01-17T19:55:02+01:00",
+    "2007-01-17T19:56:06+01:00",
+    "2007-01-17T21:51:34+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.MultiLaunchGroupFilter.equalModes",
+          "source": "MultiLaunchGroupFilter.java:73"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.MultiLaunchGroupFilter.select",
+          "source": "MultiLaunchGroupFilter.java:61"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ViewerFilter.filter",
+          "source": "ViewerFilter.java:51"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.getFilteredChildren",
+          "source": "StructuredViewer.java:872"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.getSortedChildren",
+          "source": "StructuredViewer.java:984"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TableViewer.internalRefreshAll",
+          "source": "TableViewer.java:870"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TableViewer.internalRefresh",
+          "source": "TableViewer.java:818"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TableViewer.internalRefresh",
+          "source": "TableViewer.java:807"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$7.run",
+          "source": "StructuredViewer.java:1388"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.preservingSelection",
+          "source": "StructuredViewer.java:1323"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.CheckboxTableViewer.preservingSelection",
+          "source": "CheckboxTableViewer.java:295"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java:1386"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java:1345"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TableViewer.inputChanged",
+          "source": "TableViewer.java:767"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ContentViewer.setInput",
+          "source": "ContentViewer.java:250"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.setInput",
+          "source": "StructuredViewer.java:1542"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.preferences.LaunchConfigurationsPreferencePage.createTypeFiltering",
+          "source": "LaunchConfigurationsPreferencePage.java:260"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.preferences.LaunchConfigurationsPreferencePage.createContents",
+          "source": "LaunchConfigurationsPreferencePage.java:196"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferencePage.createControl",
+          "source": "PreferencePage.java:233"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.preferences.LaunchConfigurationsPreferencePage.createControl",
+          "source": "LaunchConfigurationsPreferencePage.java:168"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog.createPageControl",
+          "source": "PreferenceDialog.java:1403"
+        },
+        {
+          "method": "org.eclipse.jface.preference.PreferenceDialog$12.run",
+          "source": "PreferenceDialog.java:1162"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "170766",
+      "date": "2007-01-17T14:15:15+01:00",
+      "product": "Platform",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "170766",
+  "bugId": "170766",
+  "date": "2007-01-17T14:15:15+01:00",
+  "product": "Platform",
+  "component": "Debug",
+  "severity": "normal"
+}

@@ -1,0 +1,183 @@
+{
+  "comments": [
+    "As a follow-on to bug 168762, we need Axis2 Web service runtime be supported in Web service client scenario.",
+    "Created an attachment (id\u003d58248)\nserver side code\n\nNew attachment for the server side. \nRunning can be done exporting plugins.\nThanks",
+    "Created an attachment (id\u003d58249)\nclient side code\n\nNew attachment for the client side. \nRunning can be done exporting plugins.\nThanks",
+    "With the above 2 zips (attachment 58248 and 58249), I\u0027m able to go through bottom-up and top-down scenario but not the client scenario.  I tried it a number of times and found that sometimes I\u0027m able to get to the Axis2 client page and sometimes not (Finish enabled but not Next).  Also, I\u0027m getting the error:\n\nException occured while file read wrote\n    java.io.FileNotFoundException: D:\\eclipse322\\eclipse\\workspace\\org.apache.axis2\\axis2\\WEB-INF\\lib (The system cannot find the path specified)\n    at java.io.FileInputStream.open(Native Method)\n    at java.io.FileInputStream.\u003cinit\u003e(FileInputStream.java:106)\n    at org.eclipse.jst.ws.internal.axis2.consumption.ui.utils.ContentCopyUtils.copyDirectoryRecursivelyIntoWorkspace(ContentCopyUtils.java:80)\n    at org.eclipse.jst.ws.internal.axis2.consumption.ui.command.Axis2WebservicesServerCommand.execute(Axis2WebservicesServerCommand.java:71)",
+    "Created an attachment (id\u003d58268)\nclient code\n\nmade the earlier client code obsolete and included the corrected client code \n\nThanks",
+    "I tried the client scenario with attachment 58268 in self-hosting, now the Axis2 client page comes up but when I click Finish, I got:\n\nIWAB0014E Unexpected exception occured.\n  \n      java.lang.NullPointerException\n      at org.eclipse.jst.ws.internal.axis2.consumption.ui.utils.FileUtils.deleteDirectories(FileUtils.java:69)\n      at org.eclipse.jst.ws.internal.axis2.consumption.ui.utils.FileUtils.deleteDirectories(FileUtils.java:82)\n      at org.eclipse.jst.ws.internal.axis2.consumption.ui.command.Axis2ClientCodegenCommand.execute(Axis2ClientCodegenCommand.java:61)\n\nI did a bit of debugging and found that in Axis2ClientCodegenCommand, the code is trying to locate tempCodegenOutputLocation in the \u003cworkspace\u003e/.metadata\\.plugins\\org.eclipse.jst.ws.axis2\\codegen directory.  Since the code has not been generated yet, that directory does not exist and thus throws an exception.  I\u0027ve tried to manually creating that directory and the client stub does get generated OK.  I\u0027m also able to manually write a client program and successfully able to call the client stub to invoke the Web service.",
+    "Just want to add that I was able to generate Axis2 client widh the workaround creating the \"codegen\" directory first when going through the Web service client wizard, if I tried to use the Web service wizard (service slider set to START and client slider set to START), I get the following error after the service side test page:\n\nException occured while code generation the wsdl\n    java.lang.NullPointerException\n    at org.eclipse.jst.ws.internal.axis2.consumption.ui.utils.WSDL2JavaGenerator.getAxisService(WSDL2JavaGenerator.java:210)\n    at org.eclipse.jst.ws.internal.axis2.consumption.ui.command.Axis2ClientCodegenCommand.execute(Axis2ClientCodegenCommand.java:67)\n\nWith some debugging, I found that the line that failed is:\n\nservice \u003d generator.getAxisService(model.getWsdlURI());\n\nmodel.getWsdlURI is null in this case.\n\nPlease remember to call WebServiceInfo.setWsdlURL() to set the WSDL URL after the Axis2 service creation extension is finish.  In Axis1, this is done in the AxisOutputCommand in the develop extension since a physical WSDL file is created in the develop phase when java2WSDL is called.  However in Axis2, since there\u0027s no physical WSDL file, you would need to use ?wsdl on the endpoint URL to get the WSDL file.  Also, this WSDL file would not be \"live\" unless the user specify START in the service slider to start the Web service on the server.",
+    "As for the problem with OpenEditorCommand not bringing up the skeleton file, you should change the Axis2SkelImplCommand to something like the following:\n\n\t\ttry {\n\t\t\tString serviceSkeletonImplURLString \u003d  serviceSkeletonImplURLPath.toFile().toURL().toString();\n\t\t\twebServiceInfo.setImplURL(serviceSkeletonImplURLString);\n\t\t\tString[] implURLArray \u003d {serviceSkeletonImplURLString};\n\t\t\twebServiceInfo.setImplURLs( implURLArray);\n\t\t\t\n\t\t} \n\nI tested it out and the Java Editor is bringing up the skeleton file no problem with this change.  Please note that multiple skeleton file could be generated, so the code would need to set the skeleton impl URL accordingly (this could be handled later on as a defect).  The current code assumes that only 1 skeleton file would be generated.",
+    "Another thing I found is if I click Finish in an Axis2 Web service skeleton scenario, I get the error:\n\nException occured while code generation the wsdl\n    java.lang.NullPointerException\n    at org.eclipse.jst.ws.internal.axis2.creation.ui.command.Axis2WSDL2JavaCommand.execute(Axis2WSDL2JavaCommand.java:89)\n\nActuall, in Axis2WSDLJavaCommand:\n\nMap optionsMap \u003d generator.fillOptionMap(\tfalse,  //async always false\n                \t\t\t\t\t\t\t\t\tfalse,\t//sync always false\n                \t\t\t\t\t\t\t\t\ttrue,   //is serverside true\n                \t\t\t\t\t\t\t\t\tmodel.isServerXMLCheck(),\n                \t\t\t\t\t\t\t\t\tmodel.isTestCaseCheck(),\n                \t\t\t\t\t\t\t\t\tmodel.isGenerateAllCheck(),\n                \t\t\t\t\t\t\t\t\tmodel.getServiceName(),\n                \t\t\t\t\t\t\t\t\tmodel.getPortName(),\n                \t\t\t\t\t\t\t\t\tmodel.getDatabindingType().toLowerCase(),\n                \t\t\t\t\t\t\t\t\tmodel.getWsdlURI(),\n                \t\t\t\t\t\t\t\t\tmodel.getPackageText(),\n                \t\t\t\t\t\t\t\t\t\"java\",\n                \t\t\t\t\t\t\t\t\ttempCodegenOutputLocation,\n                \t\t\t\t\t\t\t\t\tmodel.getNamespaseToPackageMapping(),\n                \t\t\t\t\t\t\t\t\tmodel.isGenerateServerSideInterface());\n\nA lot of the fields in the model is null.  It seems that the Axis2DefaultingCommand has not initialize the model quite properly.  If I however click Next instead of Finish in the skeleton scenario, the scenario is able to finish successfully.  So it looks like the model info is filled in by the skeleton page only.  It should be properly defaulted in the defaulting command as well.  Remember that the wizard does not need to come up at all for the scenario to run properly.\n\nClicking Finish in an Axis2 client scenario produce similar error:\n\nException occured while code generation the wsdl\n    java.lang.NullPointerException\n    at org.eclipse.jst.ws.internal.axis2.consumption.ui.command.Axis2ClientCodegenCommand.execute(Axis2ClientCodegenCommand.java:76)\n\nI\u0027ve also tried the bottom-up scenario.  In that case, clicking Finish in the first page is OK.",
+    "Created an attachment (id\u003d58316)\nfix for the comment 5 by kathy\n\nthis attachment will fix the comment 5 reported issue. \nplease replace the existing file \norg.eclipse.jst.ws.internal.axis2.consumption.ui.command.Axis2ClientCodegenCommand.java\nwith the new one. \n\n",
+    "Created an attachment (id\u003d58338)\n06022007 server code \n\nfixes done to overcome the issues reported in comment 6 and comment 5.\n\nThanks",
+    "Created an attachment (id\u003d58339)\n06022007 client code.\n\nfixes are done in both client and server attachments resolve the issues reported in comment 6, comment 5 comment 8  ",
+    "(From update of attachment 58316)\nlatest client attachment covers this. So make it obsolete.\nthanks",
+    "With attachment 58338 and 58339, I was able to create bottom-up Axis2 Web service by clicking Finish.  However, if I click Finish on skeleton scenario, I got an error saying services.xml is not found:\n\nSEVERE: Invalid service  Echo due to services.xml not found for service \u0027{0}\u0027\n\nI checked the WEB-INF directory and it is indeed the case.  If I Next through the skeleton scenario, then I could generate skeleton OK.\n\nWhen I do a bottom-up service plus client scenario, if I Next through or click Finish, I got:\n\nIWAB0014E Unexpected exception occured.\n  \n      java.lang.NullPointerException\n      at org.eclipse.jst.ws.internal.axis2.consumption.ui.utils.DefaultCodegenUtil.populateModelParamsFromWSDL(DefaultCodegenUtil.java:49)\n      at org.eclipse.jst.ws.internal.axis2.consumption.ui.command.Axis2ClientDefaultingCommand.execute(Axis2ClientDefaultingCommand.java:48)\n\nI was however, able to do a client scenario successfully by clicking Finish on the Web Service Client wizard.\n\nI did however run into the problem with strange graphic on Page 1 and slider not operational problem very frequently (usually after running 2 or 3 scenarios).",
+    "Created an attachment (id\u003d59079)\ncode for facet, with refactoring (Still not finalized)\n\nThis includes the code for facet with the newly re factored codebase as agreed. ",
+    "(From update of attachment 59079)\nPlease set the Axis 2 location on preferences page as the first job.",
+    "With the code in attachment 59079, the Axis2 facet is not available when the target runtime is set to anything other than None (e.g. to Tomcat 5.0 or 5.5).  Here\u0027s the additional facet extension that needs to be defined to have the Axis2 facet show up regardless of runtime choosen:\n\n\u003cextension\n       point\u003d\"org.eclipse.wst.common.project.facet.core.runtimes\"\u003e\n    \u003csupported\u003e\n      \u003cruntime-component\n         any\u003d\"true\"/\u003e\n      \u003cfacet\n         id\u003d\"axis2.core\"\n         version\u003d\"1.0\"/\u003e\n      \u003cfacet\n         id\u003d\"axis2.ext\"\n         version\u003d\"1.0\"/\u003e\n    \u003c/supported\u003e\n \u003c/extension\u003e\n\nI\u0027ve tried it and it works.",
+    "Also see comments added to bug 168765 and 168766 (the code for those RFEs are also delivered in attachment 59076).\n\nMoving target to WTP 2.0 M6 since it\u0027s not enough lead time to get approval from legal and make it into WTP 2.0 M5.",
+    "The contribution for this RFE is included in attachment 60820 in bug 168765.  It is being evaluated by IP/legal under CQ IPZilla 1373 (https://dev.eclipse.org/ipzilla/show_bug.cgi?id\u003d1373).",
+    "Still waiting on legal approval, targetting for RC0.",
+    "The 04/05 code contribution (attachment 63077) has been approved under CQ 1373 (https://dev.eclipse.org/ipzilla/show_bug.cgi?id\u003d1373).  The following Axis2 plugins has been checked into CVS and released to HEAD as v200704241900:\n\norg.eclipse.jst.ws.axis2.consumption.core\norg.eclipse.jst.ws.axis2.consumption.ui\norg.eclipse.jst.ws.axis2.core\norg.eclipse.jst.ws.axis2.creation.core\norg.eclipse.jst.ws.axis2.creation.ui\norg.eclipse.jst.ws.axis2.ui\n\nThe org.eclipse.jst.enterprise_ui.feature has been updated to include these Axis2 plugins.\n\nThe jst-ws.map and jst-enterprise-component-features.map files have also been updated.",
+    "Verified on WTP 2.0 v200704261031 build."
+  ],
+  "commentCreationDates": [
+    "2007-01-30T16:29:34+01:00",
+    "2007-02-05T12:02:35+01:00",
+    "2007-02-05T12:07:03+01:00",
+    "2007-02-05T17:45:41+01:00",
+    "2007-02-05T18:09:04+01:00",
+    "2007-02-05T19:46:14+01:00",
+    "2007-02-05T20:14:33+01:00",
+    "2007-02-05T21:07:23+01:00",
+    "2007-02-05T21:25:19+01:00",
+    "2007-02-06T04:46:44+01:00",
+    "2007-02-06T14:26:35+01:00",
+    "2007-02-06T14:30:14+01:00",
+    "2007-02-06T14:32:32+01:00",
+    "2007-02-08T12:57:51+01:00",
+    "2007-02-15T18:21:13+01:00",
+    "2007-02-15T18:23:48+01:00",
+    "2007-02-16T02:57:28+01:00",
+    "2007-02-16T15:24:57+01:00",
+    "2007-03-21T14:14:26+01:00",
+    "2007-04-03T16:17:51+02:00",
+    "2007-04-24T21:25:31+02:00",
+    "2007-04-26T20:57:14+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.FileNotFoundException",
+      "message": "D:\\eclipse322\\eclipse\\workspace\\org.apache.axis2\\axis2\\WEB-INF\\lib (The system cannot find the path specified)",
+      "elements": [
+        {
+          "method": "java.io.FileInputStream.open",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.io.FileInputStream.\u003cinit\u003e",
+          "source": "FileInputStream.java:106"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.axis2.consumption.ui.utils.ContentCopyUtils.copyDirectoryRecursivelyIntoWorkspace",
+          "source": "ContentCopyUtils.java:80"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.axis2.consumption.ui.command.Axis2WebservicesServerCommand.execute",
+          "source": "Axis2WebservicesServerCommand.java:71"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 3,
+      "bugId": "172186",
+      "date": "2007-02-05T17:45:41+01:00",
+      "product": "Web Tools",
+      "component": "jst.ws",
+      "severity": "enhancement"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.ws.internal.axis2.consumption.ui.utils.FileUtils.deleteDirectories",
+          "source": "FileUtils.java:69"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.axis2.consumption.ui.utils.FileUtils.deleteDirectories",
+          "source": "FileUtils.java:82"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.axis2.consumption.ui.command.Axis2ClientCodegenCommand.execute",
+          "source": "Axis2ClientCodegenCommand.java:61"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 5,
+      "bugId": "172186",
+      "date": "2007-02-05T19:46:14+01:00",
+      "product": "Web Tools",
+      "component": "jst.ws",
+      "severity": "enhancement"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.ws.internal.axis2.consumption.ui.utils.WSDL2JavaGenerator.getAxisService",
+          "source": "WSDL2JavaGenerator.java:210"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.axis2.consumption.ui.command.Axis2ClientCodegenCommand.execute",
+          "source": "Axis2ClientCodegenCommand.java:67"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 6,
+      "bugId": "172186",
+      "date": "2007-02-05T20:14:33+01:00",
+      "product": "Web Tools",
+      "component": "jst.ws",
+      "severity": "enhancement"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.ws.internal.axis2.creation.ui.command.Axis2WSDL2JavaCommand.execute",
+          "source": "Axis2WSDL2JavaCommand.java:89"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 8,
+      "bugId": "172186",
+      "date": "2007-02-05T21:25:19+01:00",
+      "product": "Web Tools",
+      "component": "jst.ws",
+      "severity": "enhancement"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.ws.internal.axis2.consumption.ui.command.Axis2ClientCodegenCommand.execute",
+          "source": "Axis2ClientCodegenCommand.java:76"
+        }
+      ],
+      "number": 4,
+      "commentIndex": 8,
+      "bugId": "172186",
+      "date": "2007-02-05T21:25:19+01:00",
+      "product": "Web Tools",
+      "component": "jst.ws",
+      "severity": "enhancement"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.ws.internal.axis2.consumption.ui.utils.DefaultCodegenUtil.populateModelParamsFromWSDL",
+          "source": "DefaultCodegenUtil.java:49"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.axis2.consumption.ui.command.Axis2ClientDefaultingCommand.execute",
+          "source": "Axis2ClientDefaultingCommand.java:48"
+        }
+      ],
+      "number": 5,
+      "commentIndex": 13,
+      "bugId": "172186",
+      "date": "2007-02-08T12:57:51+01:00",
+      "product": "Web Tools",
+      "component": "jst.ws",
+      "severity": "enhancement"
+    }
+  ],
+  "groupId": "172186",
+  "bugId": "172186",
+  "date": "2007-01-30T16:29:34+01:00",
+  "product": "Web Tools",
+  "component": "jst.ws",
+  "severity": "enhancement"
+}

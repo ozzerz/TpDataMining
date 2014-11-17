@@ -1,0 +1,63 @@
+{
+  "comments": [
+    "The TClient hung on several occasions:\n\n* \"Test\" in the \"Repository Access Configuration\" dialog (pop-up menu on a\nproject -\u003e Team -\u003e Share Project -\u003e Stellation CM -\u003e Next -\u003e More... -\u003e Add).  I\nhave entered the correct repository settings.  It worked when I pressed \"OK\"\ninstead of \"Test\".  \n\n* \"View Contents\" in \"Known repositories\" dialog when an existing repository\nsetting is selected (pop-up menu on a project -\u003e Team -\u003e Share Project -\u003e\nStellationCM -\u003e Next -\u003e More...)",
+    "Per discussion with Mark, this is likely occuring in the core code (a \"wait\n(timeout) method is not returning as expected when the timeout expires).  It \nmay be possible to modify the TClient code to force cancellation of a pending \nclient-server message exchange when a Cancel button is pressed.\n\nPerhaps you were trying to connect using the former repository \nname \"stellhost\" ?   The name of the active repository is \"stellwvcm\"; I\u0027ve \nconfirmed that \"Test\" and \"View Contents\" work as expected when connecting \nto \"stellwvcm\" on \"stellation.eclipse.org\", with a valid username,password.  \n(I set up \"stellwvcm\" with the usernames and passwords from \"stellhost\").",
+    "I\u0027ve also encountered problems with checking out a project (project pop-up -\u003e \nTeam -\u003e Share Project -\u003e Stellation CM -\u003e Next -\u003e Finish) and here\u0027s the stack \ntrace.\n\njava.lang.NoSuchMethodError: org.apache.xerces.impl.dv.util.Base64: method \nencode([B)[B not found\n        at \norg.eclipse.stellation.remote.engine.auth.MD5ClientChallenge.getCnonce\n(MD5ClientChallenge.java:64)\n        at \norg.eclipse.stellation.remote.engine.Engine$AuthChallengeHandler.handleMessage\n(Engine.java:1155)\n        at org.eclipse.stellation.remote.engine.Engine.localDeliverMessage\n(Engine.java:703)\n        at org.eclipse.stellation.remote.engine.Engine.runDeliveryThread\n(Engine.java:612)\n        at org.eclipse.stellation.remote.engine.Engine.access$0(Engine.java:605)\n        at org.eclipse.stellation.remote.engine.Engine$DeliveryThread.run\n(Engine.java:598)\n\n\nThe TClient is hung on the three occasions I mentioned, but sometimes it does \nnot hang and gives an error message saying that the arguments I provided in the \nsetting are invalid.  Mark has successfully used this repository setting and \ntried using that setting on my machine but it didn\u0027t work.",
+    "Annie, w.r.t. java.lang.NoSuchMethodError\n\nIt sounds like you\u0027re not using the latest version of org.eclipse.stellation.util.\nWhen Xerces was removed from Eclipse R3, I added the Base64 class to\n...stellation.util.   If you pull down the current TClient feature drop (0.13),\nthat should fix this problem (as well as the core \"TClient Hangs\" problem)",
+    "The core problem was that the Engine code was not breaking out of an infinite\nloop when the timeout expired.  The problem is located in\norg.eclipse.stellation.remote.Engine, method requestResourceAuthentication,\naround line 947.\n\nThis is a one line fix:\n\nBAD CODE:\n\n    synchronized (chall) {\n        sendMessage(msg);\n        while (!chall.challengeComplete()) {\n            try {\n                if (timeout \u003e 0)\n                    chall.wait(timeout);   // \u003c\u003c\u003c\u003c\u003c SHOULD EXIT ON TIMEOUT\n                else                       // BUT LOOPS ENDLESSLY\n                    chall.wait();\n            }\n            catch (InterruptedException ei) {\n                log.info(\"Challenge wait interrupted\");\n                if (timeout \u003d\u003d 0)\n                    chall.setFailure(\"authentication wait interrupted\");\n            }\n        }\n\nFIXED CODE:\n\n    synchronized (chall) {\n        sendMessage(msg);\n        while (!chall.challengeComplete()) {\n            try {\n                if (timeout \u003e 0) {\n                    chall.wait(timeout);\n                    break;\t// 2004-06-14 DUH! - on timeout, exit loop!\n                }\n                else\n                    chall.wait();\n            }\n            catch (InterruptedException ei) {\n                log.info(\"Challenge wait interrupted\");\n                if (timeout \u003d\u003d 0)\n                    chall.setFailure(\"authentication wait interrupted\");\n            }\n        }\n\nI have incorporated this fix (and some slightly improved error handling) into\nversion 0.13 of the TClient.  I\u0027ve updated the feature update site\n(stellation.eclipse.org/tclient) and the zipped source drop on the TClientCode\npage in the Stellation wiki.\n",
+    "I\u0027ve improved my previous fix to recover from typos in username, password etc.\nIt\u0027s no longer necessary to restart Eclipse in order to purge \"bad\" \nconnections (i.e. connections with invalid username, password....).\n\nI have updated both Feature Update site (stellation.eclipse.org/tclient)and \nthe zipped source drop on the Wiki (TClientCode page).  I\u0027ve left the version \nnumber at 0.13 (the initial release of this fix was only up for about an hour)."
+  ],
+  "commentCreationDates": [
+    "2004-06-11T16:34:30+02:00",
+    "2004-06-11T18:57:45+02:00",
+    "2004-06-11T20:42:01+02:00",
+    "2004-06-14T20:46:49+02:00",
+    "2004-06-14T20:52:52+02:00",
+    "2004-06-14T23:01:12+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoSuchMethodError",
+      "message": "org.apache.xerces.impl.dv.util.Base64: method  encode([B)[B not found",
+      "elements": [
+        {
+          "method": "org.eclipse.stellation.remote.engine.auth.MD5ClientChallenge.getCnonce",
+          "source": "MD5ClientChallenge.java:64"
+        },
+        {
+          "method": "org.eclipse.stellation.remote.engine.Engine$AuthChallengeHandler.handleMessage",
+          "source": "Engine.java:1155"
+        },
+        {
+          "method": "org.eclipse.stellation.remote.engine.Engine.localDeliverMessage",
+          "source": "Engine.java:703"
+        },
+        {
+          "method": "org.eclipse.stellation.remote.engine.Engine.runDeliveryThread",
+          "source": "Engine.java:612"
+        },
+        {
+          "method": "org.eclipse.stellation.remote.engine.Engine.access$0",
+          "source": "Engine.java:605"
+        },
+        {
+          "method": "org.eclipse.stellation.remote.engine.Engine$DeliveryThread.run",
+          "source": "Engine.java:598"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "66680",
+      "date": "2004-06-11T20:42:01+02:00",
+      "product": "z_Archived",
+      "component": "Stellation",
+      "severity": "minor"
+    }
+  ],
+  "groupId": "66680",
+  "bugId": "66680",
+  "date": "2004-06-11T16:34:30+02:00",
+  "product": "z_Archived",
+  "component": "Stellation",
+  "severity": "minor"
+}

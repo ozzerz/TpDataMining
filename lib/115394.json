@@ -1,0 +1,255 @@
+{
+  "comments": [
+    "The Mylar Task Planner prototype is a good start, but could use the following improvements:\n-\nnew wizard option:\n  - show tasks in progress (worked on but not completed)\n- add completed\ncolumn to table\n  - right after the icon column\n  - use icons from TaskListImages\n-\nfix the date formatting, it\u0027s horrible\n- highlight tasks created over the period (this\nwill identify stuff that emerged and wasn\u0027t planned for)\n  - perhaps using a blue font,\nnot sure",
+    "Setting priority to P3 as I will likely not finish this before the weekend.",
+    "Created an attachment (id\u003d29813)\nPatch for core\n\nNew date formating method added to DateUtil.",
+    "Created an attachment (id\u003d29814)\nPatch for tasklist\n\nImplements a new \"Tasks in Progress\" table for the planner. This shows tasks\nthat were worked on but not completed during the specified period. The date\nformat is currently set to the system SHORT date. It can now easily be changed\nto LONG or MEDIUM format.",
+    "Created an attachment (id\u003d29914)\nPatch for tasklist\n\nRevised patch for the proposed changes to the planner that uses the newly\nrenamed ITask.getHandleIdentifier() method.",
+    "Before I apply this patch, I wonder if the in progress stuff should be in the\nsame table as the regular tasks and use the Task List\u0027s label decorator to\ndistinguish them?  Note that we still have the plan section that should get\nadded, so if it\u0027s two seperate tables we\u0027ll end up with 3 tables alltogether. \nWhat do you think? ",
+    "Hmm, I don\u0027t know where my justification for a separate table disappeared to, \nbut it primarily had to do with not wanting to have in-progress tasks mixed in \nwhen you\u0027re trying to sort your completed tasks to see how long they took, for \nexample. I think these are two fundamentally different categories that \nshouldn\u0027t be mixed together. It becomes difficult to see what proportion of \nthe total time spent on completed tasks was spent on particular tasks in the \ntable.  Also, if the tasks in progress are kept together in a separate table \nit could be easier to drag them to the planned task table. \n\nI do see your point about the page becoming quite long and requiring scrolling \nonce the third table is added though. It seems like two tables might be better \nfor planning but three could be better if you just want a report.\n\nPersonally, I would rather have separate tables to avoid confusion when \nanalyzing my completed tasks sorted by duration. This is just my preference \nthough; I haven\u0027t worked with the planning feature so if you think that takes \nprecedence let me know and I\u0027ll combine the in-progress and completed tables.",
+    "Sure, let\u0027s try it with the two tables for now.  I applied the patch and fails \nin my test workspace with the following exception.  I\u0027ll attach the task list \nthat caused it.  Please make sure to create a failing test case with this \nexception before making the fix.\n\njava.lang.Exception: Time Calculation Exception\n\tat org.eclipse.mylar.tasklist.Task.getElapsedTimeLong(Task.java:299)\n\tat \norg.eclipse.mylar.tasklist.planner.ui.TasksEditorInput.getTotalTimeSpentOnInPro\ngressTasks(TasksEditorInput.java:96)\n\tat \norg.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerEditorPart.createSummaryS\nection(MylarTaskPlannerEditorPart.java:183)\n\tat \norg.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerEditorPart.createPartCont\nrol(MylarTaskPlannerEditorPart.java:131)\n\tat org.eclipse.ui.internal.EditorReference.createPartHelper\n(EditorReference.java:598)\n\tat org.eclipse.ui.internal.EditorReference.createPart\n(EditorReference.java:374)\n\tat org.eclipse.ui.internal.WorkbenchPartReference.getPart\n(WorkbenchPartReference.java:552)\n\tat org.eclipse.ui.internal.EditorReference.getEditor\n(EditorReference.java:213)\n\tat org.eclipse.ui.internal.WorkbenchPage.busyOpenEditorBatched\n(WorkbenchPage.java:2382)\n\tat org.eclipse.ui.internal.WorkbenchPage.busyOpenEditor\n(WorkbenchPage.java:2315)\n\tat org.eclipse.ui.internal.WorkbenchPage.access$10\n(WorkbenchPage.java:2307)\n\tat org.eclipse.ui.internal.WorkbenchPage$9.run(WorkbenchPage.java:2293)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile\n(BusyIndicator.java:69)\n\tat org.eclipse.ui.internal.WorkbenchPage.openEditor\n(WorkbenchPage.java:2288)\n\tat org.eclipse.ui.internal.WorkbenchPage.openEditor\n(WorkbenchPage.java:2261)\n\tat \norg.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerWizard.performFinish\n(MylarTaskPlannerWizard.java:45)\n\tat org.eclipse.jface.wizard.WizardDialog.finishPressed\n(WizardDialog.java:676)\n\tat org.eclipse.jface.wizard.WizardDialog.buttonPressed\n(WizardDialog.java:349)",
+    "Created an attachment (id\u003d29919)\ntasklist causing failure\n",
+    "Btw, I\u0027ve applied the patch to core so you won\u0027t need to make that again.\n",
+    "This is actually only loosely related to the proposed patch. Here\u0027s what\u0027s \nhappening: There is a task in your task list that has a negative elapsed time \n(I have no idea what caused this and it isn\u0027t related to this issue). Instead \nof returning a negative elapsed time, I changed the method to return zero in \nthis case. However, instead of masking this error, I\u0027m making a call to \nMylar.fail() when this happens, which is why you see an exception.\n\nShould I change this so that the exception is thrown when calculating if the \ncalculated value is less than zero so we can try to track down the bug causing \nthis problem?\n\n",
+    "Yes, doing the latter sounds like the right way to surface the error.  Go ahead\nand handle the -ve time gracefully, but leave that call to fail() for now.",
+    "Ok, I\u0027ll add another call to fail() when a negative value is actually produced \nand re-submit the patch (Just repeating to make sure I\u0027m understanding :).",
+    "I just noticed that the value of \"long elapsed\" in Task may be saved to disk \nwithout ever being initialized. This is a possible cause of the problem if \nJava doesn\u0027t automatically set new longs to zero. I\u0027ll init it to zero just in \ncase.",
+    "Created an attachment (id\u003d29922)\nPatch for tasklist\n\nUpdated patch for tasklist that will produce an exception when a time\ncalculation results in a value less than zero. Existing tasks in the tasklist\nwith times less than zero will still produce an exception when creating the\nplanning report but all this means is that the task will have zero elapsed\ntime. Hopefully we\u0027ll now be able to detect when the time calculation error is\nactually made. All tests pass.",
+    "This will have to wait until after 0.4.2 goes out.  Will plan to apply it early\ntomorrow.",
+    "Created an attachment (id\u003d30148)\nPatch for tasklist\n\nRevised Patch\n- Tasks created during the report period appear in blue\n- Fixed conflict introduced since the original patch was submitted\n",
+    "If you\u0027ve thought about this and still prefer a single table for completed and in-progress tasks, just let me know and I\u0027d be happy to submit a revised patch.",
+    "Let\u0027s keep with this for now, I\u0027ll try to apply the patch shortly.",
+    "Sorry for the slowness with this one.  I tried to apply it again but get errors like:\n\tThe method checkTasks() is undefined for the type TaskReportGenerator\tMylarTasklistPlugin.java\n\nCould you try to make it again and I will reapply?\n",
+    "Created an attachment (id\u003d30721)\nPatch for Tasklist\n\nHere\u0027s a new patch created after synchronizing. This patch includes part of the fix for 113024, I\u0027ll post an update on that report.",
+    "Please don\u0027t apply this just yet. I just remembered there are other uncommitted changes for another bug that I have to review.",
+    "The above patch also includes part of the implementation for 107548, which is the ability to specify an hour of the day for a reminder to appear. You might consider checking this in but I first need to figure out how to make the date textbox longer to accommodate the time of day (in the new task dialog and task summary report). The width hint I\u0027m setting appears to be ignored.",
+    "Created an attachment (id\u003d30726)\nPatch for tasklist\n\nIncludes an adjustment to the width of the date text in the new task dialog and task summary form to show the hour of day.\n\nPlease let me know if I should try to submit a patch for only part of the proposed changes (date formatting, tasks in progress table, select reminder hour, and hitting escape to close the calendar dialog). Sorry about this mess but I wanted to do a bit more while waiting for this bug # to be sorted out. I\u0027ll have to figure out a way around this problem or become a committer soon :)\n\nAll tests pass.",
+    ":)\n\nApplying now.  Great that you added the hours for the reminders, I\u0027ve been itching for that.  We still need to improve the reminders themselves, but I\u0027ve got some ideas for that which I\u0027ll raise soon.",
+    "I saw some failures due to tasks with negative times, so I changed the code in Task to do the following:\n\nif (elapsed \u003c 0){\n\t\t\tMylarPlugin.log(\"Computed time was less than zero: \" + elapsed, false);\n\nAlso, when I ran this on a 100 day period all the items in both tables were blue.  The other thing is that the date chooser dialog is too narrow now (I\u0027m using medium sized fonts in Windows).  Other than that this is good progress.  We\u0027ll have to do a rev on the UI before it goes out though, and should start using it ourselves daily.",
+    "Wes, before closing this will also need some tests because it touches a fair amount of core functionality.  I suggest that you take the tasklist that I attached, commit it into a mylar.tasklist.tests/data/tasklist-planner.xml directory, and write a few tests to see if you get the right tasks being in progress, etc.  A slightly better way of doing that would be to hand edit a few tasks and have them cover the corner cases.  That way if there is a bug (e.g. all tasks showing up as in progress), the first thing that gets done is that a failing test gets written, then a fix is made so it passes, and then the UI is checked to make sure that those tasks are no longer blue.  The probelm with not doing TDD is that all the manual debugging gets lost (and a major probelm with the Task List is that I didn\u0027t push Ken Sueda hard enough into TDD over the summer).",
+    "Fyi, I just committed the changes.",
+    "Thanks for looking at this (and committing!).\n\nShould I try to measure font widths to set the calendar size for? Let me know if you can think of a simpler solution.\n\nAs for the blue tasks, they are supposed to be blue because they were created during the report period. Do you want to change the way this works?\n\n",
+    "Just make it clear what blue means (with a text label), and then we can iterate on the UI together.\n\nDon\u0027t do anything fancy in the dialog, just make it wide enough to hold your addition, so 50px it it\u0027s hard-coded, but hopefully it can be a bit smarter.",
+    "Created an attachment (id\u003d30732)\nPatch for tasklist\n\n- Adds a label explaining the blue-font tasks in the task planner.\n- Increases the width of the date picker. It looks like I don\u0027t have medium fonts on my system, just large and extra large. So I\u0027ve taken a stab at how wide the dialog should be but it\u0027s not likely to be perfect. The hard-coded width is in Datepicker.showDatePicker if it needs some more tuning.\n\nI\u0027ll write a test for this issue/report #.",
+    "Great, I\u0027ll apply this patch and tests together and then we should be able to close this one if the basic stuff works for my task list, and make any future issues seperate reports.  But note that I get the following exception and failure to generate the editor if I try to run over my task list for the last 7 days:\n\njava.lang.NullPointerException\n\tat org.eclipse.mylar.tasklist.planner.ui.TasksEditorInput.createdDuringReportPeriod(TasksEditorInput.java:112)\n\tat org.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerEditorPart.colorRows(MylarTaskPlannerEditorPart.java:524)\n\tat org.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerEditorPart.createTable(MylarTaskPlannerEditorPart.java:241)\n\tat org.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerEditorPart.createTableSection(MylarTaskPlannerEditorPart.java:206)\n\tat org.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerEditorPart.createPartControl(MylarTaskPlannerEditorPart.java:143)\n\tat org.eclipse.ui.internal.EditorReference.createPartHelper(EditorReference.java:598)",
+    "Here is a related exception, and note that there were some very negative times:\n\nComputed time was less than zero: -43693850\n\njava.lang.NullPointerException\n\tat java.util.Calendar.setTime(Unknown Source)\n\tat java.text.SimpleDateFormat.format(Unknown Source)\n\tat java.text.SimpleDateFormat.format(Unknown Source)\n\tat java.text.DateFormat.format(Unknown Source)\n\tat org.eclipse.mylar.tasklist.planner.ui.InProgressTasksLabelProvider.getColumnText(InProgressTasksLabelProvider.java:42)\n\tat org.eclipse.jface.viewers.TableViewer.doUpdateItem(TableViewer.java:473)\n\tat org.eclipse.jface.viewers.StructuredViewer$UpdateItemSafeRunnable.run(StructuredViewer.java:434)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1044)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:783)",
+    "Created an attachment (id\u003d30799)\nPatch for tasklist\n\nWriting a test case for this is trickier than I thought. I think it would require writing a test harness that sets the created and completed dates in the tasklist.xml file as well as the corresponding context files so that the test works regardless of the current date. The context files need to exist and have the right dates because the in-progress report checks that the tasks have actually been worked on during the report period.\n\nI would estimate this to take longer than I should spend on it this week so I suggest that maybe I should come back to it. Please let me know what you think.\n\nThe attached patch includes some code that checks for missing dates (errors) in the tasks used to generate the report. The width of the calendar is just a guess and may need to be adjusted in DatePicker.showDatePicker().\n\nIf you decide to look at this now and it doesn\u0027t work, please send me your current tasklist.xml. Or send me your file and I\u0027ll check that it works before you look at this (your old tasklist.xml has old dates that aren\u0027t good for testing) ",
+    "Resolved, nice work.  I also did a bit of additional UI work on on the task planner in order to make it possible for me to do my weekly planning with it.",
+    "Great! Thanks so much for your help with this!"
+  ],
+  "commentCreationDates": [
+    "2005-11-07T21:35:04+01:00",
+    "2005-11-08T05:46:24+01:00",
+    "2005-11-12T01:07:33+01:00",
+    "2005-11-12T01:08:07+01:00",
+    "2005-11-14T20:43:30+01:00",
+    "2005-11-14T20:53:57+01:00",
+    "2005-11-14T21:21:57+01:00",
+    "2005-11-14T23:26:46+01:00",
+    "2005-11-14T23:28:06+01:00",
+    "2005-11-14T23:29:45+01:00",
+    "2005-11-14T23:53:37+01:00",
+    "2005-11-15T00:06:22+01:00",
+    "2005-11-15T00:09:29+01:00",
+    "2005-11-15T00:13:11+01:00",
+    "2005-11-15T00:27:45+01:00",
+    "2005-11-15T01:59:22+01:00",
+    "2005-11-17T15:49:54+01:00",
+    "2005-11-21T16:09:03+01:00",
+    "2005-11-21T21:13:29+01:00",
+    "2005-11-25T19:22:26+01:00",
+    "2005-11-28T18:49:44+01:00",
+    "2005-11-28T18:53:43+01:00",
+    "2005-11-28T19:07:07+01:00",
+    "2005-11-28T20:56:06+01:00",
+    "2005-11-28T21:10:24+01:00",
+    "2005-11-28T21:30:46+01:00",
+    "2005-11-28T21:39:17+01:00",
+    "2005-11-28T21:50:53+01:00",
+    "2005-11-28T21:54:41+01:00",
+    "2005-11-28T22:04:37+01:00",
+    "2005-11-28T22:37:45+01:00",
+    "2005-11-28T22:41:49+01:00",
+    "2005-11-28T22:55:11+01:00",
+    "2005-11-29T19:16:15+01:00",
+    "2005-12-02T01:30:58+01:00",
+    "2005-12-02T01:33:10+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.Exception",
+      "message": "Time Calculation Exception",
+      "elements": [
+        {
+          "method": "org.eclipse.mylar.tasklist.Task.getElapsedTimeLong",
+          "source": "Task.java:299"
+        },
+        {
+          "method": "org.eclipse.mylar.tasklist.planner.ui.TasksEditorInput.getTotalTimeSpentOnInProgressTasks",
+          "source": "TasksEditorInput.java:96"
+        },
+        {
+          "method": "org.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerEditorPart.createSummarySection",
+          "source": "MylarTaskPlannerEditorPart.java:183"
+        },
+        {
+          "method": "org.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerEditorPart.createPartControl",
+          "source": "MylarTaskPlannerEditorPart.java:131"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorReference.createPartHelper",
+          "source": "EditorReference.java:598"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorReference.createPart",
+          "source": "EditorReference.java:374"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.getPart",
+          "source": "WorkbenchPartReference.java:552"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorReference.getEditor",
+          "source": "EditorReference.java:213"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.busyOpenEditorBatched",
+          "source": "WorkbenchPage.java:2382"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.busyOpenEditor",
+          "source": "WorkbenchPage.java:2315"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.access$10",
+          "source": "WorkbenchPage.java:2307"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage$9.run",
+          "source": "WorkbenchPage.java:2293"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.openEditor",
+          "source": "WorkbenchPage.java:2288"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.openEditor",
+          "source": "WorkbenchPage.java:2261"
+        },
+        {
+          "method": "org.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerWizard.performFinish",
+          "source": "MylarTaskPlannerWizard.java:45"
+        },
+        {
+          "method": "org.eclipse.jface.wizard.WizardDialog.finishPressed",
+          "source": "WizardDialog.java:676"
+        },
+        {
+          "method": "org.eclipse.jface.wizard.WizardDialog.buttonPressed",
+          "source": "WizardDialog.java:349"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 7,
+      "bugId": "115394",
+      "date": "2005-11-14T23:26:46+01:00",
+      "product": "Mylyn",
+      "component": "Tasks",
+      "severity": "enhancement"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.mylar.tasklist.planner.ui.TasksEditorInput.createdDuringReportPeriod",
+          "source": "TasksEditorInput.java:112"
+        },
+        {
+          "method": "org.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerEditorPart.colorRows",
+          "source": "MylarTaskPlannerEditorPart.java:524"
+        },
+        {
+          "method": "org.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerEditorPart.createTable",
+          "source": "MylarTaskPlannerEditorPart.java:241"
+        },
+        {
+          "method": "org.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerEditorPart.createTableSection",
+          "source": "MylarTaskPlannerEditorPart.java:206"
+        },
+        {
+          "method": "org.eclipse.mylar.tasklist.planner.ui.MylarTaskPlannerEditorPart.createPartControl",
+          "source": "MylarTaskPlannerEditorPart.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorReference.createPartHelper",
+          "source": "EditorReference.java:598"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 31,
+      "bugId": "115394",
+      "date": "2005-11-28T22:41:49+01:00",
+      "product": "Mylyn",
+      "component": "Tasks",
+      "severity": "enhancement"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "java.util.Calendar.setTime",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.text.SimpleDateFormat.format",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.text.SimpleDateFormat.format",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.text.DateFormat.format",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.mylar.tasklist.planner.ui.InProgressTasksLabelProvider.getColumnText",
+          "source": "InProgressTasksLabelProvider.java:42"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TableViewer.doUpdateItem",
+          "source": "TableViewer.java:473"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$UpdateItemSafeRunnable.run",
+          "source": "StructuredViewer.java:434"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:1044"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:783"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 32,
+      "bugId": "115394",
+      "date": "2005-11-28T22:55:11+01:00",
+      "product": "Mylyn",
+      "component": "Tasks",
+      "severity": "enhancement"
+    }
+  ],
+  "groupId": "115394",
+  "bugId": "115394",
+  "date": "2005-11-07T21:35:04+01:00",
+  "product": "Mylyn",
+  "component": "Tasks",
+  "severity": "enhancement"
+}

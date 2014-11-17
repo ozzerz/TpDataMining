@@ -1,0 +1,80 @@
+{
+  "comments": [
+    "NPE in TodoTaskParser caused by comment.getFileLocation() returning null.\n\njava.lang.NullPointerException\nat org.eclipse.cdt.internal.core.pdom.indexer.TodoTaskParser.parse(TodoTaskParser.java:60)\nat org.eclipse.cdt.internal.core.pdom.indexer.TodoTaskUpdater.updateTasks(TodoTaskUpdater.java:101)\nat org.eclipse.cdt.internal.core.pdom.PDOMWriter.addSymbols(PDOMWriter.java:210)\nat org.eclipse.cdt.internal.core.pdom.indexer.PDOMIndexerTask.parseTU(PDOMIndexerTask.java:300)\nat org.eclipse.cdt.internal.core.pdom.indexer.PDOMIndexerTask.internalParseTUs(PDOMIndexerTask.java:218)\nat org.eclipse.cdt.internal.core.pdom.indexer.PDOMIndexerTask.parseTUs(PDOMIndexerTask.java:192)\nat org.eclipse.cdt.internal.core.pdom.indexer.fast.PDOMFastIndexerTask.run(PDOMFastIndexerTask.java:102)\nat org.eclipse.cdt.internal.core.pdom.indexer.PDOMRebuildTask.run(PDOMRebuildTask.java:75)\nat org.eclipse.cdt.internal.core.pdom.PDOMIndexerJob.run(PDOMIndexerJob.java:89)\nat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)",
+    "This only happens when a task tag appears in an included file.  TodoTaskParser.parse calls C99ASTComment.getFileLocation(), which does a lazy lookup of the IASTFileLocation via LocationMap.  However, LocationMap doesn\u0027t store doesn\u0027t store information for comment nodes that appear in included resources.  So getFileLocation() ends up returning null.",
+    "So let\u0027s say you\u0027ve got this set up:\n\n/*\n * test.cpp\n */\n#include \"test.h\"\n// (A) Top-level comment\n\n/*\n * test.h\n */\n#ifndef TEST_H_\n#define TEST_H_\n// (B) Included comment, within #ifndef, after #define\n#endif /*TEST_H_*/\n\n\nComment (A) returns a non-null IASTFileLocation.  Comment (B) does not.  However, if you move (B) to before the #define (but after the #ifndef), everything works.\n\nIt looks like the ILocationResolver isn\u0027t being populated correctly.  When (B) occurs between the #define and the #endif, ILocationResolver.getLocations() returns:\n\n[0] test.cpp\n[1] test.h\n\nThe DOM parser\u0027s ILocationResolver.getLocations() at that point only returns:\n\n[0] test.h\n\nWhen (B) occurs between the #ifndef and the #define, ILocationResolver.getLocations() returns:\n\n[0] test.cpp\n[1] test.cpp\n[2] test.cpp\n\n(Where\u0027s \"test.h\"?)\n\nDOM parser:\n\n[0] test.h\n",
+    "Is there a relation to bug #192152?",
+    "(In reply to comment #3)\n\u003e Is there a relation to bug #192152?\n\nI don\u0027t think so. This bug has to do with locations not resolving properly with the C99 parser. I have not seen this bug with the DOM parser.\n",
+    "Thanks for the analysis Jason.\n\nThe problem was that offsets were not being set properly on the comment nodes, leading to erratic results when calling getFileLocation(). I\u0027ve fixed the offset problem but I\u0027m still seeing the NPE in one specific case. I\u0027ll open another bug for that case and close this bug.\n\nFixed in HEAD.",
+    "opened bug 192698 to track the special case"
+  ],
+  "commentCreationDates": [
+    "2007-06-06T16:20:26+02:00",
+    "2007-06-11T21:08:43+02:00",
+    "2007-06-11T22:54:54+02:00",
+    "2007-06-12T14:59:07+02:00",
+    "2007-06-12T16:31:44+02:00",
+    "2007-06-14T17:36:41+02:00",
+    "2007-06-14T17:41:03+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.indexer.TodoTaskParser.parse",
+          "source": "TodoTaskParser.java:60"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.indexer.TodoTaskUpdater.updateTasks",
+          "source": "TodoTaskUpdater.java:101"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.PDOMWriter.addSymbols",
+          "source": "PDOMWriter.java:210"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.indexer.PDOMIndexerTask.parseTU",
+          "source": "PDOMIndexerTask.java:300"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.indexer.PDOMIndexerTask.internalParseTUs",
+          "source": "PDOMIndexerTask.java:218"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.indexer.PDOMIndexerTask.parseTUs",
+          "source": "PDOMIndexerTask.java:192"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.indexer.fast.PDOMFastIndexerTask.run",
+          "source": "PDOMFastIndexerTask.java:102"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.indexer.PDOMRebuildTask.run",
+          "source": "PDOMRebuildTask.java:75"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.pdom.PDOMIndexerJob.run",
+          "source": "PDOMIndexerJob.java:89"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "191266",
+      "date": "2007-06-06T16:20:26+02:00",
+      "product": "CDT",
+      "component": "cdt-core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "191266",
+  "bugId": "191266",
+  "date": "2007-06-06T16:20:26+02:00",
+  "product": "CDT",
+  "component": "cdt-core",
+  "severity": "normal"
+}

@@ -1,0 +1,201 @@
+{
+  "comments": [
+    "Steps to recreate:\n1- Create a new JSP file (New -\u003e File -\u003e \"Something.jsp\"\n2- An SSE instance is opened for the new JSP\n3- Show the Snippets view\n4- Drag and drop a snippet from the snippets pallete onto an empty line in the \nJSP\nRESULT:\n\njava.lang.IllegalArgumentException: Argument not valid\n\tat org.eclipse.swt.SWT.error(SWT.java:2823)\n\tat org.eclipse.swt.SWT.error(SWT.java:2762)\n\tat org.eclipse.swt.SWT.error(SWT.java:2733)\n\tat org.eclipse.swt.custom.StyledText.setCaretOffset\n(StyledText.java:6697)\n\tat \norg.eclipse.wst.sse.ui.extension.ExtendedEditorDropTargetAdapter.dragOver\n(ExtendedEditorDropTargetAdapter.java:160)\n\tat org.eclipse.swt.dnd.DNDListener.handleEvent(DNDListener.java:59)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:842)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:866)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:851)\n\tat org.eclipse.swt.widgets.Widget.notifyListeners(Widget.java:659)\n\tat org.eclipse.swt.dnd.DropTarget.notifyListeners(DropTarget.java:480)\n\tat org.eclipse.swt.dnd.DropTarget.DragOver(DropTarget.java:326)\n\tat org.eclipse.swt.dnd.DropTarget.access$5(DropTarget.java:304)\n\tat org.eclipse.swt.dnd.DropTarget$3.method4(DropTarget.java:234)\n\tat org.eclipse.swt.internal.ole.win32.COMObject.callback4\n(COMObject.java:99)\n\tat org.eclipse.swt.internal.ole.win32.COM.DoDragDrop(Native Method)\n\tat org.eclipse.swt.dnd.DragSource.drag(DragSource.java:277)\n\tat org.eclipse.swt.dnd.DragSource.access$0(DragSource.java:267)\n\tat org.eclipse.swt.dnd.DragSource$1.handleEvent(DragSource.java:161)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:842)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2908)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2541)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1612)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1578)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.java:293)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:144)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run\n(IDEApplication.java:102)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:228)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:333)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:150)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:268)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:260)\n\tat org.eclipse.core.launcher.Main.run(Main.java:887)\n\tat org.eclipse.core.launcher.Main.main(Main.java:871)\n\nOn debugging, it looks like it is thrown because as the mouse moves, the drop \ntarget is recalculated by character and an empty line puts two 0x10 (CR, \\n, \netc) characters next to each other so the toControl method can\u0027t find an offset \n(the failure is in redrawing the cursor at a point given by toControl). \n\nUsing runtime release 3.1.M5a and WTP relese M3\n\nIs set to major severity given that this problem affects all drag source \nobjects onto the JSP SSE\n\nDid not test with other types (XML, HTML) of the SSE",
+    "Created an attachment (id\u003d20083)\norg.eclipse.wst.sse.ui.patch\n\nExtendedEditorDropTargetAdapter#getDropOffset tries to find first valid offset,\n**then sets offset \u003d offset + 1** thinking that will just drop snippets at the\nend of the line.  But this does not seem to be the correct assumption since\nthis logic fails on blank lines.\n\nRather than just automatically adding 1, when an offset is found, get the line\ninformation for the line containing the offset.  Then from the line\ninformation, you can get the real offset of the end of line.\n\nAdded the following to getDropOffset:\n/*\n * Now that a valid offset has been found, try to place at\n * the end of the line\n */\nif (textViewer !\u003d null \u0026\u0026 textViewer.getDocument() !\u003d null) {\n\tIRegion lineInfo \u003d null;\n\ttry {\n\t\tlineInfo \u003d\ntextViewer.getDocument().getLineInformationOfOffset(offset);\n\t}\n\tcatch (BadLocationException e1) {\n\t}\n\tif (lineInfo !\u003d null)\n\t\toffset \u003d lineInfo.getOffset() + lineInfo.getLength();\n\t}",
+    "This looks like right approach to me. Be sure to test with files the CR and CRLF\nand be sure result is as expected. (May have to inspect with binary editor, to\nbe sure CRLF not split ... I don\u0027t think it will be, would just be nice to confirm. ",
+    "ok, I tested this some more and everything appears to be working.  I did a \nlittle test to see if end-of-line delimiters were being split, and it looks \nlike they werent.  Actually, an exception would have been throw if we \nattempted that.  So the fact that we dont appear to be getting that exception \nmeans we\u0027re calculating the end of line correctly.\n\nso assigning to david to apply patch.",
+    "Perfect, thanks Amy. ",
+    "Verified in the 6/17 I-Build",
+    "closing verified bugs."
+  ],
+  "commentCreationDates": [
+    "2005-03-31T22:32:14+02:00",
+    "2005-04-19T22:00:21+02:00",
+    "2005-04-19T22:22:10+02:00",
+    "2005-04-19T23:15:01+02:00",
+    "2005-04-20T02:30:54+02:00",
+    "2005-07-01T02:28:53+02:00",
+    "2005-07-21T04:53:31+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Argument not valid",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2823"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2762"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2733"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.setCaretOffset",
+          "source": "StyledText.java:6697"
+        },
+        {
+          "method": "org.eclipse.wst.sse.ui.extension.ExtendedEditorDropTargetAdapter.dragOver",
+          "source": "ExtendedEditorDropTargetAdapter.java:160"
+        },
+        {
+          "method": "org.eclipse.swt.dnd.DNDListener.handleEvent",
+          "source": "DNDListener.java:59"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:842"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:866"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:851"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.notifyListeners",
+          "source": "Widget.java:659"
+        },
+        {
+          "method": "org.eclipse.swt.dnd.DropTarget.notifyListeners",
+          "source": "DropTarget.java:480"
+        },
+        {
+          "method": "org.eclipse.swt.dnd.DropTarget.DragOver",
+          "source": "DropTarget.java:326"
+        },
+        {
+          "method": "org.eclipse.swt.dnd.DropTarget.access$5",
+          "source": "DropTarget.java:304"
+        },
+        {
+          "method": "org.eclipse.swt.dnd.DropTarget$3.method4",
+          "source": "DropTarget.java:234"
+        },
+        {
+          "method": "org.eclipse.swt.internal.ole.win32.COMObject.callback4",
+          "source": "COMObject.java:99"
+        },
+        {
+          "method": "org.eclipse.swt.internal.ole.win32.COM.DoDragDrop",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.dnd.DragSource.drag",
+          "source": "DragSource.java:277"
+        },
+        {
+          "method": "org.eclipse.swt.dnd.DragSource.access$0",
+          "source": "DragSource.java:267"
+        },
+        {
+          "method": "org.eclipse.swt.dnd.DragSource$1.handleEvent",
+          "source": "DragSource.java:161"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:842"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2908"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2541"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1612"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1578"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:293"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:144"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:102"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:228"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:333"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:150"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:268"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:260"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:887"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:871"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "89896",
+      "date": "2005-03-31T22:32:14+02:00",
+      "product": "Web Tools",
+      "component": "wst.sse",
+      "severity": "major"
+    }
+  ],
+  "groupId": "89896",
+  "bugId": "89896",
+  "date": "2005-03-31T22:32:14+02:00",
+  "product": "Web Tools",
+  "component": "wst.sse",
+  "severity": "major"
+}

@@ -1,0 +1,209 @@
+{
+  "comments": [
+    "3.3RC3 build I20070531-0800\n\n- start a brand new eclipse workspace\n- go to Preferences page General \u003e Perspectives\n- click the Open a New View \u003e As Fast View radio button, OK\n- create a Hello World PDE project, stay in the Java Perspective\n- close the auto-opened PDE editor\n- open any of the generated .java files in the java editor\n- press Ctrl+F1 to show the Help view\n- after it has appeared close it by pressing the \u0027X\u0027 on its tab\n  -\u003e it does not close, and writes the stack below to the log\n- the view is left in a strange state visually, and eclipse can only be exited through the Task Manager (at least on win32)\n\nIt appears that someone above swt is disposing the image in the Help view\u0027s tab, after which a paint event is coming in and swt is failing because it tries to use the disposed image.\n\norg.eclipse.swt.SWTException: Graphic is disposed\nat org.eclipse.swt.SWT.error(SWT.java:3563)\nat org.eclipse.swt.SWT.error(SWT.java:3481)\nat org.eclipse.swt.SWT.error(SWT.java:3452)\nat org.eclipse.swt.graphics.Image.getBounds(Image.java:1142)\nat org.eclipse.swt.custom.CTabItem.drawSelected(CTabItem.java:378)\nat org.eclipse.swt.custom.CTabItem.onPaint(CTabItem.java:790)\nat org.eclipse.swt.custom.CTabFolder.drawTabArea(CTabFolder.java:1112)\nat org.eclipse.swt.custom.CTabFolder.onPaint(CTabFolder.java:2258)\nat org.eclipse.swt.custom.CTabFolder$1.handleEvent(CTabFolder.java:321)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:938)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:962)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:947)\nat org.eclipse.swt.widgets.Composite.WM_PAINT(Composite.java:1270)\nat org.eclipse.swt.widgets.Control.windowProc(Control.java:3725)\nat org.eclipse.swt.widgets.Display.windowProc(Display.java:4364)\nat org.eclipse.swt.internal.win32.OS.DispatchMessageW(Native Method)\nat org.eclipse.swt.internal.win32.OS.DispatchMessage(OS.java:2264)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3291)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2389)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2353)\nat org.eclipse.ui.internal.Workbench.access$4(Workbench.java:2219)\nat org.eclipse.ui.internal.Workbench$4.run(Workbench.java:466)\nat org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:289)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:461)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\nat org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:106)\nat org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:153)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:106)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:76)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:363)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:176)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\nat java.lang.reflect.Method.invoke(Unknown Source)\nat org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:504)\nat org.eclipse.equinox.launcher.Main.basicRun(Main.java:443)\nat org.eclipse.equinox.launcher.Main.run(Main.java:1169)",
+    "Created an attachment (id\u003d69540)\nscreenshot\n\n",
+    "The trace below shows where the tab\u0027s image gets disposed.  Disposing a tab\u0027s image in a CTabFolderEvent.close() callback is usually fine, but in this context it\u0027s not because PaneFolder$3.close() aborts the closing of the item.\nAs a result it still receives Paint events, but its image has been disposed, hence the error.\n\nI don\u0027t know if this problem belongs to UI or Help.  Moving to UI first since they define the fast view mechanism and how views are expected to behave.\n",
+    "Trying for a second time to change the report\u0027s owner.  It would be good if someone in UI looked into this asap given that 3.3RC3 is looming.\n",
+    "Here\u0027s the stack that I\u0027d promised in comment 2:\n\nImage.dispose() line: 1021 // \u003c-- disposing of the tab\u0027s image *****\nURLImageDescriptor(ImageDescriptor).destroyResource(Object) line: 176\t\nDeviceResourceManager.deallocate(Object, DeviceResourceDescriptor) line: 63\t\nDeviceResourceManager(AbstractResourceManager).destroy(DeviceResourceDescriptor) line: 112\t\nDeviceResourceManager(ResourceManager).destroyImage(ImageDescriptor) line: 227\t\nHelpView(WorkbenchPart).dispose() line: 108\t\nHelpView.dispose() line: 88\t\nViewReference(WorkbenchPartReference).doDisposePart() line: 720\t\nViewReference.doDisposePart() line: 127\t\nViewReference(WorkbenchPartReference).dispose() line: 671\t\nWorkbenchPage.disposePart(WorkbenchPartReference) line: 1586\t\nWorkbenchPage.partRemoved(WorkbenchPartReference) line: 1578\t\nViewFactory.releaseView(IViewReference) line: 255\t\nPerspective.hideView(IViewReference) line: 558\t\nWorkbenchPage.hideView(IViewReference) line: 2237\t\nFastViewPane$2.close(IPresentablePart) line: 120\t\nFastViewPane$2.close(IPresentablePart[]) line: 126\t\nTabbedStackPresentation$1.handleEvent(TabFolderEvent) line: 81\t\nDefaultTabFolder(AbstractTabFolder).fireEvent(TabFolderEvent) line: 267\t\nDefaultTabFolder(AbstractTabFolder).fireEvent(int, AbstractTabItem) line: 276\t\nDefaultTabFolder.access$1(DefaultTabFolder, int, AbstractTabItem) line: 1\t\nDefaultTabFolder$1.closeButtonPressed(CTabItem) line: 66\t\nPaneFolder.notifyCloseListeners(CTabItem) line: 601\t\nPaneFolder$3.close(CTabFolderEvent) line: 190\t// \u003c-- sets e.doit to false *****\nCTabFolder.onMouse(Event) line: 2149\t\nCTabFolder$1.handleEvent(Event) line: 320\t\nEventTable.sendEvent(Event) line: 66\t\nCTabFolder(Widget).sendEvent(Event) line: 938\t\nDisplay.runDeferredEvents() line: 3682\t\nDisplay.readAndDispatch() line: 3293\t\nWorkbench.runEventLoop(Window$IExceptionHandler, Display) line: 2389\t\nWorkbench.runUI() line: 2353\t\nWorkbench.access$4(Workbench) line: 2219\t\nWorkbench$4.run() line: 466\t\nRealm.runWithDefault(Realm, Runnable) line: 289\t\nWorkbench.createAndRunWorkbench(Display, WorkbenchAdvisor) line: 461\t\nPlatformUI.createAndRunWorkbench(Display, WorkbenchAdvisor) line: 149\t\nIDEApplication.start(IApplicationContext) line: 106\t\nEclipseAppHandle.run(Object) line: 153\t\nEclipseAppLauncher.runApplication(Object) line: 106\t\nEclipseAppLauncher.start(Object) line: 76\t\nEclipseStarter.run(Object) line: 363\t\nEclipseStarter.run(String[], Runnable) line: 176\t\nNativeMethodAccessorImpl.invoke0(Method, Object, Object[]) line: not available [native method]\t\nNativeMethodAccessorImpl.invoke(Object, Object[]) line: not available\t\nDelegatingMethodAccessorImpl.invoke(Object, Object[]) line: not available\t\nMethod.invoke(Object, Object...) line: not available\t\nMain.invokeFramework(String[], URL[]) line: 504\t\nMain.basicRun(String[]) line: 443\t\nMain.run(String[]) line: 1169\t\nMain.main(String[]) line: 1144\t\n",
+    "\nOk, preliminary testing shows the following:\n\nBad news:\nIt\u0027s real and it\u0027s a regression (i.e. same code flow works in 3.2). It\u0027s bad, once you\u0027re in this state the WB is essentially -completely hosed-...\n\nGood news:\n\nAppears to be highly specific to the Ctrl-F1 command...if I open the help view using Ctrl-3 it works fine, if I open it using Ctrl-F1 I get the issue on close. If I turn off the \u0027as a fast view\u0027 pref and open the Help using Ctrl-F1 and then drag or use the menu to move it to the FVB then it work fine.\n\nI\u0027ll mark to address in RC4 and investigate further. If it didn\u0027t require the \u0027open new view as a fast view\u0027 pref being enabled I\u0027d have suggested holding off on RC3. This has to be addressed though because \u0027Ctrl-F1\u0027 is our advertised way to bring up the help...\n",
+    "Created an attachment (id\u003d69589)\nUse setActiveFastView when showing a view using the OVM_FAST pref\n\n\nThis problem only occurred when the WorkbenchPage\u0027s \u0027openView\u0027 mode was \u0027IWorkbenchPage.VIEW_VISIBLE\u0027 as opposed to \u0027IWorkbenchPage.VIEW_ACTIVE\u0027 which the DefaultHelpUI was using but most scenarios don\u0027t. Not a bug on their part, it just explains why this was so specific to using Ctrl-F1...\n\n",
+    "\nPaul, eyes #1?\n\nThe issue is that by calling \u0027showFastView\u0027 rather than \u0027setActiveFastView\u0027 I was leaving the \u0027activeFastView\u0027 field null but the presentation was showing a FastViewPane. Calling \u0027setActiveFastView\u0027 ensures that both are in synch.\n\nThe reason that it was apparently working was that if the open move was \u0027VIEW_ACTIVATE\u0027 the \u0027internalBringToTop\u0027 calls \u0027activate\u0027 which checks if the view is a FV and, if so, makes its own call to \u0027setActiveFastView\u0027 (thereby putting everything back in synch).\n",
+    "\nTod, eyes #2?\n",
+    "\nKim, can you be eyes #1 since you\u0027re here and I wnat to get this in to the 6PM build...\n",
+    "+1",
+    "\nCommitted in \u003e20070531.\n",
+    "\nVerified in I20070601-0010.\n"
+  ],
+  "commentCreationDates": [
+    "2007-05-31T18:00:36+02:00",
+    "2007-05-31T18:01:35+02:00",
+    "2007-05-31T18:26:30+02:00",
+    "2007-05-31T18:28:09+02:00",
+    "2007-05-31T18:29:35+02:00",
+    "2007-05-31T19:51:24+02:00",
+    "2007-05-31T21:26:31+02:00",
+    "2007-05-31T21:34:31+02:00",
+    "2007-05-31T21:35:13+02:00",
+    "2007-05-31T21:41:51+02:00",
+    "2007-05-31T22:06:51+02:00",
+    "2007-05-31T22:11:18+02:00",
+    "2007-06-01T15:24:19+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Graphic is disposed",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3563"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3481"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3452"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.getBounds",
+          "source": "Image.java:1142"
+        },
+        {
+          "method": "org.eclipse.swt.custom.CTabItem.drawSelected",
+          "source": "CTabItem.java:378"
+        },
+        {
+          "method": "org.eclipse.swt.custom.CTabItem.onPaint",
+          "source": "CTabItem.java:790"
+        },
+        {
+          "method": "org.eclipse.swt.custom.CTabFolder.drawTabArea",
+          "source": "CTabFolder.java:1112"
+        },
+        {
+          "method": "org.eclipse.swt.custom.CTabFolder.onPaint",
+          "source": "CTabFolder.java:2258"
+        },
+        {
+          "method": "org.eclipse.swt.custom.CTabFolder$1.handleEvent",
+          "source": "CTabFolder.java:321"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:938"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:962"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:947"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.WM_PAINT",
+          "source": "Composite.java:1270"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3725"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:4364"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessage",
+          "source": "OS.java:2264"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3291"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2389"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2353"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:2219"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$4.run",
+          "source": "Workbench.java:466"
+        },
+        {
+          "method": "org.eclipse.core.databinding.observable.Realm.runWithDefault",
+          "source": "Realm.java:289"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:461"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.application.IDEApplication.start",
+          "source": "IDEApplication.java:106"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:153"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:106"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:76"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:363"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:176"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:504"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:443"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1169"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "190256",
+      "date": "2007-05-31T18:00:36+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "190256",
+  "bugId": "190256",
+  "date": "2007-05-31T18:00:36+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "critical"
+}

@@ -1,0 +1,191 @@
+{
+  "comments": [
+    "I have reusable library code that imports a type (a JAX-RPC Call in this case) \nfor use in two ways:\n1) matching in a method signature. \n2) casting and use in an advice body\n\nIt used to work properly when I used it in a load-time weaving configuration \nwithout the (Call) type being available on the classpath (I think it broke in \nthe last week).\n\nHowever, I am now getting an abort error \"can\u0027t determine implemented \ninterfaces of missing type\" when weaving this aspect into another type when the \nimported (Call) type isn?t visible in a classloader. I tried changing the code \nto remove the import and to use a fully qualified name in the pointcut (and a \nreflective invocation in the advice body). However, this still fails in the \nsame way.\n\nThese pointcuts are presumably causing the error:\n\npublic abstract aspect AbstractRequestMonitor {\n    protected pointcut scope() : within(*);//if(true);\n    protected pointcut monitorEnabled() : isMonitorEnabled() \u0026\u0026 scope();\n    protected abstract pointcut isMonitorEnabled();\n...\n}\n\npublic abstract aspect AbstractResourceMonitor extends AbstractRequestMonitor {\n...\n}\n\npublic aspect RemoteCallMonitor extends AbstractResourceMonitor {\n    protected pointcut isMonitorEnabled() : if(aspectOf().isEnabled());\n\n    public pointcut jaxRpcClientCall(Object wsCallObj) : \n        call(public * javax.xml.rpc.Call.invoke*(..)) \u0026\u0026 target(wsCallObj);\n\n    Object around(final Object wsCallObj) : jaxRpcClientCall(wsCallObj) \u0026\u0026 \nmonitorEnabled() {\n...\n\nHere is the output:\n\norg.aspectj.bridge.AbortException: can\u0027t determine implemented interfaces of \nmissing type javax.xml.rpc.Call\nwhen matching pointcut ((((within(*) \u0026\u0026 call(public * javax.xml.rpc.Call.invoke*\n(..))) \u0026\u0026 target(BindingTypePattern(java.lang.Object, 0))) \u0026\u0026 if(boolean \nglassbox.inspector.monitor.resource.RemoteCallMonitor.ajc$if_12())) \u0026\u0026 \npersingleton(glassbox.inspector.monitor.resource.RemoteCallMonitor))\nwhen matching shadow method-call(java.util.Locale java.util.Locale.getDefault())\nwhen weaving type org.apache.struts.action.ActionServlet\nwhen weaving classes \nwhen weaving\n\n\tat \norg.aspectj.weaver.tools.WeavingAdaptor$WeavingAdaptorMessageHandler.handleMessa\nge(WeavingAdaptor.java:364)\n\tat org.aspectj.bridge.MessageUtil.error(MessageUtil.java:81)\n\tat \norg.aspectj.weaver.MissingResolvedTypeWithKnownSignature.raiseCantFindType\n(MissingResolvedTypeWithKnownSignature.java:195)\n\tat \norg.aspectj.weaver.MissingResolvedTypeWithKnownSignature.getDeclaredInterfaces\n(MissingResolvedTypeWithKnownSignature.java:77)\n\tat org.aspectj.weaver.ResolvedType.getDirectSupertypes\n(ResolvedType.java:64)\n\tat org.aspectj.weaver.ReferenceType.isAssignableFrom\n(ReferenceType.java:312)\n\tat org.aspectj.weaver.ReferenceType.isAssignableFrom\n(ReferenceType.java:236)\n\tat org.aspectj.weaver.patterns.KindedPointcut.warnOnConfusingSig\n(KindedPointcut.java:151)\n\tat org.aspectj.weaver.patterns.KindedPointcut.matchInternal\n(KindedPointcut.java:108)\n\tat org.aspectj.weaver.patterns.Pointcut.match(Pointcut.java:145)\n\tat org.aspectj.weaver.patterns.AndPointcut.matchInternal\n(AndPointcut.java:57)\n\tat org.aspectj.weaver.patterns.Pointcut.match(Pointcut.java:145)\n\tat org.aspectj.weaver.patterns.AndPointcut.matchInternal\n(AndPointcut.java:55)\n\tat org.aspectj.weaver.patterns.Pointcut.match(Pointcut.java:145)\n\tat org.aspectj.weaver.patterns.AndPointcut.matchInternal\n(AndPointcut.java:55)\n\tat org.aspectj.weaver.patterns.Pointcut.match(Pointcut.java:145)\n\tat org.aspectj.weaver.patterns.AndPointcut.matchInternal\n(AndPointcut.java:55)\n\tat org.aspectj.weaver.patterns.Pointcut.match(Pointcut.java:145)\n\tat org.aspectj.weaver.ShadowMunger.match(ShadowMunger.java:64)\n\tat org.aspectj.weaver.Advice.match(Advice.java:109)\n\tat org.aspectj.weaver.bcel.BcelAdvice.match(BcelAdvice.java:98)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.match\n(BcelClassWeaver.java:2098)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.matchInvokeInstruction\n(BcelClassWeaver.java:2085)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.match\n(BcelClassWeaver.java:1867)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.matchInit\n(BcelClassWeaver.java:1731)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.match\n(BcelClassWeaver.java:1660)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.weave\n(BcelClassWeaver.java:445)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.weave\n(BcelClassWeaver.java:101)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:1531)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weaveWithoutDump\n(BcelWeaver.java:1485)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify\n(BcelWeaver.java:1266)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:1088)\n\tat org.aspectj.weaver.tools.WeavingAdaptor.getWovenBytes\n(WeavingAdaptor.java:266)\n\tat org.aspectj.weaver.tools.WeavingAdaptor.weaveClass\n(WeavingAdaptor.java:198)\n\tat org.aspectj.weaver.loadtime.Aj.preProcess(Aj.java:67)\n\tat org.aspectj.weaver.loadtime.ClassPreProcessorAgentAdapter.transform\n(ClassPreProcessorAgentAdapter.java:52)\n?",
+    "If I use call(public * javax..xml.rpc.Call.invoke*(..)) then the errors all \ndisappear. That\u0027s an ugly workaround though...\n\nInterestingly, I seem to only get the linkage error from bug # 116255 when this \nbug happens, although I believe that has to do with changing the execution path \nof the system (i.e., it\u0027s correlated without causation).",
+    "Actually the only correlation between the two issues was that I had forgotten I \nwas using the Nov. 9 development build which didn\u0027t have the sax parser factory \ncode in it. However, this bug is present in HEAD and the ugly workaround also \nworks in HEAD.",
+    "just one quick comment to myself, from this line in the stack trace: \n\nKindedPointcut.warnOnConfusingSig\n\nI can tell its only going down this code path in order to work out whether to\ngive you a lint warning.",
+    "Hmmm... it would be nice to isolate this kind of exception from breaking the \nweave (sounds like a great use for aspects).",
+    "I think I put code in before to stop this going wrong if the hierarchy couldn\u0027t\nbe determined - but that was before \u0027Missing\u0027 was introduced as a real type as\nopposed to just a broken signature.  I\u0027ll take a look tomorrow.",
+    "As I thought... the missing logic I put in ages and ages ago is broken by the\nnew MissingResolvedTypeWithKnownSignature\n\nI\u0027m about to put in a fix for this case",
+    "fix checked in - waiting on build",
+    "Fix available.  Can you try it Ron as I can\u0027t recreate easily here?",
+    "I\u0027m closing as the fix is available - (just to get the bug numbers down!!) -\nplease reopen if you still have problems with this Ron."
+  ],
+  "commentCreationDates": [
+    "2005-11-14T19:16:01+01:00",
+    "2005-11-14T19:27:00+01:00",
+    "2005-11-14T19:30:43+01:00",
+    "2005-11-14T19:41:07+01:00",
+    "2005-11-14T19:45:18+01:00",
+    "2005-11-14T19:54:02+01:00",
+    "2005-11-15T08:56:16+01:00",
+    "2005-11-15T09:14:59+01:00",
+    "2005-11-15T11:38:05+01:00",
+    "2005-11-16T16:08:52+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.aspectj.bridge.AbortException",
+      "message": "can\u0027t determine implemented interfaces of  missing type javax.xml.rpc.Call when matching pointcut ((((within(*) \u0026\u0026 call(public * javax.xml.rpc.Call.invoke* (..))) \u0026\u0026 target(BindingTypePattern(java.lang.Object, 0))) \u0026\u0026 if(boolean  glassbox.inspector.monitor.resource.RemoteCallMonitor.ajc$if_12())) \u0026\u0026  persingleton(glassbox.inspector.monitor.resource.RemoteCallMonitor)) when matching shadow method-call(java.util.Locale java.util.Locale.getDefault()) when weaving type org.apache.struts.action.ActionServlet when weaving classes  when weaving",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.tools.WeavingAdaptor$WeavingAdaptorMessageHandler.handleMessage",
+          "source": "WeavingAdaptor.java:364"
+        },
+        {
+          "method": "org.aspectj.bridge.MessageUtil.error",
+          "source": "MessageUtil.java:81"
+        },
+        {
+          "method": "org.aspectj.weaver.MissingResolvedTypeWithKnownSignature.raiseCantFindType",
+          "source": "MissingResolvedTypeWithKnownSignature.java:195"
+        },
+        {
+          "method": "org.aspectj.weaver.MissingResolvedTypeWithKnownSignature.getDeclaredInterfaces",
+          "source": "MissingResolvedTypeWithKnownSignature.java:77"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getDirectSupertypes",
+          "source": "ResolvedType.java:64"
+        },
+        {
+          "method": "org.aspectj.weaver.ReferenceType.isAssignableFrom",
+          "source": "ReferenceType.java:312"
+        },
+        {
+          "method": "org.aspectj.weaver.ReferenceType.isAssignableFrom",
+          "source": "ReferenceType.java:236"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.KindedPointcut.warnOnConfusingSig",
+          "source": "KindedPointcut.java:151"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.KindedPointcut.matchInternal",
+          "source": "KindedPointcut.java:108"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.match",
+          "source": "Pointcut.java:145"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.AndPointcut.matchInternal",
+          "source": "AndPointcut.java:57"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.match",
+          "source": "Pointcut.java:145"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.AndPointcut.matchInternal",
+          "source": "AndPointcut.java:55"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.match",
+          "source": "Pointcut.java:145"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.AndPointcut.matchInternal",
+          "source": "AndPointcut.java:55"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.match",
+          "source": "Pointcut.java:145"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.AndPointcut.matchInternal",
+          "source": "AndPointcut.java:55"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.match",
+          "source": "Pointcut.java:145"
+        },
+        {
+          "method": "org.aspectj.weaver.ShadowMunger.match",
+          "source": "ShadowMunger.java:64"
+        },
+        {
+          "method": "org.aspectj.weaver.Advice.match",
+          "source": "Advice.java:109"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelAdvice.match",
+          "source": "BcelAdvice.java:98"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.match",
+          "source": "BcelClassWeaver.java:2098"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.matchInvokeInstruction",
+          "source": "BcelClassWeaver.java:2085"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.match",
+          "source": "BcelClassWeaver.java:1867"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.matchInit",
+          "source": "BcelClassWeaver.java:1731"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.match",
+          "source": "BcelClassWeaver.java:1660"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:445"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:101"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:1531"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveWithoutDump",
+          "source": "BcelWeaver.java:1485"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify",
+          "source": "BcelWeaver.java:1266"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:1088"
+        },
+        {
+          "method": "org.aspectj.weaver.tools.WeavingAdaptor.getWovenBytes",
+          "source": "WeavingAdaptor.java:266"
+        },
+        {
+          "method": "org.aspectj.weaver.tools.WeavingAdaptor.weaveClass",
+          "source": "WeavingAdaptor.java:198"
+        },
+        {
+          "method": "org.aspectj.weaver.loadtime.Aj.preProcess",
+          "source": "Aj.java:67"
+        },
+        {
+          "method": "org.aspectj.weaver.loadtime.ClassPreProcessorAgentAdapter.transform",
+          "source": "ClassPreProcessorAgentAdapter.java:52"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "116305",
+      "date": "2005-11-14T19:16:01+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "116305",
+  "bugId": "116305",
+  "date": "2005-11-14T19:16:01+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

@@ -1,0 +1,184 @@
+{
+  "comments": [
+    "I\u0027ve been playing with some aspect deployment models and got into this error during project rebuild from AJDT:\n\njava.lang.NullPointerException\nat org.aspectj.weaver.bcel.BcelAdvice.implementOn(BcelAdvice.java:199)\nat org.aspectj.weaver.Shadow.implementMungers(Shadow.java:699)\nat org.aspectj.weaver.Shadow.implement(Shadow.java:471)\nat org.aspectj.weaver.bcel.BcelClassWeaver.implement(BcelClassWeaver.java:2832)\nat org.aspectj.weaver.bcel.BcelClassWeaver.weave(BcelClassWeaver.java:506)\nat org.aspectj.weaver.bcel.BcelClassWeaver.weave(BcelClassWeave ... lasses \nwhen weaving \nwhen batch building BuildConfig[...] #Files\u003d6\n\nHere is the aspect and classes it is applied to:\n\n-----\n@Aspect(\"percflow(execution(* InstrumentedBean.getProperty2()))\")\npublic class GetFieldAtAspect {\n\n  @Around(\"execution(* ConfigurableBean.getProperty2())\")\n  public Object onGet(ProceedingJoinPoint jp) throws Throwable {\n    return jp.proceed();\n  }\n}\n------\nimport org.springframework.beans.factory.InitializingBean;\n\n\npublic class InstrumentedBean implements InitializingBean, IInstrumentedBean {\n\n  private ConfigurableBean configurableBean;\n\n  private String value;\n\n  private transient String transientValue \u003d \"aaa\";\n\n  \n  public void afterPropertiesSet() throws Exception {\n    this.configurableBean \u003d new ConfigurableBean();\n  }\n  \n  public String getProperty1() {\n    synchronized(this) {\n      return this.configurableBean.getProperty1();\n    }\n  }\n\n  public String getProperty2() {\n    synchronized(this) {\n      return this.configurableBean.getProperty2();\n    }\n  }\n  \n  public void setValue(String value) {\n    synchronized(this) {\n      this.value \u003d value;\n    }\n  }\n\n  public Object getValue() {\n    synchronized(this) {\n      return value;\n    }\n  }\n\n  public Object getTransientValue() {\n    return transientValue;\n  }\n  \n  public void setTransientValue(String transientValue) {\n    this.transientValue \u003d transientValue;\n  }\n\n}\n\n------\n\nimport java.io.Serializable;\n\nimport org.springframework.beans.factory.annotation.Configurable;\n\n\n@Configurable\npublic class ConfigurableBean implements Serializable {\n  private static final long serialVersionUID \u003d 1L;\n  \n  private String property1;\n  private String property2;\n  \n  public ConfigurableBean() {\n  }\n  \n  public String getProperty1() {\n    return this.property1;\n  }\n  \n  public String getProperty2() {\n    return this.property2;\n  }\n  \n  public void setProperty1(String property1) {\n    this.property1 \u003d property1;\n  }\n  \n  public void setProperty2(String property2) {\n    this.property2 \u003d property2;\n  }\n  \n}",
+    "What version of AJDT are you using? Does it work fine if it is a code style aspect?\n\nI created a project with your 3 files in and it compiled fine for me (I had to remove the references to Configurable, InitializingBean, IInstrumentedBean as I dont have them)",
+    "I am running Eclipse 3.2 with latest AJDT from the dev update site. AJ aspect is seem compiles fine.\n\nStrange that if with \"perthis\" in @Aspect, error appear on InstrumentedBean, but if I change it to @Aspect(), then error appear on GetFieldAtAspect.\n\nConfigurable and InitializingBean are from Spring framework, but it looks like error appear even if I remove them as well as IInstrumentedBean.\n\n-----------\npublic aspect GetFieldAspect {\n  pointcut onGetValue() : execution(* InstrumentedBean.getValue(..));\n  pointcut onGetValueField() : get(* InstrumentedBean.value);\n\n  Object around() : onGetValue() {\n    System.err.println(\"Around getValue()\");\n    return \"{\"+proceed()+\"}\";\n  }\n  \n  String around() : onGetValueField() {\n    String value \u003d proceed();\n    System.err.println(\"Around get field value: \"+ value);\n    return \"[\"+value+\"]\";\n  }\n}\n-----------\n\nHere is the more complete stack trace from the Problems view:\n\nInternal compiler error\njava.lang.NullPointerException\n\tat org.aspectj.weaver.bcel.BcelAdvice.implementOn(BcelAdvice.java:199)\n\tat org.aspectj.weaver.Shadow.implementMungers(Shadow.java:699)\n\tat org.aspectj.weaver.Shadow.implement(Shadow.java:471)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.implement(BcelClassWeaver.java:2832)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.weave(BcelClassWeaver.java:506)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.weave(BcelClassWeaver.java:119)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:1611)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weaveWithoutDump(BcelWeaver.java:1562)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify(BcelWeaver.java:1340)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:1160)\n\tat org.aspectj.ajdt.internal.compiler.AjPipeliningCompilerAdapter.weaveQueuedEntries(AjPipeliningCompilerAdapter.java:455)\n\tat org.aspectj.ajdt.internal.compiler.AjPipeliningCompilerAdapter.queueForWeaving(AjPipeliningCompilerAdapter.java:392)\n\tat org.aspectj.ajdt.internal.compiler.AjPipeliningCompilerAdapter.afterProcessing(AjPipeliningCompilerAdapter.java:380)\n\tat org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$after$org_aspectj_ajdt_internal_compiler_CompilerAdapter$5$6b855184(CompilerAdapter.aj:98)\n\tat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.process(Compiler.java:533)\n\tat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:329)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation(AjBuildManager.java:906)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:260)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild(AjBuildManager.java:176)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:298)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.incrementalBuild(AjBuildManager.java:183)\n\tat org.aspectj.ajde.internal.CompilerAdapter.compile(CompilerAdapter.java:102)\n\tat org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run(AspectJBuildManager.java:191)\n\n",
+    "Ok - you must be doing something else too - because I\u0027ve downloaded spring 2.0 - put the spring.jar on the project classpath, then created the 3 files in that project which you mention in the first comment.  I removed the reference to IInstrumentedBean and it all compiles fine.\n\nDo you have any compiler options set to something other than default?\nDo you just have spring.jar on the classpath in the same way I do?\n\nMaybe attach your .classpath/.project/(.settings if you have one) for the project so I can see what you are doing differently to me?",
+    "Created an attachment (id\u003d52245)\nproject .settings\n\nI can\u0027t attach original .classpath, but it has the following artifacts:\n\n\u003cclasspath\u003e\n\t\u003cclasspathentry excluding\u003d\"**/SCCS/**\" kind\u003d\"src\" output\u003d\"build.eclipse/tests.system.classes\" path\u003d\"tests.system\"/\u003e\n\t\u003cclasspathentry excluding\u003d\"**/SCCS/**\" kind\u003d\"src\" output\u003d\"build.eclipse/tests.system.classes\" path\u003d\"tests.system.resources\"/\u003e\n\t\u003cclasspathentry kind\u003d\"con\" path\u003d\"org.eclipse.jdt.launching.JRE_CONTAINER\"/\u003e\n\t\u003cclasspathentry combineaccessrules\u003d\"false\" kind\u003d\"src\" path\u003d\"/spring\"/\u003e\n\t\u003cclasspathentry kind\u003d\"lib\" path\u003d\"lib/aspectjrt.jar\"/\u003e\n\t\u003cclasspathentry kind\u003d\"output\" path\u003d\"build.eclipse/classes\"/\u003e\n\u003c/classpath\u003e\n\nSo, Spring jars are exported from /spring project, that is in the same Eclipse Workspace.\n\nAnyways, can you say, what kind of thing is null there? Maybe we can deduct from that? Otherwise I can try to run this stuff under debugger, though not sure how to setup dev environment for AJDT.",
+    "test and fix are committed in AspectJ cvs head.",
+    "(In reply to comment #5)\n\u003e test and fix are committed in AspectJ cvs head.\n\nCool! What was that after all?",
+    "Annotation style has far less test coverage than code style - some code for removing warnings on the code introduced by the compiler (that were determined to be incorrect at weaving time) never expected a collection to be null and all the tests to check this were written in code style.  It could actually be null for annotation style.",
+    "Thanks Andy. Any idea when dev AJDT build with this this change will be cut?",
+    "The latest AJDT 1.4/1.5 dev builds contain this fix.",
+    "(In reply to comment #9)\n\u003e The latest AJDT 1.4/1.5 dev builds contain this fix.\n\nJust tried that. It works fine in AJDT. I guess I can take aspectjtools.jar from this AJDT build to mak it work from the commend line?",
+    "I am sorry to bug you again with this, but can you please point me to AspectJ build, which has aspectjtools.jar with iajc Ant task. Last dev build on AJ download page is dated Oct 16.",
+    "check the download page this morning",
+    "fix available (in AJ and AJDT)",
+    "iplog"
+  ],
+  "commentCreationDates": [
+    "2006-10-17T14:19:24+02:00",
+    "2006-10-17T15:06:45+02:00",
+    "2006-10-17T15:47:30+02:00",
+    "2006-10-18T16:57:40+02:00",
+    "2006-10-18T19:18:14+02:00",
+    "2006-10-19T16:02:31+02:00",
+    "2006-10-19T16:06:18+02:00",
+    "2006-10-19T16:43:44+02:00",
+    "2006-10-19T18:54:48+02:00",
+    "2006-10-20T15:53:03+02:00",
+    "2006-10-20T17:34:04+02:00",
+    "2006-10-22T21:08:51+02:00",
+    "2006-10-23T09:45:19+02:00",
+    "2006-10-24T14:40:26+02:00",
+    "2006-11-09T13:38:54+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.bcel.BcelAdvice.implementOn",
+          "source": "BcelAdvice.java:199"
+        },
+        {
+          "method": "org.aspectj.weaver.Shadow.implementMungers",
+          "source": "Shadow.java:699"
+        },
+        {
+          "method": "org.aspectj.weaver.Shadow.implement",
+          "source": "Shadow.java:471"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.implement",
+          "source": "BcelClassWeaver.java:2832"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:506"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeave ... lasses  when weaving  when batch building BuildConfig[...] #Files\u003d6  Here is the aspect and classes it is applied to:  ----- @Aspect(\"percflow(execution(* InstrumentedBean.getProperty2()"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "161217",
+      "date": "2006-10-17T14:19:24+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.bcel.BcelAdvice.implementOn",
+          "source": "BcelAdvice.java:199"
+        },
+        {
+          "method": "org.aspectj.weaver.Shadow.implementMungers",
+          "source": "Shadow.java:699"
+        },
+        {
+          "method": "org.aspectj.weaver.Shadow.implement",
+          "source": "Shadow.java:471"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.implement",
+          "source": "BcelClassWeaver.java:2832"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:506"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:119"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:1611"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveWithoutDump",
+          "source": "BcelWeaver.java:1562"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify",
+          "source": "BcelWeaver.java:1340"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:1160"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjPipeliningCompilerAdapter.weaveQueuedEntries",
+          "source": "AjPipeliningCompilerAdapter.java:455"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjPipeliningCompilerAdapter.queueForWeaving",
+          "source": "AjPipeliningCompilerAdapter.java:392"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjPipeliningCompilerAdapter.afterProcessing",
+          "source": "AjPipeliningCompilerAdapter.java:380"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$after$org_aspectj_ajdt_internal_compiler_CompilerAdapter$5$6b855184",
+          "source": "CompilerAdapter.aj:98"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.process",
+          "source": "Compiler.java:533"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:329"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:906"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:260"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:176"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:298"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.incrementalBuild",
+          "source": "AjBuildManager.java:183"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:102"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:191"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 2,
+      "bugId": "161217",
+      "date": "2006-10-17T15:47:30+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "161217",
+  "bugId": "161217",
+  "date": "2006-10-17T14:19:24+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "critical"
+}

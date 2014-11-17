@@ -1,0 +1,203 @@
+{
+  "comments": [
+    "When attempting to invoke a method on a JMX server over rmi that requires a class to be loaded, generates exceptions and fails.  A patch to org.eclipse.osgi exists which fixes this problem which and is included in the bug report along with a sample plugin that demonstrates the bug.  To run the plugin successfully (to generate the exception) eclipse must be started with the system property \u0027java.security.policy\u0027 set to point to the policy file on the file system, eg:\n\njava -Djava.security.policy\u003d\"file:///home/user/server.policy\" -cp startup.jar org.eclipse.core.launcher.Main -console -consoleLog\n\nNote: the policy file is also included.\n\nA summary of the exception follows:\n\n\n Caused by: java.rmi.UnmarshalException: error unmarshalling return; nested exception is: \n        java.lang.ClassNotFoundException: org.eclipse.osgi.rmi.exception.MetaData\n        at sun.rmi.server.UnicastRef.invoke(UnicastRef.java:162)\n        at com.sun.jmx.remote.internal.PRef.invoke(Unknown Source)\n        at javax.management.remote.rmi.RMIConnectionImpl_Stub.invoke(Unknown Source)\n        at javax.management.remote.rmi.RMIConnector$RemoteMBeanServerConnection.invoke(RMIConnector.java:969)\n        at org.eclipse.osgi.rmi.exception.Activator.start(Activator.java:64)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run(BundleContextImpl.java:994)\n        at java.security.AccessController.doPrivileged(Native Method)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:988)\n        ... 13 more\nCaused by: java.lang.ClassNotFoundException: org.eclipse.osgi.rmi.exception.MetaData\n        at java.net.URLClassLoader$1.run(URLClassLoader.java:200)\n        at java.security.AccessController.doPrivileged(Native Method)\n        at java.net.URLClassLoader.findClass(URLClassLoader.java:188)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:306)\n        at java.lang.ClassLoader.loadClass(ClassLoader.java:251)\n        at java.lang.ClassLoader.loadClassInternal(ClassLoader.java:319)\n        at java.lang.Class.forName0(Native Method)\n        at java.lang.Class.forName(Class.java:242)\n        at sun.rmi.server.LoaderHandler.loadClass(LoaderHandler.java:430)\n        at sun.rmi.server.LoaderHandler.loadClass(LoaderHandler.java:165)\n        at java.rmi.server.RMIClassLoader$2.loadClass(RMIClassLoader.java:620)\n        at java.rmi.server.RMIClassLoader.loadClass(RMIClassLoader.java:247)\n        at sun.rmi.server.MarshalInputStream.resolveClass(MarshalInputStream.java:197)\n        at java.io.ObjectInputStream.readNonProxyDesc(ObjectInputStream.java:1538)\n        at java.io.ObjectInputStream.readClassDesc(ObjectInputStream.java:1460)\n        at java.io.ObjectInputStream.readOrdinaryObject(ObjectInputStream.java:1693)\n        at java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1299)\n        at java.io.ObjectInputStream.readObject(ObjectInputStream.java:339)\n        at sun.rmi.server.UnicastRef.unmarshalValue(UnicastRef.java:290)\n        at sun.rmi.server.UnicastRef.invoke(UnicastRef.java:139)\n        ... 20 more\n\nRobert Connell",
+    "Created an attachment (id\u003d35861)\nThe plugin when started demonstrates the exception\n\n",
+    "Created an attachment (id\u003d35862)\nThe policy file to be used at startup (-Djava.security.policy\u003d\"server.policy\")\n\n",
+    "Created an attachment (id\u003d35863)\nPatch to org.eclipse.osgi which fixes the problem.\n\n",
+    "After looking at all the history of ContextFinder I found a couple of issues with the patch.  Will attach an updated patch ...",
+    "Created an attachment (id\u003d36022)\nnew patch to org.eclipse.osgi\n\nThe original patch regressed the behavior of ContextFinder in two ways:\n\n- The system bundle\u0027s classloader would never be used.  I\u0027m not sure if the system bundle\u0027s classloader ever needs to be used, but we should not change this behavior as others may be dependent on it (like framework extensions)\n\n- the checkClassLoader method was removed.  This may cause issues if the ContextFinder ends up being the parent classloader of a bundle classloader see bug 99064 for more details.  This is possible with the server side work to allow multiple frameworks to be launched in the same VM.\n\nThe new patch keeps as much of the old behavior as possible but still ensures that only a bundle classloader or the system bundle classloader will be used.\n\nPascal and/or DJ please review.",
+    "The new patch looks good though I do have a question.  The new appraoch is more restrictive in that it will only look at the first BundleLoader or the loader that loaded the ContextFinder (in practice this is the framework loader right?).  The old code would look at any loader that was not the system loader or this.  \n\nIt seems that the original problme was one of us finding a non-OSGi loader and using it, failing to find the class and then stopping.  I wonder if another approach to this problem would be to exhastively search all classloaders that are not the system loader (or this) until the class is found or an OSGi loader is found.\n",
+    "re comment 6\n\nI do not think we want to introduce this approach.  The ContextFinder is designed to find the first bundle classloader on the stack and use that as the context.  I don\u0027t really think we should delegate to other random classloaders that we do not have control over.  I have not thought this completely through ...",
+    "cc\u0027ing Jeff, you missed my last comment.",
+    "re comment 7  The current HEAD code we did use the first random classloader we found since we did not look at the type of the classloader.  The fix you suggest restricts the candidates to only OSgi classloaders.  Basically I am trying for the best/worst of both worlds.  In the RMI case, there appeared to be a random classloader there that we did not want.  Pascal suggested (and I also seem to recall) that there were issues if you skipped some non-System, non-OSGi loaders.  So the approach I suggest is like the original code but says that if you miss on any non-OSGi loaders there may be, keep going until you get to an OSgi loader.\n\nAnyway, I too have not thougth it through completely at this point but it may be worth considering",
+    "I have already tried to talked Tom into this kind of behavior but he already resisted. Now that we out number him we might have a chance :-)\n\nI think the approach suggested in comment #9 where you continue the search until you find a bundle classloader is more likely to bring us success and solve \"more\" case.\nIn addition of this behavior, I\u0027m also wondering if some of our policies should not have a flag saying \"go further in the stack\" on failure, which would throw a special but wellknown exception that would be caught by the context finder.\n\nAnother idea that could help with the problem of hitting the system classloader,  should we logically associate a policy with the system classloader?",
+    "hmmmm...\n\nok, maybe this would not be so bad.  I\u0027m not sure about the new type of ClassNotFoundException in policies, but lets solve one problem at a time.\n\nHere is what I suggest:\n\nSearch each non-System, non-ContextFinder classloader on the stack until you either find a class or found the first bundle classloader.  I don\u0027t think we should search each classloader on the stack beyond the first bundle classloader.\n\nThoughts?",
+    "agreed with one clarification.  It is not just stoppig at the first bundle classloader but also the framework classloader. That is why I described it as \"OSGi classloader\".  As soon as you get into the OSGi world, stop.\n\nThis approach should be more robust to others having whacky classloader structures between the ContextFinder caller and the OSGi world.  In practice we should find an OSGi classloader very quickly so there should not be much of a performance impact.",
+    "Created an attachment (id\u003d36059)\nimproved patch\n\nHere is a new patch which will delegate to all classloaders on the stack which are non-boot/non-ContextFinder until and including the framework classloader or the first bundle classloader.",
+    "The improved patch has been verified using the latest integration build.",
+    "Patch good to go.",
+    "latest patch has been released for M6.  The fix will be in tomarrow\u0027s I-Build.",
+    "There is a bug in the last patch that got released.  See bug 111950 comment 3 from Haris Peco\n\nI check and it work now, but what is this in basicFindClassLoaders\nif (tmp \u003d\u003d finderClassLoader || tmp instanceof BundleClassLoader)\n   break;\nIt is possible that we find case when it will fail, too  \nanother question : is ArrayList necessary for return from this method ? It\nworked good for first classloader.\nIf ArrayList is necessary then see this code (line 92)\nif (result \u003d\u003d null) {\n    ArrayList toConsult \u003d findClassLoaders();\n    for (Iterator loaders \u003d toConsult.iterator(); loaders.hasNext();)\n        try {\n           result \u003d ((ClassLoader) loaders.next()).loadClass(arg0);\n        } catch (ClassNotFoundException e) {\n        // go to the next class loader\n        }\n}\nif first loader in list load class this will continue in second loader.\nI think that you need break after line\n  result \u003d ... (line 96)\n\nGood catch Haris, we should fix this for RC2.\n",
+    "Created an attachment (id\u003d38671)\npatch\n\nPossible solution.\n\nRobert, Can you verify this latest patch works for the JMX scenario?  Thanks.",
+    "Verified JMX working using patch 3 applied to org.eclipse.osgi using latest nightly build as of the time of this writing: N20060417-0010.",
+    "+1",
+    "patch looks good\n",
+    "sorry...didn\u0027t mean to re-assign. \nback to tom...",
+    "Latest patch released for RC2.",
+    "Thomas,\n\n  Do you sure in this lines ?\n\ntry {\n-\t\t\tresult \u003d super.loadClass(arg0, arg1);\n+\t\t\treturn super.loadClass(arg0, arg1);\n \t\t} catch (ClassNotFoundException e) {\n-\t\t\t//Ignore\n+\t\t\t// Ignore; find a bundle classloader to use.\n \t\t}\n\nnow findClassLoders will not be called at all",
+    "and this \nfor (Iterator loaders \u003d toConsult.iterator(); loaders.hasNext();)\ntry {\n\treturn ((ClassLoader) loaders.next()).loadClass(arg0);\n} catch (ClassNotFoundException e) {\n// go to the next class loader\n}\ncan return null and next classlooder can be fine\nthis is better :\n\nprotected synchronized Class loadClass(String arg0, boolean arg1) throws ClassNotFoundException {\n\tClass result \u003d null;\n\ttry {\n\t      result \u003d super.loadClass(arg0, arg1);\n\t} catch (ClassNotFoundException e) {\n\t\t//Ignore\n\t}\n\tif (result \u003d\u003d null) {\n\t\tArrayList toConsult \u003d findClassLoaders();\n\t\tfor (Iterator loaders \u003d toConsult.iterator(); loaders.hasNext();)\n\t\ttry {\n\t\t\tresult \u003d ((ClassLoader) loaders.next()).loadClass(arg0);\n\t\t\tif (result !\u003d null)\n\t\t\t\tbreak;\n\t\t} catch (ClassNotFoundException e) {\n\t\t// go to the next class loader\n\t}\n}\nif (result \u003d\u003d null)\n\tthrow new ClassNotFoundException(arg0);\nreturn result;\n}\n\nand this for basicClassLoaders\n\nArrayList basicFindClassLoaders() {\n\tClass[] stack \u003d contextFinder.getClassContext();\n\tArrayList result \u003d new ArrayList(1);\n\tfor (int i \u003d 1; i \u003c stack.length; i++) {\n\t\tClassLoader tmp \u003d stack[i].getClassLoader();\n\t\tif (stack[i] !\u003d MEContextFinder.class \u0026\u0026 tmp !\u003d null \u0026\u0026 tmp !\u003d this) {\n\t\t\tif (checkClassLoader(tmp))\n\t\t\t\tresult.add(tmp);\n\t// stop at the framework classloader or the first bundle classloader\n\t//if (tmp \u003d\u003d finderClassLoader || tmp instanceof BundleClassLoader)\n\t//\t\tbreak;\n\t}\n}\nreturn result;\n}\n\nthis line in basicClassLoaders are commented\n\t//if (tmp \u003d\u003d finderClassLoader || tmp instanceof BundleClassLoader)\n\t//\t\tbreak;\nand finder serach all stack - maybe it will decrease performance, but it isn\u0027t\ntoo much important in context finder\n",
+    "Haris,\n\nThere is no need to store result in a temporary variable because ClassLoader.loadClass cannot return null, it must return a Class object or throw a ClassNotFoundException according to the javadoc.\n\nAs to searching the complete stack of class loaders, that is not something we can consider for 3.2.  We would have to better understand the usecase before considering something like that for a future release.\n\nIf you have a specific usecase in mind can you open a separate defect for us to discuss this (against Equinox-\u003eFramework).  Thanks.\n",
+    "Thomas,\n  You are correct for loadClass, but do you sure that some broken classloader will not return null; check for null haven\u0027t cost and it\u0027s stronger\n  I think that we have to search complete stack.I haven\u0027t case just now, but when i got it, I will know what is problem - i\u0027m almost sure that it exists."
+  ],
+  "commentCreationDates": [
+    "2006-03-07T21:46:02+01:00",
+    "2006-03-07T21:47:19+01:00",
+    "2006-03-07T21:48:25+01:00",
+    "2006-03-07T21:49:06+01:00",
+    "2006-03-09T20:50:15+01:00",
+    "2006-03-09T21:10:43+01:00",
+    "2006-03-09T21:52:57+01:00",
+    "2006-03-09T22:13:39+01:00",
+    "2006-03-09T22:14:18+01:00",
+    "2006-03-09T23:04:07+01:00",
+    "2006-03-10T00:58:01+01:00",
+    "2006-03-10T13:43:09+01:00",
+    "2006-03-10T14:12:44+01:00",
+    "2006-03-10T15:18:30+01:00",
+    "2006-03-10T17:01:07+01:00",
+    "2006-03-13T20:40:21+01:00",
+    "2006-03-13T21:24:08+01:00",
+    "2006-04-17T15:44:41+02:00",
+    "2006-04-17T15:58:27+02:00",
+    "2006-04-17T16:13:34+02:00",
+    "2006-04-17T16:19:38+02:00",
+    "2006-04-17T16:39:57+02:00",
+    "2006-04-17T16:40:41+02:00",
+    "2006-04-17T17:05:52+02:00",
+    "2006-04-17T19:25:38+02:00",
+    "2006-04-17T19:35:04+02:00",
+    "2006-04-17T20:17:40+02:00",
+    "2006-04-17T21:02:10+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassNotFoundException",
+      "message": "org.eclipse.osgi.rmi.exception.MetaData",
+      "elements": [
+        {
+          "method": "sun.rmi.server.UnicastRef.invoke",
+          "source": "UnicastRef.java:162"
+        },
+        {
+          "method": "com.sun.jmx.remote.internal.PRef.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.management.remote.rmi.RMIConnectionImpl_Stub.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.management.remote.rmi.RMIConnector$RemoteMBeanServerConnection.invoke",
+          "source": "RMIConnector.java:969"
+        },
+        {
+          "method": "org.eclipse.osgi.rmi.exception.Activator.start",
+          "source": "Activator.java:64"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run",
+          "source": "BundleContextImpl.java:994"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:988"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.ClassNotFoundException",
+        "message": "org.eclipse.osgi.rmi.exception.MetaData",
+        "elements": [
+          {
+            "method": "java.net.URLClassLoader$1.run",
+            "source": "URLClassLoader.java:200"
+          },
+          {
+            "method": "java.security.AccessController.doPrivileged",
+            "source": "Native Method"
+          },
+          {
+            "method": "java.net.URLClassLoader.findClass",
+            "source": "URLClassLoader.java:188"
+          },
+          {
+            "method": "java.lang.ClassLoader.loadClass",
+            "source": "ClassLoader.java:306"
+          },
+          {
+            "method": "java.lang.ClassLoader.loadClass",
+            "source": "ClassLoader.java:251"
+          },
+          {
+            "method": "java.lang.ClassLoader.loadClassInternal",
+            "source": "ClassLoader.java:319"
+          },
+          {
+            "method": "java.lang.Class.forName0",
+            "source": "Native Method"
+          },
+          {
+            "method": "java.lang.Class.forName",
+            "source": "Class.java:242"
+          },
+          {
+            "method": "sun.rmi.server.LoaderHandler.loadClass",
+            "source": "LoaderHandler.java:430"
+          },
+          {
+            "method": "sun.rmi.server.LoaderHandler.loadClass",
+            "source": "LoaderHandler.java:165"
+          },
+          {
+            "method": "java.rmi.server.RMIClassLoader$2.loadClass",
+            "source": "RMIClassLoader.java:620"
+          },
+          {
+            "method": "java.rmi.server.RMIClassLoader.loadClass",
+            "source": "RMIClassLoader.java:247"
+          },
+          {
+            "method": "sun.rmi.server.MarshalInputStream.resolveClass",
+            "source": "MarshalInputStream.java:197"
+          },
+          {
+            "method": "java.io.ObjectInputStream.readNonProxyDesc",
+            "source": "ObjectInputStream.java:1538"
+          },
+          {
+            "method": "java.io.ObjectInputStream.readClassDesc",
+            "source": "ObjectInputStream.java:1460"
+          },
+          {
+            "method": "java.io.ObjectInputStream.readOrdinaryObject",
+            "source": "ObjectInputStream.java:1693"
+          },
+          {
+            "method": "java.io.ObjectInputStream.readObject0",
+            "source": "ObjectInputStream.java:1299"
+          },
+          {
+            "method": "java.io.ObjectInputStream.readObject",
+            "source": "ObjectInputStream.java:339"
+          },
+          {
+            "method": "sun.rmi.server.UnicastRef.unmarshalValue",
+            "source": "UnicastRef.java:290"
+          },
+          {
+            "method": "sun.rmi.server.UnicastRef.invoke",
+            "source": "UnicastRef.java:139"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "130819",
+      "date": "2006-03-07T21:46:02+01:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "130819",
+  "bugId": "130819",
+  "date": "2006-03-07T21:46:02+01:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "normal"
+}

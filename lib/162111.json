@@ -1,0 +1,462 @@
+{
+  "comments": [
+    "AbstractEditPart.getRoot() is implemented like this:\n\npublic RootEditPart getRoot() {\n    return getParent().getRoot();\n}\n\nIf the parent is null, getRoot() will throw a NullPointerException. Since I gather that it\u0027s not necessarily incorrect for an edit part to have a null parent (depending on where in its lifecycle it is), nor for the root itself to be null, a better implementation would be the following:\n\npublic RootEditPart getRoot() {\n    if (getParent() !\u003d null) {\n        return getParent().getRoot();\n    }\n    return null;\n}\n\nI encountered this bug while working with GMF (a stack trace follows). In GMF, there\u0027s a class called GraphicalEditPart that has exactly the latter implementation of getRoot() (at least in version 1.0). Great! However, GraphicalEditPart extends the superclass AbstractGraphicalEditPart (from GEF), which inherits the implementation from AbstractEditPart. Unfortunately, some (but not all) of the edit parts for my model that GMF generates extend AbstractGraphicalEditPart but not GraphicalEditPart, which means that they inherit the problem implementation rather than the more forgiving one.\n\nI\u0027m filing this bug with GEF instead of GMF because it seems like the problem really should be handled at the level of AbstractEditPart itself. However, the GEF maintainers may disagree with me and argue that the current getRoot() implementation is correct. I request the following:\n\n(1) GEF: Please decide whether it\u0027s appropriate for getRoot() to be called when the parent edit part is null.\n    If it is acceptable:\n    (1a) GEF: Please change the implementation to handle this case as described above.\n    (1b) GMF: The override in GraphicalEditPart will no longer be necessary and can be removed.\n    However, if getRoot() should not be called when the parent is null:\n    (1c) GEF: Please document the contract of getRoot(), and in particular that it will throw if the contract is broken.\n(2) GMF: Decide whether GMF modifies the GEF contract.\n    (2a) If it does, document that getRoot *may* be called when the parent is null.\n    (2b) If the GEF contract is reasonable, fix the GMF runtime so that getRoot() will not be called at inappropriate times, and remove the getRoot() override from GraphicalEditPart.\n\nDetails on how to reproduce the NPE:\n------------------------------------\nI have two nodes in a diagram. I use a connection creation tool to connect them. A new connection is created, and the connection label appears and is highlighted for editing. Immediately, without clicking anywhere, I undo with control-Z from the keyboard. The following stack trace occurs; it seems to have something to do with the connection label edit field:\n\njava.lang.NullPointerException\n\tat org.eclipse.gef.editparts.AbstractEditPart.getRoot(AbstractEditPart.java:551)\n\tat org.eclipse.gef.editparts.AbstractEditPart.getRoot(AbstractEditPart.java:551)\n\tat org.eclipse.gmf.runtime.diagram.ui.editparts.GraphicalEditPart.getRoot(GraphicalEditPart.java:1329)\n\tat org.eclipse.gef.editparts.AbstractEditPart.getViewer(AbstractEditPart.java:601)\n\tat org.eclipse.gef.tools.DirectEditManager.commit(DirectEditManager.java:135)\n\tat org.eclipse.gmf.runtime.diagram.ui.tools.TextDirectEditManager.commit(TextDirectEditManager.java:272)\n\tat org.eclipse.gef.tools.DirectEditManager$4.applyEditorValue(DirectEditManager.java:270)\n\tat org.eclipse.jface.viewers.CellEditor$1.run(CellEditor.java:305)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:843)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(JFaceUtil.java:44)\n\tat org.eclipse.jface.util.SafeRunnable.run(SafeRunnable.java:149)\n\tat org.eclipse.jface.viewers.CellEditor.fireApplyEditorValue(CellEditor.java:303)\n\tat org.eclipse.jface.viewers.CellEditor.focusLost(CellEditor.java:682)\n\tat org.eclipse.jface.viewers.TextCellEditor$5.focusLost(TextCellEditor.java:185)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:109)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:928)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:952)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:933)\n\tat org.eclipse.swt.widgets.Control.sendFocusEvent(Control.java:1970)\n\tat org.eclipse.swt.widgets.Widget.wmKillFocus(Widget.java:1671)\n\tat org.eclipse.swt.widgets.Control.WM_KILLFOCUS(Control.java:3575)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:3277)\n\tat org.eclipse.swt.widgets.Text.windowProc(Text.java:1841)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:4025)\n\tat org.eclipse.swt.internal.win32.OS.BringWindowToTop(Native Method)\n\tat org.eclipse.swt.widgets.Decorations.bringToTop(Decorations.java:183)\n\tat org.eclipse.swt.widgets.Shell.open(Shell.java:997)\n\tat org.eclipse.jface.window.Window.open(Window.java:792)\n\tat org.eclipse.jface.dialogs.ProgressMonitorDialog.open(ProgressMonitorDialog.java:640)\n\tat org.eclipse.ui.internal.operations.TimeTriggeredProgressMonitorDialog$1.checkTicking(TimeTriggeredProgressMonitorDialog.java:98)\n\tat org.eclipse.ui.internal.operations.TimeTriggeredProgressMonitorDialog$1.internalWorked(TimeTriggeredProgressMonitorDialog.java:122)\n\tat org.eclipse.core.runtime.ProgressMonitorWrapper.internalWorked(ProgressMonitorWrapper.java:94)\n\tat org.eclipse.core.runtime.SubProgressMonitor.internalWorked(SubProgressMonitor.java:151)\n\tat org.eclipse.core.runtime.ProgressMonitorWrapper.internalWorked(ProgressMonitorWrapper.java:94)\n\tat org.eclipse.core.runtime.SubProgressMonitor.internalWorked(SubProgressMonitor.java:151)\n\tat org.eclipse.core.runtime.SubProgressMonitor.worked(SubProgressMonitor.java:177)\n\tat org.eclipse.gmf.runtime.common.core.command.CompositeCommand.doUndoWithResult(CompositeCommand.java:659)\n\tat org.eclipse.gmf.runtime.common.core.command.AbstractCommand.undo(AbstractCommand.java:202)\n\tat org.eclipse.gmf.runtime.common.core.command.CompositeCommand.doUndoWithResult(CompositeCommand.java:627)\n\tat org.eclipse.gmf.runtime.common.core.command.AbstractCommand.undo(AbstractCommand.java:202)\n\tat org.eclipse.gmf.runtime.common.core.command.CompositeCommand.doUndoWithResult(CompositeCommand.java:627)\n\tat org.eclipse.gmf.runtime.common.core.command.AbstractCommand.undo(AbstractCommand.java:202)\n\tat org.eclipse.core.commands.operations.DefaultOperationHistory.doUndo(DefaultOperationHistory.java:413)\n\tat org.eclipse.core.commands.operations.DefaultOperationHistory.undo(DefaultOperationHistory.java:1244)\n\tat org.eclipse.ui.operations.UndoActionHandler.runCommand(UndoActionHandler.java:66)\n\tat org.eclipse.ui.operations.OperationHistoryActionHandler$4.run(OperationHistoryActionHandler.java:279)\n\tat org.eclipse.jface.operation.ModalContext.runInCurrentThread(ModalContext.java:369)\n\tat org.eclipse.jface.operation.ModalContext.run(ModalContext.java:313)\n\tat org.eclipse.jface.dialogs.ProgressMonitorDialog.run(ProgressMonitorDialog.java:479)\n\tat org.eclipse.ui.internal.operations.TimeTriggeredProgressMonitorDialog.access$6(TimeTriggeredProgressMonitorDialog.java:1)\n\tat org.eclipse.ui.internal.operations.TimeTriggeredProgressMonitorDialog$2.run(TimeTriggeredProgressMonitorDialog.java:203)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:67)\n\tat org.eclipse.ui.internal.operations.TimeTriggeredProgressMonitorDialog.run(TimeTriggeredProgressMonitorDialog.java:216)\n\tat org.eclipse.ui.operations.OperationHistoryActionHandler.run(OperationHistoryActionHandler.java:289)\n\tat org.eclipse.gmf.runtime.common.ui.action.actions.global.GlobalUndoAction.doRun(GlobalUndoAction.java:242)\n\tat org.eclipse.gmf.runtime.common.ui.action.AbstractActionHandler.run(AbstractActionHandler.java:347)\n\tat org.eclipse.gmf.runtime.common.ui.action.ActionManager$1.run(ActionManager.java:225)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:67)\n\tat org.eclipse.gmf.runtime.common.ui.action.ActionManager.run(ActionManager.java:223)\n\tat org.eclipse.gmf.runtime.common.ui.action.AbstractActionHandler.runWithEvent(AbstractActionHandler.java:365)\n\tat org.eclipse.ui.actions.RetargetAction.runWithEvent(RetargetAction.java:229)\n\tat org.eclipse.jface.commands.ActionHandler.execute(ActionHandler.java:119)\n\tat org.eclipse.core.commands.Command.executeWithChecks(Command.java:461)\n\tat org.eclipse.core.commands.ParameterizedCommand.executeWithChecks(ParameterizedCommand.java:424)\n\tat org.eclipse.ui.internal.handlers.HandlerService.executeCommand(HandlerService.java:160)\n\tat org.eclipse.ui.internal.keys.WorkbenchKeyboard.executeCommand(WorkbenchKeyboard.java:466)\n\tat org.eclipse.ui.internal.keys.WorkbenchKeyboard.press(WorkbenchKeyboard.java:799)\n\tat org.eclipse.ui.internal.keys.WorkbenchKeyboard.processKeyEvent(WorkbenchKeyboard.java:846)\n\tat org.eclipse.ui.internal.keys.WorkbenchKeyboard.filterKeySequenceBindings(WorkbenchKeyboard.java:564)\n\tat org.eclipse.ui.internal.keys.WorkbenchKeyboard.access$3(WorkbenchKeyboard.java:506)\n\tat org.eclipse.ui.internal.keys.WorkbenchKeyboard$KeyDownFilter.handleEvent(WorkbenchKeyboard.java:122)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Display.filterEvent(Display.java:982)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:927)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:952)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:937)\n\tat org.eclipse.swt.widgets.Widget.sendKeyEvent(Widget.java:965)\n\tat org.eclipse.swt.widgets.Text.sendKeyEvent(Text.java:1213)\n\tat org.eclipse.swt.widgets.Widget.sendKeyEvent(Widget.java:961)\n\tat org.eclipse.swt.widgets.Widget.wmChar(Widget.java:1275)\n\tat org.eclipse.swt.widgets.Control.WM_CHAR(Control.java:3346)\n\tat org.eclipse.swt.widgets.Text.WM_CHAR(Text.java:1846)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:3246)\n\tat org.eclipse.swt.widgets.Text.windowProc(Text.java:1841)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:4025)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessageW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessage(OS.java:1923)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2966)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1914)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1878)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:400)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:177)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)",
+    "If you fix one NPE, it is just going to pass the NPE along to the caller of that method. So, the next NPE will be in getViewer(). I don\u0027t see how that would help any here. There are other issues:\n\nThere is code in DirectEditManager to bringDown() the cell editor when the editpart is deactivated. If the editpart has no parent, it should have been deactivated already so this is an invalid state (the cell editor still being active).\n\nOn a separate note, undoing a command should not cause focus lost events. This could have unintended side effects in client code (for example, committing the changes in an unrelated celleditor)."
+  ],
+  "commentCreationDates": [
+    "2006-10-24T19:21:04+02:00",
+    "2006-10-24T19:58:40+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.gef.editparts.AbstractEditPart.getRoot",
+          "source": "AbstractEditPart.java:551"
+        },
+        {
+          "method": "org.eclipse.gef.editparts.AbstractEditPart.getRoot",
+          "source": "AbstractEditPart.java:551"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.diagram.ui.editparts.GraphicalEditPart.getRoot",
+          "source": "GraphicalEditPart.java:1329"
+        },
+        {
+          "method": "org.eclipse.gef.editparts.AbstractEditPart.getViewer",
+          "source": "AbstractEditPart.java:601"
+        },
+        {
+          "method": "org.eclipse.gef.tools.DirectEditManager.commit",
+          "source": "DirectEditManager.java:135"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.diagram.ui.tools.TextDirectEditManager.commit",
+          "source": "TextDirectEditManager.java:272"
+        },
+        {
+          "method": "org.eclipse.gef.tools.DirectEditManager$4.applyEditorValue",
+          "source": "DirectEditManager.java:270"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.CellEditor$1.run",
+          "source": "CellEditor.java:305"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:843"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "JFaceUtil.java:44"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "SafeRunnable.java:149"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.CellEditor.fireApplyEditorValue",
+          "source": "CellEditor.java:303"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.CellEditor.focusLost",
+          "source": "CellEditor.java:682"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TextCellEditor$5.focusLost",
+          "source": "TextCellEditor.java:185"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:109"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:928"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:952"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:933"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.sendFocusEvent",
+          "source": "Control.java:1970"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.wmKillFocus",
+          "source": "Widget.java:1671"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_KILLFOCUS",
+          "source": "Control.java:3575"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3277"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.windowProc",
+          "source": "Text.java:1841"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:4025"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.BringWindowToTop",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Decorations.bringToTop",
+          "source": "Decorations.java:183"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.open",
+          "source": "Shell.java:997"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:792"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.ProgressMonitorDialog.open",
+          "source": "ProgressMonitorDialog.java:640"
+        },
+        {
+          "method": "org.eclipse.ui.internal.operations.TimeTriggeredProgressMonitorDialog$1.checkTicking",
+          "source": "TimeTriggeredProgressMonitorDialog.java:98"
+        },
+        {
+          "method": "org.eclipse.ui.internal.operations.TimeTriggeredProgressMonitorDialog$1.internalWorked",
+          "source": "TimeTriggeredProgressMonitorDialog.java:122"
+        },
+        {
+          "method": "org.eclipse.core.runtime.ProgressMonitorWrapper.internalWorked",
+          "source": "ProgressMonitorWrapper.java:94"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SubProgressMonitor.internalWorked",
+          "source": "SubProgressMonitor.java:151"
+        },
+        {
+          "method": "org.eclipse.core.runtime.ProgressMonitorWrapper.internalWorked",
+          "source": "ProgressMonitorWrapper.java:94"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SubProgressMonitor.internalWorked",
+          "source": "SubProgressMonitor.java:151"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SubProgressMonitor.worked",
+          "source": "SubProgressMonitor.java:177"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.common.core.command.CompositeCommand.doUndoWithResult",
+          "source": "CompositeCommand.java:659"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.common.core.command.AbstractCommand.undo",
+          "source": "AbstractCommand.java:202"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.common.core.command.CompositeCommand.doUndoWithResult",
+          "source": "CompositeCommand.java:627"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.common.core.command.AbstractCommand.undo",
+          "source": "AbstractCommand.java:202"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.common.core.command.CompositeCommand.doUndoWithResult",
+          "source": "CompositeCommand.java:627"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.common.core.command.AbstractCommand.undo",
+          "source": "AbstractCommand.java:202"
+        },
+        {
+          "method": "org.eclipse.core.commands.operations.DefaultOperationHistory.doUndo",
+          "source": "DefaultOperationHistory.java:413"
+        },
+        {
+          "method": "org.eclipse.core.commands.operations.DefaultOperationHistory.undo",
+          "source": "DefaultOperationHistory.java:1244"
+        },
+        {
+          "method": "org.eclipse.ui.operations.UndoActionHandler.runCommand",
+          "source": "UndoActionHandler.java:66"
+        },
+        {
+          "method": "org.eclipse.ui.operations.OperationHistoryActionHandler$4.run",
+          "source": "OperationHistoryActionHandler.java:279"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.runInCurrentThread",
+          "source": "ModalContext.java:369"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.run",
+          "source": "ModalContext.java:313"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.ProgressMonitorDialog.run",
+          "source": "ProgressMonitorDialog.java:479"
+        },
+        {
+          "method": "org.eclipse.ui.internal.operations.TimeTriggeredProgressMonitorDialog.access$6",
+          "source": "TimeTriggeredProgressMonitorDialog.java:1"
+        },
+        {
+          "method": "org.eclipse.ui.internal.operations.TimeTriggeredProgressMonitorDialog$2.run",
+          "source": "TimeTriggeredProgressMonitorDialog.java:203"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:67"
+        },
+        {
+          "method": "org.eclipse.ui.internal.operations.TimeTriggeredProgressMonitorDialog.run",
+          "source": "TimeTriggeredProgressMonitorDialog.java:216"
+        },
+        {
+          "method": "org.eclipse.ui.operations.OperationHistoryActionHandler.run",
+          "source": "OperationHistoryActionHandler.java:289"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.common.ui.action.actions.global.GlobalUndoAction.doRun",
+          "source": "GlobalUndoAction.java:242"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.common.ui.action.AbstractActionHandler.run",
+          "source": "AbstractActionHandler.java:347"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.common.ui.action.ActionManager$1.run",
+          "source": "ActionManager.java:225"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:67"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.common.ui.action.ActionManager.run",
+          "source": "ActionManager.java:223"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.common.ui.action.AbstractActionHandler.runWithEvent",
+          "source": "AbstractActionHandler.java:365"
+        },
+        {
+          "method": "org.eclipse.ui.actions.RetargetAction.runWithEvent",
+          "source": "RetargetAction.java:229"
+        },
+        {
+          "method": "org.eclipse.jface.commands.ActionHandler.execute",
+          "source": "ActionHandler.java:119"
+        },
+        {
+          "method": "org.eclipse.core.commands.Command.executeWithChecks",
+          "source": "Command.java:461"
+        },
+        {
+          "method": "org.eclipse.core.commands.ParameterizedCommand.executeWithChecks",
+          "source": "ParameterizedCommand.java:424"
+        },
+        {
+          "method": "org.eclipse.ui.internal.handlers.HandlerService.executeCommand",
+          "source": "HandlerService.java:160"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.executeCommand",
+          "source": "WorkbenchKeyboard.java:466"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.press",
+          "source": "WorkbenchKeyboard.java:799"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.processKeyEvent",
+          "source": "WorkbenchKeyboard.java:846"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.filterKeySequenceBindings",
+          "source": "WorkbenchKeyboard.java:564"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.access$3",
+          "source": "WorkbenchKeyboard.java:506"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard$KeyDownFilter.handleEvent",
+          "source": "WorkbenchKeyboard.java:122"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.filterEvent",
+          "source": "Display.java:982"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:927"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:952"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:937"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendKeyEvent",
+          "source": "Widget.java:965"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.sendKeyEvent",
+          "source": "Text.java:1213"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendKeyEvent",
+          "source": "Widget.java:961"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.wmChar",
+          "source": "Widget.java:1275"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_CHAR",
+          "source": "Control.java:3346"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.WM_CHAR",
+          "source": "Text.java:1846"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3246"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.windowProc",
+          "source": "Text.java:1841"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:4025"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessage",
+          "source": "OS.java:1923"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2966"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1914"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1878"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:400"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:177"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "162111",
+      "date": "2006-10-24T19:21:04+02:00",
+      "product": "GEF",
+      "component": "GEF",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "162111",
+  "bugId": "162111",
+  "date": "2006-10-24T19:21:04+02:00",
+  "product": "GEF",
+  "component": "GEF",
+  "severity": "normal"
+}

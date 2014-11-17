@@ -1,0 +1,111 @@
+{
+  "comments": [
+    "Build ID: Eclipse 3.3.0\n\nSteps To Reproduce:\n1. Create a report with SQL-depending parameter, which result are listed e.g. in a drop-down-list\n2. Get the IScalarParameterDefn object of the parameter from the report engine.\n3. Call getSelectionList from the IGetParameterDefinitionTask.\n\n\nMore information:\nYou get the follwing exception-output (no exception itself, just an output in console):\n\n16:54:11,170 WARN  [WrappedConnection] Closing a result set you left open! Please close it yourself.\njava.lang.Exception: STACKTRACE\n        at org.jboss.resource.adapter.jdbc.WrappedStatement.registerResultSet(WrappedStatement.java:803)\n        at org.jboss.resource.adapter.jdbc.WrappedPreparedStatement.executeQuery(WrappedPreparedStatement.java:297)\n        at org.eclipse.birt.report.data.oda.jdbc.Statement.executeQuery(Statement.java:353)\n        at org.eclipse.datatools.connectivity.oda.consumer.helper.OdaQuery.doExecuteQuery(OdaQuery.java:443)\n        at org.eclipse.datatools.connectivity.oda.consumer.helper.OdaQuery.executeQuery(OdaQuery.java:408)\n        at org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.execute(PreparedStatement.java:553)\n        at org.eclipse.birt.data.engine.executor.DataSourceQuery.execute(DataSourceQuery.java:494)\n        at org.eclipse.birt.data.engine.impl.PreparedOdaDSQuery$OdaDSQueryExecutor.executeOdiQuery(PreparedOdaDSQuery.java:338)\n        at org.eclipse.birt.data.engine.impl.QueryExecutor.execute(QueryExecutor.java:761)\n        at org.eclipse.birt.data.engine.impl.ServiceForQueryResults.executeQuery(ServiceForQueryResults.java:216)\n        at org.eclipse.birt.data.engine.impl.QueryResults.getResultIterator(QueryResults.java:152)\n        at org.eclipse.birt.report.engine.api.impl.GetParameterDefinitionTask.createDynamicSelectionChoices(GetParameterDefinitionTask.java:509)\n        at org.eclipse.birt.report.engine.api.impl.GetParameterDefinitionTask.getChoicesFromParameterQuery(GetParameterDefinitionTask.java:895)\n        at org.eclipse.birt.report.engine.api.impl.GetParameterDefinitionTask.getSelectionList(GetParameterDefinitionTask.java:351)\n        at foo.Foo.prepareListBox(Foo.java:241)\n\nThe resultset is created at org.eclipse.birt.report.data.oda.jdbc.Statement at Line 353",
+    "do you close the IGetParameterDefinitionTask? the rset should be closed in the task\u0027s close.",
+    "when I tried to do this:\n\ntask.close();\nfinal Collection selectionList \u003d task.getSelectionList(scalar.getName());\n\nI got the same result.\n\nPS: I forgot to say, that it is a jndi connection.",
+    "the calling sequence should be:\n\ntask.getSelectionList();\ntask.close().\n\nonce the task is closed, it shouldn\u0027t be used anymore.\n\ncan you change the sequence and try again?\n\nthanks.",
+    "please verify if the rset is closed.",
+    "Ok, i changed my code.\nNow the task is used only once and is closed after calling the getSelectionList()\nmethod.\nThe same error is displayed. The resultset is NOT closed.\n\nPlease mention, that i use a jndi connection.",
+    "Could you attact the log file for more investigation?\n\nThanks.",
+    "Created an attachment (id\u003d76887)\nBirts log file\n\n",
+    "Hi, orkus,\nI failed to reproduce the bug. My reproduce step is:\n\n1. create a report with a datasource defined by JNDI with url: java:OracleDS.\n2. create a dataset on the datasource defined in step 1.\n3. create a parameter with type of list box, using dataset defined in step 2.\n4. define a JNDI data source in jboss:\n  \u003clocal-tx-datasource\u003e\n    \u003cjndi-name\u003eOracleDS\u003c/jndi-name\u003e\n    \u003cuse-java-context\u003efalse\u003c/use-java-context\u003e\n    \u003cconnection-url\u003ejdbc:oracle:thin:@spmdb:1521:test\u003c/connection-url\u003e\n    \u003cdriver-class\u003eoracle.jdbc.driver.OracleDriver\u003c/driver-class\u003e\n    \u003cuser-name\u003eroot\u003c/user-name\u003e\n    \u003cpassword\u003eroot\u003c/password\u003e\n    \u003cexception-sorter-class-name\u003eorg.jboss.resource.adapter.jdbc.vendor.OracleExceptionSorter\u003c/exception-sorter-class-name\u003e\n    \u003cmetadata\u003e\n       \u003ctype-mapping\u003eOracle9i\u003c/type-mapping\u003e\n    \u003c/metadata\u003e\n  \u003c/local-tx-datasource\u003e\n\n5. copy required odbc driver, jndi jar file and jndi configuration .proerpties file to org.eclipse.birt.report.oda.jdbc/drivers.\n6. Get parameter selection list with following code:\n   \t\tEngineConfig config1 \u003d new EngineConfig( );\n\t\tObject factory \u003d Platform\n\t\t\t\t.createFactoryObject( IReportEngineFactory.EXTENSION_REPORT_ENGINE_FACTORY );\n\t\tIReportEngine engine \u003d ( (IReportEngineFactory) factory ).createReportEngine( config1 );\n\t\tIReportRunnable runnable \u003d engine.openReportDesign( \"2.rptdesign\" );\n\t\tIGetParameterDefinitionTask task \u003d engine.createGetParameterDefinitionTask( runnable );\n\t\tCollection list \u003d gpdTask.getSelectionList( \"NewParameter\");\n\t\ttask.close( );\n\nIf the steps are different from your steps, please tell me.\n\nThanks.\n\n",
+    "(In reply to comment #8)\n\u003e 6. Get parameter selection list with following code:\n\u003e                 EngineConfig config1 \u003d new EngineConfig( );\n\u003e                 Object factory \u003d Platform\n\u003e                                 .createFactoryObject(\n\u003e IReportEngineFactory.EXTENSION_REPORT_ENGINE_FACTORY );\n\u003e                 IReportEngine engine \u003d ( (IReportEngineFactory) factory\n\u003e ).createReportEngine( config1 );\n\u003e                 IReportRunnable runnable \u003d engine.openReportDesign(\n\u003e \"2.rptdesign\" );\n\u003e                 IGetParameterDefinitionTask task \u003d\n\u003e engine.createGetParameterDefinitionTask( runnable );\n\u003e                 Collection list \u003d gpdTask.getSelectionList( \"NewParameter\");\n                                    ^^^^^^^\n                                    task.getSelectionList( \"NewParameter\");",
+    "Can\u0027t reproduce.",
+    "Sorry, was on holiday for a week.\nI use JBoss 4.0.2 and postgres. But the rest seems to be equal to my configuration. Dont know, why you cant reproduce this Bug."
+  ],
+  "commentCreationDates": [
+    "2007-08-21T17:14:32+02:00",
+    "2007-08-22T07:12:39+02:00",
+    "2007-08-22T11:38:16+02:00",
+    "2007-08-22T11:42:33+02:00",
+    "2007-08-23T04:11:56+02:00",
+    "2007-08-23T08:58:45+02:00",
+    "2007-08-23T10:41:36+02:00",
+    "2007-08-24T11:26:31+02:00",
+    "2007-08-28T11:33:32+02:00",
+    "2007-08-28T11:39:06+02:00",
+    "2007-09-03T07:48:42+02:00",
+    "2007-09-03T12:16:56+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.Exception",
+      "message": "STACKTRACE",
+      "elements": [
+        {
+          "method": "org.jboss.resource.adapter.jdbc.WrappedStatement.registerResultSet",
+          "source": "WrappedStatement.java:803"
+        },
+        {
+          "method": "org.jboss.resource.adapter.jdbc.WrappedPreparedStatement.executeQuery",
+          "source": "WrappedPreparedStatement.java:297"
+        },
+        {
+          "method": "org.eclipse.birt.report.data.oda.jdbc.Statement.executeQuery",
+          "source": "Statement.java:353"
+        },
+        {
+          "method": "org.eclipse.datatools.connectivity.oda.consumer.helper.OdaQuery.doExecuteQuery",
+          "source": "OdaQuery.java:443"
+        },
+        {
+          "method": "org.eclipse.datatools.connectivity.oda.consumer.helper.OdaQuery.executeQuery",
+          "source": "OdaQuery.java:408"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.PreparedStatement.execute",
+          "source": "PreparedStatement.java:553"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.executor.DataSourceQuery.execute",
+          "source": "DataSourceQuery.java:494"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedOdaDSQuery$OdaDSQueryExecutor.executeOdiQuery",
+          "source": "PreparedOdaDSQuery.java:338"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.QueryExecutor.execute",
+          "source": "QueryExecutor.java:761"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.ServiceForQueryResults.executeQuery",
+          "source": "ServiceForQueryResults.java:216"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.QueryResults.getResultIterator",
+          "source": "QueryResults.java:152"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.GetParameterDefinitionTask.createDynamicSelectionChoices",
+          "source": "GetParameterDefinitionTask.java:509"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.GetParameterDefinitionTask.getChoicesFromParameterQuery",
+          "source": "GetParameterDefinitionTask.java:895"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.GetParameterDefinitionTask.getSelectionList",
+          "source": "GetParameterDefinitionTask.java:351"
+        },
+        {
+          "method": "foo.Foo.prepareListBox",
+          "source": "Foo.java:241"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "200699",
+      "date": "2007-08-21T17:14:32+02:00",
+      "product": "BIRT",
+      "component": "Report Engine",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "200699",
+  "bugId": "200699",
+  "date": "2007-08-21T17:14:32+02:00",
+  "product": "BIRT",
+  "component": "Report Engine",
+  "severity": "normal"
+}

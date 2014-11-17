@@ -1,0 +1,166 @@
+{
+  "comments": [
+    "Eclipse Build (3.3.1.1): M20071023-1652\n\nOccures always if I leave a cell in the new line of the data editor.\n\n\nMore information:\njava.lang.StackOverflowError\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:3760)\n\tat org.eclipse.swt.widgets.Text.windowProc(Text.java:2013)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:4351)\n\tat org.eclipse.swt.internal.win32.OS.GetWindowTextW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.GetWindowText(OS.java:2592)\n\tat org.eclipse.swt.widgets.Text.getText(Text.java:995)\n\tat org.eclipse.jface.viewers.TextCellEditor.doGetValue(TextCellEditor.java:203)\n\tat org.eclipse.jface.viewers.CellEditor.getValue(CellEditor.java:449)\n\tat org.eclipse.jface.viewers.EditingSupport.saveCellEditorValue(EditingSupport.java:108)\n\tat org.eclipse.jface.viewers.ColumnViewerEditor.saveEditorValue(ColumnViewerEditor.java:380)\n\tat org.eclipse.jface.viewers.ColumnViewerEditor.applyEditorValue(ColumnViewerEditor.java:264)\n\tat org.eclipse.jface.viewers.ColumnViewer.applyEditorValue(ColumnViewer.java:411)\n\tat org.eclipse.jface.viewers.AbstractTableViewer.insert(AbstractTableViewer.java:601)\n\tat org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataEditor.getOrCreateRow(TableDataEditor.java:240)\n\tat org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataCellModifier.modify(TableDataCellModifier.java:111)\n\tat org.eclipse.jface.viewers.ColumnViewer$2.setValue(ColumnViewer.java:284)\n\tat org.eclipse.jface.viewers.EditingSupport.saveCellEditorValue(EditingSupport.java:109)\n\tat org.eclipse.jface.viewers.ColumnViewerEditor.saveEditorValue(ColumnViewerEditor.java:380)\n\tat org.eclipse.jface.viewers.ColumnViewerEditor.applyEditorValue(ColumnViewerEditor.java:264)\n\tat org.eclipse.jface.viewers.ColumnViewer.applyEditorValue(ColumnViewer.java:411)\n\tat org.eclipse.jface.viewers.AbstractTableViewer.insert(AbstractTableViewer.java:601)\n\tat org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataEditor.getOrCreateRow(TableDataEditor.java:240)\n\tat org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataCellModifier.modify(TableDataCellModifier.java:111)\n\tat org.eclipse.jface.viewers.ColumnViewer$2.setValue(ColumnViewer.java:284)\n\tat org.eclipse.jface.viewers.EditingSupport.saveCellEditorValue(EditingSupport.java:109)\n\tat org.eclipse.jface.viewers.ColumnViewerEditor.saveEditorValue(ColumnViewerEditor.java:380)\n\tat org.eclipse.jface.viewers.ColumnViewerEditor.applyEditorValue(ColumnViewerEditor.java:264)\n\tat org.eclipse.jface.viewers.ColumnViewer.applyEditorValue(ColumnViewer.java:411)\n\tat org.eclipse.jface.viewers.AbstractTableViewer.insert(AbstractTableViewer.java:601)\n\tat org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataEditor.getOrCreateRow(TableDataEditor.java:240)\n\tat org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataCellModifier.modify(TableDataCellModifier.java:111)\n\tat \norg.eclipse.jface.viewers.ColumnViewer$2.setValue(ColumnViewer.java:284)\n--\n\tat org.eclipse.jface.viewers.EditingSupport.saveCellEditorValue(EditingSupport.java:109)\n\tat org.eclipse.jface.viewers.ColumnViewerEditor.saveEditorValue(ColumnViewerEditor.java:380)\n\tat org.eclipse.jface.viewers.ColumnViewerEditor.applyEditorValue(ColumnViewerEditor.java:264)\n\tat org.eclipse.jface.viewers.ColumnViewer.applyEditorValue(ColumnViewer.java:411)\n\tat org.eclipse.jface.viewers.AbstractTableViewer.insert(AbstractTableViewer.java:601)\n\tat org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataEditor.getOrCreateRow(TableDataEditor.java:240)\n\tat org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataCellModifier.modify(TableDataCellModifier.java:111)\n\tat org.eclipse.jface.viewers.ColumnViewer$2.setValue(ColumnViewer.java:284)\n--\n....",
+    "Created an attachment (id\u003d82263)\nSimple patch for the unintended recursion\n\nA simple check for recursion within the TableDataCellModifier. \n\nThe problem is that when editing a cell, a new row must be added (so there\u0027s always a blank one at the end). When the user leaves a table field (focus change) , the new row is appended. This causes another focus change, which is handled synchronously. So another row is appended again...\n\nPatch looks ugly due to increased nesting due to try/finally construct, but really it\u0027s just guarding the modify() method by introduing a state variable. This way, the first invocation is allowed to run fully, but the second (and third, etc.) invocation  \n\nFirst, I tried to add the extra row async, but that just resulted in TWO new rows...\n\nBTW, I would mean that this is a critical bug, not just major -- since the data table is effectively useless with this bug and because the Eclipse event loop recommends exiting Eclipse when the StackOverflowError occurs.",
+    "Created an attachment (id\u003d82273)\nDrop-in replacement for the affected bundle (against the 1.5.1 features)\n\nYou can copy this file to your eclipse/plugins directory to test the patch (might have to start with option -clean). The version number was bumped by one so it shouldn\u0027t interfere with the original.\n\nTested against Eclipse 3.3.1 and DTP 1.5.1\n\nEnjoy!",
+    "*** Bug 209181 has been marked as a duplicate of this bug. ***",
+    "Created an attachment (id\u003d82504)\nPatch for org.eclipse.datatools.sqltools.data.ui plugin, bug 207331\n\n",
+    "I\u0027ve checked in the proposed fix for the TableDataCellModifier class in the org.eclipse.datatools.data.ui plugin in both the DTP 1.5.2 (R1.5 folder) stream and the DTP 1.6 (main HEAD) stream.  I modified the fix slightly to move the isModifying field up to the top of the class with the other fields and make it protected rather than private, again like the other fields.  I attached a patch with the actual fix.  Let me know if there are any problems.  The plugin versions are now 1.0.1.200711081 (for 1.5.2) and 1.1.0.200711081 (for 1.6)."
+  ],
+  "commentCreationDates": [
+    "2007-10-24T19:06:34+02:00",
+    "2007-11-06T21:52:34+01:00",
+    "2007-11-06T22:14:55+01:00",
+    "2007-11-08T15:56:40+01:00",
+    "2007-11-08T23:23:49+01:00",
+    "2007-11-08T23:31:50+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StackOverflowError",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3760"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.windowProc",
+          "source": "Text.java:2013"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:4351"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.GetWindowTextW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.GetWindowText",
+          "source": "OS.java:2592"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.getText",
+          "source": "Text.java:995"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TextCellEditor.doGetValue",
+          "source": "TextCellEditor.java:203"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.CellEditor.getValue",
+          "source": "CellEditor.java:449"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.EditingSupport.saveCellEditorValue",
+          "source": "EditingSupport.java:108"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewerEditor.saveEditorValue",
+          "source": "ColumnViewerEditor.java:380"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewerEditor.applyEditorValue",
+          "source": "ColumnViewerEditor.java:264"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewer.applyEditorValue",
+          "source": "ColumnViewer.java:411"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTableViewer.insert",
+          "source": "AbstractTableViewer.java:601"
+        },
+        {
+          "method": "org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataEditor.getOrCreateRow",
+          "source": "TableDataEditor.java:240"
+        },
+        {
+          "method": "org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataCellModifier.modify",
+          "source": "TableDataCellModifier.java:111"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewer$2.setValue",
+          "source": "ColumnViewer.java:284"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.EditingSupport.saveCellEditorValue",
+          "source": "EditingSupport.java:109"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewerEditor.saveEditorValue",
+          "source": "ColumnViewerEditor.java:380"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewerEditor.applyEditorValue",
+          "source": "ColumnViewerEditor.java:264"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewer.applyEditorValue",
+          "source": "ColumnViewer.java:411"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTableViewer.insert",
+          "source": "AbstractTableViewer.java:601"
+        },
+        {
+          "method": "org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataEditor.getOrCreateRow",
+          "source": "TableDataEditor.java:240"
+        },
+        {
+          "method": "org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataCellModifier.modify",
+          "source": "TableDataCellModifier.java:111"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewer$2.setValue",
+          "source": "ColumnViewer.java:284"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.EditingSupport.saveCellEditorValue",
+          "source": "EditingSupport.java:109"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewerEditor.saveEditorValue",
+          "source": "ColumnViewerEditor.java:380"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewerEditor.applyEditorValue",
+          "source": "ColumnViewerEditor.java:264"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewer.applyEditorValue",
+          "source": "ColumnViewer.java:411"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTableViewer.insert",
+          "source": "AbstractTableViewer.java:601"
+        },
+        {
+          "method": "org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataEditor.getOrCreateRow",
+          "source": "TableDataEditor.java:240"
+        },
+        {
+          "method": "org.eclipse.datatools.sqltools.data.internal.ui.editor.TableDataCellModifier.modify",
+          "source": "TableDataCellModifier.java:111"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ColumnViewer$2.setValue",
+          "source": "ColumnViewer.java:284"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "207331",
+      "date": "2007-10-24T19:06:34+02:00",
+      "product": "Data Tools",
+      "component": "Table Data Editor",
+      "severity": "major"
+    }
+  ],
+  "groupId": "207331",
+  "bugId": "207331",
+  "date": "2007-10-24T19:06:34+02:00",
+  "product": "Data Tools",
+  "component": "Table Data Editor",
+  "severity": "major"
+}

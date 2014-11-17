@@ -1,0 +1,94 @@
+{
+  "comments": [
+    "Build ID: Eclipse 3.3RC1\n\nSteps To Reproduce:\nI was running CompletionContextTests_1_5.test0006() from\norg.eclipse.jdt.core.tests.model. Accidentally I still had \nthe following file in my workspace (which has been removed on Sep 6 2006):\n   org.eclipse.jdt.core.tests.model/workspace/Completion/src3/pkgannotation/QQAnnotation.java\n\nNote that the content of this file had a wrong package \ndeclaration (with an \"s\" unlike the containing directory):\n\n  package pkgannotations;\n\nThe NPE occurs in CompletionEngine.proposeType() at this line:\n  if (!guessedType.isValidBinding()) return;\n\nAnalysis:\nVariable guessedType is obtained from TypeReference.resolveType(BlockScope)\nResolving internally reports this problem:\n   Pb(2) pkgannotations cannot be resolved to a type\n(This happens because an attempt is made to resolve \n\"pkgannotations.QQAnnotation\" to a type).\nAfterwards the method returns null, not a ProblemBinding.\nThus the result must be checked for null.\n(It seems that isValidBinding() would always return true?)",
+    "To reproduce the bug outside a junit test:\n1) create a project P\n2) create an annotation pkgannotation/QQAnnotation.java\npackage pkgannotations;\n@interface QQAnnotation {\n}\n3) create a class p/Test.java\npackage p;\npublic class Test {\n  @|ZZZ\n  void foo() {\n  }\n}\n4) do ctrl+space at | location\n\njava.lang.NullPointerException\n\tat org.eclipse.jdt.internal.codeassist.CompletionEngine.proposeType(CompletionEngine.java:733)\n\tat org.eclipse.jdt.internal.codeassist.CompletionEngine.acceptTypes(CompletionEngine.java:610)\n\tat org.eclipse.jdt.internal.codeassist.CompletionEngine.findTypesAndPackages(CompletionEngine.java:6739)\n\tat org.eclipse.jdt.internal.codeassist.CompletionEngine.complete(CompletionEngine.java:1482)\n\tat org.eclipse.jdt.internal.codeassist.CompletionEngine.complete(CompletionEngine.java:2098)\n\tat org.eclipse.jdt.internal.core.Openable.codeComplete(Openable.java:123)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.codeComplete(CompilationUnit.java:327)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.codeComplete(CompilationUnit.java:320)\n",
+    "The bug has been added with the fix for bug 158985.\nCode assist give completion proposals in 3.2, so this is a regression.",
+    "Created an attachment (id\u003d70297)\nProposed fix\n\n\u0027guessedType\u0027 can be null. This patch add a null check inside proposeType().",
+    "This bug could be fixed for 3.3RC4.\n\nJerome, Frederic, Philippe, Daniel could you review this patch ?\n",
+    "+1 for 3.3 RC4 (I guess as the target is not set...)\n\nJust one cosmetic point: in the test, package of first CU is test0006. I guess it\u0027s a copy/paste typo and should be test0025 instead...\n",
+    "To reproduce the problem the following annotation must be used instead of the annotation of comment 1.\n\npackage pkgannotations;\npublic @interface QQAnnotation {\n}",
+    "Is it really a show stopper ? The scenario seems like a corner case. Can\u0027t it wait until 3.3.1 ? Talking with David, it seems that the null check could protect from other bad situations as well.\n\nNow, the fix is really trivial...\n\nDavid - pls assess risk if we fix, risk if we don\u0027t fix. ",
+    "The fix is trivial. I would approve this for 3.3 RC4 unless David\u0027s riks assessment speaks against that.",
+    "I investigated to find another test case that thrown the same exception and i didn\u0027t find one. \nSo the only way to reproduce it is a corner case: the completion must occur inside an annotation reference and an annotation must be declared with the wrong package name.\n\nThe fix is trivial but the only way to reproduce the bug is a corner case.\nIf we don\u0027t fix this bug then there is no proposal and a window appear to signal that a completion computer did not complete normally.\n\nAs we are late in the 3.3 release stream and the bug isn\u0027t a show stopper, then this bug doesn\u0027t require to be fixed in 3.3 and could be fixed in 3.3.1.\n\n",
+    "While agreeing that this is definitely no show-stopper, here are a few more\ndetails I collected plus a suggestion (for post 3.3):\n\n- A slightly different way to produce the bug is by correcting the\n  package declaration but leaving the annotation type as package visible.\n  In that case a NotVisible ProblemBinding will be created,\n  everything else happens exactly as before \u003d\u003e NPE.\n  Still nothing dramatic.\n\n- Browsing through all implementations and clients of\n  TypeReference.resolveType() (both overloaded versions), \n  it is clear that this method only has two possible returns:\n  null or a valid TypeBinding.\n\nFor one implementation this policy is not easy to validate:\n+ ParameterizedQualifiedTypeReference.internalResolveType()\n  The data flow for the final return is non-trivial.\n  Might be interesting to actually analyze.\n\n3 clients actually use a (unnecessary) check isValidBinding()\non the result of resolveType():\n+ ThrowStatement.resolve()\n+ ASTNode.resolveDeprecatedAnnotations() \n+ CompletionEngine.proposeType()\n(all classes from ...compiler.ast)\n\nThe overwhelming majority if very consistent. Well done!\nI.e.: I couldn\u0027t find another occurrence of this bug ;-)\n\nHere\u0027s my suggestion: isn\u0027t this kind of policy (null or valid)\nworth documenting?\nIMHO that would facility maintenance and extension.\nThe unnecessary checks don\u0027t hurt for the functionality, but they\ntend to confuse people trying to understand the code (like me): \na good monkey will copy this kind of code and sooner or later \nnobody will remember the original policy.\nJust my 2c.",
+    "+1 for 3.3.1",
+    "Released for 3.4M1\n\nTest added\n  CompletionContextTests#test0025()\n\nI will enter another bug for the unnecessary call of isValidBinding() because this is not the same problem.\n\nI will prepare a patch for 3.3.1",
+    "I entered the bug 195810",
+    "Created an attachment (id\u003d73303)\nProposed patch for 3.3.1\n\n",
+    "Released for 3.3.1\n\nTest added\n  CompletionContextTests#test0025()",
+    "Verified for 3.4M1 using build I20070802-0800.",
+    "Verified for 3.3.1 using M20070831-2000."
+  ],
+  "commentCreationDates": [
+    "2007-06-05T23:19:37+02:00",
+    "2007-06-06T11:09:46+02:00",
+    "2007-06-06T11:13:05+02:00",
+    "2007-06-06T11:22:07+02:00",
+    "2007-06-06T11:34:06+02:00",
+    "2007-06-06T12:36:07+02:00",
+    "2007-06-06T12:48:39+02:00",
+    "2007-06-06T13:15:20+02:00",
+    "2007-06-06T14:47:46+02:00",
+    "2007-06-06T15:53:52+02:00",
+    "2007-06-06T23:17:48+02:00",
+    "2007-07-09T11:39:47+02:00",
+    "2007-07-09T13:04:20+02:00",
+    "2007-07-09T13:06:33+02:00",
+    "2007-07-09T13:09:24+02:00",
+    "2007-07-09T13:59:02+02:00",
+    "2007-08-03T14:37:46+02:00",
+    "2007-09-03T13:38:46+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.CompletionEngine.proposeType",
+          "source": "CompletionEngine.java:733"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.CompletionEngine.acceptTypes",
+          "source": "CompletionEngine.java:610"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.CompletionEngine.findTypesAndPackages",
+          "source": "CompletionEngine.java:6739"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.CompletionEngine.complete",
+          "source": "CompletionEngine.java:1482"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.CompletionEngine.complete",
+          "source": "CompletionEngine.java:2098"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.Openable.codeComplete",
+          "source": "Openable.java:123"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.codeComplete",
+          "source": "CompilationUnit.java:327"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.codeComplete",
+          "source": "CompilationUnit.java:320"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "191125",
+      "date": "2007-06-06T11:09:46+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "191125",
+  "bugId": "191125",
+  "date": "2007-06-05T23:19:37+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

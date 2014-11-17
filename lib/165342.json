@@ -1,0 +1,127 @@
+{
+  "comments": [
+    "The setup:\nnew technology Agent Controller (release 4.3.0-200610310100) on a Linux machine,\nAgent Controller client (using tptpcore.jar) on Windows,\nAgent Controller client (using tptpcore.jar) on Linux.\n\n\nBoth clients call \u0027getAgent\u0027 on the AgentController class in a loop.\n\nThe client on Windows works fine.\nThe client on Linux prints the following stacktrace on the console:\n\norg.xml.sax.SAXParseException: XML document structures must start and end within the same entity.\n        at org.apache.xerces.util.ErrorHandlerWrapper.createSAXParseException(Unknown Source)\n        at org.apache.xerces.util.ErrorHandlerWrapper.fatalError(Unknown Source)\n        at org.apache.xerces.impl.XMLErrorReporter.reportError(Unknown Source)\n        at org.apache.xerces.impl.XMLErrorReporter.reportError(Unknown Source)\n        at org.apache.xerces.impl.XMLScanner.reportFatalError(Unknown Source)\n        at org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.endEntity(Unknown Source)\n        at org.apache.xerces.impl.XMLDocumentScannerImpl.endEntity(Unknown Source)\n        at org.apache.xerces.impl.XMLEntityManager.endEntity(Unknown Source)\n        at org.apache.xerces.impl.XMLEntityScanner.load(Unknown Source)\n        at org.apache.xerces.impl.XMLEntityScanner.skipChar(Unknown Source)\n        at org.apache.xerces.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch(Unknown Source)\n        at org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanDocument(Unknown Source)\n        at org.apache.xerces.parsers.XML11Configuration.parse(Unknown Source)\n        at org.apache.xerces.parsers.XML11Configuration.parse(Unknown Source)\n        at org.apache.xerces.parsers.XMLParser.parse(Unknown Source)\n        at org.apache.xerces.parsers.AbstractSAXParser.parse(Unknown Source)\n        at org.apache.xerces.jaxp.SAXParserImpl.parse(Unknown Source)\n        at org.eclipse.tptp.platform.execution.util.internal.TPTPXMLParse.setParser(TPTPXMLParse.java:105)\n        at org.eclipse.tptp.platform.execution.client.core.internal.ControlMessage.readACCommands(ControlMessage.java:421)\n        at org.eclipse.tptp.platform.execution.client.core.internal.ControlMessage.readFromBuffer(ControlMessage.java:301)\n        at org.eclipse.tptp.platform.execution.client.core.internal.ConnectionImpl.processControlMessage(ConnectionImpl.java:803)\n        at org.eclipse.tptp.platform.execution.client.core.internal.ConnectionImpl$SocketReaderThread.run(ConnectionImpl.java:1021)\n\n\n\nAfter investigating, I narrowed the problem to the \u0027readTPTPCmdStringFromBuffer\u0027 method in TPTPMessageUtil.java.\nThe problem is that the position of the command in the binary buffer is not correctly calculated. \nIt is not appropriate to use lengths calculated on the character representation to reason about the binary buffer, because some characters\n(such as new lines) may be represented in a different amount of bytes.\nI implemented a quick and dirty fix, which happens to work:\n\npublic static int readTPTPCmdStringFromBuffer(byte[] buffer, int offset, TPTPString rastring)\n\t{\t\n\t\tint commandLengthInBytes \u003d 0;\n\t\tString data \u003d \"\";\n\t\t\n\t\ttry {\n\t\t\tString endOfCommand \u003d \"\u003c/Cmd\u003e\";\n\t\t\tbyte[] endOfCommandBytes \u003d endOfCommand.getBytes(\"UTF-8\");\n\t\t\t\n\t\t\t\n\t\t\tint endOfCommandIndex \u003d -1;\n\t\t\t\n\t\t\tfor (int i \u003d offset; i \u003c\u003d (buffer.length - endOfCommandBytes.length); ++i) {\n\t\t\t\t\n\t\t\t\tboolean matchEndOfCommand \u003d true;\n\t\t\t\tfor (int j \u003d 0; j \u003c endOfCommandBytes.length; ++j) {\n\t\t\t\t\tif (endOfCommandBytes[j] !\u003d buffer[i+j]) {\n\t\t\t\t\t\tmatchEndOfCommand \u003d false;\n\t\t\t\t\t\tbreak;\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\t\n\t\t\t\tif (matchEndOfCommand) {\n\t\t\t\t\tendOfCommandIndex \u003d i;\n\t\t\t\t}\n\t\t\t}\n\t\t\t\n\t\t\tif (-1 !\u003d endOfCommandIndex) {\n\t\t\t\tcommandLengthInBytes \u003d endOfCommandBytes.length+endOfCommandIndex-offset;\n\t\t\t\tdata \u003d new String(buffer, offset, commandLengthInBytes, \"UTF-8\");\n\t\t\t}\n\t\t\t\n\t\t} catch (java.io.UnsupportedEncodingException ignore) {}\n\t\t\n\t\t\n\t\trastring.setData(data);\n\n\t\treturn offset+commandLengthInBytes;\n\t}",
+    "The proposed fix doesn\u0027t explicitly handle the case where the end tag is not found.  The resultant behavior in that case looks like it probably is what the calling function would have expected, but I\u0027m not entirely sure what the calling function would have expected.  The existing code would certainly fail under that condition.\n\nMore importantly, you should have a \u0027break\u0027 statement in the \u0027if\u0027 clause where you\u0027ve found the end of the command.  Otherwise, if you have a second command in the buffer, you\u0027ll end up getting both commands in one string.\n\nFinally, the \u0027commandLengthInBytes\u0027 calculation includes a substraction of the offset, but the only place this value is used, the offset is added to it.  You could rename this as \u0027newOffset\u0027, initialize it with the incoming offset parameter and eliminate this subtraction+addition.\n\nAs I was working through all this, I made an alternate implementation which does all the manipulation with Java strings, but after carefully considering the calculation of the offset to be returned, I\u0027m not so sure this is any better.  I\u0027m posting it here for consideration.\n\npublic static int readTPTPCmdStringFromBuffer(byte[] buffer, int offset, TPTPString rastring)\n{\t\t\n   String data;\n   String endTag \u003d \"\u003c/Cmd\u003e\";\n\n   // Read everything into a String, starting at the offset\n   String temp \u003d new String(buffer, offset, buffer.length()-offset, \"UTF-8\");\n\n   // Find the end-tag for the Cmd in the String\n   int indexOfEndTag \u003d temp.indexOf( endTag );\n\n   // If the tag wasn\u0027t there, return empty-handed\n   if ( indexOfEndTag \u003d\u003d -1 ) {\n      rastring.setdata(\"\");\n      return offset;\n   }\n\n   // Get the substring ending at the end tag\n   data \u003d temp.substring( 0, indexOfEndTag+endTag.length() );\n\n   // Set the data in the TPTPString\n   rastring.setData(data);\n\n   // Return the new offset\n   return offset + data.getBytes(\"UTF-8\").length();\n}\n",
+    "Thanks for noticing that we should have a \u0027break\u0027 statement in out patch. We found this problem in our unit tests. By applying this workaround we managed to fix the ?org.xml.sax.SAXParseException: XML document structures must start and endwithin the same entity.?\nIt turned out that the same fix solves the unexpected termination of the Agent Controller under Linux when the TPTP library is used under Windows for accessing the AC.\nThe problem with our patch is that we are not sure how it can affect entire TPTP library behavior since we are not very familiar with all the source code and usage scenarios. We are still considering our patch as a quick and dirty workaround rather than patch/fix.\n\nWe have found that the source fragment added as a comment to buzilla bug can not be compiled. We also doubt it will work as well because it still uses string searches to find positions in the binary buffer. There are several considerations which complement the source fragment and couple with our doubts on it.\n\nGiven the impact of this problem ? the library can?t be used by our component under Linux and the fact that this bug is blocking for our product could we count on official patch for it?\n\nCould we rely on some date when the official patch will be available?\n",
+    "targeting to 4.2.2 as this is the next available release stream",
+    "Created an attachment (id\u003d55780)\nPatch\n\n",
+    "Closed"
+  ],
+  "commentCreationDates": [
+    "2006-11-21T17:08:48+01:00",
+    "2006-11-22T21:01:22+01:00",
+    "2006-11-24T08:45:51+01:00",
+    "2006-11-24T20:48:45+01:00",
+    "2006-12-15T20:11:52+01:00",
+    "2007-01-09T15:11:30+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.xml.sax.SAXParseException",
+      "message": "XML document structures must start and end within the same entity.",
+      "elements": [
+        {
+          "method": "org.apache.xerces.util.ErrorHandlerWrapper.createSAXParseException",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.util.ErrorHandlerWrapper.fatalError",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLErrorReporter.reportError",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLErrorReporter.reportError",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLScanner.reportFatalError",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.endEntity",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLDocumentScannerImpl.endEntity",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLEntityManager.endEntity",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLEntityScanner.load",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLEntityScanner.skipChar",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanDocument",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.XML11Configuration.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.XML11Configuration.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.XMLParser.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.AbstractSAXParser.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.jaxp.SAXParserImpl.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.tptp.platform.execution.util.internal.TPTPXMLParse.setParser",
+          "source": "TPTPXMLParse.java:105"
+        },
+        {
+          "method": "org.eclipse.tptp.platform.execution.client.core.internal.ControlMessage.readACCommands",
+          "source": "ControlMessage.java:421"
+        },
+        {
+          "method": "org.eclipse.tptp.platform.execution.client.core.internal.ControlMessage.readFromBuffer",
+          "source": "ControlMessage.java:301"
+        },
+        {
+          "method": "org.eclipse.tptp.platform.execution.client.core.internal.ConnectionImpl.processControlMessage",
+          "source": "ConnectionImpl.java:803"
+        },
+        {
+          "method": "org.eclipse.tptp.platform.execution.client.core.internal.ConnectionImpl$SocketReaderThread.run",
+          "source": "ConnectionImpl.java:1021"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "165342",
+      "date": "2006-11-21T17:08:48+01:00",
+      "product": "TPTP Profiling",
+      "component": "Platform.Execution",
+      "severity": "blocker"
+    }
+  ],
+  "groupId": "165342",
+  "bugId": "165342",
+  "date": "2006-11-21T17:08:48+01:00",
+  "product": "TPTP Profiling",
+  "component": "Platform.Execution",
+  "severity": "blocker"
+}

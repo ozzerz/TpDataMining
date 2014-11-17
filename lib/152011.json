@@ -1,0 +1,123 @@
+{
+  "comments": [
+    "Opened for IBM:\n\nIn the Create Dynamic Web Project Wizard, Tomcat does not show up in the \"Target Runtime\" list even though it has been already defined in preferences (Server \u003e Installed Runtime).\n\nThis was reproduced on an IBM RAD built on WTP.\n\nSteps:\n\u003d\u003d\u003d\u003d\u003d\n1.  Create an entry for Tomcat v5.x in Server \u003e Installed Runtime preferences.\n2.  Open the create Dynamic Web Project wizard, in the \"Target Runtime\" list, Tomcat does not show up, only the WebSphere entries are there.\n3.  Select one of the Websphere runtimes.\n4.  Click on the \"New\" button beside the Target Runtime list and create another Tomcat runtime.\n5.  After creating the tomcat runtime in step 4, it still does not show up in the Target Runtime list.\n6.  Select \u003cNone\u003e in the target runtime list, then repeat step 4.\n7.  Now the Target Runtime list will contain *all* your created Tomcat runtimes.",
+    "The scenario you described is working as designed, however, I came across the following class cast exception which should be fixed:\n\n\n!ENTRY org.eclipse.ui 4 0 2006-08-07 17:25:42.678\n!MESSAGE java.lang.String incompatible with org.eclipse.wst.common.project.facet.core.runtime.IRuntime\n!STACK 0\njava.lang.ClassCastException: java.lang.String incompatible with org.eclipse.wst.common.project.facet.core.runtime.IRuntime\n\tat org.eclipse.wst.common.componentcore.datamodel.FacetProjectCreationDataModelProvider.propertySet(FacetProjectCreationDataModelProvider.java)\n\tat org.eclipse.jst.j2ee.project.facet.J2EEFacetProjectCreationDataModelProvider.propertySet(J2EEFacetProjectCreationDataModelProvider.java:102)\n\tat org.eclipse.jst.j2ee.internal.web.archive.operations.WebFacetProjectCreationDataModelProvider.propertySet(WebFacetProjectCreationDataModelProvider.java:59)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelImpl.internalSetProperty(DataModelImpl.java:182)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.DataModelImpl.setProperty(DataModelImpl.java:172)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.ui.DataModelSynchHelper.setProperty(DataModelSynchHelper.java:189)\n\tat org.eclipse.wst.common.frameworks.internal.datamodel.ui.DataModelSynchHelper$ComboListener.modifyText(DataModelSynchHelper.java:107)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:196)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:928)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:952)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:933)\n\tat org.eclipse.swt.widgets.Combo.wmCommandChild(Combo.java:2203)\n\n\nThe cause of this exception is as follows:  when the Combo is selected, the SynchHelper picks up the event (and then remembers it is handling this combo).  Then it pushes the changes down to the model; the model reacts and in turn sends events over to the facets page, which react and preselects some extended facets, this event in turn is picked up by the wizard, which in turn updates the model with the newly selected facets and then notifies out that the Runtimes should be updated (and not show Apache).  The problem is that since the synchHelper is already handling the combo which needs to be updated, it will immiediatly exit (if it didn\u0027t then there would be an infinite loop).  Since the combo is not updated, if the user then selects the now invalid Apache entry, the above ClassCastException will result\n\nThus the fix is to add another listener to the combo to force the update of its items.  Please see the attached patch.",
+    "Created an attachment (id\u003d47492)\nPatch\n\n",
+    "I am having trouble recreating the ClassCastException.\nBut even before this I have to ask why is the original defect description working as designed?  This seems very odd.  The Tomcat targets do not show up unless you select \u003cNone\u003e and then create a New Tomcat server?  How is it possible that this is working as designed?  If I cancel out of the wizard then all of the runtimes show up.  Why are they not showing up in the original case?",
+    "I know this behavior seems kind of wacky; I\u0027m not in agreement with the way it behaves, but this is how the facets page works.  In this particular scenario, if a server with advanced features is selected (e.g. WAS 6.1) the facets framework drives the automatic selection of its advanced features.  Once these advanced features are selected, there is no way to unselect them except by selecting the \u003cnone\u003e entry or going to the second page and deselecting them there.  The runtimes list on the first page is supposed to be narrowed down as selection of facets on the second page are made (e.g. if you select a facet not supported by a runtime, then that runtime is supposed to be filtered out so the list of runtimes contains only those runtimes supporting all selected facets).  There has been a lot of heated discusion on this topic in the past, and this is the agreed upon behavior.",
+    "Hey - This does sound very strange - I must be missing something....  I thought originally it was because add to ear was selected, and the tomcat server was filtered....   \n\nNow it sounds like when we select a specific servers that automatically presets specific server facets, we are locked in....   \n\nWhat was the argument for keeping the server list unfiltered?  I would rather have that behavior, and if there is a warning/error with the settings, we show it...  (for example selecting tomcat and add to ear).   Then if we were able to select tomcat, a new set of presets would be set.   The first page should always drive the second....  This is the 99% case....   ",
+    "I tried another fix which is to never filter the runtimes list; turns out it isn\u0027t quite that trivial because if no filtering is done, then a runtime like Tomcat would show up for a project like EJBs.  Some basic filter needs to be done; perhaps based on the presets or the fixed facets; I will investigate further.",
+    "You are correct.  Some basic filtering is required based on the project type.  But the changing of the facets should not further filter the list.",
+    "Created an attachment (id\u003d47727)\nPatch\n\nThis patch changes the runtime filtering to show all runtimes except runtimes not supporting a set of core facets.  The core facets are defined as an internal Collection property called REQUIRED_FACETS_COLLECTION which is setup by all subclasses (each subclass decides what is a core facet).",
+    "Approve",
+    "While the scope of this patch was originally concerning, it is the same change repeated for each creation type.\n\nApprove.",
+    "code checked in.",
+    "Talk about miscommunications! It appears that the solution that you guys iterated to is exactly the solution that we agreed to when the notion of the default facets was first implemented. Changes on the facets selection page were never supposed to affect the first page. Not sure how the communication broke down, but I am glad that things are now as they should be.",
+    "Btw, if you believed that the original behavior was as agreed upon in prior discussions, it was a little sneaky to implement this change without consulting with all the parties involved in the original decision. As it happened, the new behavior is actually what was originally agreed upon, so no harm done, but a little more openness would not hurt in the future.",
+    "*** Bug 143146 has been marked as a duplicate of this bug. ***",
+    "Now wizards have three things:\n1. The project \u003ctemplate\u003e facets (associated with each wizard)\n2. some presets\n3. REQUIRED_FACETS_COLLECTION\n\nIt seems to me \"project \u003ctemplate\u003e facets\" is reasonable than REQUIRED_FACETS_COLLECTION.\n\nWe can define two WAR project wizards with different template facets.  Thus they can filter out different runtimes (initially but never changed by 2nd page).\n\n",
+    "Jason,\n\nDoes REQUIRED_FACETS_COLLECTION draw its info from the template associated with the wizard? It should, if it doesn\u0027t, as it would get in the way of subclassing otherwise.",
+    "REQUIRED_FACETS_COLLECTION does not get the info from the template.  The info is gathered from the various subclasses. The DataModels are not in the UI layer and thus can\u0027t get at the template info.  This was the best we could do without doing a major overhaul.",
+    "If REQUIRED_FACETS_COLLECTION is used to filter server runtime,\n\nBEA Portal Web Project Wizard would have tomcat in the combo.\n\n",
+    "That is, this is a regression from 1.0.x...",
+    "Verified 082806.",
+    "\nThat\u0027s it?  So the web project wizard is not inteneded to be subclassed by different templates?\n\n"
+  ],
+  "commentCreationDates": [
+    "2006-07-27T17:23:20+02:00",
+    "2006-08-08T00:45:10+02:00",
+    "2006-08-08T00:47:49+02:00",
+    "2006-08-08T03:38:19+02:00",
+    "2006-08-08T15:45:52+02:00",
+    "2006-08-08T16:15:10+02:00",
+    "2006-08-08T20:50:30+02:00",
+    "2006-08-08T21:15:53+02:00",
+    "2006-08-10T23:11:31+02:00",
+    "2006-08-11T05:50:19+02:00",
+    "2006-08-11T20:39:09+02:00",
+    "2006-08-11T21:06:14+02:00",
+    "2006-08-12T16:59:30+02:00",
+    "2006-08-12T17:07:21+02:00",
+    "2006-08-15T15:47:35+02:00",
+    "2006-08-15T18:44:31+02:00",
+    "2006-08-15T19:03:40+02:00",
+    "2006-08-15T19:13:14+02:00",
+    "2006-08-15T20:21:09+02:00",
+    "2006-08-15T20:37:55+02:00",
+    "2006-08-28T22:28:46+02:00",
+    "2006-08-28T23:53:37+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "java.lang.String incompatible with org.eclipse.wst.common.project.facet.core.runtime.IRuntime",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.common.componentcore.datamodel.FacetProjectCreationDataModelProvider.propertySet",
+          "source": "FacetProjectCreationDataModelProvider.java"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.project.facet.J2EEFacetProjectCreationDataModelProvider.propertySet",
+          "source": "J2EEFacetProjectCreationDataModelProvider.java:102"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.web.archive.operations.WebFacetProjectCreationDataModelProvider.propertySet",
+          "source": "WebFacetProjectCreationDataModelProvider.java:59"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelImpl.internalSetProperty",
+          "source": "DataModelImpl.java:182"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.DataModelImpl.setProperty",
+          "source": "DataModelImpl.java:172"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.ui.DataModelSynchHelper.setProperty",
+          "source": "DataModelSynchHelper.java:189"
+        },
+        {
+          "method": "org.eclipse.wst.common.frameworks.internal.datamodel.ui.DataModelSynchHelper$ComboListener.modifyText",
+          "source": "DataModelSynchHelper.java:107"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:196"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:928"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:952"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:933"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Combo.wmCommandChild",
+          "source": "Combo.java:2203"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "152011",
+      "date": "2006-08-08T00:45:10+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "major"
+    }
+  ],
+  "groupId": "152011",
+  "bugId": "152011",
+  "date": "2006-07-27T17:23:20+02:00",
+  "product": "Web Tools",
+  "component": "jst.j2ee",
+  "severity": "major"
+}

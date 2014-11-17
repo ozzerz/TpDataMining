@@ -1,0 +1,191 @@
+{
+  "comments": [
+    "M4 candidate\nBecause of some network problems I decided to install the SDK using as an artifact  repository a bundle pool that was resulting from another install.\nWhile some of the artifacts got downloaded properly, a non trivial number of them did not make (apparently they were bundles that were stored as folders) and I got the following error:\n\n!SUBENTRY 3 org.eclipse.equinox.p2.artifact.repository 4 0 2007-12-09 14:34:36.578\n!MESSAGE Error closing the output stream for org.junit/eclipse/plugin/3.8.2.v200706111738on repo file:/d:/tests/pool\n!STACK 0\njava.io.FileNotFoundException: C:\\DOCUME~1\\ADMINI~1\\LOCALS~1\\Temp\\org.junit_3.8.2.v2007061117389232.jar (The system cannot find the file specified)\n\tat java.io.FileInputStream.open(Native Method)\n\tat java.io.FileInputStream.\u003cinit\u003e(Unknown Source)\n\tat org.eclipse.equinox.internal.p2.core.helpers.FileUtils.unzipFile(FileUtils.java:25)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository$ZippedFolderOutputStream.close(SimpleArtifactRepository.java:598)\n\tat java.io.FilterOutputStream.close(Unknown Source)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository$ArtifactOutputStream.close(SimpleArtifactRepository.java:367)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.MirrorRequest.perform(MirrorRequest.java:103)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.getArtifact(SimpleArtifactRepository.java:88)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.getArtifacts(SimpleArtifactRepository.java:99)\n\tat org.eclipse.equinox.p2.download.DownloadManager.fetch(DownloadManager.java:84)\n\tat org.eclipse.equinox.p2.download.DownloadManager.start(DownloadManager.java:59)\n\tat org.eclipse.equinox.p2.engine.phases.Collect.completePhase(Collect.java:49)\n\n\nThe other thing that needs to be noticed is that the failure was not properly noticed by the repository receiving the artifact since the artifacts.xml listed the bogus artifacts.\n\nSteps to reproduce:\n- Start the agent, add metadata and artifact repos\n- Create a profile specifying a bundle pool location (referred to as bp1) and install the sdk from a remote repos\n- Exit the agent then restart\n- Create a second profile, specifying a bundle pool (different location from bp1). \n- Remove the artifact repo added in the first step\n- Add bp1 as an artifact repo\n- Proceed with the installation of the sdk in the second profile.",
+    "I suspect that this is caused by the support for rezipping artifact that are in the folder shape.",
+    "I\u0027ll take a look. The stack trace seems to indicate we\u0027re not finding a file we just wrote. Perhaps a failure is occurring earlier and we\u0027re not reacting to the problem in the OutputStream.",
+    "While trying to reproduce this problem I run into another one. The second step (profile with bp2) produced:\n\n!ENTRY org.eclipse.core.jobs 4 2 2007-12-10 11:05:21.109\n!MESSAGE An internal error occurred during: \"Install\".\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.delete(SimpleArtifactRepository.java:520)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.delete(SimpleArtifactRepository.java:521)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.delete(SimpleArtifactRepository.java:521)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.delete(SimpleArtifactRepository.java:521)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.delete(SimpleArtifactRepository.java:521)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository$ArtifactOutputStream.close(SimpleArtifactRepository.java:371)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.MirrorRequest.perform(MirrorRequest.java:103)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.getArtifact(SimpleArtifactRepository.java:88)\n\tat org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.getArtifacts(SimpleArtifactRepository.java:99)\n\tat org.eclipse.equinox.p2.download.DownloadManager.fetch(DownloadManager.java:84)\n\tat org.eclipse.equinox.p2.download.DownloadManager.start(DownloadManager.java:59)\n\tat org.eclipse.equinox.p2.engine.phases.Collect.completePhase(Collect.java:49)\n\tat org.eclipse.equinox.p2.engine.Phase.postPerform(Phase.java:180)\n\tat org.eclipse.equinox.p2.engine.Phase.perform(Phase.java:99)\n\tat org.eclipse.equinox.p2.engine.Phase.perform(Phase.java:58)\n\tat org.eclipse.equinox.p2.engine.PhaseSet.perform(PhaseSet.java:38)\n\tat org.eclipse.equinox.p2.engine.Engine.perform(Engine.java:52)\n\tat org.eclipse.equinox.p2.ui.operations.ProvisioningUtil.performProvisioningPlan(ProvisioningUtil.java:295)\n\tat org.eclipse.equinox.p2.ui.operations.ProvisioningUtil.performInstall(ProvisioningUtil.java:282)\n\tat org.eclipse.equinox.p2.ui.operations.InstallOperation.doExecute(InstallOperation.java:33)\n\tat org.eclipse.equinox.p2.ui.operations.ProvisioningOperation.execute(ProvisioningOperation.java:41)\n\tat org.eclipse.equinox.p2.ui.ProvisioningOperationRunner$1.run(ProvisioningOperationRunner.java:52)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)\n\nBTW, in Pascal`s steps to reproduce the problem it was not necessary to add bp1 as an artifact repository. It had already been added by ProvAdminUI.\nTrying to delete all the data in bp2 failed because the paths got too long. This is probably the reason for the NPE above. Windows Explorer and other tools stop at:\nC:\\equinox.p2\\bp2\\plugins\\org.eclipse.platform.source.win32.win32.x86_3.4.0.v20071029-9y9jFD8Ezbubi1dkPqGiKXN6F4h9\\org.eclipse.platform.source.win32.win32.x86_3.4.0.v20071029-9y9jFD8Ezbubi1dkPqGiKXN6F4h9\\src\\\nAt this point I used subst to create a drive mapping from this point and from there I can see (tree):\n+---org.eclipse.core.filesystem.win32.x86_1.1.0.v20070510\n+---org.eclipse.core.resources.win32_3.3.0.v20070226\n|   \\---a\n+---org.eclipse.ui.win32_3.2.100.I20071023-0800\n\\---org.eclipse.update.core.win32_3.2.100.v20070615\n    \\---src\n\nSeems that I did something wrong.\n",
+    "When I tested the first time I didn\u0027t end up getting the source bundles at all. I then reran the collect and ended up with the JAR files for folder bundles in the bundle pool although the artifact descriptors looked correct.\n\nI\u0027m not sure if it\u0027s related however there is definitely the possiblility of threading issues since the file is written on one thread and closed on another. The seemingly random behaviour makes me wonder. I\u0027ll try adding synchronization and re-try.",
+    "The errors I recently got were slightly different than this. They were showing up during the install phase.\n\nI have released changes in simple artifact repo related to the initial problem and also fix the npe noticed by Stefan."
+  ],
+  "commentCreationDates": [
+    "2007-12-09T19:57:47+01:00",
+    "2007-12-09T19:58:22+01:00",
+    "2007-12-09T20:23:20+01:00",
+    "2007-12-10T11:01:19+01:00",
+    "2007-12-10T13:47:51+01:00",
+    "2007-12-10T22:10:36+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.FileNotFoundException",
+      "message": "C:\\DOCUME~1\\ADMINI~1\\LOCALS~1\\Temp\\org.junit_3.8.2.v2007061117389232.jar (The system cannot find the file specified)",
+      "elements": [
+        {
+          "method": "java.io.FileInputStream.open",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.io.FileInputStream.\u003cinit\u003e",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.core.helpers.FileUtils.unzipFile",
+          "source": "FileUtils.java:25"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository$ZippedFolderOutputStream.close",
+          "source": "SimpleArtifactRepository.java:598"
+        },
+        {
+          "method": "java.io.FilterOutputStream.close",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository$ArtifactOutputStream.close",
+          "source": "SimpleArtifactRepository.java:367"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.MirrorRequest.perform",
+          "source": "MirrorRequest.java:103"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.getArtifact",
+          "source": "SimpleArtifactRepository.java:88"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.getArtifacts",
+          "source": "SimpleArtifactRepository.java:99"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.download.DownloadManager.fetch",
+          "source": "DownloadManager.java:84"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.download.DownloadManager.start",
+          "source": "DownloadManager.java:59"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.engine.phases.Collect.completePhase",
+          "source": "Collect.java:49"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "212346",
+      "date": "2007-12-09T19:57:47+01:00",
+      "product": "Equinox",
+      "component": "Incubator",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.delete",
+          "source": "SimpleArtifactRepository.java:520"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.delete",
+          "source": "SimpleArtifactRepository.java:521"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.delete",
+          "source": "SimpleArtifactRepository.java:521"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.delete",
+          "source": "SimpleArtifactRepository.java:521"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.delete",
+          "source": "SimpleArtifactRepository.java:521"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository$ArtifactOutputStream.close",
+          "source": "SimpleArtifactRepository.java:371"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.MirrorRequest.perform",
+          "source": "MirrorRequest.java:103"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.getArtifact",
+          "source": "SimpleArtifactRepository.java:88"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.p2.artifact.repository.simple.SimpleArtifactRepository.getArtifacts",
+          "source": "SimpleArtifactRepository.java:99"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.download.DownloadManager.fetch",
+          "source": "DownloadManager.java:84"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.download.DownloadManager.start",
+          "source": "DownloadManager.java:59"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.engine.phases.Collect.completePhase",
+          "source": "Collect.java:49"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.engine.Phase.postPerform",
+          "source": "Phase.java:180"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.engine.Phase.perform",
+          "source": "Phase.java:99"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.engine.Phase.perform",
+          "source": "Phase.java:58"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.engine.PhaseSet.perform",
+          "source": "PhaseSet.java:38"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.engine.Engine.perform",
+          "source": "Engine.java:52"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.ui.operations.ProvisioningUtil.performProvisioningPlan",
+          "source": "ProvisioningUtil.java:295"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.ui.operations.ProvisioningUtil.performInstall",
+          "source": "ProvisioningUtil.java:282"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.ui.operations.InstallOperation.doExecute",
+          "source": "InstallOperation.java:33"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.ui.operations.ProvisioningOperation.execute",
+          "source": "ProvisioningOperation.java:41"
+        },
+        {
+          "method": "org.eclipse.equinox.p2.ui.ProvisioningOperationRunner$1.run",
+          "source": "ProvisioningOperationRunner.java:52"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 3,
+      "bugId": "212346",
+      "date": "2007-12-10T11:01:19+01:00",
+      "product": "Equinox",
+      "component": "Incubator",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "212346",
+  "bugId": "212346",
+  "date": "2007-12-09T19:57:47+01:00",
+  "product": "Equinox",
+  "component": "Incubator",
+  "severity": "normal"
+}

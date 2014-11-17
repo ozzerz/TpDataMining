@@ -1,0 +1,197 @@
+{
+  "comments": [
+    "3.3 M3\nVM: IBM 1.5.0 SR3\n\nWhile doing an operation in our product, it failed with an NPE in OSGI\u0027s KeyedHashSet.add.\nLooking at the code, an NPE shouldn\u0027t be possible here since the previous statement checks for null, unless it\u0027s a threading problem or a JIT bug.  But this VM has been pretty stable for me.\n\nI showed this to Pascal, who suggested I file a bug.\n\n!SUBENTRY 3 com.ibm.team.filesystem.client 4 0 2006-11-20 15:04:53.437\n!MESSAGE Error during file transfer: null\n!STACK 0\ncom.ibm.team.repository.common.TeamRepositoryException: Error during file transfer: null\n\tat com.ibm.team.repository.client.internal.AsyncContentManagerSession.handleCoreException(AsyncContentManagerSession.java:137)\n\tat com.ibm.team.repository.client.internal.AsyncContentManagerSession.join(AsyncContentManagerSession.java:58)\n\tat com.ibm.team.filesystem.client.internal.copyfileareas.FileAreaUpdateReader.doRun(FileAreaUpdateReader.java:185)\n\tat com.ibm.team.filesystem.client.internal.copyfileareas.FileAreaUpdateReader.execute(FileAreaUpdateReader.java:110)\n\tat com.ibm.team.filesystem.client.operations.FileSystemOperation.run(FileSystemOperation.java:92)\n\tat com.ibm.team.filesystem.rcp.core.operations.EclipseWorkspaceUpdateOperation.loadFileArea(EclipseWorkspaceUpdateOperation.java:218)\n\tat com.ibm.team.filesystem.client.internal.operations.UpdateOperation.execute(UpdateOperation.java:179)\n\tat com.ibm.team.filesystem.rcp.core.operations.EclipseWorkspaceUpdateOperation.access$0(EclipseWorkspaceUpdateOperation.java:1)\n\tat com.ibm.team.filesystem.rcp.core.operations.EclipseWorkspaceUpdateOperation$1.run(EclipseWorkspaceUpdateOperation.java:194)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1742)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1724)\n\tat com.ibm.team.filesystem.rcp.core.operations.EclipseWorkspaceUpdateOperation.execute(EclipseWorkspaceUpdateOperation.java:203)\n\tat com.ibm.team.filesystem.client.operations.FileSystemOperation.run(FileSystemOperation.java:92)\n\tat com.ibm.team.filesystem.ui.operations.EditWorkspaceOperation.doEclipseWorkspaceUpdate(EditWorkspaceOperation.java:350)\n\tat com.ibm.team.filesystem.ui.operations.EditWorkspaceOperation.run(EditWorkspaceOperation.java:339)\n\tat com.ibm.team.repository.rcp.ui.internal.utils.WorkbenchUtil$1.run(WorkbenchUtil.java:167)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\nCaused by: org.eclipse.core.runtime.CoreException: Exception while running a ThreadPool.Task\n\tat com.ibm.team.repository.client.util.ThreadPool.handleCancelled(ThreadPool.java:301)\n\tat com.ibm.team.repository.client.util.ThreadPool.join(ThreadPool.java:278)\n\tat com.ibm.team.repository.client.internal.AsyncContentManagerSession.join(AsyncContentManagerSession.java:54)\n\t... 15 more\n!SUBENTRY 4 com.ibm.team.repository.client 4 0 2006-11-20 15:04:53.437\n!MESSAGE Exception while running a ThreadPool.Task\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.osgi.framework.util.KeyedHashSet.add(KeyedHashSet.java:95)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findRequiredSource(BundleLoader.java:910)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:380)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:347)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass(DefaultClassLoader.java:83)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:563)\n\tat com.ibm.team.filesystem.rcp.core.internal.resources.EclipseWorkspaceMutator$7$1$1.run(EclipseWorkspaceMutator.java:634)\n\tat com.ibm.team.filesystem.client.internal.SharingManager.doSilentChange(SharingManager.java:399)\n\tat com.ibm.team.filesystem.rcp.core.internal.resources.EclipseWorkspaceMutator$7$1.run(EclipseWorkspaceMutator.java:630)\n\tat com.ibm.team.filesystem.client.internal.SharingManager.doSilentChange(SharingManager.java:399)\n\tat com.ibm.team.filesystem.rcp.core.internal.resources.EclipseWorkspaceMutator$7.downloadStreamAcquired(EclipseWorkspaceMutator.java:628)\n\tat com.ibm.team.repository.client.internal.AsyncContentManagerSession$1.run(AsyncContentManagerSession.java:84)\n\tat com.ibm.team.repository.client.util.ThreadPool$PoolJob.run(ThreadPool.java:106)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)",
+    "This appears to be a thread safety issue in BundleLoader. KeyedHashSet is documented to require external synchronization but BundleLoader does not appear to provide any synchronization. So this can lead to race conditions such as the one observed. \n\nAlso, since this data structure is shared mutable data, it also requires synchronization for proper memory model behavior.",
+    "Created an attachment (id\u003d54586)\npatch\n\nThere are thread safety issues for the following fields in BundleLoader\n\ndynamicImportPackages : String[]\ndynamicImportPackageStems : String[]\nimportedSources : KeyedHashSet\nloaderFlags : byte\nrequiredSources : KeyedHashSet\n\nThis patch adds the appropriate synchronization to make these fields thread safe.  BJ and Pascal, can you please review?",
+    "I would like to release a fix for M4.  Pinging Pascal or BJ for a review, thanks.",
+    "The patch is good, however overall I think the synchronization in this class is a recipe for other bugs in the same space in the future.\n\n- isDynamicallyImported can be private?\n- addDynamicImportPackage(Manifest[]), the comment \"this method is not thread safe\" can be removed.\n",
+    "Created an attachment (id\u003d54937)\npatch 2\n\nI agree this Class needs some additional clean up to make it more clear what fields are lazy initialized (and therefore need synchronous access) and which fields are final.  This patch makes all feilds which are not lazy-initialized final.\n\nHopefully this helps indicate when synchronization is needed.",
+    "I released the latest patch to HEAD."
+  ],
+  "commentCreationDates": [
+    "2006-11-20T21:11:44+01:00",
+    "2006-11-21T01:03:45+01:00",
+    "2006-11-27T21:33:11+01:00",
+    "2006-11-30T14:46:14+01:00",
+    "2006-11-30T22:30:55+01:00",
+    "2006-12-01T23:09:49+01:00",
+    "2006-12-04T16:51:25+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "com.ibm.team.repository.common.TeamRepositoryException",
+      "message": "Error during file transfer: null",
+      "elements": [
+        {
+          "method": "com.ibm.team.repository.client.internal.AsyncContentManagerSession.handleCoreException",
+          "source": "AsyncContentManagerSession.java:137"
+        },
+        {
+          "method": "com.ibm.team.repository.client.internal.AsyncContentManagerSession.join",
+          "source": "AsyncContentManagerSession.java:58"
+        },
+        {
+          "method": "com.ibm.team.filesystem.client.internal.copyfileareas.FileAreaUpdateReader.doRun",
+          "source": "FileAreaUpdateReader.java:185"
+        },
+        {
+          "method": "com.ibm.team.filesystem.client.internal.copyfileareas.FileAreaUpdateReader.execute",
+          "source": "FileAreaUpdateReader.java:110"
+        },
+        {
+          "method": "com.ibm.team.filesystem.client.operations.FileSystemOperation.run",
+          "source": "FileSystemOperation.java:92"
+        },
+        {
+          "method": "com.ibm.team.filesystem.rcp.core.operations.EclipseWorkspaceUpdateOperation.loadFileArea",
+          "source": "EclipseWorkspaceUpdateOperation.java:218"
+        },
+        {
+          "method": "com.ibm.team.filesystem.client.internal.operations.UpdateOperation.execute",
+          "source": "UpdateOperation.java:179"
+        },
+        {
+          "method": "com.ibm.team.filesystem.rcp.core.operations.EclipseWorkspaceUpdateOperation.access$0",
+          "source": "EclipseWorkspaceUpdateOperation.java:1"
+        },
+        {
+          "method": "com.ibm.team.filesystem.rcp.core.operations.EclipseWorkspaceUpdateOperation$1.run",
+          "source": "EclipseWorkspaceUpdateOperation.java:194"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1742"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1724"
+        },
+        {
+          "method": "com.ibm.team.filesystem.rcp.core.operations.EclipseWorkspaceUpdateOperation.execute",
+          "source": "EclipseWorkspaceUpdateOperation.java:203"
+        },
+        {
+          "method": "com.ibm.team.filesystem.client.operations.FileSystemOperation.run",
+          "source": "FileSystemOperation.java:92"
+        },
+        {
+          "method": "com.ibm.team.filesystem.ui.operations.EditWorkspaceOperation.doEclipseWorkspaceUpdate",
+          "source": "EditWorkspaceOperation.java:350"
+        },
+        {
+          "method": "com.ibm.team.filesystem.ui.operations.EditWorkspaceOperation.run",
+          "source": "EditWorkspaceOperation.java:339"
+        },
+        {
+          "method": "com.ibm.team.repository.rcp.ui.internal.utils.WorkbenchUtil$1.run",
+          "source": "WorkbenchUtil.java:167"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "org.eclipse.core.runtime.CoreException",
+        "message": "Exception while running a ThreadPool.Task",
+        "elements": [
+          {
+            "method": "com.ibm.team.repository.client.util.ThreadPool.handleCancelled",
+            "source": "ThreadPool.java:301"
+          },
+          {
+            "method": "com.ibm.team.repository.client.util.ThreadPool.join",
+            "source": "ThreadPool.java:278"
+          },
+          {
+            "method": "com.ibm.team.repository.client.internal.AsyncContentManagerSession.join",
+            "source": "AsyncContentManagerSession.java:54"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "165221",
+      "date": "2006-11-20T21:11:44+01:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.util.KeyedHashSet.add",
+          "source": "KeyedHashSet.java:95"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findRequiredSource",
+          "source": "BundleLoader.java:910"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:380"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:347"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass",
+          "source": "DefaultClassLoader.java:83"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:563"
+        },
+        {
+          "method": "com.ibm.team.filesystem.rcp.core.internal.resources.EclipseWorkspaceMutator$7$1$1.run",
+          "source": "EclipseWorkspaceMutator.java:634"
+        },
+        {
+          "method": "com.ibm.team.filesystem.client.internal.SharingManager.doSilentChange",
+          "source": "SharingManager.java:399"
+        },
+        {
+          "method": "com.ibm.team.filesystem.rcp.core.internal.resources.EclipseWorkspaceMutator$7$1.run",
+          "source": "EclipseWorkspaceMutator.java:630"
+        },
+        {
+          "method": "com.ibm.team.filesystem.client.internal.SharingManager.doSilentChange",
+          "source": "SharingManager.java:399"
+        },
+        {
+          "method": "com.ibm.team.filesystem.rcp.core.internal.resources.EclipseWorkspaceMutator$7.downloadStreamAcquired",
+          "source": "EclipseWorkspaceMutator.java:628"
+        },
+        {
+          "method": "com.ibm.team.repository.client.internal.AsyncContentManagerSession$1.run",
+          "source": "AsyncContentManagerSession.java:84"
+        },
+        {
+          "method": "com.ibm.team.repository.client.util.ThreadPool$PoolJob.run",
+          "source": "ThreadPool.java:106"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "165221",
+      "date": "2006-11-20T21:11:44+01:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "165221",
+  "bugId": "165221",
+  "date": "2006-11-20T21:11:44+01:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "normal"
+}

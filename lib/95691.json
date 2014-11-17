@@ -1,0 +1,189 @@
+{
+  "comments": [
+    "Version: 3.1.0\nBuild id: I20050513-1415\n\nSorry, I have no steps to reproduce this.  I was being continually being\nprompted for my CVS details (due to my details being flushed) and this error\nappeared in the log.  I may have been synchonizing at the time.\n\norg.eclipse.swt.SWTException: Widget is disposed\n    at org.eclipse.swt.SWT.error(SWT.java:2940)\n    at org.eclipse.swt.SWT.error(SWT.java:2863)\n    at org.eclipse.swt.SWT.error(SWT.java:2834)\n    at org.eclipse.swt.widgets.Widget.error(Widget.java:393)\n    at org.eclipse.swt.widgets.Widget.checkWidget(Widget.java:295)\n    at org.eclipse.swt.widgets.Shell.setVisible(Shell.java:1241)\n    at org.eclipse.swt.widgets.Shell.open(Shell.java:818)\n    at org.eclipse.jface.window.Window.open(Window.java:783)\n    at\norg.eclipse.team.internal.ccvs.ui.WorkbenchUserAuthenticator.promptForPassword(WorkbenchUserAuthenticator.java:119)\n    at\norg.eclipse.team.internal.ccvs.ui.WorkbenchUserAuthenticator.access$0(WorkbenchUserAuthenticator.java:115)\n    at\norg.eclipse.team.internal.ccvs.ui.WorkbenchUserAuthenticator$1.run(WorkbenchUserAuthenticator.java:72)\n    at org.eclipse.ui.internal.UILockListener.doPendingWork(UILockListener.java:150)\n    at org.eclipse.ui.internal.UISynchronizer$1.run(UISynchronizer.java:36)\n    at org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n    at org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:118)\n    at org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2898)\n    at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2557)\n    at org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1601)\n    at org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1565)\n    at org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:315)\n    at org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n    at org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:103)\n    at\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:230)\n    at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:371)\n    at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:160)\n    at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n    at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n    at\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n    at java.lang.reflect.Method.invoke(Method.java:324)\n    at org.eclipse.core.launcher.Main.invokeFramework(Main.java:330)\n    at org.eclipse.core.launcher.Main.basicRun(Main.java:274)\n    at org.eclipse.core.launcher.Main.run(Main.java:977)\n    at org.eclipse.core.launcher.Main.main(Main.java:952)",
+    "Stefan, I create the dialog in question with a shell of null. Is it possible \nthat your magic for finding an appropriate shell is finding one that is \ndisposed?",
+    "What Platform (OS) where you using when this happened?",
+    "WinXP.  I have updated the details to reflect this.",
+    "cc\u0027ing tod. I know that he recently fixed some similar issues.\n\nIt looks like one of two things could have caused this.\n1. Shell.getShells() returned a disposed shell\n2. The dialog\u0027s shell was disposed inside window.open, between the time the\nshell was created and the time it was made visible.\n\nI looked through the WorkbenchUserAuthenticator dialog and didn\u0027t see any code\nthat might cause the shell to be disposed.",
+    "cc\u0027ing Veronica for advice: how might Shell.getShells() have returned a disposed\nshell?",
+    "Also you should not get a dispose of a shell while you create the window as they\nare both in the UI Thread.",
+    "Here is a simple example demonstrating how the error may occur:\n\npublic static void main (String [] args) {\n\tDisplay display \u003d new Display ();\n\tShell shell \u003d new Shell (display);\n\tfinal Shell shell2 \u003d new Shell(shell, SWT.DIALOG_TRIM);\n\tshell.setLayout(new FillLayout());\n\tButton b \u003d new Button(shell, SWT.PUSH);\n\tb.setText(\"Do it\");\n\tb.addListener(SWT.Selection, new Listener() {\n\t\tpublic void handleEvent(Event e) {\n\t\t\tshell2.open();\n\t\t}\n\t});\t\n\tshell.addListener(SWT.Deactivate, new Listener() {\n\t\tpublic void handleEvent(Event e) {\n\t\t\tshell2.dispose();\n\t\t}\n\t});\n\tshell.open ();\n\n\twhile (!shell.isDisposed ()) {\n\t\tif (!display.readAndDispatch ()) display.sleep ();\n\t}\n\tdisplay.dispose ();\n}",
+    "Verified that this error only happens on Windows and released code to HEAD \nthat will check if the Shell is disposed after changing which shell has \nactivation and stop processing the request to open the disposed shell.\n\nNot sure what you guys want to do from here.  It seems that you are disposing \na shell that you are trying to open.  The exception will no longer happen but \nalso, the shell will not open.\n\nLeaving the bug in your hands to decide if further action is required.",
+    "Veronika, am I to understand that the exception occurs when the display is \nbeing disposed (i.e. Eclipse has closed)? ",
+    "MVM, No that is incorrect.  What is happening is that as part of opening the \nshell, another shell is being deactivated.  This results in a Deactivation \nevent.  If the application disposes the shell that is being opened in the \nDeactivation event, the widget is disposed error will occur when SWT tries to \ncontinue with the opening of the shell.",
+    "I\u0027m not MVM. Perhaps I should go with MV!M;-) I\u0027ll have to talk with Stefan to \nsee how this maps onto his magic for finding the appropriate shell.",
+    "Yeech. So somehow a shell deactivate event listener is causing the newly opened\nshell to be disposed.\n\nThe only way I can think of for this to happen is if there was a modal shell\nopen that disposes itself when deactivated. In this case, it would have been\nselected as the parent for the new dialog and would cause the new dialog to be\ndisposed too.\n\nSo: does anyone know of a MODAL dialog in Eclipse that disposes itself when some\nshell gets deactivated?\n",
+    "Stefan, I\u0027m assigning this to you since it\u0027s an issue with the shell \ndetermined by Window/Dialog when no shell is provided.",
+    "This annotation is part of a mass update.  Closing non-reproducible bugs that are old/stale.  Please reopen if you think this is still an issue."
+  ],
+  "commentCreationDates": [
+    "2005-05-18T03:03:43+02:00",
+    "2005-05-18T15:44:19+02:00",
+    "2005-05-18T22:10:55+02:00",
+    "2005-05-19T00:36:59+02:00",
+    "2005-05-19T01:38:07+02:00",
+    "2005-05-19T01:39:39+02:00",
+    "2005-05-19T13:49:11+02:00",
+    "2005-05-20T15:56:52+02:00",
+    "2005-05-20T16:55:52+02:00",
+    "2005-05-20T17:05:14+02:00",
+    "2005-05-20T17:19:54+02:00",
+    "2005-05-20T17:33:24+02:00",
+    "2005-05-20T19:14:58+02:00",
+    "2005-05-20T19:17:33+02:00",
+    "2007-07-02T20:54:45+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Widget is disposed",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2940"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2863"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2834"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:393"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java:295"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.setVisible",
+          "source": "Shell.java:1241"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.open",
+          "source": "Shell.java:818"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:783"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.WorkbenchUserAuthenticator.promptForPassword",
+          "source": "WorkbenchUserAuthenticator.java:119"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.WorkbenchUserAuthenticator.access$0",
+          "source": "WorkbenchUserAuthenticator.java:115"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.WorkbenchUserAuthenticator$1.run",
+          "source": "WorkbenchUserAuthenticator.java:72"
+        },
+        {
+          "method": "org.eclipse.ui.internal.UILockListener.doPendingWork",
+          "source": "UILockListener.java:150"
+        },
+        {
+          "method": "org.eclipse.ui.internal.UISynchronizer$1.run",
+          "source": "UISynchronizer.java:36"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:118"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2898"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2557"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1601"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1565"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:315"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:103"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:230"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:371"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:160"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:330"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:274"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "95691",
+      "date": "2005-05-18T03:03:43+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "minor"
+    }
+  ],
+  "groupId": "95691",
+  "bugId": "95691",
+  "date": "2005-05-18T03:03:43+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "minor"
+}

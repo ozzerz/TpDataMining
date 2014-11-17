@@ -1,0 +1,155 @@
+{
+  "comments": [
+    "Build ID: Eclipse 3.2.2\n\nSteps To Reproduce:\n1. Create a view that specifies allowMultiple\u003d\"true\" in it declaration, thus allowing application perspectives to create multiple instances of that view in the same page. Each instance will have a different secondary id, primary id will of course be the same.\n\n2. Create a perspective and use IFolderLayout to group views into a tabbed folder. Each view is an instance of the view class specified in step #1. (You can have as many as you want, add atleast two). The primary and secondary ids of each view is specified here. Here\u0027s a snippet of what im doing -\n\npublic void createInitialLayout(IPageLayout layout)\n    {\n        layout.setEditorAreaVisible(false);\n        layout.setFixed(false);\n        layout.addStandaloneView(\"com.ibm.rcp.portletviewer.portletview:Search\", true, 1, 1.0F, \"org.eclipse.ui.editorss\");\n        layout.addStandaloneView(\"com.ibm.rcp.portletviewer.portletview:Result\", true, 2, 0.5F, \"com.ibm.rcp.portletviewer.portletview:Search\");\n        IFolderLayout infoFolder \u003d layout.createFolder(\"com.boa.teller.folders.info\", 4, 0.5F, \"com.ibm.rcp.portletviewer.portletview:Result\");\n        infoFolder.addView(\"com.ibm.rcp.portletviewer.portletview:DynamicTitle\");\n        infoFolder.addView(\"com.ibm.rcp.portletviewer.portletview:CalculatorPortlet1\");\n        infoFolder.addView(\"com.ibm.rcp.portletviewer.portletview:CalculatorPortlet2\");\n        layout.addStandaloneView(\"com.ibm.rcp.portletviewer.portletview:PreferencePortlet\", true, 4, 0.5F, \"com.ibm.rcp.portletviewer.portletview:Search\");\n    }\n\n3. Now in the createPartControl() method of each view class attempt to activate other non-activated views (with the same primary id) using IWorkbenchPage.showView(String primaryID, String secondaryID, int mode). Each view class will perform the same initialization step of activating all other non-activated views.\n\nUpon performing this operation, I get the following error -\n\n2007/04/24 11:17:58.917 SEVERE Warning: Detected recursive attempt by part com.ibm.rcp.portletviewer.portletview to create itself (this is probably, but not necessarily, a bug) ::class.method\u003dunknown ::thread\u003dmain ::loggername\u003dorg.eclipse.ui\n\n\torg.eclipse.ui.PartInitException: Warning: Detected recursive attempt by part com.ibm.rcp.portletviewer.portletview to create itself (this is probably, but not necessarily, a bug)\n\tat org.eclipse.ui.internal.WorkbenchPartReference.getPart(WorkbenchPartReference.java:557)\n\tat org.eclipse.ui.internal.Perspective.showView(Perspective.java:1675)\n\tat org.eclipse.ui.internal.WorkbenchPage.busyShowView(WorkbenchPage.java:986)\n\tat org.eclipse.ui.internal.WorkbenchPage.access$13(WorkbenchPage.java:967)\n\tat org.eclipse.ui.internal.WorkbenchPage$13.run(WorkbenchPage.java:3459)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:67)\n\tat org.eclipse.ui.internal.WorkbenchPage.showView(WorkbenchPage.java:3456)\n\tat com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.activateViewsOnPage(PortletBrowserView.java:246)\n\tat com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.initPage(PortletBrowserView.java:216)\n\tat com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.createBrowserPage(PortletBrowserView.java:512)\n\tat com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.createPartControl(PortletBrowserView.java:144)\n\tat org.eclipse.ui.internal.ViewReference.createPartHelper(ViewReference.java:332)\n\tat org.eclipse.ui.internal.ViewReference.createPart(ViewReference.java:197)\n\tat org.eclipse.ui.internal.WorkbenchPartReference.getPart(WorkbenchPartReference.java:566)\n\tat org.eclipse.ui.internal.ViewReference.getView(ViewReference.java:164)\n\tat com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.activateViewsOnPage(PortletBrowserView.java:243)\n\tat com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.initPage(PortletBrowserView.java:216)\n\tat com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.createBrowserPage(PortletBrowserView.java:512)\n\tat com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.createPartControl(PortletBrowserView.java:144)\n\tat org.eclipse.ui.internal.ViewReference.createPartHelper(ViewReference.java:332)\n\tat org.eclipse.ui.internal.ViewReference.createPart(ViewReference.java:197)\n\tat org.eclipse.ui.internal.WorkbenchPartReference.getPart(WorkbenchPartReference.java:566)\n\tat org.eclipse.ui.internal.ViewReference.getView(ViewReference.java:164)\n\tat com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.activateViewsOnPage(PortletBrowserView.java:243)\n\tat com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.initPage(PortletBrowserView.java:216)\n\tat com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.createBrowserPage(PortletBrowserView.java:512)\n\tat com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.createPartControl(PortletBrowserView.java:144)\n\tat org.eclipse.ui.internal.ViewReference.createPartHelper(ViewReference.java:332)\n\tat org.eclipse.ui.internal.ViewReference.createPart(ViewReference.java:197)\n\tat org.eclipse.ui.internal.WorkbenchPartReference.getPart(WorkbenchPartReference.java:566)\n\tat org.eclipse.ui.internal.ViewReference.getView(ViewReference.java:164)\n\nMore information:\nThe problems here is this - WorkbenchPartReference.getPart() should not be logging the WARNING message at all - i think it should simple return null to ViewReference.getView which will throw a PartInitException. The PartInitException will then be handled appropriately by the calling component - in this case the calling component is the view class. The warning message says it itself - \"this is probably, by not necessarily, a bug\"\n\nHere\u0027s the code in question (snippet from WorkbenchPageReference.getPart()) -\n\nif (state \u003d\u003d STATE_CREATION_IN_PROGRESS) {\n                IStatus result \u003d WorkbenchPlugin.getStatus(\n                        new PartInitException(NLS.bind(\"Warning: Detected recursive attempt by part {0} to create itself (this is probably, but not necessarily, a bug)\",  //$NON-NLS-1$\n                                getId())));\n                WorkbenchPlugin.log(result);\n                return null;\n            }\n            \n\nin my opinion, this could be changed to the following without any repurcussions -\n\nif (state \u003d\u003d STATE_CREATION_IN_PROGRESS) {\n                return null;\n            }\n            \nI am hoping this issue can be resolved in eclipse 3.3. Thanks!",
+    "That would break existing clients, and the warning is notification about a possible problem.\n\nThe workbench  page will not activate another view while in the middle of activating your view.\n\nIf you need to activate a different view from within your createPartControl(*), wrap it in a UIJob and schedule() it.\n\nPW\n"
+  ],
+  "commentCreationDates": [
+    "2007-04-24T18:30:45+02:00",
+    "2007-04-24T18:41:55+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.ui.PartInitException",
+      "message": "Warning: Detected recursive attempt by part com.ibm.rcp.portletviewer.portletview to create itself (this is probably, but not necessarily, a bug)",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.getPart",
+          "source": "WorkbenchPartReference.java:557"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Perspective.showView",
+          "source": "Perspective.java:1675"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.busyShowView",
+          "source": "WorkbenchPage.java:986"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.access$13",
+          "source": "WorkbenchPage.java:967"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage$13.run",
+          "source": "WorkbenchPage.java:3459"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:67"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.showView",
+          "source": "WorkbenchPage.java:3456"
+        },
+        {
+          "method": "com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.activateViewsOnPage",
+          "source": "PortletBrowserView.java:246"
+        },
+        {
+          "method": "com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.initPage",
+          "source": "PortletBrowserView.java:216"
+        },
+        {
+          "method": "com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.createBrowserPage",
+          "source": "PortletBrowserView.java:512"
+        },
+        {
+          "method": "com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.createPartControl",
+          "source": "PortletBrowserView.java:144"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPartHelper",
+          "source": "ViewReference.java:332"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPart",
+          "source": "ViewReference.java:197"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.getPart",
+          "source": "WorkbenchPartReference.java:566"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.getView",
+          "source": "ViewReference.java:164"
+        },
+        {
+          "method": "com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.activateViewsOnPage",
+          "source": "PortletBrowserView.java:243"
+        },
+        {
+          "method": "com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.initPage",
+          "source": "PortletBrowserView.java:216"
+        },
+        {
+          "method": "com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.createBrowserPage",
+          "source": "PortletBrowserView.java:512"
+        },
+        {
+          "method": "com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.createPartControl",
+          "source": "PortletBrowserView.java:144"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPartHelper",
+          "source": "ViewReference.java:332"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPart",
+          "source": "ViewReference.java:197"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.getPart",
+          "source": "WorkbenchPartReference.java:566"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.getView",
+          "source": "ViewReference.java:164"
+        },
+        {
+          "method": "com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.activateViewsOnPage",
+          "source": "PortletBrowserView.java:243"
+        },
+        {
+          "method": "com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.initPage",
+          "source": "PortletBrowserView.java:216"
+        },
+        {
+          "method": "com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.createBrowserPage",
+          "source": "PortletBrowserView.java:512"
+        },
+        {
+          "method": "com.ibm.rcp.portletviewer.internal.views.PortletBrowserView.createPartControl",
+          "source": "PortletBrowserView.java:144"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPartHelper",
+          "source": "ViewReference.java:332"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPart",
+          "source": "ViewReference.java:197"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.getPart",
+          "source": "WorkbenchPartReference.java:566"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.getView",
+          "source": "ViewReference.java:164"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "183822",
+      "date": "2007-04-24T18:30:45+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "183822",
+  "bugId": "183822",
+  "date": "2007-04-24T18:30:45+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

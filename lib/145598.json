@@ -1,0 +1,362 @@
+{
+  "comments": [
+    "Completion throws an NPE when trying to complete on \"c.\" in class Main below:\n\npublic interface Cl$ss {\n\tvoid test(Cl$ss c);\n}\npublic class Main {\n\tvoid m(Cl$ss c) {\n\t\tc.\n\t}\n}\n\nthe reason for this is: method test cannot be displayed.\nthe reason for that is: SourceTypeConverter.decodeType(String,int,int,int)\ncreates a QualifiedTypeReference with these tokens:\n  tokens[0] \u003d { \u0027C\u0027, \u0027l\u0027, \u0027$\u0027, \u0027s\u0027, \u0027s\u0027 }\n  tokens[1] \u003d null \nThe reason behind that is: decodeType recognizes \u0027.\u0027 AND \u0027$\u0027 as delimiters,\nwhereas extractIdentifiers(..) (used by decodeType) only looks for \u0027.\u0027.\n\nI know that handling of \u0027$\u0027 in identifiers is a pain.\nI don\u0027t think there is an easy solution to this, since no resolved\ninformation is directly available and without that no-one can tell\nwhether \u0027$\u0027 is a delimiter (inner classes) or not (part of an identifier).\n\nwild phantasie #1:\nWhat exactly would break, if decodeType would completely ignore any\nspecial semantics of \u0027$\u0027? I assume quite a number of places would have to\nbe changed as to find inner classes as toplevel classes with compound\nnames ... (the JVM-view of the world).\n\nwild phantasie #2:\nCould the java model actually use two different chars to encode \n(1) dollar-as-inner-class-delimiter and (2) dollar-as-part-of-identifier??\n\nquick solution(?):\nmake extractIdentifiers(..) aware of \u0027$\u0027 as delimiter? When I tried this,\nthe NPE disappeared, but still no proposal for method test was given, mh..",
+    "Since the mildly related bug 127739 is targeted for 3.4 I took a fresh\nlook at this issue. Indeed it still throws NPE in 3.3.\n\nActually, I\u0027m positively surprised, how far you get with \u0027$\u0027 in\na type name, but...\n\nFYI here\u0027s a stack trace from the logs (the analysis from above still holds):\neclipse.buildId\u003dI20070625-1500\njava.version\u003d1.5.0_11\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dlinux, ARCH\u003dx86, WS\u003dgtk, NL\u003den_AU\nCommand-line arguments:  -os linux -ws gtk -arch x86\n\nWarning\nWed Sep 26 17:39:53 CEST 2007\nThe \u0027org.eclipse.jdt.ui.JavaNoTypeCompletionProposalComputer\u0027 proposal computer from the \u0027org.eclipse.jdt.ui\u0027 plug-in did not complete normally. The extension has thrown a runtime exception.\n\njava.lang.NullPointerException\nat org.eclipse.jdt.core.compiler.CharOperation.concatWith(CharOperation.java:1048)\nat org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding.readableName(ReferenceBinding.java:1085)\nat org.eclipse.jdt.internal.compiler.problem.ProblemReporter.invalidType(ProblemReporter.java:3391)\nat org.eclipse.jdt.internal.compiler.ast.TypeReference.reportInvalidType(TypeReference.java:195)\nat org.eclipse.jdt.internal.compiler.ast.TypeReference.resolveType(TypeReference.java:138)\nat org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.resolveTypesFor(SourceTypeBinding.java:1358)\nat org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.methods(SourceTypeBinding.java:1099)\nat org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding.availableMethods(ReferenceBinding.java:174)\nat org.eclipse.jdt.internal.codeassist.CompletionEngine.findInterfacesMethods(CompletionEngine.java:4676)\nat org.eclipse.jdt.internal.codeassist.CompletionEngine.findMethods(CompletionEngine.java:6078)\nat org.eclipse.jdt.internal.codeassist.CompletionEngine.findFieldsAndMethods(CompletionEngine.java:3430)\nat org.eclipse.jdt.internal.codeassist.CompletionEngine.complete(CompletionEngine.java:1066)\nat org.eclipse.jdt.internal.codeassist.CompletionEngine.complete(CompletionEngine.java:2098)\nat org.eclipse.jdt.internal.core.Openable.codeComplete(Openable.java:123)\nat org.eclipse.jdt.internal.core.CompilationUnit.codeComplete(CompilationUnit.java:327)\nat org.eclipse.jdt.internal.core.CompilationUnit.codeComplete(CompilationUnit.java:320)\nat org.eclipse.jdt.internal.ui.text.java.JavaCompletionProposalComputer.internalComputeCompletionProposals(JavaCompletionProposalComputer.java:180)\nat org.eclipse.jdt.internal.ui.text.java.JavaCompletionProposalComputer.computeCompletionProposals(JavaCompletionProposalComputer.java:148)\nat org.eclipse.jdt.internal.ui.text.java.CompletionProposalComputerDescriptor.computeCompletionProposals(CompletionProposalComputerDescriptor.java:303)\nat org.eclipse.jdt.internal.ui.text.java.CompletionProposalCategory.computeCompletionProposals(CompletionProposalCategory.java:264)\nat org.eclipse.jdt.internal.ui.text.java.ContentAssistProcessor.collectProposals(ContentAssistProcessor.java:251)\nat org.eclipse.jdt.internal.ui.text.java.ContentAssistProcessor.computeCompletionProposals(ContentAssistProcessor.java:220)\nat org.eclipse.jface.text.contentassist.ContentAssistant.computeCompletionProposals(ContentAssistant.java:1759)\nat org.eclipse.jface.text.contentassist.CompletionProposalPopup.computeProposals(CompletionProposalPopup.java:478)\nat org.eclipse.jface.text.contentassist.CompletionProposalPopup.access$16(CompletionProposalPopup.java:475)\nat org.eclipse.jface.text.contentassist.CompletionProposalPopup$2.run(CompletionProposalPopup.java:410)\nat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:67)\nat org.eclipse.jface.text.contentassist.CompletionProposalPopup.showProposals(CompletionProposalPopup.java:404)\nat org.eclipse.jface.text.contentassist.ContentAssistant.showPossibleCompletions(ContentAssistant.java:1588)\nat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$AdaptedSourceViewer.doOperation(CompilationUnitEditor.java:176)\nat org.eclipse.ui.texteditor.ContentAssistAction$1.run(ContentAssistAction.java:82)\nat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:67)\nat org.eclipse.ui.texteditor.ContentAssistAction.run(ContentAssistAction.java:80)\nat org.eclipse.jface.action.Action.runWithEvent(Action.java:498)\nat org.eclipse.ui.commands.ActionHandler.execute(ActionHandler.java:185)\nat org.eclipse.ui.internal.handlers.LegacyHandlerWrapper.execute(LegacyHandlerWrapper.java:109)\nat org.eclipse.core.commands.Command.executeWithChecks(Command.java:475)\nat org.eclipse.core.commands.ParameterizedCommand.executeWithChecks(ParameterizedCommand.java:429)\nat org.eclipse.ui.internal.handlers.HandlerService.executeCommand(HandlerService.java:165)\nat org.eclipse.ui.internal.keys.WorkbenchKeyboard.executeCommand(WorkbenchKeyboard.java:470)\nat org.eclipse.ui.internal.keys.WorkbenchKeyboard.press(WorkbenchKeyboard.java:821)\nat org.eclipse.ui.internal.keys.WorkbenchKeyboard.processKeyEvent(WorkbenchKeyboard.java:879)\nat org.eclipse.ui.internal.keys.WorkbenchKeyboard.filterKeySequenceBindings(WorkbenchKeyboard.java:568)\nat org.eclipse.ui.internal.keys.WorkbenchKeyboard.access$3(WorkbenchKeyboard.java:510)\nat org.eclipse.ui.internal.keys.WorkbenchKeyboard$KeyDownFilter.handleEvent(WorkbenchKeyboard.java:126)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\nat org.eclipse.swt.widgets.Display.filterEvent(Display.java:1423)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1100)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1125)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1110)\nat org.eclipse.swt.widgets.Widget.sendKeyEvent(Widget.java:1137)\nat org.eclipse.swt.widgets.Widget.gtk_key_press_event(Widget.java:663)\nat org.eclipse.swt.widgets.Control.gtk_key_press_event(Control.java:2533)\nat org.eclipse.swt.widgets.Composite.gtk_key_press_event(Composite.java:679)\nat org.eclipse.swt.widgets.Widget.windowProc(Widget.java:1486)\nat org.eclipse.swt.widgets.Control.windowProc(Control.java:4234)\nat org.eclipse.swt.widgets.Display.windowProc(Display.java:3973)\nat org.eclipse.swt.internal.gtk.OS._gtk_main_do_event(Native Method)\nat org.eclipse.swt.internal.gtk.OS.gtk_main_do_event(OS.java:5593)\nat org.eclipse.swt.widgets.Display.eventProc(Display.java:1192)\nat org.eclipse.swt.internal.gtk.OS._g_main_context_iteration(Native Method)\nat org.eclipse.swt.internal.gtk.OS.g_main_context_iteration(OS.java:1487)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2969)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2389)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2353)\nat org.eclipse.ui.internal.Workbench.access$4(Workbench.java:2219)\nat org.eclipse.ui.internal.Workbench$4.run(Workbench.java:466)\nat org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:289)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:461)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\nat org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:106)\nat org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:153)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:106)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:76)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:363)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:176)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\nat java.lang.reflect.Method.invoke(Method.java:585)\nat org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:504)\nat org.eclipse.equinox.launcher.Main.basicRun(Main.java:443)\nat org.eclipse.equinox.launcher.Main.run(Main.java:1169)\n\n"
+  ],
+  "commentCreationDates": [
+    "2006-06-06T20:45:36+02:00",
+    "2007-09-26T17:54:00+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.core.compiler.CharOperation.concatWith",
+          "source": "CharOperation.java:1048"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding.readableName",
+          "source": "ReferenceBinding.java:1085"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.problem.ProblemReporter.invalidType",
+          "source": "ProblemReporter.java:3391"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeReference.reportInvalidType",
+          "source": "TypeReference.java:195"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeReference.resolveType",
+          "source": "TypeReference.java:138"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.resolveTypesFor",
+          "source": "SourceTypeBinding.java:1358"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding.methods",
+          "source": "SourceTypeBinding.java:1099"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding.availableMethods",
+          "source": "ReferenceBinding.java:174"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.CompletionEngine.findInterfacesMethods",
+          "source": "CompletionEngine.java:4676"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.CompletionEngine.findMethods",
+          "source": "CompletionEngine.java:6078"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.CompletionEngine.findFieldsAndMethods",
+          "source": "CompletionEngine.java:3430"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.CompletionEngine.complete",
+          "source": "CompletionEngine.java:1066"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.codeassist.CompletionEngine.complete",
+          "source": "CompletionEngine.java:2098"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.Openable.codeComplete",
+          "source": "Openable.java:123"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.codeComplete",
+          "source": "CompilationUnit.java:327"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.codeComplete",
+          "source": "CompilationUnit.java:320"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.JavaCompletionProposalComputer.internalComputeCompletionProposals",
+          "source": "JavaCompletionProposalComputer.java:180"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.JavaCompletionProposalComputer.computeCompletionProposals",
+          "source": "JavaCompletionProposalComputer.java:148"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.CompletionProposalComputerDescriptor.computeCompletionProposals",
+          "source": "CompletionProposalComputerDescriptor.java:303"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.CompletionProposalCategory.computeCompletionProposals",
+          "source": "CompletionProposalCategory.java:264"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.ContentAssistProcessor.collectProposals",
+          "source": "ContentAssistProcessor.java:251"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.ContentAssistProcessor.computeCompletionProposals",
+          "source": "ContentAssistProcessor.java:220"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant.computeCompletionProposals",
+          "source": "ContentAssistant.java:1759"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.computeProposals",
+          "source": "CompletionProposalPopup.java:478"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.access$16",
+          "source": "CompletionProposalPopup.java:475"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup$2.run",
+          "source": "CompletionProposalPopup.java:410"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:67"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.showProposals",
+          "source": "CompletionProposalPopup.java:404"
+        },
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant.showPossibleCompletions",
+          "source": "ContentAssistant.java:1588"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$AdaptedSourceViewer.doOperation",
+          "source": "CompilationUnitEditor.java:176"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.ContentAssistAction$1.run",
+          "source": "ContentAssistAction.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:67"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.ContentAssistAction.run",
+          "source": "ContentAssistAction.java:80"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:498"
+        },
+        {
+          "method": "org.eclipse.ui.commands.ActionHandler.execute",
+          "source": "ActionHandler.java:185"
+        },
+        {
+          "method": "org.eclipse.ui.internal.handlers.LegacyHandlerWrapper.execute",
+          "source": "LegacyHandlerWrapper.java:109"
+        },
+        {
+          "method": "org.eclipse.core.commands.Command.executeWithChecks",
+          "source": "Command.java:475"
+        },
+        {
+          "method": "org.eclipse.core.commands.ParameterizedCommand.executeWithChecks",
+          "source": "ParameterizedCommand.java:429"
+        },
+        {
+          "method": "org.eclipse.ui.internal.handlers.HandlerService.executeCommand",
+          "source": "HandlerService.java:165"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.executeCommand",
+          "source": "WorkbenchKeyboard.java:470"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.press",
+          "source": "WorkbenchKeyboard.java:821"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.processKeyEvent",
+          "source": "WorkbenchKeyboard.java:879"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.filterKeySequenceBindings",
+          "source": "WorkbenchKeyboard.java:568"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.access$3",
+          "source": "WorkbenchKeyboard.java:510"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard$KeyDownFilter.handleEvent",
+          "source": "WorkbenchKeyboard.java:126"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.filterEvent",
+          "source": "Display.java:1423"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1100"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1125"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1110"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendKeyEvent",
+          "source": "Widget.java:1137"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.gtk_key_press_event",
+          "source": "Widget.java:663"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.gtk_key_press_event",
+          "source": "Control.java:2533"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.gtk_key_press_event",
+          "source": "Composite.java:679"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.windowProc",
+          "source": "Widget.java:1486"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:4234"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:3973"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS._gtk_main_do_event",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.gtk_main_do_event",
+          "source": "OS.java:5593"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.eventProc",
+          "source": "Display.java:1192"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS._g_main_context_iteration",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.g_main_context_iteration",
+          "source": "OS.java:1487"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2969"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2389"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2353"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:2219"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$4.run",
+          "source": "Workbench.java:466"
+        },
+        {
+          "method": "org.eclipse.core.databinding.observable.Realm.runWithDefault",
+          "source": "Realm.java:289"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:461"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.application.IDEApplication.start",
+          "source": "IDEApplication.java:106"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:153"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:106"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:76"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:363"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:176"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:504"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:443"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1169"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "145598",
+      "date": "2007-09-26T17:54:00+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "145598",
+  "bugId": "145598",
+  "date": "2006-06-06T20:45:36+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

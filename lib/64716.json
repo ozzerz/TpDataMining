@@ -1,0 +1,142 @@
+{
+  "comments": [
+    "OS:\t\tRHEL 3.0WS U2, SLES 9 Beta 5 \nLanguage:\tJapanese\nBuild level: \tM9\nJDK version:  IBM JDK 1.4.2 Beta cxia32dev-20040524\nTest case #:          \n\nSteps to recreate problem:\n1-on Eclipse RHEL (default encoding EUC-JP), make connection for a SLES9 cvs \nserver made by Eclipse Linux-gtk (default encoding UTF-8)\n2-change the cvs server encoding to UTF-8, and check out a project \n3-change the project encoding to UTF-8\n4-Build the project manualy (set off Build AUtomatically, Clean..., Build \nProject. Please see comment #8 at a bug 59899)\n5-select a java program, and Run \u003e Java Application form the context menu\n\nError:  Launch Failed \"The selection does not contain a main type\" error dialog \npop up. This occurrs when the cvs server and the project encoding is MS932. \n\nExpected Result: \nno error pop up and run successfully.",
+    "Created an attachment (id\u003d11313)\n.log file\n\nadditional steps,\nno error was thrown in above steps, but I got some errors in .log when\nre-started the Eclipse and did manual build.",
+    "Created an attachment (id\u003d11314)\nzipped UTF-8 encoded project on cvs server\n",
+    "\n\n*** This bug has been marked as a duplicate of 64724 ***",
+    "It looks like the charset used to decode the file is incorrect.\n\n\tat sun.io.ByteToCharEUC.convert(ByteToCharEUC.java(Compiled Code))\n\tat sun.nio.cs.StreamDecoder$ConverterSD.convertInto(StreamDecoder.java:287)\n\tat sun.nio.cs.StreamDecoder$ConverterSD.implRead(StreamDecoder.java:337)\n\tat sun.nio.cs.StreamDecoder.read(StreamDecoder.java:223)\n\nSo the file is not read using the UTF-8 encoding.",
+    "I\u0027ve found that this problem didn\u0027t occur with Sun JVM 1.4.2_04-b05. But the \nbug 64724 still occurred with the JVM.\nPlease separate 64724.",
+    "Masayuki, are you saying that this problem is fixed/no longer a problem (i.e. \ndid not occurr on the Sun VM)?",
+    "We have to use IBM\u0027s JVM. Could you find what\u0027s wrong with?\nIf it\u0027s a fault of IBM JVM, please report it. Thanks.",
+    "I was able to launch on both Sun and IBM VMs. IBM VM Version (Eclipse \nI20040608-0800)\n\njava version \"1.4.2\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.2)\nClassic VM (build 1.4.2, J2RE 1.4.2 IBM Windows 32 build cndev-20040524 (JIT \nena\nbled: jitc))\n\n* I create a project \"Test\"\n* Set the encoding to UTF8\n* imported the attached example\n* edited the source to remove CVS prefix/postfix on the files\n* Used the context menu to launch\n\n",
+    "I\u0027ve confirmed the scenario in comment #8 worked on M9 that I reported this pr \non. As the latest build looks like not function cvs, we should check the \noriginal scenario when the cvs feature is available. ",
+    "CVS is in the latest build. To \"enable\" CVS you must turn on the \"CVS Support\" \ncapability (for some reason, it is off by default). See \"Windows \u003e Prefernces \n\u003e Workbench \u003e Capabilities\". Ensure \"CVS Support\" is checked.",
+    "Thanks for the info. I didn\u0027t know that..\nIn I200406082000, I can reproduce this error. I will e-mail you about our cvs \naccess information, please try to reproduce.",
+    "I have just tried this using Red Hat 9.0 and it is working for me. I assume by \nRHEL 3.0 you mean the Enterprise version? I\u0027ll see if I can dig it up here.",
+    "I\u0027m going to remove the RC2 tag, since there is likely nothing we can do for \nRC2. We\u0027ll keep investigating.",
+    "I\u0027ve confirmed on RedHat Enterprise Linux 3.0 WS Update2 and SuSe Linux \nEnterprise Server 9.0 Beta5. ",
+    "(Sorry, what have you \"confirmed\"? That things do or do *not* work on these \nplatforms/OS\u0027s).",
+    "things did *not* work on these platforms. \nToday I tried RC2 on the RHEL 3.0 with IBM JVM 1.4.2 20040605, it had the same \nthing.\n\n",
+    "Are there any build errors in the project?",
+    "No, I didn\u0027t see build errors except \"invalid Character\" error in Test4.java \nthat i put in deliberately in the project.",
+    "This looks like a VM issue. Could you please let us know what VM arguments you\nare using? What is your command line?\nAlso for bug 64724, I was never able to reproduce it.\n\nIf this is a VM issue, it should be reported to the VM vendor.",
+    "Moving to JCORE (although it looks like a VM issue). The error message \nindicates a main method could not be found in the selected compilation unit. \nHowever, we use Java Model API for this search (see \norg.eclipse.jdt.internal.debug.ui.launcher.JavaElementPropertyTester):\n\nprivate boolean hasMain(IJavaElement element) {\n\ttry {\n\t\tIType mainType \u003d null;\n\t\tif (element instanceof ICompilationUnit) {\n\t\t\tICompilationUnit cu \u003d (ICompilationUnit) element;\n\t\t\tmainType\u003d cu.getType(Signature.getQualifier\n(cu.getElementName()));\n\t\t} else if (element instanceof IClassFile) {\n\t\t\t\tmainType \u003d ((IClassFile)element).getType();\n\t\t} else if (element instanceof IType) {\n\t\t\tmainType \u003d (IType) element;\n\t\t} else if (element instanceof IMember) {\n\t\t\tmainType \u003d ((IMember)element).getDeclaringType();\n\t\t}\n\t\tif (mainType !\u003d null \u0026\u0026 mainType.exists() \u0026\u0026 \nJavaModelUtil.hasMainMethod(mainType)) {\n\t\t\treturn true;\n\t\t}\n\t} catch (JavaModelException e) {\n\t}\n\treturn false;\n}\n\nAnother issue could be failing to retrive the \"IJavaElement\" adpater for the \nselection:\n\nif (receiver instanceof IAdaptable) {\n\tjavaElement \u003d (IJavaElement) ((IAdaptable)receiver).getAdapter\n(IJavaElement.class);\n}",
+    "Olivier - pls double check the possibility to retrieve the main method. What I \nfind surprising is that we succeed to build it with no problem. If so, then we \nshould be able to retrieve elements from it, if we use proper encoding.",
+    "It seems that it is failing only on certain VMs. So I\u0027d like to get a list of\nthese VMs on which this is failing. The one I tried works fine and therefore I\ncannot reproduce it.\nDarin, do you have one of the VMs that is failing?\n\nTod, do we have such Linux box on which I could try it?\n\nThanks.",
+    "The one in the lab has all language packs installed for RHEL 3.0.",
+    "Masayuki, could you please give me all the settings of the IBM VM that is failing?\nDid you try with the one that Darin used?\nAre you using the -Xj9 option?\n\nWe need more details and I also need your CVS settings to connect to the CVS server.\n\nThanks.",
+    "Removing milestone, since we cannot commit to addressing it until we have \nreproduced it at least once.",
+    "I reproduced the problem.\n\nThe problem is during the indexing of the project. Because you change the\nencoding of the project after the project has been checked out from CVS, the\nindexes for that project are empty.\nThe encoding used to retrieve the contents of the source file to index is the\nplatform encoding. And this leads to this error:\nsun.io.MalformedInputException\n\tat sun.io.ByteToCharEUC.convert(ByteToCharEUC.java:193)\n\tat sun.nio.cs.StreamDecoder$ConverterSD.convertInto(StreamDecoder.java:287)\n\tat sun.nio.cs.StreamDecoder$ConverterSD.implRead(StreamDecoder.java:337)\n\tat sun.nio.cs.StreamDecoder.read(StreamDecoder.java:223)\n\tat java.io.InputStreamReader.read(InputStreamReader.java:208)\n\tat\norg.eclipse.jdt.internal.compiler.util.Util.getInputStreamAsCharArray(Util.java:354)\n\tat org.eclipse.jdt.internal.compiler.util.Util.getFileCharContent(Util.java:178)\n\tat\norg.eclipse.jdt.internal.core.search.JavaSearchDocument.getCharContents(JavaSearchDocument.java:58)\n\tat\norg.eclipse.jdt.internal.core.search.indexing.SourceIndexer.indexDocument(SourceIndexer.java:68)\n\tat\norg.eclipse.jdt.internal.core.search.JavaSearchParticipant.indexDocument(JavaSearchParticipant.java:72)\n\tat\norg.eclipse.jdt.internal.core.search.indexing.IndexManager.indexDocument(IndexManager.java:269)\n\tat\norg.eclipse.jdt.internal.core.search.indexing.IndexManager$1.execute(IndexManager.java:581)\n\tat\norg.eclipse.jdt.internal.core.search.processing.JobManager.run(JobManager.java:361)\n\tat java.lang.Thread.run(Thread.java:567)\n\nAfter that the indexes are used to run the java application through the search\nrequest to find all types that have a main method. Because the indexes are\nempty, the search returns no result and then the java application launcher\ndoesn\u0027t create the launching configuration.\n\nThe rebuild after changing the encoding doesn\u0027t recompute the indexes. There is\ntwo workarounds for now:\n1) Remove the .index files in the .metadata/.plugins/org.eclipse.jdt.core. This\nwill force the indexes to be recomputed before the next search request.\n2) Change the workspace encoding before checking out the project from CVS. If\nyou set the workspace encoding to be MS932, before checking out the project, the\nproblem is gone.\n\nThe CVS server encoding doesn\u0027t affect the project\u0027s encoding when the project\nis created.\nChanging the encoding of the project seems to force a full build because the\nprevious state was not found.\n\nWed Jun 16 17:54:30 EDT 2004 - [Worker-0] Invoking (INCREMENTAL_BUILD) on\nbuilder: JavaBuilder(DBCSTest)\n\nStarting build of DBCSTest @ Wed Jun 16 17:54:30 EDT 2004\nSaved state thinks last build failed for DBCSTest\nPerforming full build since last saved state was not found\nFULL build\nAbout to compile \u0026#65345;\u0026#65346;\u0026#65347;.java\nAbout to compile \u0026#12486;\u0026#12473;\u0026#12488;.java\nAbout to compile SwingUIjp.java\nAbout to compile PerformanceExample.java\nAbout to compile MySample2/Test4.java\nAbout to compile MySample2/Test3.java\nAbout to compile MySample2/Test2.java\nAbout to compile MySample2/Test1.java\nAbout to compile MySample/Test4.java\nAbout to compile MySample/Test3.java\nAbout to compile MySample/Test2.java\nAbout to compile MySample/Test1.java\nWriting new class file \u0026#65345;\u0026#65346;\u0026#65347;.class\nWriting new class file \u0026#12486;\u0026#12473;\u0026#12488;.class\nWriting new class file SwingUIjp$1.class\nWriting new class file SwingUIjp.class\nWriting new class file PerformanceExample$3.class\nWriting new class file PerformanceExample.class\nWriting new class file PerformanceExample$2.class\nWriting new class file PerformanceExample$1.class\nWriting new class file Test4.class\nWriting new class file Test3.class\nWriting new class file Test2.class\nWriting new class file Test1.class\nWriting new class file Test4.class\nWriting new class file Test3.class\nWriting new class file Test2.class\nWriting new class file Test1.class\nRecording new state : State for DBCSTest (#0 @ Wed Jun 16 17:54:31 EDT 2004)\nFinished build of DBCSTest @ Wed Jun 16 17:54:39 EDT 2004\nWed Jun 16 17:54:39 EDT 2004 - [Worker-0] Builder finished:\nJavaBuilder(DBCSTest) time: 8621ms\n\nChanging the file and saving it triggers the indexer with the right encoding\nthat time and then it works fine.\n\nWe need to investigate how to trigger a reindexing of a project when its\nencoding is modified. Once the indexes are computed with the right encoding, it\nworks fine.\n",
+    "The only way to really fix this would be to get a delta or something we could\nlisten to find out that the project\u0027s encoding has been changed and recomputes\nthe indexes.\nIf the workspace\u0027s encoding is changed, it should trigger the reindexing of all\nprojects that are using the workspace\u0027s encoding, but not the one that are using\ntheir own encoding.\nRight now an incremental build is triggered when the project\u0027s encoding is\nchanged, because the preferences of the project is changed. But because there is\nno java source changes, nothing is done to change the indexes.",
+    "\n\n*** This bug has been marked as a duplicate of 59899 ***"
+  ],
+  "commentCreationDates": [
+    "2004-05-31T09:57:34+02:00",
+    "2004-05-31T10:04:09+02:00",
+    "2004-05-31T10:10:07+02:00",
+    "2004-05-31T15:52:03+02:00",
+    "2004-05-31T18:52:39+02:00",
+    "2004-06-01T06:34:45+02:00",
+    "2004-06-07T22:29:10+02:00",
+    "2004-06-08T04:07:38+02:00",
+    "2004-06-08T20:57:34+02:00",
+    "2004-06-09T08:08:34+02:00",
+    "2004-06-09T15:36:22+02:00",
+    "2004-06-10T08:55:12+02:00",
+    "2004-06-10T18:56:09+02:00",
+    "2004-06-10T19:35:55+02:00",
+    "2004-06-11T13:38:35+02:00",
+    "2004-06-15T16:16:25+02:00",
+    "2004-06-15T17:52:13+02:00",
+    "2004-06-15T18:03:50+02:00",
+    "2004-06-15T18:18:19+02:00",
+    "2004-06-15T18:24:25+02:00",
+    "2004-06-15T18:25:23+02:00",
+    "2004-06-16T11:24:42+02:00",
+    "2004-06-16T15:09:21+02:00",
+    "2004-06-16T15:19:53+02:00",
+    "2004-06-16T15:23:13+02:00",
+    "2004-06-16T17:14:32+02:00",
+    "2004-06-17T00:02:45+02:00",
+    "2004-06-17T00:13:49+02:00",
+    "2004-06-17T11:30:12+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "sun.io.MalformedInputException",
+      "elements": [
+        {
+          "method": "sun.io.ByteToCharEUC.convert",
+          "source": "ByteToCharEUC.java:193"
+        },
+        {
+          "method": "sun.nio.cs.StreamDecoder$ConverterSD.convertInto",
+          "source": "StreamDecoder.java:287"
+        },
+        {
+          "method": "sun.nio.cs.StreamDecoder$ConverterSD.implRead",
+          "source": "StreamDecoder.java:337"
+        },
+        {
+          "method": "sun.nio.cs.StreamDecoder.read",
+          "source": "StreamDecoder.java:223"
+        },
+        {
+          "method": "java.io.InputStreamReader.read",
+          "source": "InputStreamReader.java:208"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.util.Util.getInputStreamAsCharArray",
+          "source": "Util.java:354"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.util.Util.getFileCharContent",
+          "source": "Util.java:178"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchDocument.getCharContents",
+          "source": "JavaSearchDocument.java:58"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.indexing.SourceIndexer.indexDocument",
+          "source": "SourceIndexer.java:68"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchParticipant.indexDocument",
+          "source": "JavaSearchParticipant.java:72"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.indexing.IndexManager.indexDocument",
+          "source": "IndexManager.java:269"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.indexing.IndexManager$1.execute",
+          "source": "IndexManager.java:581"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.processing.JobManager.run",
+          "source": "JobManager.java:361"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:567"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 26,
+      "bugId": "64716",
+      "duplicateId": "59899",
+      "date": "2004-06-17T00:02:45+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "59899",
+  "bugId": "64716",
+  "duplicateId": "59899",
+  "date": "2004-05-31T09:57:34+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

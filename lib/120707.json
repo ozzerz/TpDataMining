@@ -1,0 +1,239 @@
+{
+  "comments": [
+    "After selecting and downloading an external adapter, the install of the feature is sucessful, but the adapter requires a workbench restart in order to take full affect.  Being in the middle of a wizard page, this is a critical usability concern.",
+    "(1) The icon doesn\u0027t display until restart.",
+    "Please add this to the hot list.  This is not just the icon that isn\u0027t refresh.  The runtime cannot be created after install.",
+    "I\u0027ll start looking into this one but I may need your help on this.  This is the last defect holding the geronimo server adapter release.",
+    "So the behavior is the following, once the installable server adapter gets installed, the wizard goes back to the list of all runtimes and now Geronimo is listed.\n\n(1) Problem 1 is that the icon doesn\u0027t appear.\n(2) Problem 2 is that if Geronimo is selected, the next button is disabled, only the finish button is enabled.  A workbench restart is required to get \"next\" to be enabled.\n\nSo taking a quick glance at the code for problem #2... my theory is that even though the runtime type is listed, the the child wizard fragments do not get populated because the runtime wizard fragment for the runtime type either cannot be found or the method to populate the child fragments doesn\u0027t get called.  Since the installed plugin is infact started, I belive it may be the latter.",
+    "Due to the eclipse bug not being to debug through updatemanager scenarios, I\u0027m having to trace through the code by hand :(.  But i think my theory may be correct.  Selecting a runtime type in normal circumstances seems to invoke TaskWizardPage.update() on every selection, which in turn eventually adds the wizard fragments, but after installing the downloable runtime and selecting it, I don\u0027t think this is getting called.  \n\nSo looking at RuntimeTypeComposiste, refresh() is getting called after the NewInstallableServerWizard, but this looks like it just populates the list of runtimes, and does not update the pages as well.  So in detailsSelected I think update on the TaskWizardPage needs to be invoked, but I didn\u0027t see a way to get a handle on the instance.  Will dig further.",
+    "Ingore my last comment.  After install the selection listener is getting added and invoked, and update IS being called.  The problem is during the update in the following method as I had originally thought.  It is getting called but ServerUIPlugin.getWizardFragment is returnning null.\n\nprotected void createChildFragments(List list) {\n\t\t\n\t\tif (getTaskModel() \u003d\u003d null)\n\t\t\treturn;\n\t\n\t\tIRuntimeWorkingCopy runtime \u003d (IRuntimeWorkingCopy) getTaskModel().getObject(TaskModel.TASK_RUNTIME);\n\t\tif (runtime \u003d\u003d null)\n\t\t\treturn;\n\t\tSystem.out.println(\"id: \" + runtime.getRuntimeType().getId());\n\t\tWizardFragment sub \u003d ServerUIPlugin.getWizardFragment(runtime.getRuntimeType().getId());\n\t\tSystem.out.println(\"fragment: \" + sub);\n\t\tif (sub !\u003d null)\n\t\t\tlist.add(sub);\n\t}",
+    "So ServerUIPlugin.getWizardFragment is loading from a cached list of wizard fragments. This will solve the \"next\" button disabled issue. Still need to look into why icon doesn\u0027t appear.",
+    "So there is something wrong with the registry listener but I don\u0027t know what.  When I put a println in the listener code, the method blows up with a bunch of repetitive errors, if I remove the println, no errors occur.\n\n!ENTRY org.eclipse.core.runtime 4 0 2006-01-31 14:46:21.816\n!MESSAGE Error notifying registry change listener.\n!SUBENTRY 1 org.eclipse.core.runtime 4 0 2006-01-31 14:46:21.816\n!MESSAGE Invalid registry object\n!STACK 0\norg.eclipse.core.runtime.InvalidRegistryObjectException: Invalid registry object\n\tat org.eclipse.core.internal.registry.RegistryObjectManager.basicGetObject(RegistryObjectManager.java:188)\n\tat org.eclipse.core.internal.registry.RegistryObjectManager.getObject(RegistryObjectManager.java:178)\n\tat org.eclipse.core.internal.registry.ConfigurationElementHandle.getConfigurationElement(ConfigurationElementHandle.java:27)\n\tat org.eclipse.core.internal.registry.ConfigurationElementHandle.getParent(ConfigurationElementHandle.java:95)\n\tat org.eclipse.core.internal.registry.ConfigurationElementHandle.getDeclaringExtension(ConfigurationElementHandle.java:85)\n\tat org.eclipse.core.internal.runtime.AdapterFactoryProxy.getExtension(AdapterFactoryProxy.java:83)\n\tat org.eclipse.core.internal.runtime.AdapterManager.registryChanged(AdapterManager.java:372)\n\tat org.eclipse.core.internal.registry.ExtensionRegistry$ExtensionEventDispatcherJob.run(ExtensionRegistry.java:64)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)",
+    "When running with trace enabled, I saw this...\n\njava.lang.NullPointerException\n\tat org.eclipse.wst.server.core.ServerCore.handleRuntimeTypeDelta(ServerCore.java:489)\n\tat org.eclipse.wst.server.core.ServerCore$RegistryChangeListener.registryChanged(ServerCore.java:54)\n\tat org.eclipse.core.internal.registry.ExtensionRegistry$ExtensionEventDispatcherJob.run(ExtensionRegistry.java:64)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)\norg.eclipse.wst.server.core CONFIG    01/02/06 08:40.43.536 -----\u003c----- Server Core plugin shutdown -----\u003c-----\norg.eclipse.wst.server.core LISTENERS 01/02/06 08:40.43.536 Removing server resource listener org.eclipse.wst.server.core.internal.ServerListener@8e6606 from org.eclipse.wst.server.core.internal.ResourceManager@cc2cd1\norg.eclipse.wst.server.core LISTENERS 01/02/06 08:40.43.666 Removing server resource listener org.eclipse.wst.server.ui.internal.ServerUIPlugin$1@3afcc2 from org.eclipse.wst.server.core.internal.ResourceManager@cc2cd1",
+    "I belive there is some type of race conditioning/timing issue happening due to the use of the registry listener.  I get complelty different behavior when running normally vs. debug vs. trace/sys.outs.  Could it be possible that the registry listener is getting called before the newly installed plugin is has completed it startup? ",
+    "The RegistryChangeListener implementation is using the wrong namespace for its extension points to get the delta for.  Adding a patch, but this still doesn\u0027t resolve the problem.",
+    "Created an attachment (id\u003d33949)\nPatch for incorrect ns in reg list implementation\n\nAlso, added synchronized to addRegistryListener method",
+    "Created an attachment (id\u003d33950)\nCorrect patch for ns\n\nAttached wrong patch before",
+    "Setting priority to P2",
+    "I disabled both the server.core and server.ui registry listeners and after install the server plugins did still shutdown immiedatley, then afterwards the AdapterManager regsitry exection occurs...\n\nFeatureorg.apache.geronimo.feature 1.0.0has successfully been installed\n\norg.eclipse.wst.server.core LISTENERS 07/02/06 09:16.22.343 Removing server resource listener org.eclipse.jst.server.core.internal.JavaServerPlugin$1@a6c44f from org.eclipse.wst.server.core.internal.ResourceManager@5f3028\norg.eclipse.wst.server.core CONFIG    07/02/06 09:16.22.405 -----\u003c----- Server Core plugin shutdown -----\u003c-----\norg.eclipse.wst.server.core LISTENERS 07/02/06 09:16.22.452 Removing server resource listener org.eclipse.wst.server.core.internal.ServerListener@f9883c from org.eclipse.wst.server.core.internal.ResourceManager@5f3028\norg.eclipse.wst.server.ui CONFIG  07/02/06 09:16.22.494 -----\u003c----- Server UI plugin stop -----\u003c-----\norg.eclipse.wst.server.core LISTENERS 07/02/06 09:16.22.506 Removing server resource listener org.eclipse.wst.server.ui.internal.ServerUIPlugin$1@e328de from org.eclipse.wst.server.core.internal.ResourceManager@5f3028\n\n!ENTRY org.eclipse.core.runtime 4 0 2006-02-07 09:16:22.584\n!MESSAGE Error notifying registry change listener.\n!SUBENTRY 1 org.eclipse.core.runtime 4 0 2006-02-07 09:16:22.584\n!MESSAGE Invalid registry object\n!STACK 0\norg.eclipse.core.runtime.InvalidRegistryObjectException: Invalid registry object\n\tat org.eclipse.core.internal.registry.RegistryObjectManager.basicGetObject(RegistryObjectManager.java:188)\n\tat org.eclipse.core.internal.registry.RegistryObjectManager.getObject(RegistryObjectManager.java:178)\n\tat org.eclipse.core.internal.registry.ConfigurationElementHandle.getConfigurationElement(ConfigurationElementHandle.java:27)\n\tat org.eclipse.core.internal.registry.ConfigurationElementHandle.getParent(ConfigurationElementHandle.java:95)\n\tat org.eclipse.core.internal.registry.ConfigurationElementHandle.getDeclaringExtension(ConfigurationElementHandle.java:85)\n\tat org.eclipse.core.internal.runtime.AdapterFactoryProxy.getExtension(AdapterFactoryProxy.java:83)\n\tat org.eclipse.core.internal.runtime.AdapterManager.registryChanged(AdapterManager.java:372)\n\tat org.eclipse.core.internal.registry.ExtensionRegistry$ExtensionEventDispatcherJob.run(ExtensionRegistry.java:64)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)",
+    "I don\u0027t think there is a problem with the Adapter manager.  I disabled the registry change listener on the adapter manager, and reran the scenario and the InvalidRegistryObjectException occured also on a different registrychangelistener... \"PopupMenuExtender\".  \n\norg.eclipse.core.runtime.InvalidRegistryObjectException: Invalid registry object\n\tat org.eclipse.core.internal.registry.TemporaryObjectManager.getObject(TemporaryObjectManager.java:98)\n\tat org.eclipse.core.internal.registry.ExtensionPointHandle.getExtensionPoint(ExtensionPointHandle.java:88)\n\tat org.eclipse.core.internal.registry.ExtensionPointHandle.getNamespace(ExtensionPointHandle.java:39)\n\tat org.eclipse.ui.internal.PopupMenuExtender.registryChanged(PopupMenuExtender.java:348)\n\tat org.eclipse.core.internal.registry.ExtensionRegistry$ExtensionEventDispatcherJob.run(ExtensionRegistry.java:64)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)\n!SUBENTRY 1 org.eclipse.core.runtime 4 0 2006-02-07 10:14:44.523",
+    "So I just figured out whats causing the uninstall.  When command.applyChanges() is called... it eventually calls ConfigurationActivator.installBundles().  in that method ..\n\n// Get the list of cached bundles and compare with the ones to be installed.\n// Uninstall all the cached bundles that do not appear on the new list\nBundle[] cachedBundles \u003d context.getBundles();\t\t\nURL[] plugins \u003d configuration.getPluginPath();\n    \n// starts the list of bundles to refresh with all currently unresolved bundles (see bug 50680)\nList toRefresh \u003d getUnresolvedBundles();\n\nBundle[] bundlesToUninstall \u003d getBundlesToUninstall(cachedBundles, plugins);\nfor (int i\u003d0; i\u003cbundlesToUninstall.length; i++) {\n.....\n}\n\nSo inspecting bundlesToUninstall, the following bundles are being uninstalled...\n\n[update@../../../../../../workspaces/devtools/org.eclipse.jst.server.core/ [3], update@../../../../../../workspaces/devtools/org.eclipse.jst.server.generic.ui/ [4], update@../../../../../../workspaces/devtools/org.eclipse.wst.server.core/ [5], update@../../../../../../workspaces/devtools/org.eclipse.wst.server.ui/ [6]]\n",
+    "Ah.. it happens to be these 4 plugins that are attempted to being uninstalled are the wtp plugins I have imported into my workspace.  Is this the update manager problem when running inside a runtimeworkbench? ",
+    "Sachin, looks like you\u0027ve been having a long conversation with your self :) \n\nLet me see if I can clarify some of your last remarks (first, I doubt if because loaded in your workspace ... but easy to test).\n\nAm I\u0027m reading right ... the wizard class is still \"in control\" when those plugins /bundles are uninstalled? Or, more to the point, is one the class that\u0027s doing the uninstall, a class in one of the plugin\u0027s that\u0027s trying to be uninstalled? Or, dependant on it?  If so, seems unlikely this is theorecically possible. \nI would think the classes that belong to the to-be-installed plugin would have to be all \"not in use\" at the time (or, capable of being unloaded by VM). \n\nAny of this sound related? Or am I missing the whole problem? ",
+    "Just for the record, Sachin and I have been messaging between the times that he talks to himself. :) I\u0027ve also spent several long hours debugging this problem, and we both agree that this is one of the most frustrating bugs we\u0027ve ever worked on.\n\nOne of the more irritating issues is that OSGi behaves differently when running out of the workspace compared to standalone. Sachin\u0027s comments above are at least partially due to this behaviour. (there is a platform bug opened for the initial problem, but I beleive there are at least a couple more platform bugs here)\n\nFrom what I have been able to reproduce outside the workspace and talking to Sachin, the problem is that when we apply changes (the new downloaded bundles) into the currently running Eclipse, OSGi decides to restart several bundles to handle the change. When running in the workspace this is often every bundle in the workspace, which all have the same bundle context. Outside it appears to be a smaller set, but still includes several WTP bundles. I haven\u0027t been able to figure out why it is restarting these bundles, but my guess is that it is some sort of graph of the bundles that the new bundles extend or use. In the general case this might be correct since these bundles may have loaded classes in the \"changed\" bundles, but since these are newly downloaded bundles this isn\u0027t necessary.\n\nThe fact that these extra bundles are restarted isn\u0027t critical; most of them are my server bundles and they correctly handle stopping and restarting. The problem is that the rest of the workbench often has loaded classes from these bundles, the most common being the org.eclipse.core.runtime.adapters extension point. Although the core.runtime does have some code to deal with dynamically installed bundles, this code fails with the InvalidRegistryObjectException above. We\u0027ve seen exceptions in a few other cases, which leads me to beleive that the platform has not really tested this scenario.\n\nThis all leaves us with two options:\n\n  1) Give up on dynamic install for 1.0.x. We can remove one line from the install code (applyChangesNow()) and add a dialog asking the user to restart the IDE after the new feature has been installed.\n\n  2) Find out why some bundles are being restarted and avoid it. I haven\u0027t been able to contact anyone from the OSGi/platform runtime team offline, so I opened bug 126857 to see if we can get some answers.\n\nComments? Did I miss anything?",
+    "My strong preference is #2.  Geronimo is really wanting full support of this.  But if the runtime team doesn\u0027t have a solution then I guess we have no choice to do #1.   I did implement (1) last night, but restarting the workbench in the middle of the j2ee project creation wizard throws a widget disposed exception I\u0027m not sure how to get rid of.",
+    "As an update, we\u0027ve confirmed that this is caused by a bug in the Eclipse platform (bug 126857). We\u0027ll keep this bug targetted to WTP for the workaround now, and we\u0027ll need another one to fix this when the platform bug is fixed.",
+    "Thanks again for all your help on this one.",
+    "Created an attachment (id\u003d34541)\nPatch for asking user to restart workbench\n\n",
+    "Attached patch for workaround solution.  Feel free to change message to something better.",
+    "FYI I forgot to include in the patch commenting out the call to command.applyChangesNow() in org.eclipse.wst.server.core.internal.InstallableServer.",
+    "Fix released for next 1.0.1 M-build.",
+    "This ia part of a mass update, marking fixed blockers older than 6 months as automatically verified (the logic being it must be fixed or we sure would have heard about it!) As always, feel free to re-open if not fixed! \n",
+    "Closing.",
+    "Changing OS from Mac OS to Mac OS X as per bug 185991"
+  ],
+  "commentCreationDates": [
+    "2005-12-13T20:17:10+01:00",
+    "2006-01-17T21:56:55+01:00",
+    "2006-01-30T14:16:00+01:00",
+    "2006-01-30T22:01:16+01:00",
+    "2006-01-31T15:41:41+01:00",
+    "2006-01-31T18:35:08+01:00",
+    "2006-01-31T19:06:44+01:00",
+    "2006-01-31T19:26:49+01:00",
+    "2006-01-31T20:37:15+01:00",
+    "2006-02-01T13:42:34+01:00",
+    "2006-02-01T14:05:55+01:00",
+    "2006-02-01T17:16:56+01:00",
+    "2006-02-01T17:18:05+01:00",
+    "2006-02-01T17:20:54+01:00",
+    "2006-02-02T14:42:27+01:00",
+    "2006-02-07T14:18:45+01:00",
+    "2006-02-07T15:17:57+01:00",
+    "2006-02-07T18:44:52+01:00",
+    "2006-02-07T19:26:09+01:00",
+    "2006-02-08T02:23:39+01:00",
+    "2006-02-08T03:53:10+01:00",
+    "2006-02-08T13:53:02+01:00",
+    "2006-02-09T18:09:36+01:00",
+    "2006-02-09T18:13:44+01:00",
+    "2006-02-11T15:55:13+01:00",
+    "2006-02-11T15:56:55+01:00",
+    "2006-02-11T16:34:23+01:00",
+    "2006-02-13T15:21:29+01:00",
+    "2006-09-22T15:09:39+02:00",
+    "2006-09-26T19:03:55+02:00",
+    "2007-07-29T15:18:35+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.core.runtime.InvalidRegistryObjectException",
+      "message": "Invalid registry object",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.registry.RegistryObjectManager.basicGetObject",
+          "source": "RegistryObjectManager.java:188"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.RegistryObjectManager.getObject",
+          "source": "RegistryObjectManager.java:178"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElementHandle.getConfigurationElement",
+          "source": "ConfigurationElementHandle.java:27"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElementHandle.getParent",
+          "source": "ConfigurationElementHandle.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElementHandle.getDeclaringExtension",
+          "source": "ConfigurationElementHandle.java:85"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.AdapterFactoryProxy.getExtension",
+          "source": "AdapterFactoryProxy.java:83"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.AdapterManager.registryChanged",
+          "source": "AdapterManager.java:372"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ExtensionRegistry$ExtensionEventDispatcherJob.run",
+          "source": "ExtensionRegistry.java:64"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 8,
+      "bugId": "120707",
+      "date": "2006-01-31T20:37:15+01:00",
+      "product": "Web Tools",
+      "component": "wst.server",
+      "severity": "blocker"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.server.core.ServerCore.handleRuntimeTypeDelta",
+          "source": "ServerCore.java:489"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.ServerCore$RegistryChangeListener.registryChanged",
+          "source": "ServerCore.java:54"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ExtensionRegistry$ExtensionEventDispatcherJob.run",
+          "source": "ExtensionRegistry.java:64"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 9,
+      "bugId": "120707",
+      "date": "2006-02-01T13:42:34+01:00",
+      "product": "Web Tools",
+      "component": "wst.server",
+      "severity": "blocker"
+    },
+    {
+      "exceptionType": "org.eclipse.core.runtime.InvalidRegistryObjectException",
+      "message": "Invalid registry object",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.registry.RegistryObjectManager.basicGetObject",
+          "source": "RegistryObjectManager.java:188"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.RegistryObjectManager.getObject",
+          "source": "RegistryObjectManager.java:178"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElementHandle.getConfigurationElement",
+          "source": "ConfigurationElementHandle.java:27"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElementHandle.getParent",
+          "source": "ConfigurationElementHandle.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElementHandle.getDeclaringExtension",
+          "source": "ConfigurationElementHandle.java:85"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.AdapterFactoryProxy.getExtension",
+          "source": "AdapterFactoryProxy.java:83"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.AdapterManager.registryChanged",
+          "source": "AdapterManager.java:372"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ExtensionRegistry$ExtensionEventDispatcherJob.run",
+          "source": "ExtensionRegistry.java:64"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 15,
+      "bugId": "120707",
+      "date": "2006-02-07T14:18:45+01:00",
+      "product": "Web Tools",
+      "component": "wst.server",
+      "severity": "blocker"
+    },
+    {
+      "exceptionType": "org.eclipse.core.runtime.InvalidRegistryObjectException",
+      "message": "Invalid registry object",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.registry.TemporaryObjectManager.getObject",
+          "source": "TemporaryObjectManager.java:98"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ExtensionPointHandle.getExtensionPoint",
+          "source": "ExtensionPointHandle.java:88"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ExtensionPointHandle.getNamespace",
+          "source": "ExtensionPointHandle.java:39"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PopupMenuExtender.registryChanged",
+          "source": "PopupMenuExtender.java:348"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ExtensionRegistry$ExtensionEventDispatcherJob.run",
+          "source": "ExtensionRegistry.java:64"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 16,
+      "bugId": "120707",
+      "date": "2006-02-07T15:17:57+01:00",
+      "product": "Web Tools",
+      "component": "wst.server",
+      "severity": "blocker"
+    }
+  ],
+  "groupId": "120707",
+  "bugId": "120707",
+  "date": "2005-12-13T20:17:10+01:00",
+  "product": "Web Tools",
+  "component": "wst.server",
+  "severity": "blocker"
+}

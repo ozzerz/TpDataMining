@@ -1,0 +1,141 @@
+{
+  "comments": [
+    "I have an old multiproject query that suddenly started to fail with \"no version with name...\" error. It is weird that sync passes when query is created but fail on the following synchronization. \n\nIt also would make sense to put complete stack trace into the log for such unexpected failures.\n\nAnyways, it seems like it is failing on issue that been moved between projects, so affected version can\u0027t be found in new project. See http://jira.terracotta.org/jira/browse/DEV-319?page\u003dhistory\n\norg.xml.sax.SAXException: No version with name \u00271.5 (Chex)\u0027 found\n\tat org.eclipse.mylyn.internal.jira.core.service.web.rss.RssContentHandler.endElement(RssContentHandler.java:653)\n\tat com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.endElement(AbstractSAXParser.java:633)\n\tat com.sun.org.apache.xerces.internal.impl.XMLNSDocumentScannerImpl.scanEndElement(XMLNSDocumentScannerImpl.java:719)\n\tat com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch(XMLDocumentFragmentScannerImpl.java:1685)\n\tat com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanDocument(XMLDocumentFragmentScannerImpl.java:368)\n\tat com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse(XML11Configuration.java:834)\n\tat com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse(XML11Configuration.java:764)\n\tat com.sun.org.apache.xerces.internal.parsers.XMLParser.parse(XMLParser.java:148)\n\tat com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.parse(AbstractSAXParser.java:1242)\n\tat org.eclipse.mylyn.internal.jira.core.service.web.rss.RssReader.readRssFeed(RssReader.java:51)\n\tat org.eclipse.mylyn.internal.jira.core.service.web.rss.RssFeedProcessorCallback.execute(RssFeedProcessorCallback.java:83)\n\tat org.eclipse.mylyn.internal.jira.core.service.web.JiraWebSession.doInSession(JiraWebSession.java:56)\n\tat org.eclipse.mylyn.internal.jira.core.service.web.rss.RssJiraFilterService.findIssues(RssJiraFilterService.java:43)\n\tat org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.findIssues(JiraRpcClient.java:427)\n\tat org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.search(JiraRpcClient.java:418)\n\tat org.eclipse.mylyn.internal.jira.ui.JiraRepositoryConnector.markStaleTasks(JiraRepositoryConnector.java:208)\n\tat org.eclipse.mylyn.tasks.ui.SynchronizeQueryJob.run(SynchronizeQueryJob.java:100)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)",
+    "I removed all the exceptions, so query can complete, though we probably need to revert back old way to handle unknown versions. SynchronizeTaskJob also need to be fixed to log unexpected errors, so user would have something useful to report with.\n\nIt would be a good idea to cut dev build as soon as possible, because JIRA connector is unusable when it hits into such case.",
+    "This \"bug\" has been around for a while and uncommenting exceptions is not a solution and could cause wrong results being displayed in the editor. Please see bug 189689.",
+    "Actually it is even more weird. That DEV-319 issue is not in my query and not even in the task list.\n\nhttps://jira.terracotta.org/jira/secure/IssueNavigator.jspa?mode\u003dhide\u0026reset\u003dtrue\u0026query\u003d\u0026summary\u003dtrue\u0026description\u003dtrue\u0026assigneeSelect\u003dissue_current_user\n\nThe only theory I have is that last sync timestamp is set to something funny, so all repository tasks are considered as changed. Here is the url for \"changed tasks\" query, which picked -31 weeks of tasks right after query creation on newly created task repository.\n\nhttps://jira.terracotta.org/jira/secure/IssueNavigator.jspa?view\u003drss\u0026decorator\u003dnone\u0026reset\u003dtrue\u0026tempMax\u003d500\u0026updated:previous\u003d321956m\u0026sorter/field\u003dupdated\u0026sorter/order\u003dDESC",
+    "(In reply to comment #2)\n\u003e This \"bug\" has been around for a while and uncommenting exceptions is not a\n\u003e solution and could cause wrong results being displayed in the editor. Please see\n\u003e bug 189689.\n\nSteffen, the point is that is is \"valid\" case that jira issue would have unknown \"affected version\". This doesn\u0027t have much todo with scenario described in bug 189689. This one happens when task is moved from one project to another without updating affected version.\n\nThat is on top of the completely disasterous synchronization bug I described in comment #3",
+    "Eugene: are you considering fixing this for 2.0?  I can cut a new build early aft, and the RC3 needs to go out before the end of the day.",
+    "It seems to me it is a general issue with synchronization after all those refactorings done while I\u0027ve been away. Also see bug 193876 which completely broke bugzilla query sync for me. This two issues already cost me loss of the task list after all attempts to work around and investigate what cause that. So, no, I am not considering anything and I am very frustrated.",
+    " (In reply to comment #4)\n\u003e Steffen, the point is that is is \"valid\" case that jira issue would have unknown\n\u003e \"affected version\". This doesn\u0027t have much todo with scenario described in bug\n\u003e 189689. This one happens when task is moved from one project to another without\n\u003e updating affected version.\n\nI see. I was not aware that JIRA allowed an inconsistent database state. How did you move the issue? \n\nIf I try this on the test repository the wizard will reset the affected version when moving the issue between projects.\n",
+    "(In reply to comment #7)\n\u003e I see. I was not aware that JIRA allowed an inconsistent database state. How did\n\u003e you move the issue?\n\nIt wasn\u0027t me. There is an ancient JIRA repository, that is still running 3.6.something version, so issue is sitting there and breaking synchronization of the entire query. Though like I said, it is complete mystery to me why it is picked up at all. Got to be something wrong with the sync timestamps...",
+    " (In reply to comment #8)\n\u003e It wasn\u0027t me. There is an ancient JIRA repository, that is still running\n\u003e 3.6.something version, so issue is sitting there and breaking synchronization of\n\u003e the entire query. Though like I said, it is complete mystery to me why it is\n\u003e picked up at all. Got to be something wrong with the sync timestamps...\n\nOkay, we definitely need to make that more robust.\n\nI have a patch for improving the synchronization issues but I need to write tests before I can commit anything. Mik, how much time do I have left until the next build?\n",
+    "We\u0027ve got about 20-30 minutes left here on api review so a build should emerge within an hour or so.",
+    "Go ahead with the release. I got stuck writing tests and I will continue to work on this next week.",
+    "Release a bit delayed while we fix up some tests...",
+    "Created an attachment (id\u003d72430)\noptimize query\n\nEugen, could you take a look at this patch? It avoids running queries when the repository has no changes and no new tasks.",
+    "Created an attachment (id\u003d72431)\nmylyn/context/zip\n\n",
+    "Please note that I am about to fix all copyrights so there is a chance that this patch will have to be re-created.  But try changing the fuzz factor first since it will be a straight offset.",
+    "Created an attachment (id\u003d72548)\nupdated patch\n\n",
+    "What\u0027s the status of this?  Is there an outstanding patch?",
+    "Still need to add test cases before the patch can be merged.",
+    "Moved further work on the patch to bug 203173.",
+    "The exception is not thrown anymore. Will investigate a better solution as part of bug 189689."
+  ],
+  "commentCreationDates": [
+    "2007-06-22T16:14:14+02:00",
+    "2007-06-22T16:24:30+02:00",
+    "2007-06-22T16:49:30+02:00",
+    "2007-06-22T16:57:12+02:00",
+    "2007-06-22T17:02:15+02:00",
+    "2007-06-22T17:14:30+02:00",
+    "2007-06-22T17:38:02+02:00",
+    "2007-06-22T19:29:12+02:00",
+    "2007-06-22T19:41:51+02:00",
+    "2007-06-23T01:50:29+02:00",
+    "2007-06-23T03:47:18+02:00",
+    "2007-06-23T03:57:18+02:00",
+    "2007-06-23T05:17:01+02:00",
+    "2007-06-26T01:32:35+02:00",
+    "2007-06-26T01:32:43+02:00",
+    "2007-06-26T02:04:25+02:00",
+    "2007-06-27T02:37:01+02:00",
+    "2007-07-03T18:02:36+02:00",
+    "2007-07-03T18:21:14+02:00",
+    "2007-09-13T01:08:40+02:00",
+    "2007-10-20T23:12:49+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.xml.sax.SAXException",
+      "message": "No version with name \u00271.5 (Chex)\u0027 found",
+      "elements": [
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.web.rss.RssContentHandler.endElement",
+          "source": "RssContentHandler.java:653"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.endElement",
+          "source": "AbstractSAXParser.java:633"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.impl.XMLNSDocumentScannerImpl.scanEndElement",
+          "source": "XMLNSDocumentScannerImpl.java:719"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch",
+          "source": "XMLDocumentFragmentScannerImpl.java:1685"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.impl.XMLDocumentFragmentScannerImpl.scanDocument",
+          "source": "XMLDocumentFragmentScannerImpl.java:368"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse",
+          "source": "XML11Configuration.java:834"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.XML11Configuration.parse",
+          "source": "XML11Configuration.java:764"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.XMLParser.parse",
+          "source": "XMLParser.java:148"
+        },
+        {
+          "method": "com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.parse",
+          "source": "AbstractSAXParser.java:1242"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.web.rss.RssReader.readRssFeed",
+          "source": "RssReader.java:51"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.web.rss.RssFeedProcessorCallback.execute",
+          "source": "RssFeedProcessorCallback.java:83"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.web.JiraWebSession.doInSession",
+          "source": "JiraWebSession.java:56"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.web.rss.RssJiraFilterService.findIssues",
+          "source": "RssJiraFilterService.java:43"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.findIssues",
+          "source": "JiraRpcClient.java:427"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.search",
+          "source": "JiraRpcClient.java:418"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.ui.JiraRepositoryConnector.markStaleTasks",
+          "source": "JiraRepositoryConnector.java:208"
+        },
+        {
+          "method": "org.eclipse.mylyn.tasks.ui.SynchronizeQueryJob.run",
+          "source": "SynchronizeQueryJob.java:100"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "193984",
+      "date": "2007-06-22T16:14:14+02:00",
+      "product": "Mylyn",
+      "component": "Jira",
+      "severity": "major"
+    }
+  ],
+  "groupId": "193984",
+  "bugId": "193984",
+  "date": "2007-06-22T16:14:14+02:00",
+  "product": "Mylyn",
+  "component": "Jira",
+  "severity": "major"
+}

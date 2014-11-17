@@ -1,0 +1,92 @@
+{
+  "comments": [
+    "Build ID: v200706151545\n\nSteps To Reproduce:\n1. Create an ICDescriptor\n2. Add xml nodes\n3. Save the project data\n\nA write access exception occurs sporadically. It does not happen always, therefore it is difficult to reproduce.\n\nMore information:\n\nWhat I do is:\n\nICDescriptor descriptor \u003d CCorePlugin.getDefault().getCProjectDescription(fProject, /*create*/true);\nif (descriptor !\u003d null) {\n  Element rootNode \u003d descriptor.getProjectData(CONTAINER_STORAGE); \n  Document doc \u003d rootNode.getOwnerDocument();\n\n  Element subNode \u003d doc.createElement(COMPILER_NODE);\n  subNode.setAttribute(PATH_ATTRIBUTE, fCompiler);\n  rootNode.appendChild(subNode);\n\n  descriptor.saveProjectData();\n}\n\nError and stacktrace:\n\nAn internal error occurred during: \"Saving project properties\".\n\norg.eclipse.cdt.core.settings.model.WriteAccessException\n\tat org.eclipse.cdt.internal.core.settings.model.ExceptionFactory.createIsReadOnlyException(ExceptionFactory.java:18)\n\tat org.eclipse.cdt.internal.core.settings.model.CStorage.importStorage(CStorage.java:93)\n\tat org.eclipse.cdt.internal.core.settings.model.CConfigurationSpecSettings.importStorage(CConfigurationSpecSettings.java:819)\n\tat org.eclipse.cdt.internal.core.CConfigBasedDescriptorManager.reconsile(CConfigBasedDescriptorManager.java:566)\n\tat org.eclipse.cdt.internal.core.CConfigBasedDescriptorManager.reconsile(CConfigBasedDescriptorManager.java:550)\n\tat org.eclipse.cdt.internal.core.CConfigBasedDescriptorManager.reconsile(CConfigBasedDescriptorManager.java:537)\n\tat org.eclipse.cdt.internal.core.CConfigBasedDescriptor.saveProjectData(CConfigBasedDescriptor.java:310)\n\tat com.windriver.ide.core.build.model.WRUserDefinedPathEntryContainer$1.run(WRUserDefinedPathEntryContainer.java:640)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)",
+    "Do you have any test-case for this?",
+    "Sorry, it is hard to reproduce. I do not know how to test this at the moment. It happens very sporadically.\n",
+    "I am sure this has the same root cause as bug 185930.\nThe synchronization of CConfigBasedDescriptorManager.getDescriptor() has improved things a bit, but there is still the possibility that a CConfigBasedDescriptor object which is created during load of the CProjectDescription is not updated in CConfigBasedDescriptor.doHandleEvent when the load completes in another thread.\nThis can easily happen by any access to the CProjectDescription other than through the synchronized methods of CConfigBasedDescriptorManager.\n\nA possible candidate is e.g. PDOMManager.isFullyCreated() during startup:\n\nCProjectDescriptionManager.getProjectDescription(IProject, int) line: 455\t\nCProjectDescriptionManager.getProjectDescription(IProject, boolean, boolean) line: 434\t\nCProjectDescriptionManager.getProjectDescription(IProject, boolean) line: 426\t\nPDOMManager.isFullyCreated(IProject) line: 654\t\nPDOMManager.addProject(ICProject) line: 608\t\nPDOMManager.postStartup() line: 213\t\nPDOMManager$1.run(IProgressMonitor) line: 181\t\n\nI\u0027ll attach a test case.\n",
+    "Created an attachment (id\u003d72954)\nTest case\n\nThis test case simulates startup with concurrent access to descriptors.\nThe exact outcome is dependent on the timing, but most of the time at least one exception is reported.",
+    "Created an attachment (id\u003d73024)\nProposed fix + test\n\nWith this patch the test succeeds.",
+    "Thanks, Anton, I\u0027ll review the patch later today or tomorrow",
+    "(In reply to comment #5)\n\u003e Created an attachment (id\u003d73024) [details]\n\u003e Proposed fix + test\n\u003e \n\u003e With this patch the test succeeds.\nHmm.. I see the test failing even with the fix applied.. Will investigate further..\n\n",
+    "I\u0027m investigating an alternative way of fixing the problem.. I\u0027ll post an update here as soon as I have some good results.",
+    "great! I\u0027ve got all CDescriptorTests passing now. I\u0027ll test the fix some more time and will check it in soon.\n\n",
+    "Fixed. I\u0027ve slightly changed the synchronization fixes provided by Anton. In addition to this I\u0027ve made a fix that ensures that the CConfigBasedDescriptor never receives the CConfigurationDescriptionCache, thus ensuring that the write access exception never occurs.\n\nPlease verify..\n\n",
+    "Thanks, Mikhail.\nI don\u0027t get WriteAccessExceptions any longer, but the test fails every other time at the check for the number of nodes added when all threads are done.\nThis indicates that modifications to the descriptors are not threadsafe - at least during startup.\nThe reason is that the CProjectDescription object for the project can be replaced by another thread (in this case the \"CDT Startup\" job) which started loading of the CProjectDescription concurrently and completes between two modifications, thus overriding the previous modifications.\nThat\u0027s why in my patch, I changed the CProjectDescriptionManager such that the CProjectDescription is not overridden. I am not sure if there is a real world scenario which could actually trigger the problem, therefore this is perhaps of minor importance.\nI am not reopening this bug, because the WriteAccessException is fixed.",
+    "(In reply to comment #11)\nHi Anton,\n\n\u003e Thanks, Mikhail.\n\u003e I don\u0027t get WriteAccessExceptions any longer, but the test fails every other\n\u003e time at the check for the number of nodes added when all threads are done.\n\u003e This indicates that modifications to the descriptors are not threadsafe - at\n\u003e least during startup.\n\u003e The reason is that the CProjectDescription object for the project can be\n\u003e replaced by another thread (in this case the \"CDT Startup\" job) which started\n\u003e loading of the CProjectDescription concurrently and completes between two\n\u003e modifications, thus overriding the previous modifications.\n\u003e That\u0027s why in my patch, I changed the CProjectDescriptionManager such that the\n\u003e CProjectDescription is not overridden. \nThe reason I did not include this change is because it makes sense for me to have the latest description being stored rather than the first one.\nI have not looked into the code in detail regarding this issue, I\u0027ll do it after I come back from vacations in two weeks.\nFor now I can see one other reason that might cause the test to fail due to concurrent creation: the newly created descriptor is not saved/cached until it is modified or its saveProjectData() is called.\nHere is a fail scenario:\n1. The project does not contain a CDescriptor\n2. thread#1 calls getDescriptor(project, true) -\u003e empty descriptor is created\n3. thread#2 calls getDescriptor(project, true) -\u003e empty descriptor is created since the descriptor created by the thread#1 was not cached\n4. thread#1 creates a \"test\" element for \"testElement\" project data\n5. thread#2 creates a \"test\" element for \"testElement\" project data -\u003e since thread#1 and thread#2 work with different descriptors, both descriptors will have only one \"test\" element\n6. thread#1 saves project data -\u003e the resulting descriptor contains one \"test\" element\n7. thread#2 saves project data -\u003e the resulting descriptor still contains one \"test\" element\n\nSo I guess that this reason might cause the test to fail. \nIn the 3.x once the descriptor was created it was put to the descriptor map, so that when the thread#2 called getDescriptor() it would return the descriptor created by the first thread. \nI could fix the descriptor creation to behave in the same way as in 3.x. I\u0027ll investigate it further after I come from vacation. Could you create a separate bugzilla for this?\n\nThanks,\nMikhail",
+    "(In reply to comment #12)\n\u003e I could fix the descriptor creation to behave in the same way as in 3.x. I\u0027ll\n\u003e investigate it further after I come from vacation. Could you create a separate\n\u003e bugzilla for this?\n\nI created bug 196118. Thanks.\n",
+    "Mikhail, please see also bug 196290 and my fix for it."
+  ],
+  "commentCreationDates": [
+    "2007-06-20T14:55:26+02:00",
+    "2007-06-20T18:43:46+02:00",
+    "2007-06-21T19:22:09+02:00",
+    "2007-07-03T15:41:30+02:00",
+    "2007-07-03T16:03:19+02:00",
+    "2007-07-04T14:27:18+02:00",
+    "2007-07-04T15:05:25+02:00",
+    "2007-07-05T16:54:53+02:00",
+    "2007-07-05T18:01:10+02:00",
+    "2007-07-05T18:54:48+02:00",
+    "2007-07-05T19:33:00+02:00",
+    "2007-07-06T10:31:42+02:00",
+    "2007-07-06T19:33:13+02:00",
+    "2007-07-11T10:13:21+02:00",
+    "2007-07-12T14:09:50+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.cdt.core.settings.model.WriteAccessException",
+      "elements": [
+        {
+          "method": "org.eclipse.cdt.internal.core.settings.model.ExceptionFactory.createIsReadOnlyException",
+          "source": "ExceptionFactory.java:18"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.settings.model.CStorage.importStorage",
+          "source": "CStorage.java:93"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.settings.model.CConfigurationSpecSettings.importStorage",
+          "source": "CConfigurationSpecSettings.java:819"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.CConfigBasedDescriptorManager.reconsile",
+          "source": "CConfigBasedDescriptorManager.java:566"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.CConfigBasedDescriptorManager.reconsile",
+          "source": "CConfigBasedDescriptorManager.java:550"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.CConfigBasedDescriptorManager.reconsile",
+          "source": "CConfigBasedDescriptorManager.java:537"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.CConfigBasedDescriptor.saveProjectData",
+          "source": "CConfigBasedDescriptor.java:310"
+        },
+        {
+          "method": "com.windriver.ide.core.build.model.WRUserDefinedPathEntryContainer$1.run",
+          "source": "WRUserDefinedPathEntryContainer.java:640"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "193503",
+      "date": "2007-06-20T14:55:26+02:00",
+      "product": "CDT",
+      "component": "cdt-core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "193503",
+  "bugId": "193503",
+  "date": "2007-06-20T14:55:26+02:00",
+  "product": "CDT",
+  "component": "cdt-core",
+  "severity": "normal"
+}

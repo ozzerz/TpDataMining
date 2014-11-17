@@ -1,0 +1,141 @@
+{
+  "comments": [
+    "I20050215-0800\n\nWhen releasing our projects with the releng tool it often waits for very long\n(minutes) at the same location (i.e. progress shows same folder). I assume it\u0027s\nthe last location (folder) of a project and the work of the whole project is\ndone there (not sure though). I looks as if it\u0027s waiting for a server answer\nsince not much network traffic is happening while waiting.\n\nThe project where this can be seen best is org.eclipse.jdt.ui.tests.refactoring.\nThere the progress bar shows:\nProcessing org.eclipse.jdt.ui.tests.refactoring Processing ../tests/typeconstraints",
+    "It got worse recently i.e. very often results in an IO/error (not in .log) when\nreleasing org.eclipse.jdt.ui.tests.refactoring and always when processing:\n  test cases/org/eclipse/jdt.ui/tests/typeconstraints\n\n(at least that\u0027s what the releng wizard says in the status line).\n\nWe then have to retry to release several times and almost missed the build two\ntimes.\n\nI can reproduce this frequently using\nTeam \u003e Tag as Version...\n\nA dialog appears:\nTitle: Tagging from workspace\nMessage:\n  I/O has been interrupted.\n  The most likely cause of the interrupt is either an intermittent network \n  failure or a communications timeout.\n  The CVS communications timeout can be adjusted in the Team/CVS preferences.\n  Another possible cause is the improper configuration of the \"ext\" connection \n  method.\n  The \"ext\" connection method can be configured on the Team/CVS/EXT Connection \n  Method preference page\n\nHere\u0027s the CVS Console:\n\n***\ncvs tag \"/org.eclipse.jdt.ui.tests.refactoring/v20050308-0800\"\n\"/org.eclipse.jdt.ui.tests.refactoring\"\nfailed due to an internal error (took 1:24.784)\n   Error: I/O has been interrupted.\n      Error: The most likely cause of the interrupt is either an intermittent\nnetwork failure or a communications timeout.\n      Error: The CVS communications timeout can be adjusted in the Team/CVS\npreferences.\n      Error: Another possible cause is the improper configuration of the \"ext\"\nconnection method.\n      Error: The \"ext\" connection method can be configured on the Team/CVS/EXT\nConnection Method preference page\n***\n\nThe attached picture shows that it stops at 15% in folder \"typeconstraints\" and\nthen runs into the timeout. There seems to be not much network traffic.\n\nAs the message tells the connection timeout value is the important thing here:\nif I increase to e.g. 240 it works and if I decrease to 60 it always fails.\n\nTo me it looks as if the tagging itself is OK and just needs more time because\nof the many files in that project. However, the progress reporting seems bogus\ni.e. it does not tell what\u0027s actually going on (I suspect it waits for a server\nanswer).\n\nIn the case where the timeout is big enough to complete the operation the\nprogress messages still \"hangs\" on \"typeconstraints\" but the progress amount\ngrows up to 24%. Then it just finishes.\n\nTest Case:\n1. checkout org.eclipse.jdt.ui.tests.refactoring, version v20050308-0800.\n2. a) to test the failure case set connection timeout to 60s\n2. b) to let it finish and see the wrong progress set connection timeout to 240s\n3. Team \u003e Tag as Version... - use: v20050308-0800\n",
+    "Created an attachment (id\u003d18690)\nPicture shwoing CVS Console and Progress view\n",
+    "There\u0027s actually a .log entry:\n\n!ENTRY org.eclipse.team.cvs.core 4 0 2005-03-11 13:01:21.905\n!MESSAGE I/O has been interrupted.\n!STACK 0\njava.io.InterruptedIOException: Timeout while reading from input stream\n\tat\norg.eclipse.team.internal.core.streams.PollingInputStream.read(PollingInputStream.java:102)\n\tat\norg.eclipse.team.internal.ccvs.core.connection.Connection.readLine(Connection.java:143)\n\tat org.eclipse.team.internal.ccvs.core.client.Session.readLine(Session.java:289)\n\tat\norg.eclipse.team.internal.ccvs.core.client.Request.executeRequest(Request.java:140)\n\tat org.eclipse.team.internal.ccvs.core.client.Command.doExecute(Command.java:403)\n\tat org.eclipse.team.internal.ccvs.core.client.Command$1.run(Command.java:322)\n\tat\norg.eclipse.team.internal.ccvs.core.resources.EclipseSynchronizer.run(EclipseSynchronizer.java:1403)\n\tat\norg.eclipse.team.internal.ccvs.core.resources.EclipseResource$2.run(EclipseResource.java:268)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1702)\n\tat\norg.eclipse.team.internal.ccvs.core.resources.EclipseResource.run(EclipseResource.java:265)\n\tat org.eclipse.team.internal.ccvs.core.client.Command.execute(Command.java:334)\n\tat org.eclipse.team.internal.ccvs.core.client.Tag.execute(Tag.java:79)\n\tat\norg.eclipse.team.internal.ccvs.ui.operations.TagOperation.tag(TagOperation.java:99)\n\tat\norg.eclipse.team.internal.ccvs.ui.operations.TagOperation.execute(TagOperation.java:51)\n\tat\norg.eclipse.team.internal.ccvs.ui.operations.RepositoryProviderOperation.execute(RepositoryProviderOperation.java:228)\n\tat\norg.eclipse.team.internal.ccvs.ui.operations.RepositoryProviderOperation.execute(RepositoryProviderOperation.java:207)\n\tat\norg.eclipse.team.internal.ccvs.ui.operations.RepositoryProviderOperation.execute(RepositoryProviderOperation.java:191)\n\tat\norg.eclipse.team.internal.ccvs.ui.operations.TagOperation.execute(TagOperation.java:145)\n\tat\norg.eclipse.team.internal.ccvs.ui.operations.CVSOperation.run(CVSOperation.java:87)\n\tat\norg.eclipse.team.internal.ui.actions.JobRunnableContext.run(JobRunnableContext.java:181)\n\tat\norg.eclipse.team.internal.ui.actions.JobRunnableContext$ResourceJob.runInWorkspace(JobRunnableContext.java:74)\n\tat\norg.eclipse.core.internal.resources.InternalWorkspaceJob.run(InternalWorkspaceJob.java:38)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:67)\n!SUBENTRY 1 org.eclipse.team.cvs.core 4 4 2005-03-11 13:01:21.905\n!MESSAGE The most likely cause of the interrupt is either an intermittent\nnetwork failure or a communications timeout.\n!SUBENTRY 1 org.eclipse.team.cvs.core 4 4 2005-03-11 13:01:21.905\n!MESSAGE The CVS communications timeout can be adjusted in the Team/CVS preferences.\n!SUBENTRY 1 org.eclipse.team.cvs.core 4 4 2005-03-11 13:01:21.905\n!MESSAGE Another possible cause is the improper configuration of the \"ext\"\nconnection method.\n!SUBENTRY 1 org.eclipse.team.cvs.core 4 4 2005-03-11 13:01:21.905\n!MESSAGE The \"ext\" connection method can be configured on the Team/CVS/EXT\nConnection Method preference page\n",
+    "*** Bug 87209 has been marked as a duplicate of this bug. ***",
+    "I don\u0027t think there is anything we can do here. The progress stops because \nEclipse is waiting for a response from the server (i.e. no progress is being \nmade). The only possible solution to this particular problem appears to be to \nincrease the default timeout. However, it is not clear what the new default \nshould be. In your case, 240 seconds works but that does not mean that it will \nwork in other cases. Also, 240 seconds is a long time to wait in cases where \nthe server really isn\u0027t responding. I think it is reasonable when timeouts \noccur for the user to adjust the timeout to a value that works for them.",
+    "\u003eI don\u0027t think there is anything we can do here. The progress stops because \n\u003eEclipse is waiting for a response from the server (i.e. no progress is being \n\u003emade).\n\nDo you know that you wait for a response? If so, why not show this in the\nmessage area instead of the last sent folder?\n\nNote: we even had to increase the timeout to 700 in order to be able to tag that\nproject.",
+    "Agreed, I will make sure the message indicates that we are waiting. \n\nAs for the timeout that you require, this is a CVS server issue when dealing \nwith large projects. If you have any good ideas on something we can do in the \nclient about this, I\u0027m happy to hear it.",
+    "No, I don\u0027t think you can do much about it in the client.",
+    "Fix released to HEAD. Marked M7 but may consider for M6.",
+    "Verified"
+  ],
+  "commentCreationDates": [
+    "2005-02-15T20:09:53+01:00",
+    "2005-03-11T12:26:04+01:00",
+    "2005-03-11T13:09:27+01:00",
+    "2005-03-11T14:22:40+01:00",
+    "2005-03-11T15:24:15+01:00",
+    "2005-03-30T15:24:59+02:00",
+    "2005-03-30T15:32:01+02:00",
+    "2005-03-30T15:41:41+02:00",
+    "2005-03-30T15:47:24+02:00",
+    "2005-03-30T16:39:23+02:00",
+    "2005-05-10T16:30:40+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.InterruptedIOException",
+      "message": "Timeout while reading from input stream",
+      "elements": [
+        {
+          "method": "org.eclipse.team.internal.core.streams.PollingInputStream.read",
+          "source": "PollingInputStream.java:102"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.Connection.readLine",
+          "source": "Connection.java:143"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Session.readLine",
+          "source": "Session.java:289"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Request.executeRequest",
+          "source": "Request.java:140"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Command.doExecute",
+          "source": "Command.java:403"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Command$1.run",
+          "source": "Command.java:322"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseSynchronizer.run",
+          "source": "EclipseSynchronizer.java:1403"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseResource$2.run",
+          "source": "EclipseResource.java:268"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1702"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseResource.run",
+          "source": "EclipseResource.java:265"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Command.execute",
+          "source": "Command.java:334"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Tag.execute",
+          "source": "Tag.java:79"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.TagOperation.tag",
+          "source": "TagOperation.java:99"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.TagOperation.execute",
+          "source": "TagOperation.java:51"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.RepositoryProviderOperation.execute",
+          "source": "RepositoryProviderOperation.java:228"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.RepositoryProviderOperation.execute",
+          "source": "RepositoryProviderOperation.java:207"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.RepositoryProviderOperation.execute",
+          "source": "RepositoryProviderOperation.java:191"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.TagOperation.execute",
+          "source": "TagOperation.java:145"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.CVSOperation.run",
+          "source": "CVSOperation.java:87"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.actions.JobRunnableContext.run",
+          "source": "JobRunnableContext.java:181"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.actions.JobRunnableContext$ResourceJob.runInWorkspace",
+          "source": "JobRunnableContext.java:74"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.InternalWorkspaceJob.run",
+          "source": "InternalWorkspaceJob.java:38"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:67"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 3,
+      "bugId": "85317",
+      "date": "2005-03-11T14:22:40+01:00",
+      "product": "Platform",
+      "component": "CVS",
+      "severity": "major"
+    }
+  ],
+  "groupId": "85317",
+  "bugId": "85317",
+  "date": "2005-02-15T20:09:53+01:00",
+  "product": "Platform",
+  "component": "CVS",
+  "severity": "major"
+}

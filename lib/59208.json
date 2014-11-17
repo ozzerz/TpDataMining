@@ -1,0 +1,218 @@
+{
+  "comments": [
+    "This problem was first observed when weaving large binary legacy classes with \nthe ajc 1.2 rc1 candidate. It turns out that BCEL fails with different error \nmessages dependent on whether we are doing a binary weave or a straight ajc \ncompile. In the latter case, the error message is rather confusing.\n\nTo reproduce:\n1. Compile and run the following code to produce Foo.java\n// File FooProducer.java\npublic class FooProducer\n{\n  public static final int N_METHODS \u003d 50;\n  public static final int N_STATEMENTS \u003d Short.MAX_VALUE/(2 * N_METHODS);\n  public static void main(String[] args) {\n  \tSystem.out.println(\"public class Foo {\");\n  \tSystem.out.println(\"static java.util.Set hs \u003d new java.util.HashSet\n();\");\n  \tfor (int i \u003d 0; i \u003c N_METHODS; i++) {\t\t\n  \t  System.out.println(\"public void test\" + i + \"() { \");\n            for (int j \u003d 0; j \u003c N_STATEMENTS; j++) {\n    \t        System.out.println(\"hs.add(new Object());\");\n            }\n          System.out.println(\"}\");\n        }\n    System.out.println(\"}\");\n  }\n}// End of FooProducer.java\n\n2. Create the following Aspect:\n// File a.aj\naspect a  {\n boolean around() : (target(java.util.HashSet) \u0026\u0026 call(boolean add(..) ) )\n    {\n      return false;\n    }\n}\n// End of a.aj\n\n*** 3.a - straight compile and weave:\najc -\nsourceroots .                                                                   \n          \nABORT\n        \nException thrown from AspectJ 1.2rc1\n\nThis might be logged as a bug already -- find current bugs at\n  http://bugs.eclipse.org/bugs/buglist.cgi?product\u003dAspectJ\u0026component\u003dCompiler\n\nBugs for exceptions thrown have titles File:line from the top stack, \ne.g., \"SomeFile.java:243\"\n\nIf you don\u0027t find the exception below in a bug, please add a new bug\nat http://bugs.eclipse.org/bugs/enter_bug.cgi?product\u003dAspectJ\nTo make the bug a priority, please include a test program\nthat can reproduce this exception.\nExpected class `CONSTANT_Utf8\u0027 at index 25700 and got CONSTANT_NameAndType[12]\n(name_index \u003d 25696, signature_index \u003d 81)\nExpected class `CONSTANT_Utf8\u0027 at index 25700 and got CONSTANT_NameAndType[12]\n(name_index \u003d 25696, signature_index \u003d 81)\norg.apache.bcel.classfile.ClassFormatException: Expected class `CONSTANT_Utf8\u0027 \nat index 25700 and got CONSTANT_NameAndType[12](name_index \u003d 25696, \nsignature_index \u003d 81)\n        at org.apache.bcel.classfile.ConstantPool.getConstant\n(ConstantPool.java:271)\n        at org.apache.bcel.classfile.Attribute.readAttribute(Attribute.java:163)\n        at org.apache.bcel.classfile.FieldOrMethod.\u003cinit\u003e(FieldOrMethod.java:98)\n        at org.apache.bcel.classfile.Field.\u003cinit\u003e(Field.java:83)\n        at org.apache.bcel.classfile.ClassParser.readFields\n(ClassParser.java:270)\n        at org.apache.bcel.classfile.ClassParser.parse(ClassParser.java:172)\n        at org.aspectj.weaver.bcel.Utility.makeJavaClass(Utility.java:358)\n        at org.aspectj.weaver.bcel.UnwovenClassFile.getJavaClass\n(UnwovenClassFile.java:63)\n        at org.aspectj.weaver.bcel.UnwovenClassFile.getClassName\n(UnwovenClassFile.java:147)\n        at org.aspectj.ajdt.internal.compiler.WeaverAdapter.acceptResult\n(WeaverAdapter.java:177)\n        at org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify\n(BcelWeaver.java:621)\n        at org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:563)\n        at org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave\n(AjCompilerAdapter.java:239)\n        at org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling\n(AjCompilerAdapter.java:114)\n        at org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:376)\n        at \norg.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation\n(AjBuildManager.java:600)\n        at org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild\n(AjBuildManager.java:160)\n        at org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild\n(AjBuildManager.java:94)\n        at org.aspectj.ajdt.ajc.AjdtCommand.doCommand(AjdtCommand.java:102)\n        at org.aspectj.ajdt.ajc.AjdtCommand.runCommand(AjdtCommand.java:53)\n        at org.aspectj.tools.ajc.Main.run(Main.java:280)\n        at org.aspectj.tools.ajc.Main.runMain(Main.java:217)\n        at org.aspectj.tools.ajc.Main.main(Main.java:79)\n\n\n1 fail|abort\nSignal 127\n\n*** 3b - binary weave\n ajc -noweave -outjar test.jar a.aj\n javac -d classes Foo.java\n  ajc  -aspectpath test.jar -inpath classes         \nABORT\n        \nException thrown from AspectJ 1.2rc1\n\nThis might be logged as a bug already -- find current bugs at\n  http://bugs.eclipse.org/bugs/buglist.cgi?product\u003dAspectJ\u0026component\u003dCompiler\n\nBugs for exceptions thrown have titles File:line from the top stack, \ne.g., \"SomeFile.java:243\"\n\nIf you don\u0027t find the exception below in a bug, please add a new bug\nat http://bugs.eclipse.org/bugs/enter_bug.cgi?product\u003dAspectJ\nTo make the bug a priority, please include a test program\nthat can reproduce this exception.\nClass can\u0027t be both final and abstract\nClass can\u0027t be both final and abstract\norg.apache.bcel.classfile.ClassFormatException: Class can\u0027t be both final and \nabstract\n        at org.apache.bcel.classfile.ClassParser.readClassInfo\n(ClassParser.java:242)\n        at org.apache.bcel.classfile.ClassParser.parse(ClassParser.java:165)\n        at org.aspectj.weaver.bcel.Utility.makeJavaClass(Utility.java:358)\n        at org.aspectj.weaver.bcel.UnwovenClassFile.getJavaClass\n(UnwovenClassFile.java:63)\n        at org.aspectj.weaver.bcel.UnwovenClassFile.getClassName\n(UnwovenClassFile.java:147)\n        at org.aspectj.ajdt.internal.compiler.WeaverAdapter.acceptResult\n(WeaverAdapter.java:177)\n        at org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify\n(BcelWeaver.java:621)\n        at org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:563)\n        at org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave\n(AjCompilerAdapter.java:239)\n        at org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling\n(AjCompilerAdapter.java:114)\n        at org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:376)\n        at \norg.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation\n(AjBuildManager.java:600)\n        at org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild\n(AjBuildManager.java:160)\n        at org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild\n(AjBuildManager.java:94)\n        at org.aspectj.ajdt.ajc.AjdtCommand.doCommand(AjdtCommand.java:102)\n        at org.aspectj.ajdt.ajc.AjdtCommand.runCommand(AjdtCommand.java:53)\n        at org.aspectj.tools.ajc.Main.run(Main.java:280)\n        at org.aspectj.tools.ajc.Main.runMain(Main.java:217)\n        at org.aspectj.tools.ajc.Main.main(Main.java:79)\n\n\n1 fail|abort\nSignal 127",
+    "Seems like the bug is caused by a truncation of the ConstantPool unsigned short \nlimit of 65535 when BcelClassWeaver writes the bytecode after weaving. I.e. \nthis happens when the ConstantPool size is larger than 65535.\n\nThere is not much ajc can do about that limit but I propose that a more \nmeaningful error message is generated by the weaver in this case.",
+    "In both scenarios the compilation will now fail cleanly with an error message:\n\nThe class Foo exceeds the maximum class size supported by the JVM (constant pool \ntoo big).\n\nWill close this bug once the fix is available in a published build.\nThanks for the clear test case.",
+    "Fix now available in latest build on AspectJ download page.",
+    "Fix released as part of AspectJ 1.2.1"
+  ],
+  "commentCreationDates": [
+    "2004-04-20T11:23:13+02:00",
+    "2004-04-22T21:39:17+02:00",
+    "2004-08-10T13:15:34+02:00",
+    "2004-08-10T18:03:17+02:00",
+    "2004-10-21T10:31:45+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.apache.bcel.classfile.ClassFormatException",
+      "message": "Expected class `CONSTANT_Utf8\u0027  at index 25700 and got CONSTANT_NameAndType[12](name_index \u003d 25696,  signature_index \u003d 81)",
+      "elements": [
+        {
+          "method": "org.apache.bcel.classfile.ConstantPool.getConstant",
+          "source": "ConstantPool.java:271"
+        },
+        {
+          "method": "org.apache.bcel.classfile.Attribute.readAttribute",
+          "source": "Attribute.java:163"
+        },
+        {
+          "method": "org.apache.bcel.classfile.FieldOrMethod.\u003cinit\u003e",
+          "source": "FieldOrMethod.java:98"
+        },
+        {
+          "method": "org.apache.bcel.classfile.Field.\u003cinit\u003e",
+          "source": "Field.java:83"
+        },
+        {
+          "method": "org.apache.bcel.classfile.ClassParser.readFields",
+          "source": "ClassParser.java:270"
+        },
+        {
+          "method": "org.apache.bcel.classfile.ClassParser.parse",
+          "source": "ClassParser.java:172"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.Utility.makeJavaClass",
+          "source": "Utility.java:358"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.UnwovenClassFile.getJavaClass",
+          "source": "UnwovenClassFile.java:63"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.UnwovenClassFile.getClassName",
+          "source": "UnwovenClassFile.java:147"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.WeaverAdapter.acceptResult",
+          "source": "WeaverAdapter.java:177"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify",
+          "source": "BcelWeaver.java:621"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:563"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave",
+          "source": "AjCompilerAdapter.java:239"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling",
+          "source": "AjCompilerAdapter.java:114"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:376"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:600"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:160"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:94"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.doCommand",
+          "source": "AjdtCommand.java:102"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.runCommand",
+          "source": "AjdtCommand.java:53"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.run",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.runMain",
+          "source": "Main.java:217"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.main",
+          "source": "Main.java:79"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "59208",
+      "date": "2004-04-20T11:23:13+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.apache.bcel.classfile.ClassFormatException",
+      "message": "Class can\u0027t be both final and  abstract",
+      "elements": [
+        {
+          "method": "org.apache.bcel.classfile.ClassParser.readClassInfo",
+          "source": "ClassParser.java:242"
+        },
+        {
+          "method": "org.apache.bcel.classfile.ClassParser.parse",
+          "source": "ClassParser.java:165"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.Utility.makeJavaClass",
+          "source": "Utility.java:358"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.UnwovenClassFile.getJavaClass",
+          "source": "UnwovenClassFile.java:63"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.UnwovenClassFile.getClassName",
+          "source": "UnwovenClassFile.java:147"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.WeaverAdapter.acceptResult",
+          "source": "WeaverAdapter.java:177"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify",
+          "source": "BcelWeaver.java:621"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:563"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave",
+          "source": "AjCompilerAdapter.java:239"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling",
+          "source": "AjCompilerAdapter.java:114"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:376"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:600"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:160"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:94"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.doCommand",
+          "source": "AjdtCommand.java:102"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.runCommand",
+          "source": "AjdtCommand.java:53"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.run",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.runMain",
+          "source": "Main.java:217"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.main",
+          "source": "Main.java:79"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "59208",
+      "date": "2004-04-20T11:23:13+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "59208",
+  "bugId": "59208",
+  "date": "2004-04-20T11:23:13+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

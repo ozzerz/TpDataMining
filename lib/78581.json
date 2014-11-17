@@ -1,0 +1,142 @@
+{
+  "comments": [
+    "Eclipse 3.1M3 and 200411101000 (didn\u0027t happen in 3.1M2)\n\nI\u0027m getting a NPE while search for all references to a method (String\nde.hmorga.util.Format#format(long d, String format)) (see below).\n\ndirectoryCache \u003d\u003d null, and qualifiedPackageName\u003d \"org/apache/xalan/res\".\n\nWhen searching for other methods in the same class (for example String\nde.hmorga.util.Format#format(double d, String format), or String\nde.hmorga.util.Format#format(Number n, String format)) this does not happen.\n\nAdding \"if (directoryCache \u003d\u003d null) return null;\" to the top of String[]\norg.eclipse.jdt.internal.core.search.matching.ClasspathSourceDirectory#directoryList(String\nqualifiedPackageName) \"fixes\" this problem for me. (I get the same number of\nmatches as I get with 3.1M2)\n\njava.lang.NullPointerException\n\tat\norg.eclipse.jdt.internal.core.search.matching.ClasspathSourceDirectory.directoryList(ClasspathSourceDirectory.java:53)\n\tat\norg.eclipse.jdt.internal.core.search.matching.ClasspathSourceDirectory.doesFileExist(ClasspathSourceDirectory.java:82)\n\tat\norg.eclipse.jdt.internal.core.search.matching.ClasspathSourceDirectory.findClass(ClasspathSourceDirectory.java:103)\n\tat\norg.eclipse.jdt.internal.core.search.matching.JavaSearchNameEnvironment.findClass(JavaSearchNameEnvironment.java:138)\n\tat\norg.eclipse.jdt.internal.core.search.matching.JavaSearchNameEnvironment.findType(JavaSearchNameEnvironment.java:169)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.askForType(LookupEnvironment.java:116)\n\tat\norg.eclipse.jdt.internal.compiler.lookup.PackageBinding.getTypeOrPackage(PackageBinding.java:169)\n\tat org.eclipse.jdt.internal.compiler.lookup.Scope.getTypeOrPackage(Scope.java:2246)\n\tat org.eclipse.jdt.internal.compiler.lookup.Scope.getType(Scope.java:2017)\n\tat\norg.eclipse.jdt.internal.core.search.matching.MethodPattern.getMethodBinding(MethodPattern.java:131)\n\tat\norg.eclipse.jdt.internal.core.search.matching.MethodLocator.matchMethod(MethodLocator.java:141)\n\tat\norg.eclipse.jdt.internal.core.search.matching.MethodLocator.resolveLevel(MethodLocator.java:237)\n\tat\norg.eclipse.jdt.internal.core.search.matching.ClassFileMatchLocator.locateMatches(ClassFileMatchLocator.java:72)\n\tat\norg.eclipse.jdt.internal.core.search.matching.MatchLocator.process(MatchLocator.java:1174)\n\tat\norg.eclipse.jdt.internal.core.search.matching.MatchLocator.locateMatches(MatchLocator.java:775)\n\tat\norg.eclipse.jdt.internal.core.search.matching.MatchLocator.locateMatches(MatchLocator.java:814)\n\tat\norg.eclipse.jdt.internal.core.search.matching.MatchLocator.locateMatches(MatchLocator.java:915)\n\tat\norg.eclipse.jdt.internal.core.search.JavaSearchParticipant.locateMatches(JavaSearchParticipant.java:94)\n\tat\norg.eclipse.jdt.internal.core.search.SearchBasicEngine.findMatches(SearchBasicEngine.java:196)\n\tat\norg.eclipse.jdt.internal.core.search.SearchBasicEngine.search(SearchBasicEngine.java:382)\n\tat org.eclipse.jdt.core.search.SearchEngine.search(SearchEngine.java:512)\n\tat org.eclipse.jdt.internal.ui.search.JavaSearchQuery.run(JavaSearchQuery.java:125)\n\tat\norg.eclipse.search2.internal.ui.InternalSearchUI$InternalSearchJob.run(InternalSearchUI.java:85)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:66)",
+    "Theoretically directoryList should NOT be null...\nIt is initialized at the beginning of the search while computing classpath\nentries and reset at the end of the search to release memory...\n\nIt would be really helpful if you can find a small test case which can help me\nto reproduce the problem and see where I miss to set this variable. The best\nthing would be to put your class de.hmorga.util.Format in a new workspace, fix\nall compilation errors by reducing the code at the maximum but always getting\nthe NPE while searching.\n\nOf course, if you cannot find an example to reproduce it easily, I\u0027ll apply the\nsolution to verify that this variable is not null but it would be only fix the\nconsequence not the cause of the problem...\nThx",
+    "Wow, that was hard to reproduce. The smallest test-case which I could produce\nstill weights in with ~700kB (hope that\u0027s not a big problem).\n\nI think any other jar file than ant.jar would work to reproduce the bug, unless\nit contains a method with the same signature that you are searching for - but\nthis is just a rough guess, and I was too lazy (already spent several hours to\nbring it down to ~700kB) to produce a smaller example.\n\n- Create a new Workspace-Directory (outside Eclipse)\n- Extract the attached ZIP into this directory\n- launch Eclipse 3.1M3 and specify the directory as the workspace\n- create two java projects (reusing the extracted zip), in the order \"p3\", \"p2\"\n- fix the classpath for \"P2\" (the \"ant.jar\" is contained in the project \"P2\",\nbut MUST be added thru \"add external jar\" to reproduce the problem)\n- open the class \"Format\" in \"P3\" and do a \"search, references, workspace\" for\n\"format(long d, String format)\"\n\u003d\u003e WORKS OK, this is as expected!\n- go to preferences, java, installed jres; add a new \"JRE\" (but use a JDK!) and\nspecifiy this as the default (jdk 1.4.2_05 and 1.5.0 worked for me for the next\nsteps to reproduce the problem); set the JDK as the default\n- doing ths search again now causes the stack-trace mentioned in the bud report.",
+    "Created an attachment (id\u003d16031)\nzipped Projects used to reproduce the problem\n",
+    "Ah, crap...\n\nNote to self: don\u0027t try to reduce things more than needed.\n\nWill add a new attachment, as the current one seems to work only once (when\nrestarting eclipse everything seems to work well). The new examples survived\nthree restarts (and probably will survive more) and should make debugging easier.\n\n- Now there are three projects\n- the jar files (for P2) are in the sub-directory \"xxx\", which is NOT a eclipse\nproject\n\nAdditional note: \n- removing the source-attachment from the jdk-rt.jar removed the problem\n- adding a source-attachment to the jre-rt.jar also causes the problem",
+    "Created an attachment (id\u003d16032)\nzipped Projects used to reproduce the problem\n",
+    "I\u0027m able to get the exception now...\nThanks for these detailed instructions and test case.",
+    "Here\u0027s the minimal test case to reproduce:\nProject P2:\n.classpath:\n\u003c?xml version\u003d\"1.0\" encoding\u003d\"UTF-8\"?\u003e\n\u003cclasspath\u003e\n\t\u003cclasspathentry kind\u003d\"src\" path\u003d\"\"/\u003e\n\t\u003cclasspathentry kind\u003d\"src\" path\u003d\"/P3\"/\u003e\n\t\u003cclasspathentry kind\u003d\"con\"\npath\u003d\"org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/1.4.2\"/\u003e\n\t\u003cclasspathentry kind\u003d\"lib\"\npath\u003d\"D:/e/v31/eclipse/plugins/org.apache.ant_1.6.2/lib/ant.jar\"/\u003e\n\t\u003cclasspathentry kind\u003d\"output\" path\u003d\"\"/\u003e\n\u003c/classpath\u003e\n\nProject P3:\n.classpath:\n\u003c?xml version\u003d\"1.0\" encoding\u003d\"UTF-8\"?\u003e\n\u003cclasspath\u003e\n\t\u003cclasspathentry kind\u003d\"src\" path\u003d\"\"/\u003e\n\t\u003cclasspathentry sourcepath\u003d\"JRE_SRC\" kind\u003d\"var\" path\u003d\"JRE_LIB\"/\u003e\n\t\u003cclasspathentry kind\u003d\"output\" path\u003d\"\"/\u003e\n\u003c/classpath\u003e\nFormat.java:\npublic class Format {\n    public static String format(double d, String format) {\n        return \"\";\n    }\n\n    public static String format(long d, String format) {\n        return \"\";\n    }\n\n}\n\nWorkspace default JRE: 1.5.0\n\nSearch for reference in workspace to method format(long,String) from Outline\nview and then you\u0027ll get Java Search error dialog:\nAn internal error occured during: \"Java Search\"\n",
+    "Fixed.\n\nThe NPE does no longer happen now.\n\n[jdt-core-internal]\nChange done in MatchLocator#initialize(IJavaProject,int).\nJavaSearchNameEnvironment was always cleaned-up although it is reused when\nthere\u0027s only oe possible match.\nNo test case added as it was too complex to reproduce using JUnit tests.\nRun scenario described in comment 7 to verify that it\u0027s fixed.\n",
+    "Verified in 200412140800"
+  ],
+  "commentCreationDates": [
+    "2004-11-14T14:55:19+01:00",
+    "2004-11-19T09:04:32+01:00",
+    "2004-11-20T20:48:50+01:00",
+    "2004-11-20T20:49:59+01:00",
+    "2004-11-20T21:17:47+01:00",
+    "2004-11-20T21:19:24+01:00",
+    "2004-11-21T12:53:56+01:00",
+    "2004-11-21T13:24:54+01:00",
+    "2004-11-21T16:26:17+01:00",
+    "2004-12-14T16:51:13+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.ClasspathSourceDirectory.directoryList",
+          "source": "ClasspathSourceDirectory.java:53"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.ClasspathSourceDirectory.doesFileExist",
+          "source": "ClasspathSourceDirectory.java:82"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.ClasspathSourceDirectory.findClass",
+          "source": "ClasspathSourceDirectory.java:103"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.JavaSearchNameEnvironment.findClass",
+          "source": "JavaSearchNameEnvironment.java:138"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.JavaSearchNameEnvironment.findType",
+          "source": "JavaSearchNameEnvironment.java:169"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.askForType",
+          "source": "LookupEnvironment.java:116"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.PackageBinding.getTypeOrPackage",
+          "source": "PackageBinding.java:169"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.getTypeOrPackage",
+          "source": "Scope.java:2246"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.Scope.getType",
+          "source": "Scope.java:2017"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MethodPattern.getMethodBinding",
+          "source": "MethodPattern.java:131"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MethodLocator.matchMethod",
+          "source": "MethodLocator.java:141"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MethodLocator.resolveLevel",
+          "source": "MethodLocator.java:237"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.ClassFileMatchLocator.locateMatches",
+          "source": "ClassFileMatchLocator.java:72"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchLocator.process",
+          "source": "MatchLocator.java:1174"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchLocator.locateMatches",
+          "source": "MatchLocator.java:775"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchLocator.locateMatches",
+          "source": "MatchLocator.java:814"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchLocator.locateMatches",
+          "source": "MatchLocator.java:915"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchParticipant.locateMatches",
+          "source": "JavaSearchParticipant.java:94"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.SearchBasicEngine.findMatches",
+          "source": "SearchBasicEngine.java:196"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.SearchBasicEngine.search",
+          "source": "SearchBasicEngine.java:382"
+        },
+        {
+          "method": "org.eclipse.jdt.core.search.SearchEngine.search",
+          "source": "SearchEngine.java:512"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.search.JavaSearchQuery.run",
+          "source": "JavaSearchQuery.java:125"
+        },
+        {
+          "method": "org.eclipse.search2.internal.ui.InternalSearchUI$InternalSearchJob.run",
+          "source": "InternalSearchUI.java:85"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:66"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "78581",
+      "date": "2004-11-14T14:55:19+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "78581",
+  "bugId": "78581",
+  "date": "2004-11-14T14:55:19+01:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

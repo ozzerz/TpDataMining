@@ -1,0 +1,162 @@
+{
+  "comments": [
+    "Hi,\n\nI find from time to time the following exception in my log file\n(it seems not to affect debugging?):\n\n!ENTRY org.eclipse.ui.console 4 2 2007-05-09 16:12:29.737\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.ui.console\".\n!STACK 0\njava.lang.NullPointerException\n  at org.eclipse.cdt.debug.mi.ui.console.actions.MiConsoleVerboseModeAction.\u003cinit\u003e(MiConsoleVerboseModeAction.java:32)\n  at org.eclipse.cdt.debug.mi.ui.console.MiConsolePageParticipant.init(MiConsolePageParticipant.java:70)\n  at org.eclipse.ui.internal.console.ConsoleView$3.run(ConsoleView.java:312)\n  at org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n  at org.eclipse.ui.internal.console.ConsoleView.doCreatePage(ConsoleView.java:310)\n  at org.eclipse.ui.part.PageBookView.createPage(PageBookView.java:399)\n  at org.eclipse.ui.part.PageBookView.partActivated(PageBookView.java:741)\n  at org.eclipse.ui.internal.console.ConsoleView$4.run(ConsoleView.java:380)\n  at org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n  at org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n  at org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3233)\n  at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2926)\n  at org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2337)\n  at org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2301)\n  at org.eclipse.ui.internal.Workbench.access$4(Workbench.java:2176)\n  at org.eclipse.ui.internal.Workbench$4.run(Workbench.java:463)\n  at org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:289)\n  at org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:458)\n  at org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\n  at org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:101)\n  at org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:146)\n  at org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:106)\n  at org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:76)\n  at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:356)\n  at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:171)\n  at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n  at sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n  at sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n  at java.lang.reflect.Method.invoke(Unknown Source)\n  at org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:476)\n  at org.eclipse.equinox.launcher.Main.basicRun(Main.java:416)\n  at org.eclipse.equinox.launcher.Main.run(Main.java:1141)\n\nIt is always followed by\n!ENTRY org.eclipse.ui.console 4 120 2007-05-09 16:12:29.739\n!MESSAGE Error logged from Console plug-in: \n!STACK 0\njava.lang.NullPointerException\n\nwith exact the same stacktrace.\n\nI use CDT 4.0RC0 and eclipse 3.3M6",
+    "I can see this as well in the released versions (3.3, 4.0.0). Here it happens all the time.\nAfter searching for a while I found the reason. It is a concurrency problem in class org.eclipse.cdt.debug.mi.core.GDBProcess. Its constructor calls (of course) super(), which is org.eclipse.debug.core.model.RuntimeProcess. This constructor calls launch.addProcess(this) which triggers creation of the debugger console and thus creation of the MiConsoleVerboseModeAction toolbar item. Unfortunately, this action needs the fTarget member of GDBProcess.\nThe reason why you see the problem only once in a while is, that the console creation is event triggered and sometimes the event hits before the constructor of GDBProcess is fully done and sometimes the event hits at a later point in time and everything wil be OK.\nI wonder whether calling launch.addProcess(this) in the constructor of RuntimeProcess is a good idea. Shouldn\u0027t this be left to the creator of the object? At least org.eclipse.cdt.debug.mi.core.AbstractGDBCDIDebugger calls launch.addProcess again after creating GDBProcess (which does not have any effect as the process is already added to the launch). OTOH, there seem to be to many places where a RuntimeProcess is created and which needed to be changed...\nAnother solution might be synchronization of GDBProcess (something along those lines, don\u0027t know about side effects, though):\n\npublic GDBProcess( Target target, ILaunch launch, Process process, String name, Map attributes ) {\n\tsuper( launch, process, name, attributes );\n\tsynchronized (this) {\n\t\tfTarget \u003d target;\n\t\tnotifyAll();\n\t}\n}\n\nsynchronized public Target getTarget() {\n\tif (fTarget \u003d\u003d null) {\n\t\ttry {\n\t\t\twait();\n\t\t} catch (InterruptedException e) {\n\t\t}\n\t}\n\treturn fTarget;\n}\n",
+    "(In reply to comment #1)\nPerhaps the better way is to implement the console actions as contributions.\nRuntimeProcess belongs to the platform. If you feel it needs improvements, you should submit enhancement requests to the Platform/Debug component. ",
+    "(In reply to comment #2)\n\u003e (In reply to comment #1)\n\u003e Perhaps the better way is to implement the console actions as contributions.\nI actually don\u0027t care as long as we get rid of this race condition. But you are probably right on that. As I have said, I quickly drew up something, without caring for side effects. See it as starting point point for a discussion.\n\n\u003e RuntimeProcess belongs to the platform. If you feel it needs improvements, you\n\u003e should submit enhancement requests to the Platform/Debug component. \nOK. Thanks for the hint.\n"
+  ],
+  "commentCreationDates": [
+    "2007-05-09T16:50:41+02:00",
+    "2007-08-09T18:52:17+02:00",
+    "2007-08-09T19:17:16+02:00",
+    "2007-08-10T09:22:32+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.cdt.debug.mi.ui.console.actions.MiConsoleVerboseModeAction.\u003cinit\u003e",
+          "source": "MiConsoleVerboseModeAction.java:32"
+        },
+        {
+          "method": "org.eclipse.cdt.debug.mi.ui.console.MiConsolePageParticipant.init",
+          "source": "MiConsolePageParticipant.java:70"
+        },
+        {
+          "method": "org.eclipse.ui.internal.console.ConsoleView$3.run",
+          "source": "ConsoleView.java:312"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.ui.internal.console.ConsoleView.doCreatePage",
+          "source": "ConsoleView.java:310"
+        },
+        {
+          "method": "org.eclipse.ui.part.PageBookView.createPage",
+          "source": "PageBookView.java:399"
+        },
+        {
+          "method": "org.eclipse.ui.part.PageBookView.partActivated",
+          "source": "PageBookView.java:741"
+        },
+        {
+          "method": "org.eclipse.ui.internal.console.ConsoleView$4.run",
+          "source": "ConsoleView.java:380"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3233"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2926"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2337"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2301"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:2176"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$4.run",
+          "source": "Workbench.java:463"
+        },
+        {
+          "method": "org.eclipse.core.databinding.observable.Realm.runWithDefault",
+          "source": "Realm.java:289"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:458"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.application.IDEApplication.start",
+          "source": "IDEApplication.java:101"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:146"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:106"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:76"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:356"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:171"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:476"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:416"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1141"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "186172",
+      "date": "2007-05-09T16:50:41+02:00",
+      "product": "CDT",
+      "component": "cdt-debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "186172",
+  "bugId": "186172",
+  "date": "2007-05-09T16:50:41+02:00",
+  "product": "CDT",
+  "component": "cdt-debug",
+  "severity": "normal"
+}

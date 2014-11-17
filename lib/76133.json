@@ -1,0 +1,228 @@
+{
+  "comments": [
+    "This deadlock happens when you import a Java project that has classpath \nproblems. It is hard to reproduce since it apparently depends on timimg of \ndifferent events. The threads participating in the deadlock:\n\nThread [Worker-7] (Suspended)\n\tObject.wait(long) line: not available [native method]\n\tSemaphore.acquire(long) line: 38\n\tOrderedLock.doAcquire(Semaphore, long) line: 166\n\tOrderedLock.acquire(long) line: 102\n\tOrderedLock.acquire() line: 79\n\tWorkManager.checkIn(ISchedulingRule, IProgressMonitor) line: 96\n\tWorkspace.prepareOperation(ISchedulingRule, IProgressMonitor) line: 1628\n\tProject(Resource).createMarker(String) line: 626\n\tJavaProject.createClasspathProblemMarker(IJavaModelStatus) line: 707\n\tJavaProject.getResolvedClasspath(IClasspathEntry[], IPath, boolean, \nboolean, Map) line: 1862\n\tDeltaProcessingState$ProjectUpdateInfo.updateProjectReferencesIfNecessar\ny() line: 98\n\tDeltaProcessor.resourceChanged(IResourceChangeEvent) line: 1866\n\tDeltaProcessingState.resourceChanged(IResourceChangeEvent) line: 414\n\tNotificationManager$2.run() line: 283\n\tInternalPlatform.run(ISafeRunnable) line: 616\n\tPlatform.run(ISafeRunnable) line: 747\n\tNotificationManager.notify(ResourceChangeListenerList$ListenerEntry[], \nIResourceChangeEvent, boolean) line: 277\n\tNotificationManager.broadcastChanges(ElementTree, int, boolean) line: \n151\n\tAutoBuildJob.broadcastChanges(int) line: 78\n\tAutoBuildJob.doBuild(IProgressMonitor) line: 153\n\tAutoBuildJob.run(IProgressMonitor) line: 212\n\tWorker.run() line: 66\n\nThread [Worker-8] (Suspended)\n\tObject.wait(long) line: not available [native method]\n\tThreadJob.joinRun(IProgressMonitor) line: 159\n\tImplicitJobs.begin(ISchedulingRule, IProgressMonitor, boolean) line: 87\n\tJobManager.beginRule(ISchedulingRule, IProgressMonitor) line: 170\n\tWorkManager.checkIn(ISchedulingRule, IProgressMonitor) line: 95\n\tWorkspace.prepareOperation(ISchedulingRule, IProgressMonitor) line: 1628\n\tWorkspace.run(IWorkspaceRunnable, ISchedulingRule, int, \nIProgressMonitor) line: 1668\n\tSetClasspathOperation(JavaModelOperation).runOperation\n(IProgressMonitor) line: 744\n\tJavaProject.setRawClasspath(IClasspathEntry[], IPath, IProgressMonitor, \nboolean, IClasspathEntry[], boolean, boolean) line: 2658\n\tJavaCore$3.run(IProgressMonitor) line: 3433\n\tBatchOperation.executeOperation() line: 34\n\tBatchOperation(JavaModelOperation).run(IProgressMonitor) line: 700\n\tWorkspace.run(IWorkspaceRunnable, ISchedulingRule, int, \nIProgressMonitor) line: 1673\n\tJavaCore.run(IWorkspaceRunnable, ISchedulingRule, IProgressMonitor) \nline: 3246\n\tJavaCore.setClasspathContainer(IPath, IJavaProject[], \nIClasspathContainer[], IProgressMonitor) line: 3416\n\tJREContainerInitializer.initialize(IPath, IJavaProject) line: 51\n\tLaunchingPlugin$VMChanges.rebind(IProgressMonitor, IJavaProject[]) \nline: 258\n\tLaunchingPlugin$VMChanges.access$0(LaunchingPlugin$VMChanges, \nIProgressMonitor, IJavaProject[]) line: 223\n\tLaunchingPlugin$1.run(IProgressMonitor) line: 211\n\tBatchOperation.executeOperation() line: 34\n\tBatchOperation(JavaModelOperation).run(IProgressMonitor) line: 700\n\tWorkspace.run(IWorkspaceRunnable, ISchedulingRule, int, \nIProgressMonitor) line: 1673\n\tJavaCore.run(IWorkspaceRunnable, ISchedulingRule, IProgressMonitor) \nline: 3246\n\tLaunchingPlugin$VMChanges.doit(IProgressMonitor) line: 215\n\tLaunchingPlugin$JREUpdateJob.run(IProgressMonitor) line: 295\n\tWorker.run() line: 66\n\nWorker-7 thread is blocked inside WorkManager.lock.acquire method. Worker-8 has \nWorkspace.run method twice on its stack. The deeper of the two stack frames is \nholding WorkManager.lock. Worker-8 thread is blocked waiting for the job \nexecuting on Worker-7 to finish.",
+    "Worker-7 should already own the lock it is blocked on (acquired in\nAutoBuildJob.doBuild).  For some reason it seems to have lost the lock.  Are\nthere any errors in the .log file around the time this occurs?  Any more details\non reproducing would also be appreciated.",
+    "There are no errors in the log file. Here is another set of call stacks plus \nvariables showing the state of the locks:\n\nThread [Worker-3] (Suspended)\n\tObject.wait(long) line: not available [native method]\n\tSemaphore.acquire(long) line: 38\n\tOrderedLock.doAcquire(Semaphore, long) line: 166\n\tOrderedLock.acquire(long) line: 102\n\tOrderedLock.acquire() line: 79\n\tWorkManager.checkIn(ISchedulingRule, IProgressMonitor) line: 96\n\tWorkspace.prepareOperation(ISchedulingRule, IProgressMonitor) line: 1628\n\tMarker.delete() line: 67\n\tJavaProject.flushClasspathProblemMarkers(boolean, boolean) line: 1121\n\tJavaProject.updateClasspathMarkers(Map, Map) line: 2837\n\tDeltaProcessor.updateClasspathMarkers(IResourceDelta, HashSet, Map, \nMap) line: 2141\n\tDeltaProcessor.updateClasspathMarkers(IResourceDelta, HashSet, Map, \nMap) line: 2154\n\tDeltaProcessor.updateClasspathMarkers(IResourceDelta, HashSet, Map, \nMap) line: 2154\n\tDeltaProcessor.updateClasspathMarkers(IResourceDelta) line: 2170\n\tDeltaProcessor.resourceChanged(IResourceChangeEvent) line: 1874\n\tDeltaProcessingState.resourceChanged(IResourceChangeEvent) line: 414\n\tNotificationManager$2.run() line: 283\n\tInternalPlatform.run(ISafeRunnable) line: 616\n\tPlatform.run(ISafeRunnable) line: 747\n\tNotificationManager.notify(ResourceChangeListenerList$ListenerEntry[], \nIResourceChangeEvent, boolean) line: 277\n\tNotificationManager.broadcastChanges(ElementTree, int, boolean) line: \n151\n\tAutoBuildJob.broadcastChanges(int) line: 78\n\tAutoBuildJob.doBuild(IProgressMonitor) line: 153\n\tAutoBuildJob.run(IProgressMonitor) line: 212\n\tWorker.run() line: 66\n\nThread [Worker-2] (Suspended)\n\tObject.wait(long) line: not available [native method]\n\tThreadJob.joinRun(IProgressMonitor) line: 159\n\tImplicitJobs.begin(ISchedulingRule, IProgressMonitor, boolean) line: 87\n\tJobManager.beginRule(ISchedulingRule, IProgressMonitor) line: 170\n\tProblemView(MarkerView).internalRefresh(IProgressMonitor) line: 171\n\tMarkerView.access$3(MarkerView, IProgressMonitor) line: 160\n\tMarkerView$3.run(IProgressMonitor) line: 246\n\tRestartableJob$2.run(IProgressMonitor) line: 86\n\tWorker.run() line: 66\n\nThread [main] (Suspended)\n\tOS.WaitMessage() line: not available [native method]\n\tDisplay.sleep() line: 3076\n\tIDEWorkbenchAdvisor(WorkbenchAdvisor).eventLoopIdle(Display) line: 344\n\tWorkbench.runEventLoop(Window$IExceptionHandler, Display) line: 1378\n\tWorkbench.runUI() line: 1348\n\tWorkbench.createAndRunWorkbench(Display, WorkbenchAdvisor) line: 254\n\tPlatformUI.createAndRunWorkbench(Display, WorkbenchAdvisor) line: 141\n\tIDEApplication.run(Object) line: 96\n\tPlatformActivator$1.run(Object) line: 335\n\tEclipseStarter.run(Object) line: 273\n\tEclipseStarter.run(String[], Runnable) line: 129\n\tNativeMethodAccessorImpl.invoke0(Method, Object, Object[]) line: not \navailable [native method]\n\tNativeMethodAccessorImpl.invoke(Object, Object[]) line: 39\n\tDelegatingMethodAccessorImpl.invoke(Object, Object[]) line: 25\n\tMethod.invoke(Object, Object[]) line: 324\n\tMain.basicRun(String[]) line: 185\n\tMain.run(String[]) line: 704\n\tMain.main(String[]) line: 688\n\nVariables for Worker-3 OrderedLock.doAcquire stack frame:\n\nthis\u003d OrderedLock  (id\u003d59) \n\tcurrentOperationThread\u003d Thread  (id\u003d1)\n\t\tblocker\u003d null\n\t\tcontextClassLoader\u003d Launcher$AppClassLoader  (id\u003d118)\n\t\tdaemon\u003d false\n\t\teetop\u003d 3496288\n\t\tgroup\u003d ThreadGroup  (id\u003d5)\n\t\tinheritableThreadLocals\u003d null\n\t\tinheritedAccessControlContext\u003d AccessControlContext  (id\u003d135)\n\t\tname\u003d char[4]  (id\u003d136)\n\t\t\t[0]\u003d m\n\t\t\t[1]\u003d a\n\t\t\t[2]\u003d i\n\t\t\t[3]\u003d n\n\t\tpriority\u003d 6\n\t\tsingle_step\u003d false\n\t\tstackSize\u003d 0\n\t\tstillborn\u003d false\n\t\ttarget\u003d null\n\t\tthreadLocals\u003d ThreadLocal$ThreadLocalMap  (id\u003d137)\n\t\tthreadQ\u003d null\n\tdepth\u003d 1\n\tmanager\u003d LockManager  (id\u003d84)\n\t\tlockListener\u003d UILockListener  (id\u003d172)\n\t\tlocks\u003d DeadlockDetector  (id\u003d175)\n\t\t\tgraph\u003d int[3][]  (id\u003d183)\n\t\t\t\t[0]\u003d int[2]  (id\u003d201)\n\t\t\t\t\t[0]\u003d 1\n\t\t\t\t\t[1]\u003d -1\n\t\t\t\t[1]\u003d int[2]  (id\u003d203)\n\t\t\t\t\t[0]\u003d -1\n\t\t\t\t\t[1]\u003d 0\n\t\t\t\t[2]\u003d int[2]  (id\u003d204)\n\t\t\t\t\t[0]\u003d 0\n\t\t\t\t\t[1]\u003d 1\n\t\t\tlocks\u003d ArrayList  (id\u003d185)\n\t\t\t\telementData\u003d Object[10]  (id\u003d193)\n\t\t\t\t\t[0]\u003d WorkspaceRoot  (id\u003d194)\n\t\t\t\t\t[1]\u003d OrderedLock  (id\u003d59)\n\t\t\t\t\t\tcurrentOperationThread\u003d Thread  \n(id\u003d1)\n\t\t\t\t\t\tdepth\u003d 1\n\t\t\t\t\t\tmanager\u003d LockManager  (id\u003d84)\n\t\t\t\t\t\tnumber\u003d 0\n\t\t\t\t\t\toperations\u003d Queue  (id\u003d86)\n\t\t\t\t\t[2]\u003d null\n\t\t\t\t\t[3]\u003d null\n\t\t\t\t\t[4]\u003d null\n\t\t\t\t\t[5]\u003d null\n\t\t\t\t\t[6]\u003d null\n\t\t\t\t\t[7]\u003d null\n\t\t\t\t\t[8]\u003d null\n\t\t\t\t\t[9]\u003d null\n\t\t\t\tmodCount\u003d 84\n\t\t\t\tsize\u003d 2\n\t\t\tlockThreads\u003d ArrayList  (id\u003d192)\n\t\t\t\telementData\u003d Object[10]  (id\u003d273)\n\t\t\t\t\t[0]\u003d Worker  (id\u003d25)\n\t\t\t\t\t\tblocker\u003d null\n\t\t\t\t\t\tcontextClassLoader\u003d \nLauncher$AppClassLoader  (id\u003d118)\n\t\t\t\t\t\tcurrentJob\u003d AutoBuildJob  \n(id\u003d79)\n\t\t\t\t\t\tdaemon\u003d false\n\t\t\t\t\t\teetop\u003d 249523536\n\t\t\t\t\t\tgroup\u003d ThreadGroup  (id\u003d5)\n\t\t\t\t\t\tinheritableThreadLocals\u003d null\n\t\t\t\t\t\tinheritedAccessControlContext\u003d \nAccessControlContext  (id\u003d129)\n\t\t\t\t\t\tname\u003d char[8]  (id\u003d131)\n\t\t\t\t\t\t\t[0]\u003d W\n\t\t\t\t\t\t\t[1]\u003d o\n\t\t\t\t\t\t\t[2]\u003d r\n\t\t\t\t\t\t\t[3]\u003d k\n\t\t\t\t\t\t\t[4]\u003d e\n\t\t\t\t\t\t\t[5]\u003d r\n\t\t\t\t\t\t\t[6]\u003d -\n\t\t\t\t\t\t\t[7]\u003d 3\n\t\t\t\t\t\tpool\u003d WorkerPool  (id\u003d41)\n\t\t\t\t\t\tpriority\u003d 5\n\t\t\t\t\t\tsingle_step\u003d false\n\t\t\t\t\t\tstackSize\u003d 0\n\t\t\t\t\t\tstillborn\u003d false\n\t\t\t\t\t\ttarget\u003d null\n\t\t\t\t\t\tthreadLocals\u003d \nThreadLocal$ThreadLocalMap  (id\u003d133)\n\t\t\t\t\t\tthreadQ\u003d null\n\t\t\t\t\t[1]\u003d Worker  (id\u003d24)\n\t\t\t\t\t\tblocker\u003d null\n\t\t\t\t\t\tcontextClassLoader\u003d \nLauncher$AppClassLoader  (id\u003d118)\n\t\t\t\t\t\tcurrentJob\u003d RestartableJob$2  \n(id\u003d55)\n\t\t\t\t\t\tdaemon\u003d false\n\t\t\t\t\t\teetop\u003d 249531344\n\t\t\t\t\t\tgroup\u003d ThreadGroup  (id\u003d5)\n\t\t\t\t\t\tinheritableThreadLocals\u003d null\n\t\t\t\t\t\tinheritedAccessControlContext\u003d \nAccessControlContext  (id\u003d129)\n\t\t\t\t\t\tname\u003d char[8]  (id\u003d274)\n\t\t\t\t\t\t\t[0]\u003d W\n\t\t\t\t\t\t\t[1]\u003d o\n\t\t\t\t\t\t\t[2]\u003d r\n\t\t\t\t\t\t\t[3]\u003d k\n\t\t\t\t\t\t\t[4]\u003d e\n\t\t\t\t\t\t\t[5]\u003d r\n\t\t\t\t\t\t\t[6]\u003d -\n\t\t\t\t\t\t\t[7]\u003d 2\n\t\t\t\t\t\tpool\u003d WorkerPool  (id\u003d41)\n\t\t\t\t\t\tpriority\u003d 5\n\t\t\t\t\t\tsingle_step\u003d false\n\t\t\t\t\t\tstackSize\u003d 0\n\t\t\t\t\t\tstillborn\u003d false\n\t\t\t\t\t\ttarget\u003d null\n\t\t\t\t\t\tthreadLocals\u003d \nThreadLocal$ThreadLocalMap  (id\u003d275)\n\t\t\t\t\t\tthreadQ\u003d null\n\t\t\t\t\t[2]\u003d Thread  (id\u003d1)\n\t\t\t\t\t\tblocker\u003d null\n\t\t\t\t\t\tcontextClassLoader\u003d \nLauncher$AppClassLoader  (id\u003d118)\n\t\t\t\t\t\tdaemon\u003d false\n\t\t\t\t\t\teetop\u003d 3496288\n\t\t\t\t\t\tgroup\u003d ThreadGroup  (id\u003d5)\n\t\t\t\t\t\tinheritableThreadLocals\u003d null\n\t\t\t\t\t\tinheritedAccessControlContext\u003d \nAccessControlContext  (id\u003d135)\n\t\t\t\t\t\tname\u003d char[4]  (id\u003d136)\n\t\t\t\t\t\t\t[0]\u003d m\n\t\t\t\t\t\t\t[1]\u003d a\n\t\t\t\t\t\t\t[2]\u003d i\n\t\t\t\t\t\t\t[3]\u003d n\n\t\t\t\t\t\tpriority\u003d 6\n\t\t\t\t\t\tsingle_step\u003d false\n\t\t\t\t\t\tstackSize\u003d 0\n\t\t\t\t\t\tstillborn\u003d false\n\t\t\t\t\t\ttarget\u003d null\n\t\t\t\t\t\tthreadLocals\u003d \nThreadLocal$ThreadLocalMap  (id\u003d137)\n\t\t\t\t\t\tthreadQ\u003d null\n\t\t\t\t\t[3]\u003d null\n\t\t\t\t\t[4]\u003d null\n\t\t\t\t\t[5]\u003d null\n\t\t\t\t\t[6]\u003d null\n\t\t\t\t\t[7]\u003d null\n\t\t\t\t\t[8]\u003d null\n\t\t\t\t\t[9]\u003d null\n\t\t\t\tmodCount\u003d 49\n\t\t\t\tsize\u003d 3\n\t\t\tresize\u003d false\n\t\tsuspendedLocks\u003d HashMap  (id\u003d177)\n\tnumber\u003d 0\n\toperations\u003d Queue  (id\u003d86)\n\t\telements\u003d Object[20]  (id\u003d116)\n\t\t\t[0]\u003d null\n\t\t\t[1]\u003d null\n\t\t\t[2]\u003d null\n\t\t\t[3]\u003d Semaphore  (id\u003d57)\n\t\t\t[4]\u003d null\n\t\t\t[5]\u003d null\n\t\t\t[6]\u003d null\n\t\t\t[7]\u003d null\n\t\t\t[8]\u003d null\n\t\t\t[9]\u003d null\n\t\t\t[10]\u003d null\n\t\t\t[11]\u003d null\n\t\t\t[12]\u003d null\n\t\t\t[13]\u003d null\n\t\t\t[14]\u003d null\n\t\t\t[15]\u003d null\n\t\t\t[16]\u003d null\n\t\t\t[17]\u003d null\n\t\t\t[18]\u003d null\n\t\t\t[19]\u003d null\n\t\thead\u003d 3\n\t\treuse\u003d false\n\t\ttail\u003d 4\n",
+    "Created an attachment (id\u003d16360)\nCode illustrating a lock leak\n",
+    "I was able to simplify the code illustrating the problem to a degree when it \ncan be attached here. The simplified code does not produce a deadlock but \nillustrates a lock leak.\n\njava.lang.AssertionError\n\tat com.sigmadynamics.test.Test.test(Test.java:42)\n\tat com.sigmadynamics.test.Test$1.run(Test.java:25)\n\tat org.eclipse.ui.internal.UILockListener.doPendingWork\n(UILockListener.java:108)\n\tat org.eclipse.ui.internal.UISynchronizer$1.run(UISynchronizer.java:33)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages\n(Synchronizer.java:106)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2749)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2434)\n\tat org.eclipse.jface.operation.ModalContext$ModalContextThread.block\n(ModalContext.java:136)\n\tat org.eclipse.jface.operation.ModalContext.run(ModalContext.java:262)\n\tat org.eclipse.jface.wizard.WizardDialog.run(WizardDialog.java:752)\n\tat \norg.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.createExisti\nngProject(WizardExternalProjectImportPage.java:435)\n\tat \norg.eclipse.ui.wizards.datatransfer.ExternalProjectImportWizard.performFinish\n(ExternalProjectImportWizard.java:98)\n\tat org.eclipse.jface.wizard.WizardDialog.finishPressed\n(WizardDialog.java:609)\n\tat org.eclipse.jface.wizard.WizardDialog.buttonPressed\n(WizardDialog.java:305)\n\tat org.eclipse.jface.dialogs.Dialog$2.widgetSelected(Dialog.java:506)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent\n(TypedListener.java:89)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:796)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2772)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2431)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:668)\n\tat org.eclipse.jface.window.Window.open(Window.java:648)\n\tat org.eclipse.ui.actions.ImportResourcesAction.run\n(ImportResourcesAction.java:145)\n\tat org.eclipse.ui.actions.BaseSelectionListenerAction.runWithEvent\n(BaseSelectionListenerAction.java:166)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection\n(ActionContributionItem.java:915)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2\n(ActionContributionItem.java:866)\n\tat org.eclipse.jface.action.ActionContributionItem$7.handleEvent\n(ActionContributionItem.java:785)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:796)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2772)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2431)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1377)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1348)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.java:254)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n\tat com.sigmadynamics.studio.StudioEditorApplication.run\n(StudioEditorApplication.java:17)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:335)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:273)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:129)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n\tat org.eclipse.core.launcher.Main.run(Main.java:704)\n\tat org.eclipse.core.launcher.Main.main(Main.java:688)\n",
+    "Thanks for the test case!  This test cases verifies that this is a duplicate of\nbug 76378.  This bug has been fixed.\n\n*** This bug has been marked as a duplicate of 76378 ***"
+  ],
+  "commentCreationDates": [
+    "2004-10-13T01:00:50+02:00",
+    "2004-10-13T16:23:23+02:00",
+    "2004-10-13T21:32:55+02:00",
+    "2004-12-05T00:00:33+01:00",
+    "2004-12-05T00:06:21+01:00",
+    "2004-12-06T16:00:20+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.AssertionError",
+      "elements": [
+        {
+          "method": "com.sigmadynamics.test.Test.test",
+          "source": "Test.java:42"
+        },
+        {
+          "method": "com.sigmadynamics.test.Test$1.run",
+          "source": "Test.java:25"
+        },
+        {
+          "method": "org.eclipse.ui.internal.UILockListener.doPendingWork",
+          "source": "UILockListener.java:108"
+        },
+        {
+          "method": "org.eclipse.ui.internal.UISynchronizer$1.run",
+          "source": "UISynchronizer.java:33"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2749"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2434"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.block",
+          "source": "ModalContext.java:136"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.run",
+          "source": "ModalContext.java:262"
+        },
+        {
+          "method": "org.eclipse.jface.wizard.WizardDialog.run",
+          "source": "WizardDialog.java:752"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.datatransfer.WizardExternalProjectImportPage.createExistingProject",
+          "source": "WizardExternalProjectImportPage.java:435"
+        },
+        {
+          "method": "org.eclipse.ui.wizards.datatransfer.ExternalProjectImportWizard.performFinish",
+          "source": "ExternalProjectImportWizard.java:98"
+        },
+        {
+          "method": "org.eclipse.jface.wizard.WizardDialog.finishPressed",
+          "source": "WizardDialog.java:609"
+        },
+        {
+          "method": "org.eclipse.jface.wizard.WizardDialog.buttonPressed",
+          "source": "WizardDialog.java:305"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.Dialog$2.widgetSelected",
+          "source": "Dialog.java:506"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:89"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:796"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2772"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2431"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:668"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:648"
+        },
+        {
+          "method": "org.eclipse.ui.actions.ImportResourcesAction.run",
+          "source": "ImportResourcesAction.java:145"
+        },
+        {
+          "method": "org.eclipse.ui.actions.BaseSelectionListenerAction.runWithEvent",
+          "source": "BaseSelectionListenerAction.java:166"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:915"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:866"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$7.handleEvent",
+          "source": "ActionContributionItem.java:785"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:796"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2772"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2431"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1377"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1348"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:254"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "com.sigmadynamics.studio.StudioEditorApplication.run",
+          "source": "StudioEditorApplication.java:17"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:335"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:129"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:704"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:688"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "76133",
+      "duplicateId": "76378",
+      "date": "2004-12-05T00:06:21+01:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "76378",
+  "bugId": "76133",
+  "duplicateId": "76378",
+  "date": "2004-10-13T01:00:50+02:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "critical"
+}

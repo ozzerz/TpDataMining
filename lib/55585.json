@@ -1,0 +1,101 @@
+{
+  "comments": [
+    "We have built a generic migration engine to ensure N-1 | N-2 compatibility with\nprevious versions of our product which is built on Eclipse. To enable the\nseamless migration, we sometimes have to add natures and/or builders which are\nnot actually valid in the current version (for backward compatibility, we add\nnatures so that previous versions of the product will recognize them\nappropriately). When doing so we are seeing exceptions. Is there a way to set\nthe nature and explicitly silence the error? If not, we need this capability for\nthe final release of Eclipse 3.0.",
+    "You see exceptions in the new version of the product or the old one?  What kinds\nof exceptions are you seeing?  The only thing that should happen when a builder\nis missing is an informational message in the log file once per session\nmentioned that a missing builder was encountered and skipped.",
+    "Closing - not enough info.  Please reopen with more details.",
+    "We are using a 3.0 Integration Build from early March (03/04). \n\nWe get the following exception when setting the Project Description using a\nnature ID that does not have a valid nature defined. \n\nThe problem occurs in\norg.eclipse.core.internal.resources.NatureManager.java#483-496 (below) where the\nid given comes back with a null IProjectNatureDescriptor, and therefore trips\nthe failure. \n\nIProjectNatureDescriptor desc \u003d getNatureDescriptor(id);\nif (desc \u003d\u003d null) {\n   return failure(Policy.bind(\"natures.missingNature\", id)); //$NON-NLS-1$\n}\n\n\nThe actual exception is a CoreException:\n\n*** ERROR ***: Thu Mar 25 13:55:39 EST 2004   \norg.eclipse.core.runtime.CoreException: Problems encountered while setting\nproject description.\n    \tat org.eclipse.core.internal.resources.Project.setDescription(Project.java:823)\n    \tat org.eclipse.core.internal.resources.Project.setDescription(Project.java:847)\n    \tat\ncom.ibm.wtp.migration.TacitMigrationEngine.migrateAllMappings(TacitMigrationEngine.java:181)\n    \tat\ncom.ibm.wtp.migration.TacitMigrationOperation.execute(TacitMigrationOperation.java:54)\n    \tat com.ibm.wtp.common.operation.WTPOperation.doRun(WTPOperation.java:209)\n    \tat com.ibm.wtp.common.operation.WTPOperation$1.run(WTPOperation.java:156)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1567)\n    \tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1586)\n    \tat com.ibm.wtp.common.operation.WTPOperation.run(WTPOperation.java:172)\n    \tat\ncom.ibm.wtp.common.operation.WTPOperationJobAdapter.run(WTPOperationJobAdapter.java:37)\n    \tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:62)\n\nSetting invalid builders only gives an informational message to the log. It\nwould be great if we had some way to indicate \"Ignore Bad Natures\" and/or\n\"Ignore Bad Builders\" so that we could even surpress the bad natures and\nbuilders warning message.\n\n\n",
+    "Ok, I understand.  We tolerate the presence of non-existent natures, but we\ndon\u0027t allow you to configure new natures that are missing (our contract requires\nus to invoke IProjectNature.configure(), which we cannot do if the nature is\nmissing). I assume you can\u0027t define that nature because the plug-in that defined\nit no longer exists?\n\nThe one thing you could do right now is modify the .project file directly.  That\nwould modify the description without causing nature configuration, which will\nwork without any errors. Let me think about this further...",
+    "We would like resolution on this defect as soon as possible. What is the current\nstatus?\n\nThank you for your time.",
+    "Better late than never...\n\nI have added a new update flag, IResource.AVOID_NATURE_CONFIG. When you pass\nthis flag to IProject.setDescription, it will not cause natures to be configured\nor deconfigured. I expect you will need to call setDescription twice, once with\nthe new, valid natures, and a second time with AVOID_NATURE_CONFIG to add the\nold backwards-compability natures.",
+    "Doesn\u0027t  add the  old nature,  see  following  code snippet \n\nString[] allNatures \u003d new String[prevNatures.length + 1];\nSystem.arraycopy(prevNatures, 0, allNatures, 1, prevNatures.length);\nallNatures[0] \u003d oldNatureId;\ndescription.setNatureIds(allNatures);\nproj.setDescription( description, IResource.AVOID_NATURE_CONFIG, null );",
+    "We found that the call to Project.basicSetDescription() completely avoids the\ncall to workspace.getNatureManager().configureNatures(this, current,\ndescription, result); when we use the new flag (as it should). However, it is in\nthat method that the natures from the new Description object are transferred\ninto the current description object. Since the call to configure natures is\nnever made, the new nature settings are not committed. \n\nWe belive the fix should be something like the following: \n// in org.eclipse.core.internal.resources.Project\nprotected MultiStatus basicSetDescription(ProjectDescription description, int\nupdateFlags) {\n\n...\n  if ((updateFlags \u0026 IResource.AVOID_NATURE_CONFIG) \u003d\u003d 0)\n    workspace.getNatureManager().configureNatures(this, current, description,\nresult);\n  else \n    current.setNatureIds(description.getNatureIds(true));\n\n  return result;\n}\n\nThis fix is rather important to our product, and we think it should be\nrelatively minor. Please consider this when deciding whether to address this\ndefect so late in the cycle. Thank you.",
+    "Thank you for taking the time to test this new API when we released it six weeks ago\n",
+    "+1",
+    "+1 to fix for RC3.\n",
+    "Fix released. NatureTest.testNatureLifecycle has been updated to check for\nsuccessful nature installation.",
+    "Thank you for your speedy reply and reaction. We went ahead and pulled the\norg.eclipse.core.resources plugin out of the HEAD stream and tested your fix. It\nseems like everything is working now. \n\nApologies for any inconvenience. ",
+    "Closed for Michael."
+  ],
+  "commentCreationDates": [
+    "2004-03-22T20:39:49+01:00",
+    "2004-03-22T22:43:19+01:00",
+    "2004-03-25T18:48:08+01:00",
+    "2004-03-25T19:07:35+01:00",
+    "2004-03-25T19:27:03+01:00",
+    "2004-04-28T17:25:32+02:00",
+    "2004-05-05T22:40:16+02:00",
+    "2004-06-17T22:06:28+02:00",
+    "2004-06-17T22:28:06+02:00",
+    "2004-06-17T22:33:18+02:00",
+    "2004-06-17T22:37:09+02:00",
+    "2004-06-17T22:39:16+02:00",
+    "2004-06-17T22:47:58+02:00",
+    "2004-06-18T00:40:28+02:00",
+    "2005-03-02T14:50:20+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.core.runtime.CoreException",
+      "message": "Problems encountered while setting project description.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.resources.Project.setDescription",
+          "source": "Project.java:823"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Project.setDescription",
+          "source": "Project.java:847"
+        },
+        {
+          "method": "com.ibm.wtp.migration.TacitMigrationEngine.migrateAllMappings",
+          "source": "TacitMigrationEngine.java:181"
+        },
+        {
+          "method": "com.ibm.wtp.migration.TacitMigrationOperation.execute",
+          "source": "TacitMigrationOperation.java:54"
+        },
+        {
+          "method": "com.ibm.wtp.common.operation.WTPOperation.doRun",
+          "source": "WTPOperation.java:209"
+        },
+        {
+          "method": "com.ibm.wtp.common.operation.WTPOperation$1.run",
+          "source": "WTPOperation.java:156"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1567"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1586"
+        },
+        {
+          "method": "com.ibm.wtp.common.operation.WTPOperation.run",
+          "source": "WTPOperation.java:172"
+        },
+        {
+          "method": "com.ibm.wtp.common.operation.WTPOperationJobAdapter.run",
+          "source": "WTPOperationJobAdapter.java:37"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:62"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 3,
+      "bugId": "55585",
+      "date": "2004-03-25T19:07:35+01:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "55585",
+  "bugId": "55585",
+  "date": "2004-03-22T20:39:49+01:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "normal"
+}

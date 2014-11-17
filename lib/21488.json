@@ -1,0 +1,62 @@
+{
+  "comments": [
+    "In the infocenter scenario under WebShpere, and Tomcat ClassCastExceptions are \nthrown from within Xerces code.  This occurs in the post F1 drivers where \nxerces 4.0.3 was introduced.  Old xerces jar works.\n\njava.lang.ClassCastException:\norg.apache.xerces.parsers.StandardParserConfiguration\n      at org.apache.xerces.parsers.SAXParser.\u003cinit\u003e(SAXParser.java:95)\n      at\norg.eclipse.help.internal.toc.TocFileParser.parse(TocFileParser.java:71)\n\nor\n\njava.lang.ClassCastException: org.apache.xerces.jaxp.SAXParserFactoryImpl\n      at\njavax.xml.parsers.SAXParserFactory.newInstance(SAXParserFactory.java:135)\n      at\norg.eclipse.help.internal.toc.TocFileParser.parse(TocFileParser.java:72)\n\nThe errors are due to the fact that server has old xerces.jar on the classpath, \nand Eclipse has its own (newer Xerces) on the classpath of its class loader.  \nThe Xerces code however obtains class loader using Thread.getContextClassLoader\n(), the obtained parser implementation is not compatible with APIs that are \navailable to Eclipse classloader.  The exception is thrown.  Xerces should use \ncurrent class loader if creating parser (or parser factory) using context class \nloader fails.\n\nThe exceptions are thrown in many places inside Eclipse, where XML parsers are \ncreated, and there is no simple work around for this problem.",
+    "When Eclipse is running on web server, more than one set of Xerces jars is \navailable in VM.  One set of Xerces jar exists in Eclipse Xerces plugin and \nshould be used by code running inside Eclipse, another set is in the server or \nwebapp lib directories.  This is required by servlets and by the code internal \nto the server.\nThe new Xerces contains pieces of code that can be written as:\n(SAXParserFactory)Thread.currentThread().getContextClassLoader().loadClass\n(className).newInstance()\nWhen executed inside Eclipse, running on the server, it causes the interface \nSAXParserFactory to be loaded from the Xerces jar in the Eclipse plugin.  The \nclass className is loaded from Xerces jar that is in the lib directory of the \nserver, since usage of getContextClassLoader() causes ignoring of plugin class \nloaders and results in using class loader assigned to the application by a \nserver.  Since loading of a clas also causes loading of the super interfaces, \ntwo interfaces from different jars exists in a VM, and cast cannot be performed.\n\nIf xerces did not call getContextClassLoader(), problem would not exists.  I \ntherefore belive Xerces code should ensure that current class loader will be \nused if the using class loader obtained from getContextClassLoader() fails.\n\nOne way to work around Xerces problem could be to set Context class loader on \nevery tread entering eclipse to the xerces plugin class loader, which is very \nmessy and difficult to implement.\nAnother short term workaround (until Xerces is fixed) is to use web application \nclass loader as a parent for Eclipse boot class loader.  This breaks isolation \nof Eclipse environment from the rest of the application and server. It results \nin Xerces jars from the server to always be used, even inside Eclipse.  Since \njars inside the Xerces plugin would never be used, the class cast exceptions \nare not thrown anymore.",
+    "Released a fix to use web application \nclass loader as a parent for Eclipse boot class loader."
+  ],
+  "commentCreationDates": [
+    "2002-07-11T17:08:25+02:00",
+    "2002-07-14T07:53:18+02:00",
+    "2002-07-15T18:09:01+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.apache.xerces.parsers.StandardParserConfiguration",
+      "elements": [
+        {
+          "method": "org.apache.xerces.parsers.SAXParser.\u003cinit\u003e",
+          "source": "SAXParser.java:95"
+        },
+        {
+          "method": "org.eclipse.help.internal.toc.TocFileParser.parse",
+          "source": "TocFileParser.java:71"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "21488",
+      "date": "2002-07-11T17:08:25+02:00",
+      "product": "Platform",
+      "component": "User Assistance",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.apache.xerces.jaxp.SAXParserFactoryImpl",
+      "elements": [
+        {
+          "method": "javax.xml.parsers.SAXParserFactory.newInstance",
+          "source": "SAXParserFactory.java:135"
+        },
+        {
+          "method": "org.eclipse.help.internal.toc.TocFileParser.parse",
+          "source": "TocFileParser.java:72"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "21488",
+      "date": "2002-07-11T17:08:25+02:00",
+      "product": "Platform",
+      "component": "User Assistance",
+      "severity": "major"
+    }
+  ],
+  "groupId": "21488",
+  "bugId": "21488",
+  "date": "2002-07-11T17:08:25+02:00",
+  "product": "Platform",
+  "component": "User Assistance",
+  "severity": "major"
+}

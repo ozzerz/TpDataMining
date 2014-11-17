@@ -1,0 +1,145 @@
+{
+  "comments": [
+    "The current validateEdit api is specified such that a \"context\" Shell object needs to be provided in order to get user-interactive behavior. If a shell is not passed in, the validateEdit fails if the file is read-only. \n\nThe existing api works reasonably well in the source editor use case. In that case the UI editor code has the knowledge about the file that\u0027s being modified and it has access to the shell. This allows it to call validateEdit on the file before calling IFile.setContents().\n\nHowever, for project metadata files, which are modified deep inside layers of api code that knows nothing of the ui context, the existing validateEdit behavior fails pretty badly. In some of these scenarios, if you go far enough up the stack, there is a ui context but the code at that level has no knowledge about the files that might get modified as the result of calling some api. That knowledge is implementation details of that api. In other cases, there is no ui context anywhere in the call stack. So the api calls are made and the api implementation makes an IFile.setContents() call, which internally does call validateEdit, but by then there is no shell context, so validateEdit fails on a read-only file.\n\nI believe that in order to fix this problem properly, validateEdit api needs to be revised (perhaps by creating new methods to not revise the existing api contract). The new api should not require the shell to be provided in order to provide user interraction. It should instead determine whether code is running in a workbench or headless. If it is running in the workbench, the active shell should automatically be determined and used for user interraction. If in headless, the existing failing behavior should still be ok.\n\nFor more background on this issue, see Bug 130266. That bug has been resolved by skirting the issue, but there is some discussion of the underlying problem.\n\nI also just ran into another example of this. The call to IFile.setCharset() will attempt to modify the org.eclipse.core.resources.prefs file. I am sometimes seeing this call being made during build. There is no UI context in that case, so no fix to the builder is possible. It leads to a pretty poor user experience since the builder has no choice but to log the failure and abort compilation. There are many more examples just like this.",
+    "I\u0027ve had some discussions recently about using OSGi services when needing to pass object through an interim API that doesn\u0027t care about that object.  In this case, it would work by the UI registering an IShellProvider service.  The code doing the validate edit would then do a service lookup on IShellProvider where a null shell is found.  To make it compatible, a marker object could be added in the IResource API to indicate that the service should be used:\n\npublic class ResourcesPlugin {\n  ...\n  public Object USE_UI_CONTEXT_SERVICE \u003d new Object();\n}\n\nAnd a client caling validateEdit from the bowels of code that has no access to a UI context could do:\n\nworkspace.validateEdit(files, ResourcesPlugin.USE_UI_CONTEXT_SERVICE);\n\nThis allows some flexibility for an application to plug in a different strategy for obtaining a UI context at the UI level, without affecting the messenger in between (resources plugin in this case).",
+    "In the above, I should have said \"intermediary\" rather than \"interim\".",
+    "Konstantin, can you clarify if you are referring to the case of a project associated with a team provider, or the case of a project that is not associated with a team provider? I recently discovered a preference has been added in 3.3 to control the behaviour in the case where a project is not associated with a team provider. I.e., when the preference is set to \"true\" it will attempt to clear the read only flag for unshared projects when no shell is provided. This preference is found on the Preferences \u003e Team page.",
+    "Created an attachment (id\u003d53562)\nPatch to org.eclipse.core.resources and org.eclipse.ui.ide\n\nThis patch implements the service approach described above.  A caller of validateEdit can provide a special token to indicate that it should search for a shell using an IShellFinder service.  The IDE plugin registers an implementation of this service that finds the active modal shell, or the first workbench window shell if there are not modal shells. Theoretically other plugins could provide different IShellFinder implementations to alter the shell lookup strategy.",
+    "+1 for getting this in for 3.3. JDT-APT has a couple of source-control scenarios that are currently broken due to this bug.",
+    "John,\n\nSorry it took me so long to reply to your Comment #3 and Comment #4. I lost track of this issue.\n\nRegarding your question in Comment #3, I am mostly concerned about the case where the project is not associated with a team provider although depending on implementation details of a particular team provider, this can happen in that case as well. It is good to know about the new preference to control the prompting behavior, but since the preference still defaults to false the user has to be aware about the existence of this preference, which does not make this an attractive solution.\n\nI like the approach you took in the attached patch where a flag can be passed into validateEdit to let it know to search for the ui context. Do you think this can make it into 3.3M6?",
+    "I like the approach that doesn\u0027t introduce a new validateEdit method, and instead allows a UI-less client to pass a special marker object in to indicate that they would like a UI prompt if possible. However, I don\u0027t like the service lookup approach to finding a shell. I\u0027m now considering adding a new method to TeamHook to address this, but I need to discuss in more detail with a committer on the \"team\" team. Hopefully we\u0027ll come up with something before M6.",
+    "Created an attachment (id\u003d60001)\nAlternate approach\n\nHere\u0027s a patch that has an alternate approach. The client can pass a Shell or the FilModificationValidationContext.PROMPT_IF_POSSIBLE flag to the IWorkspace#valiudateEdit method to indicate that prompting is desired. RepositoryProviders can provide prompting by upgrading their validator to be a subclass of FileModificationValidator in which case they will be provided an instance of FilModificationValidationContext if prompting is desired or null otherwise. The provided context may or may not have a shell. The patch contains the changes to Resources, Team and CVS.",
+    "Would it be possible to move the PROMPT_IF_POSSIBLE constant from FileModificationValidationContext to IWorkspace? To the validateEdit caller, the fact that the prompting behavior is implemented via FileModificationValidationContext is really an implementation detail that ideally should be hidden. In fact, ideally PROMPT_IF_POSSIBLE should be of type Object since user doesn\u0027t really need to know what\u0027s held in that variable.",
+    "Here is why I did it this way. If I was to write the API from scratch, I would define validateEdit as:\n\n   IWorkspace#validateEdit(IFile[], FileModificationValidationContext)\n\nThen the client could provide null if not prompting was desired, FileModificationValidationContext.PROMPT_IF_POSSIBLE if they want prompting but a UI context is not available or call FileModificationValidationContext#createContext(Object) if they wanted to create a context that wrapped a shell.\n\nHaving said that, I\u0027m not against what you propose either (although I don\u0027t see it has having mush benefit either since the javadoc for the IWorkspace#validateEdit indicates where the constant can be found and the type of the constant shouldn\u0027t matter from a client standpoint).",
+    "Ah. That makes sense now. Thanks for the explanation.",
+    "Created an attachment (id\u003d60006)\nUpdated patch\n\nAn update on Michael\u0027s patch, with only the resources plugin changes.  I also added an IWorkspace.VALIDATE_PROMPT field on IWorkspace, based on Konstantin\u0027s feedback.  A client should not have to reference types in the team API package which is intended for team providers only.",
+    "Summary of API changes:\n\nOn the client API: \n - New public static final field VALIDATE_PROMPT that indicates clients want validators to prompt even though a shell has not been provided.\n - Updated javadoc of IWorkspace#validateEdit to indicate that VALIDATE_PROMPT is a permitted argument.\n\nOn the Team API (for team providers only):\n - New abstract FileModificationValidator class to replace IFileModificationValidator interface\n - New method validateEdit(IFile[], FileModificationValidationContext) to replace old validateEdit(IFile[], Object)\n - New class FileModificationValidationContext, with method getShell().\n\nAll changes are fully backwards compatible for both old clients, and old team implementations.",
+    "Michael et al, please provide any further comments soon. I will then start the process of forwarding API request to the PMC.",
+    "I\u0027m fine with your changes and have one question. Should we make the FileModificationValidator#validateEdit(IFile[], Object) final? I don\u0027t see why subclasses would want to implement it.",
+    "Target for M6 pending PMC approval.",
+    "Created an attachment (id\u003d60025)\nUpdated patch (javadoc, make deprecated method final)\n\n",
+    "Created an attachment (id\u003d60068)\nPatch to Team and CVS\n\nHere\u0027s the updated patch to Team and CVS (just so I have it in a safe place until we get PMC approval)",
+    "It\u0027s not clear why the patch includes the change to make the ProjectExplorer show up in the Synchronize perspective.\n\nIn any case, +1.",
+    "Created an attachment (id\u003d60101)\nUpdated patch with unrelated part removed\n\n",
+    "Core resources patch released.\n\nKonstantin/Jess: feel free to give it a spin in the next build, and please enter bugs for any clients you notice that should be calling validateEdit in the new way.",
+    "Thanks for getting this in! This is a huge improvement to the validateEdit facility.",
+    "I have released the team component of this fix.",
+    "So it looks like shell locating logic assumes that it gets called on the UI thread. Since the purpose of this is to allow non-ui caller to get the prompting behavior we cannot assume that the caller knows how to get onto the UI thread, so I am re-opening this bug.\n\norg.eclipse.swt.SWTException: Invalid thread access\nat org.eclipse.swt.SWT.error(SWT.java:3499)\nat org.eclipse.swt.SWT.error(SWT.java:3422)\nat org.eclipse.swt.SWT.error(SWT.java:3393)\nat org.eclipse.swt.widgets.Widget.error(Widget.java:432)\nat org.eclipse.swt.widgets.Shell.\u003cinit\u003e(Shell.java:274)\nat org.eclipse.swt.widgets.Shell.\u003cinit\u003e(Shell.java:265)\nat org.eclipse.swt.widgets.Shell.\u003cinit\u003e(Shell.java:218)\nat org.eclipse.team.internal.ui.Utils.getShell(Utils.java:252)\nat org.eclipse.team.internal.ui.DefaultUIFileModificationValidator.getShell(DefaultUIFileModificationValidator.java:156)\nat org.eclipse.team.internal.ui.DefaultUIFileModificationValidator.validateEdit(DefaultUIFileModificationValidator.java:127)\nat org.eclipse.team.internal.core.DefaultFileModificationValidator.validateEdit(DefaultFileModificationValidator.java:49)\nat org.eclipse.team.internal.core.FileModificationValidatorManager.validateEdit(FileModificationValidatorManager.java:67)\nat org.eclipse.core.resources.team.FileModificationValidator.validateEdit(FileModificationValidator.java:58)\nat org.eclipse.core.internal.resources.Workspace$5.run(Workspace.java:2024)\nat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\nat org.eclipse.core.internal.resources.Workspace.validateEdit(Workspace.java:2027)\n",
+    "I\u0027m going to leave this as fixed because the API and resources portion of this are in place for M6. I\u0027ll open a new bug against the team component for the problem you are seeing (this particular problem is in the team ui implementation of FileModificationValidator).",
+    "Entered bug 178685 for the issue raised in comment #24."
+  ],
+  "commentCreationDates": [
+    "2006-10-13T19:51:14+02:00",
+    "2006-10-20T23:14:14+02:00",
+    "2006-10-20T23:15:04+02:00",
+    "2006-11-08T20:50:59+01:00",
+    "2006-11-09T18:46:51+01:00",
+    "2006-11-27T23:26:40+01:00",
+    "2007-02-13T22:06:35+01:00",
+    "2007-02-28T15:24:18+01:00",
+    "2007-02-28T17:53:36+01:00",
+    "2007-02-28T18:12:41+01:00",
+    "2007-02-28T18:30:40+01:00",
+    "2007-02-28T18:39:45+01:00",
+    "2007-02-28T19:16:54+01:00",
+    "2007-02-28T19:20:24+01:00",
+    "2007-02-28T19:21:40+01:00",
+    "2007-02-28T21:19:27+01:00",
+    "2007-02-28T22:01:05+01:00",
+    "2007-02-28T22:12:19+01:00",
+    "2007-03-01T14:16:43+01:00",
+    "2007-03-01T18:53:52+01:00",
+    "2007-03-01T18:54:54+01:00",
+    "2007-03-01T19:54:50+01:00",
+    "2007-03-01T20:00:30+01:00",
+    "2007-03-01T21:03:27+01:00",
+    "2007-03-21T23:10:03+01:00",
+    "2007-03-21T23:18:13+01:00",
+    "2007-03-21T23:21:10+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Invalid thread access",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3499"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3422"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3393"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:432"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.\u003cinit\u003e",
+          "source": "Shell.java:274"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.\u003cinit\u003e",
+          "source": "Shell.java:265"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.\u003cinit\u003e",
+          "source": "Shell.java:218"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.Utils.getShell",
+          "source": "Utils.java:252"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.DefaultUIFileModificationValidator.getShell",
+          "source": "DefaultUIFileModificationValidator.java:156"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.DefaultUIFileModificationValidator.validateEdit",
+          "source": "DefaultUIFileModificationValidator.java:127"
+        },
+        {
+          "method": "org.eclipse.team.internal.core.DefaultFileModificationValidator.validateEdit",
+          "source": "DefaultFileModificationValidator.java:49"
+        },
+        {
+          "method": "org.eclipse.team.internal.core.FileModificationValidatorManager.validateEdit",
+          "source": "FileModificationValidatorManager.java:67"
+        },
+        {
+          "method": "org.eclipse.core.resources.team.FileModificationValidator.validateEdit",
+          "source": "FileModificationValidator.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace$5.run",
+          "source": "Workspace.java:2024"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.validateEdit",
+          "source": "Workspace.java:2027"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 24,
+      "bugId": "160905",
+      "date": "2007-03-21T23:10:03+01:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "enhancement"
+    }
+  ],
+  "groupId": "160905",
+  "bugId": "160905",
+  "date": "2006-10-13T19:51:14+02:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "enhancement"
+}

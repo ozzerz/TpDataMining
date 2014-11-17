@@ -1,0 +1,121 @@
+{
+  "comments": [
+    "Programs that produce large amounts of output are problematic:\n\n* the console output lags\n* the buffered output can grow large in memory (causing out of mem error)",
+    "Here\u0027s the test program:\n\n\n\tpublic static void main(String[] args) {\n\t\tlong time \u003d System.currentTimeMillis();\n\t\tfor (int i \u003d 1; i \u003c 100000; i++) {\n\t\t\tSystem.out.println(i \n\t+ \"AbcdefghijklmnopqrstuvwxyzAbcdefghijklmnopqrstuvwxyzAbcdefghijklmnopq\nrstuvwxyzAbcdefghijklmnopqrstuvwxyzAbcdefghijklmnopqrstuvwxyzAbcdefghijklmnopqrs\ntuvwxyzAbcdefghijklmnopqrstuvwxyz\");\n\t\t}\n\t\tlong end \u003d System.currentTimeMillis();\n\t\tSystem.out.println(end - time);\n\t\tSystem.out.print(\"at Grah.main(Grah.java:13)\");\n\t  }\n\n\nTimes:\n\n* In Eclipse with 8K poll: 443 seconds\n* From DOS command line: 247 seconds\n* In Eclipse using \"new\" polling method: 36 seconds",
+    "I increased the polling limit (i.e. the characters we process per poll). When \nthe console size is limited, we use the \"low water mark\" as the max polling \nsize (which is the console buffer size as specifed in the user prefs). When no \nlimit is used, we process 80000 max (the default buffer size).",
+    "* If I use the default (or reasonably large buffer size), I do not get any out-\nof-memory errors.\n* If I use \"no limit\" on the console buffer size, I do get a memory error (but \nthat is expected)",
+    "Please verify, changes.",
+    "(fixed?) - I hate to even think it.",
+    "(My measurements indicate our performance is significantly better than running \nfrom the command line - at least on Windows).",
+    "Ed - can you try this with your program that produces 20M of output?",
+    "I bumped Eclipse\u0027s memory size up to 128M and the ran a program that outputs \nabout 20M and it worked ok. A program that outputs displayed about 25M in the \nconsole and then crashed with:\n\nThread [Output Stream Monitor] (Suspended (exception OutOfMemoryError))\n\tStringCoding.decode(String, byte[], int, int) line: 224 [local \nvariables unavailable]\n\tStringCoding.decode(byte[], int, int) line: 230\n\tString.\u003cinit\u003e(byte[], int, int) line: 371\n\tOutputStreamMonitor.read() line: 134\n\tOutputStreamMonitor.access$1(OutputStreamMonitor) line: 124\n\tOutputStreamMonitor$1.run() line: 177\n\tThread.run() line: 534\nThread [Input Stream Monitor] (Running)\nThread [Console Polling Thread] (Suspended (exception OutOfMemoryError))\n\tConsoleDocumentPartitioner.poll() line: 572\n\tConsoleDocumentPartitioner.pollAndSleep() line: 557\n\tConsoleDocumentPartitioner$1.run() line: 543\n\tThread.run() line: 534 [local variables unavailable]\n\nThis is with the maximum console size of 80k. I\u0027ll try non-default values for \nthe maximum console size and see if that helps any.",
+    "With a vm size of 128M, a max console size of 800K allowed the 100M test to \ncomplete (yeah). I also tried a max console size of 1K with the 20M test and \nthe console output got really far behind, as you might expect, but I think it \nwould finish (it was extremely slow so I didn\u0027t wait for it).\n\nThere was a problem though: I tried an unlimited console size with the 20M \ntest to see what kind of lag I\u0027d get in normal usage. This should work ok \nbecause, according to a garbage collect trace file, the vm has over 90M heap \nfree to play with. However, the console froze up (stopped writing) after about \n17M. It said the program had terminated, but it wasn\u0027t showing the last lines. \nI killed Eclipse and tried it again and it ran fine once, then hung the second \ntime. \n\nI looked closer at it in the debugger. The test program has terminated, and so \nhave the output monitor threads. The console polling thread is still running. \nI paused it and got this variable dump for you. Note fAppending is true, and \nfClosed is false:\n\nthis\u003d ConsoleDocumentPartitioner  (id\u003d37)\n\tfAppending\u003d true\n\tfClosed\u003d false\n\tfColorProvider\u003d ConsoleColorProvider  (id\u003d48)\n\tfDocument\u003d ConsoleDocument  (id\u003d51)\n\tfHighWaterMark\u003d -1 [0xffffffff]\n\tfInputBuffer\u003d StringBuffer  (id\u003d58)\n\tfKilled\u003d false\n\tfLastStreamIdentifier\u003d \"org.eclipse.debug.ui.ID_STANDARD_OUTPUT_STREAM\"\n\tfLineLength\u003d 0 [0x0]\n\tfLineNotifier\u003d ConsoleLineNotifier  (id\u003d64)\n\tfLowWaterMark\u003d -1 [0xffffffff]\n\tfMaxAppendSize\u003d 80000 [0x13880]\n\tfMaxLineLength\u003d 80 [0x50]\n\tfPartitions\u003d ArrayList  (id\u003d66)\n\tfPendingLinks\u003d Vector  (id\u003d72)\n\tfPoll\u003d true\n\tfPollingThread\u003d Thread  (id\u003d30)\n\tfProcess\u003d RuntimeProcess  (id\u003d75)\n\tfProxy\u003d StreamsProxy  (id\u003d81)\n\tfQueue\u003d Vector  (id\u003d84)\n\tfSortedLineDelimiters\u003d null\n\tfStreamListeners\u003d ArrayList  (id\u003d85)\n\tfUpdatingBuffer\u003d false\n\tfWrap\u003d false\n\nThe runtime workbench console says:\n\nUnhandled exception caught in event loop.\nReason:\nFailed to execute runnable (java.lang.OutOfMemoryError)\n\n*** Stack trace of contained exception ***\nReason:\njava.lang.OutOfMemoryError\n\nAnd the .log says:\n\norg.eclipse.swt.SWTException: Failed to execute runnable \n(java.lang.OutOfMemoryError)\nat org.eclipse.swt.SWT.error(SWT.java:2369)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:105)\nat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2149)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1866)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2064)\nat org.eclipse.ui.internal.Workbench.run(Workbench.java:2047)\nat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:858)\nat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\nat java.lang.reflect.Method.invoke(Method.java:324)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:295)\nat org.eclipse.core.launcher.Main.run(Main.java:751)\nat org.eclipse.core.launcher.Main.main(Main.java:587)\n\n",
+    "OK - it appears there are still potential memory problems.",
+    "I\u0027m going to make this P4 - the workaround is to use a bounded buffer on the \nconsole.",
+    "Nothing more planned for 3.0",
+    "Ed, is the 20M output case still a problem in 3.1 M3 (with an unlimited \nconsole buffer)?",
+    "It\u0027s handling things pretty well now. I think you can close it.",
+    "Great!",
+    "marking as works for me."
+  ],
+  "commentCreationDates": [
+    "2003-09-25T16:21:38+02:00",
+    "2003-09-25T16:28:23+02:00",
+    "2003-09-25T16:30:48+02:00",
+    "2003-09-25T16:36:23+02:00",
+    "2003-09-25T16:37:53+02:00",
+    "2003-09-25T16:38:14+02:00",
+    "2003-09-25T16:40:15+02:00",
+    "2003-09-25T16:43:00+02:00",
+    "2003-09-25T17:40:34+02:00",
+    "2003-09-25T18:09:19+02:00",
+    "2003-09-25T18:57:52+02:00",
+    "2004-03-26T20:33:31+01:00",
+    "2004-04-13T18:32:13+02:00",
+    "2004-11-08T18:35:47+01:00",
+    "2004-11-08T21:00:57+01:00",
+    "2004-11-08T21:07:31+01:00",
+    "2004-11-08T21:11:25+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Failed to execute runnable  (java.lang.OutOfMemoryError)",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2369"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:105"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2149"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1866"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2064"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:2047"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:858"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:295"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:751"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:587"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 9,
+      "bugId": "43654",
+      "date": "2003-09-25T18:09:19+02:00",
+      "product": "Platform",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "43654",
+  "bugId": "43654",
+  "date": "2003-09-25T16:21:38+02:00",
+  "product": "Platform",
+  "component": "Debug",
+  "severity": "normal"
+}

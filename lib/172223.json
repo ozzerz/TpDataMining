@@ -1,0 +1,249 @@
+{
+  "comments": [
+    "Probing a storage subsystem or running an out of band fabric discovery may fail with the following DB sqlException using DB2 as repository running Aperi-20070124-190706.zip build\n\ncom.ibm.db2.jcc.b.SqlException: BigDecimal conversion exception [ibm][db2][jcc][\nconverters] Overflow occurred during numeric data type conversion of \"1.17018605\n6E+12\".. See attached Throwable.\n        at com.ibm.db2.jcc.a.gb.a(gb.java:2048)\n        at com.ibm.db2.jcc.a.jb.a(jb.java:1078)\n        at com.ibm.db2.jcc.a.jb.a(jb.java:792)\n        at com.ibm.db2.jcc.a.jb.a(jb.java:163)\n        at com.ibm.db2.jcc.a.tb.a(tb.java:220)\n        at com.ibm.db2.jcc.b.ad.a(ad.java:1625)\n        at com.ibm.db2.jcc.b.ad.d(ad.java:2036)\n        at com.ibm.db2.jcc.b.ad.V(ad.java:521)\n        at com.ibm.db2.jcc.b.ad.executeUpdate(ad.java:504)\n        at org.eclipse.aperi.infrastructure.database.DBPreparedStatement.execute\nUpdate(DBPreparedStatement.java:250)\n        at org.eclipse.aperi.infrastructure.database.DBQueryAssistant.insert(DBQ\nueryAssistant.java:167)\n        at org.eclipse.aperi.infrastructure.database.DBQueryAssistant.performIns\nert(DBQueryAssistant.java:940)\n        at org.eclipse.aperi.infrastructure.database.objects.RunJobs.insert(RunJ\nobs.java:165)\n        at org.eclipse.aperi.ServiceUtils.createJobRecord(ServiceUtils.java:228)\n\n        at org.eclipse.aperi.Router.perform(Router.java:960)\n        at org.eclipse.aperi.Router.perform(Router.java:746)\n        at org.eclipse.aperi.DiscoverService.discover(DiscoverService.java:109)\n        at org.eclipse.aperi.disk.api.impl.DiskCollectionOperations.probeStorage\nSubsystems(DiskCollectionOperations.java:467)\n        at org.eclipse.aperi.disk.api.impl.DiskManager.probeStorageSubsystems(Di\nskManager.java:603)\n        at org.eclipse.aperi.disk.api.impl.DiskManagerService.probeStorageSubsys\ntems(DiskManagerService.java:1321)\n        at org.eclipse.aperi.disk.api.impl.DiskManagerService.probeStorageSubsys\ntems(DiskManagerService.java:1302)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n        at java.lang.reflect.Method.invoke(Unknown Source)\n        at org.eclipse.aperi.DiscoverService.invoke(DiscoverService.java:550)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n        at java.lang.reflect.Method.invoke(Unknown Source)\n        at org.apache.soap.server.RPCRouter.invoke(RPCRouter.java:146)\n        at org.apache.soap.providers.RPCJavaProvider.invoke(RPCJavaProvider.java\n:129)\n        at org.apache.soap.server.http.RPCRouterServlet.doPost(RPCRouterServlet.\njava:354)\n        at org.eclipse.aperi.connector.internal.server.Connector.doPost(Connecto\nr.java:90)\n        at javax.servlet.http.HttpServlet.service(HttpServlet.java:616)\n        at javax.servlet.http.HttpServlet.service(HttpServlet.java:689)\n        at org.eclipse.equinox.http.servlet.internal.ServletRegistration.handleR\nequest(ServletRegistration.java:91)\n        at org.eclipse.equinox.http.servlet.internal.ProxyServlet.processAlias(P\nroxyServlet.java:110)\n        at org.eclipse.equinox.http.servlet.internal.ProxyServlet.service(ProxyS\nervlet.java:60)\n        at javax.servlet.http.HttpServlet.service(HttpServlet.java:689)\n        at org.mortbay.jetty.servlet.ServletHolder.handle(ServletHolder.java:428\n)\n        at org.mortbay.jetty.servlet.ServletHandler.dispatch(ServletHandler.java\n:677)\n        at org.mortbay.jetty.servlet.ServletHandler.handle(ServletHandler.java:5\n68)\n        at org.mortbay.http.HttpContext.handle(HttpContext.java:1530)\n        at org.mortbay.http.HttpContext.handle(HttpContext.java:1482)\n        at org.mortbay.http.HttpServer.service(HttpServer.java:909)\n        at org.mortbay.http.HttpConnection.service(HttpConnection.java:820)\n        at org.mortbay.http.HttpConnection.handleNext(HttpConnection.java:986)\n        at org.mortbay.http.HttpConnection.handle(HttpConnection.java:837)\n        at org.eclipse.aperi.connector.internal.server.BiModalSocketListener.han\ndleConnection(BiModalSocketListener.java:70)\n        at org.eclipse.aperi.connector.internal.server.BiModalSocketListener.han\ndle(BiModalSocketListener.java:34)\n        at org.mortbay.util.ThreadPool$PoolThread.run(ThreadPool.java:534)",
+    "DB2 8 does not support jvm 1.5 -- apparently this does not appear with jvm 1.4 and DB2 8. At this point our options are to upgrade to DB2 9, or to regress to jvm 1.4 . I dont think the latter is an option, so lets discuss this some more.",
+    "Is this a client issue or a server issue? (Could we change the driver but keep the server the same?)\n",
+    "Its a client issue -- its not clear which DB2 jcc driver fixes this problem. Continuing investigation..",
+    "Lower the severity to be enhancement ",
+    "OK, I got this to reproduce reliably and did some debugging/research.\nThe value in question causing the overflow is the timestamp (a java double intrinsic type) for the job that is starting up.\nAbout four out of five times no exception is raised. About one if five an exception is thrown. The exception bubbles up from the guts of the jdbc driver itself(it never reaches the DB server).\nThe jdbc driver code is heavily obfuscated so reverse compiling didn\u0027t reveal much other than BigDecimal was indeed involved.\nApparently, there were a lot of changes made to BigDecimal for Java 1.5 (addition of floating point support) and this has thrown some things off. It seems the jdbc driver uses BigDecimals for converting doubles to SQL Decimal values.\nI have found scattered reports on the web of others having problems with Java 1.5 using jdbc drivers that worked fine with Java 1.4. Not only with DB2 but with Oracle as well.\nI am not sure why it would be intermittent, but the values being converted do vary subtly and might trigger some boundary condition.\nIn any event, I concur with Prasenjit\u0027s earlier analysis. We can\u0027t go back to Java 1.4, so we have to go forward to DB2 9 which does support Java 1.5.\n",
+    "The Aperi R0.4 code will support DB2 9 with Java 1.5 so there will no longer be a problem.  "
+  ],
+  "commentCreationDates": [
+    "2007-01-30T20:00:22+01:00",
+    "2007-03-27T00:52:18+02:00",
+    "2007-03-27T00:57:09+02:00",
+    "2007-03-27T01:23:15+02:00",
+    "2007-04-27T23:26:18+02:00",
+    "2007-11-29T04:15:33+01:00",
+    "2007-12-05T22:43:48+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "com.ibm.db2.jcc.b.SqlException",
+      "message": "BigDecimal conversion exception [ibm][db2][jcc][ converters] Overflow occurred during numeric data type conversion of \"1.17018605 6E+12\".. See attached Throwable.",
+      "elements": [
+        {
+          "method": "com.ibm.db2.jcc.a.gb.a",
+          "source": "gb.java:2048"
+        },
+        {
+          "method": "com.ibm.db2.jcc.a.jb.a",
+          "source": "jb.java:1078"
+        },
+        {
+          "method": "com.ibm.db2.jcc.a.jb.a",
+          "source": "jb.java:792"
+        },
+        {
+          "method": "com.ibm.db2.jcc.a.jb.a",
+          "source": "jb.java:163"
+        },
+        {
+          "method": "com.ibm.db2.jcc.a.tb.a",
+          "source": "tb.java:220"
+        },
+        {
+          "method": "com.ibm.db2.jcc.b.ad.a",
+          "source": "ad.java:1625"
+        },
+        {
+          "method": "com.ibm.db2.jcc.b.ad.d",
+          "source": "ad.java:2036"
+        },
+        {
+          "method": "com.ibm.db2.jcc.b.ad.V",
+          "source": "ad.java:521"
+        },
+        {
+          "method": "com.ibm.db2.jcc.b.ad.executeUpdate",
+          "source": "ad.java:504"
+        },
+        {
+          "method": "org.eclipse.aperi.infrastructure.database.DBPreparedStatement.executeUpdate",
+          "source": "DBPreparedStatement.java:250"
+        },
+        {
+          "method": "org.eclipse.aperi.infrastructure.database.DBQueryAssistant.insert",
+          "source": "DBQ ueryAssistant.java:167"
+        },
+        {
+          "method": "org.eclipse.aperi.infrastructure.database.DBQueryAssistant.performInsert",
+          "source": "DBQueryAssistant.java:940"
+        },
+        {
+          "method": "org.eclipse.aperi.infrastructure.database.objects.RunJobs.insert",
+          "source": "RunJ obs.java:165"
+        },
+        {
+          "method": "org.eclipse.aperi.ServiceUtils.createJobRecord",
+          "source": "ServiceUtils.java:228"
+        },
+        {
+          "method": "org.eclipse.aperi.Router.perform",
+          "source": "Router.java:960"
+        },
+        {
+          "method": "org.eclipse.aperi.Router.perform",
+          "source": "Router.java:746"
+        },
+        {
+          "method": "org.eclipse.aperi.DiscoverService.discover",
+          "source": "DiscoverService.java:109"
+        },
+        {
+          "method": "org.eclipse.aperi.disk.api.impl.DiskCollectionOperations.probeStorageSubsystems",
+          "source": "DiskCollectionOperations.java:467"
+        },
+        {
+          "method": "org.eclipse.aperi.disk.api.impl.DiskManager.probeStorageSubsystems",
+          "source": "Di skManager.java:603"
+        },
+        {
+          "method": "org.eclipse.aperi.disk.api.impl.DiskManagerService.probeStorageSubsystems",
+          "source": "DiskManagerService.java:1321"
+        },
+        {
+          "method": "org.eclipse.aperi.disk.api.impl.DiskManagerService.probeStorageSubsystems",
+          "source": "DiskManagerService.java:1302"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.aperi.DiscoverService.invoke",
+          "source": "DiscoverService.java:550"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.soap.server.RPCRouter.invoke",
+          "source": "RPCRouter.java:146"
+        },
+        {
+          "method": "org.apache.soap.providers.RPCJavaProvider.invoke",
+          "source": "RPCJavaProvider.java :129"
+        },
+        {
+          "method": "org.apache.soap.server.http.RPCRouterServlet.doPost",
+          "source": "RPCRouterServlet. java:354"
+        },
+        {
+          "method": "org.eclipse.aperi.connector.internal.server.Connector.doPost",
+          "source": "Connecto r.java:90"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:616"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:689"
+        },
+        {
+          "method": "org.eclipse.equinox.http.servlet.internal.ServletRegistration.handleRequest",
+          "source": "ServletRegistration.java:91"
+        },
+        {
+          "method": "org.eclipse.equinox.http.servlet.internal.ProxyServlet.processAlias",
+          "source": "P roxyServlet.java:110"
+        },
+        {
+          "method": "org.eclipse.equinox.http.servlet.internal.ProxyServlet.service",
+          "source": "ProxyS ervlet.java:60"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:689"
+        },
+        {
+          "method": "org.mortbay.jetty.servlet.ServletHolder.handle",
+          "source": "ServletHolder.java:428 "
+        },
+        {
+          "method": "org.mortbay.jetty.servlet.ServletHandler.dispatch",
+          "source": "ServletHandler.java :677"
+        },
+        {
+          "method": "org.mortbay.jetty.servlet.ServletHandler.handle",
+          "source": "ServletHandler.java:5 68"
+        },
+        {
+          "method": "org.mortbay.http.HttpContext.handle",
+          "source": "HttpContext.java:1530"
+        },
+        {
+          "method": "org.mortbay.http.HttpContext.handle",
+          "source": "HttpContext.java:1482"
+        },
+        {
+          "method": "org.mortbay.http.HttpServer.service",
+          "source": "HttpServer.java:909"
+        },
+        {
+          "method": "org.mortbay.http.HttpConnection.service",
+          "source": "HttpConnection.java:820"
+        },
+        {
+          "method": "org.mortbay.http.HttpConnection.handleNext",
+          "source": "HttpConnection.java:986"
+        },
+        {
+          "method": "org.mortbay.http.HttpConnection.handle",
+          "source": "HttpConnection.java:837"
+        },
+        {
+          "method": "org.eclipse.aperi.connector.internal.server.BiModalSocketListener.handleConnection",
+          "source": "BiModalSocketListener.java:70"
+        },
+        {
+          "method": "org.eclipse.aperi.connector.internal.server.BiModalSocketListener.handle",
+          "source": "BiModalSocketListener.java:34"
+        },
+        {
+          "method": "org.mortbay.util.ThreadPool$PoolThread.run",
+          "source": "ThreadPool.java:534"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "172223",
+      "date": "2007-01-30T20:00:22+01:00",
+      "product": "Aperi",
+      "component": "aperi.db",
+      "severity": "major"
+    }
+  ],
+  "groupId": "172223",
+  "bugId": "172223",
+  "date": "2007-01-30T20:00:22+01:00",
+  "product": "Aperi",
+  "component": "aperi.db",
+  "severity": "major"
+}

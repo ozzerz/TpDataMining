@@ -1,0 +1,133 @@
+{
+  "comments": [
+    "When using IBM JRE after a few hundred thousand events:\n\nProcessed: 12957506 bytes, bytes/second: 1851072, events processed: 101831, events/second: 14547, elapsed time: 7 seconds\n\nI get the following errors in the console and after that I don\u0027t get any more data (basically the connection is closed or at least the DataProcessor is stopped)\n\n!SESSION 2006-05-07 17:02:11.786 -----------------------------------------------\neclipse.buildId\u003dI20060428-1315\njava.fullversion\u003dJ2RE 1.4.2 IBM Windows 32 build cn142sr1a-20050209 (JIT enabled: jitc)\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nFramework arguments:  -product org.eclipse.sdk.ide - ALL\\dev.properties -pdelaunch -os win32 -ws win32 -arch x86\nCommand-line arguments:  -product org.eclipse.sdk.ide -data r-w1 - ALL\\dev.properties -pdelaunch -os win32 -ws win32 -arch x86\n\n!ENTRY org.eclipse.osgi 4 0 2006-05-07 17:02:16.663\n!MESSAGE Error reading configuration: E:\\test\\callisto\\eclipse\\w1\\.metadata\\.plugins\\org.eclipse.pde.core\\Eclipse - ALL\" -dev file:E:\\test\\callisto\\eclipse\\w1\\.metadata\\.plugins\\org.eclipse.pde.core\\Eclipse\\org.eclipse.osgi\\.manager\\.fileTableLock (The filename, directory name, or volume label syntax is incorrect)\n!STACK 0\njava.io.FileNotFoundException: E:\\test\\callisto\\eclipse\\w1\\.metadata\\.plugins\\org.eclipse.pde.core\\Eclipse - ALL\" -dev file:E:\\test\\callisto\\eclipse\\w1\\.metadata\\.plugins\\org.eclipse.pde.core\\Eclipse\\org.eclipse.osgi\\.manager\\.fileTableLock (The filename, directory name, or volume label syntax is incorrect)\n\tat java.io.RandomAccessFile.open(Native Method)\n\tat java.io.RandomAccessFile.\u003cinit\u003e(RandomAccessFile.java:230)\n\tat org.eclipse.core.runtime.internal.adaptor.Locker_JavaNio.lock(Locker_JavaNio.java:30)\n\tat org.eclipse.osgi.storagemanager.StorageManager.lock(StorageManager.java:387)\n\tat org.eclipse.osgi.storagemanager.StorageManager.open(StorageManager.java:694)\n\tat org.eclipse.osgi.internal.baseadaptor.BaseStorage.initFileManager(BaseStorage.java:152)\n\tat org.eclipse.osgi.internal.baseadaptor.BaseStorage.initialize(BaseStorage.java:129)\n\tat org.eclipse.osgi.baseadaptor.BaseAdaptor.initializeStorage(BaseAdaptor.java:124)\n\tat org.eclipse.osgi.framework.internal.core.Framework.initialize(Framework.java:138)\n\tat org.eclipse.osgi.framework.internal.core.Framework.\u003cinit\u003e(Framework.java:112)\n\tat org.eclipse.osgi.framework.internal.core.OSGi.createFramework(OSGi.java:90)\n\tat org.eclipse.osgi.framework.internal.core.OSGi.\u003cinit\u003e(OSGi.java:31)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.startup(EclipseStarter.java:286)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:173)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:85)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:58)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:60)\n\tat java.lang.reflect.Method.invoke(Method.java:391)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)\njava.io.FileNotFoundException: E:\\test\\callisto\\eclipse\\w1\\.metadata\\.plugins\\org.eclipse.pde.core\\Eclipse - ALL\" -dev file:E:\\test\\callisto\\eclipse\\w1\\.metadata\\.plugins\\org.eclipse.pde.core\\Eclipse\\config.ini (The filename, directory name, or volume label syntax is incorrect)",
+    "See bug 140516 for SUN JRE problem with same test.",
+    "The profiled Eclipse Java process remains active and takes 100% CPU after the data processor stops.",
+    "This scenario seems to work with SUN JRE 1.4.2_09.\n\nThe data processor is ended by a call to cleanup, which I suspect comes from the XMLTraceDataProcessor dataServerExited method:\n\nXMLLoader loadEvents, cleanup(), fragmentsCount\u003d101831, contextInfo\u003dplatform:/resource/ProfileProject/DefaultMonitor_slavescu_3812_Sunday,May7,200652054PMEDT__Java Profiling Agent.trcaxmi: deltaTime\u003d9323 - stopTime\u003d1147036864224 - usedMemoryDelta\u003d-20713936 - freeMemoryDelta\u003d21041616 - totalMemoryDelta\u003d327680 - usedMemoryAfter\u003d44724208 - freeMemoryAfter\u003d39815696 - totalMemoryAfter\u003d84539904\n",
+    "Correction: works longer with SUN JRE 1.4.2_09, eventually will fail with this error:\n\n#\n# An unexpected error has been detected by HotSpot Virtual Machine:\n#\n#  EXCEPTION_ACCESS_VIOLATION (0xc0000005) at pc\u003d0x0807acc6, pid\u003d2272, tid\u003d2500\n#\n# Java VM: Java HotSpot(TM) Client VM (1.4.2_09-b05 mixed mode)\n# Problematic frame:\n# V  [jvm.dll+0x7acc6]\n#\n# An error report file with more information is saved as hs_err_pid2272.log\n#\n# If you would like to submit a bug report, please visit:\n#   http://java.sun.com/webapps/bugreport/crash.jsp\n# ",
+    "Using the RC2 package (4.2i2 RAC).",
+    "There is a memory leak in the native shared memory flusher code. When an output stream is used as the flushing target, java byte arrays are repeatly being allocated without being freed up. According to Java JNI spec, a call to \"ReleaseByteArrayElements()\" should be able to free up the byte array. After testing on 3 different JVMs (IBM 1.4.2 SR5, IBM 1.5.0 SR1, Sun 1.5.0_06) they all crash when calling that function. Instead, a call to \"DeleteLocalRef()\" seems to be able to free up the byte array.\n\nFix checked into CVS 2006/05/14 20:18 EDT\n- ossramboflush.cpp\n"
+  ],
+  "commentCreationDates": [
+    "2006-05-07T23:13:41+02:00",
+    "2006-05-07T23:15:11+02:00",
+    "2006-05-07T23:20:40+02:00",
+    "2006-05-07T23:26:03+02:00",
+    "2006-05-08T00:13:59+02:00",
+    "2006-05-08T18:47:33+02:00",
+    "2006-05-15T02:16:40+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.FileNotFoundException",
+      "message": "E:\\test\\callisto\\eclipse\\w1\\.metadata\\.plugins\\org.eclipse.pde.core\\Eclipse - ALL\" -dev file:E:\\test\\callisto\\eclipse\\w1\\.metadata\\.plugins\\org.eclipse.pde.core\\Eclipse\\org.eclipse.osgi\\.manager\\.fileTableLock (The filename, directory name, or volume label syntax is incorrect)",
+      "elements": [
+        {
+          "method": "java.io.RandomAccessFile.open",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.io.RandomAccessFile.\u003cinit\u003e",
+          "source": "RandomAccessFile.java:230"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.Locker_JavaNio.lock",
+          "source": "Locker_JavaNio.java:30"
+        },
+        {
+          "method": "org.eclipse.osgi.storagemanager.StorageManager.lock",
+          "source": "StorageManager.java:387"
+        },
+        {
+          "method": "org.eclipse.osgi.storagemanager.StorageManager.open",
+          "source": "StorageManager.java:694"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.BaseStorage.initFileManager",
+          "source": "BaseStorage.java:152"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.BaseStorage.initialize",
+          "source": "BaseStorage.java:129"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.BaseAdaptor.initializeStorage",
+          "source": "BaseAdaptor.java:124"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.initialize",
+          "source": "Framework.java:138"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.\u003cinit\u003e",
+          "source": "Framework.java:112"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.OSGi.createFramework",
+          "source": "OSGi.java:90"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.OSGi.\u003cinit\u003e",
+          "source": "OSGi.java:31"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.startup",
+          "source": "EclipseStarter.java:286"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:173"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:85"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:58"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:60"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:391"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "140517",
+      "date": "2006-05-07T23:13:41+02:00",
+      "product": "TPTP Agent Controller",
+      "component": "Platform.Collection",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "140517",
+  "bugId": "140517",
+  "date": "2006-05-07T23:13:41+02:00",
+  "product": "TPTP Agent Controller",
+  "component": "Platform.Collection",
+  "severity": "critical"
+}

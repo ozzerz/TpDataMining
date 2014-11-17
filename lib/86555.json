@@ -1,0 +1,86 @@
+{
+  "comments": [
+    "I tried hitting F3 in the source view",
+    "the same happened to me.\nfor some strange reason the F3 Key stopped working.\n\nafter some investigation i solved the problem. The problem was the javacc plugin\nwhich overwrote the key settings. f3 worked only in javacc views. i set it back\nto open declaration and everything worked fine again. maybe some a-like problem.",
+    "Here\u0027s what I tried: I positioned the cursor on an operation input, on top of the message attribute and hit F3 expecting the editor to navigate to the corresponding message definition.\n\n\nI was expecting that OpenOnSelectionHelper#computeSpecification(Node) would be called with an Attr. The hyperlink detector instead identifies the output node and not the attribute \"node\". The code that retrieves the node from a DOMModelImpl based on the text region appears to stop at the Output element level. It does not seem to try to identify an attribute based on a region. It only uses the parent/child relationship in the DOM, and since Attrs are not part of the DOM per se (but rather held as a collection at the element level) ...they don\u0027t get matched. It appears that most case* methods in OpenOnSelectionHelper expect that the element AND the attribute are known. In fact because of the above, the attribute is always null. The only method which does not assume that the attribute name is there all the time is casePart. So, the navigation does not work.\n\n \n\nDid this functionality ever work? Has the level of granularity for identifying a Node in a IStructuredModel based on a region change over time from attribute to element? Because the XSD editor seems to behave OK, I had a look at that code to see what\u0027s going on. They have implemented quite a bit of code to infer where they can navigate based on the component type (element). Their code does not seem to assume that the attribute name is known.\n \nI did hack a bit the caseInput and caseOutput methods to get something working, basically asking for the EMessage reference and using that if not null. I also fixed a bit the casePart method which was using getElement instead of getElementDeclaration. So now I can navigate from a message ref to the message definition and from a part to the schema containing the type. It does not quite go all the way to the type yet.\n \nShould we try to get it to work by removing the assumption that the attribute name is known and use the model state to control the navigation? Or should we find out why we can\u0027t get more detailed info from the structured model.",
+    "I don\u0027t *think* this behavior has ever changed.  Rember, that \"indexedNode\" is already more abstract than an Element. Its mean to be an IndexedNode, not an Indexed--Node :) \n(And IndexedNodes returned in CSS are a little different than Element in XML). \nSo, I think the assumption was, that if if the client got \"Element\", and they might want \"attribute\", that they can still get that level of detail if they want. \n(Sorry, don\u0027t know the code/API\u0027s right off ... but, pretty sure its all there). ",
+    "Thank you, David.\n \nIt is now clear to me that the attribute source position data (region) is created by the parser and that the APIs are there to make it easy for me to detect whether the cursor is over an attribute.\n\nI am working on a fix which I will make available shortly as a patch.",
+    "I have to confess my ignorance of the exact use case being addressed here. \n(I\u0027m not sure what \"operation input\" is or how many forms it can take). \n\nBut, anything that depends on ITextRegion is getting pretty low level and dependent on more and more \"internal\" methods. So ... I\u0027m wondering if that can be avoided (including, perhaps, what ever the current code incorrectly does?) Have you exhausted all hope of using a more DOM based approach. Even if it involes the source specific extensions like IDOMNode, IDOMElement, IIDOMAttr? Even though those are, technically, still internal, that\u0027s the area to \"push\" on to see if there is sufficient information. If not, please clarify. \n\n",
+    "Created an attachment (id\u003d33573)\nProposed initial patch for WSDLHyperlinkDetector\n\nHere is the first rough cut of a proposed patch. It is not perfect but I hope it will provide a good basis for discussion.\n\nThe Ctrl+click (or F3) \"go to declaration\" navigation is now enabled for the attributes which identify a target component. The cursor/mouse has to be inside the attribute\u0027s value. In the previous version, the entire element containing the attribute was active. I\u0027m looking for some feedback on what\u0027s best - active attribute value vs. the entire element.\n\nBecause of a limitation in determining the exact text region for an attribute\u0027s value, if there are white spaces after the ending quote, the hyperlink will appear to extend under this white space as well.\n\nPlease try it out and let me know what you think.",
+    "Created an attachment (id\u003d33574)\nPatch for OpenOnSelectionHelper\n\nThis patch fixes the navigation from a part\u0027s element reference to the element definition.",
+    "Created an attachment (id\u003d34875)\nNew patch\n\nImproved patch, based on the fix for https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d128290",
+    "Valentin, your patch seems to work ... except for a class cast exception that I get when I attempt to navigate into an inline schema (from a part\u0027s element ref).  I\u0027ve pasted the stack below.  I checked your patch into HEAD but I won\u0027t release the change into a build until you have a chance to look into the exception.\n\njava.lang.ClassCastException\nat org.eclipse.wst.wsdl.ui.internal.WSDLEditor$WSDLSelectionManagerSelectionListener.getObjectForOtherModel(WSDLEditor.java:294)\nat org.eclipse.wst.wsdl.ui.internal.WSDLEditor$WSDLSelectionManagerSelectionListener.selectionChanged(WSDLEditor.java:318)\nat org.eclipse.wst.wsdl.ui.internal.WSDLSelectionManager.setSelection(WSDLSelectionManager.java:41)\nat org.eclipse.wst.wsdl.ui.internal.WSDLSelectionManager.setSelection(WSDLSelectionManager.java:55)\nat org.eclipse.wst.wsdl.ui.internal.WSDLHyperlink.open(WSDLHyperlink.java:115)\nat org.eclipse.wst.sse.ui.internal.hyperlink.OpenHyperlinkAction.run(OpenHyperlinkAction.java:63)\nat org.eclipse.jface.action.Action.runWithEvent(Action.java:492)",
+    "Created an attachment (id\u003d34887)\nWSDL editor patch - fixes ClassCastException\n\nYes...I overlooked the fact that the target object can be an inline schema component not only a WSDL element.\n\nPlease try this patch.",
+    "Created an attachment (id\u003d40600)\nA new patch\n\nThis patch adapts parts of the old fix to the new WSDL editor. Please apply to wst.wsdl.ui.",
+    "Valentin,\nIt looks good.  I\u0027ve checked in the patch and will release shortly.\nThanks.",
+    "thanks Valentin, this appears to be fixed now",
+    "Verified on WTP 1.5  wtp-sdk-S-1.5RC5-200606161055",
+    "Close bug"
+  ],
+  "commentCreationDates": [
+    "2005-02-24T20:30:49+01:00",
+    "2005-09-13T11:31:53+02:00",
+    "2006-01-24T17:09:53+01:00",
+    "2006-01-24T18:39:28+01:00",
+    "2006-01-24T21:53:53+01:00",
+    "2006-01-25T03:06:44+01:00",
+    "2006-01-25T06:24:33+01:00",
+    "2006-01-25T06:32:33+01:00",
+    "2006-02-16T20:50:01+01:00",
+    "2006-02-16T21:52:16+01:00",
+    "2006-02-17T00:07:26+01:00",
+    "2006-05-08T17:13:25+02:00",
+    "2006-05-09T21:46:11+02:00",
+    "2006-05-28T02:28:37+02:00",
+    "2006-06-19T18:41:20+02:00",
+    "2006-06-19T18:41:31+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.wsdl.ui.internal.WSDLEditor$WSDLSelectionManagerSelectionListener.getObjectForOtherModel",
+          "source": "WSDLEditor.java:294"
+        },
+        {
+          "method": "org.eclipse.wst.wsdl.ui.internal.WSDLEditor$WSDLSelectionManagerSelectionListener.selectionChanged",
+          "source": "WSDLEditor.java:318"
+        },
+        {
+          "method": "org.eclipse.wst.wsdl.ui.internal.WSDLSelectionManager.setSelection",
+          "source": "WSDLSelectionManager.java:41"
+        },
+        {
+          "method": "org.eclipse.wst.wsdl.ui.internal.WSDLSelectionManager.setSelection",
+          "source": "WSDLSelectionManager.java:55"
+        },
+        {
+          "method": "org.eclipse.wst.wsdl.ui.internal.WSDLHyperlink.open",
+          "source": "WSDLHyperlink.java:115"
+        },
+        {
+          "method": "org.eclipse.wst.sse.ui.internal.hyperlink.OpenHyperlinkAction.run",
+          "source": "OpenHyperlinkAction.java:63"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:492"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 9,
+      "bugId": "86555",
+      "date": "2006-02-16T21:52:16+01:00",
+      "product": "Web Tools",
+      "component": "wst.wsdl",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "86555",
+  "bugId": "86555",
+  "date": "2005-02-24T20:30:49+01:00",
+  "product": "Web Tools",
+  "component": "wst.wsdl",
+  "severity": "normal"
+}

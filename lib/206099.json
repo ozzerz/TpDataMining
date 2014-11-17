@@ -1,0 +1,180 @@
+{
+  "comments": [
+    "Build ID: EMF2.2.1\n\nSteps To Reproduce:\nAt high load, we get following exception which seem to be caused by synchronization issues in the EMF. We do not get exceptions, when we start the test case with very slow load; however, if we start it aggressively (like with 50 threads in parallel), the server never recovers and we have to restart. The env is based on WAS61/EMF221. A simple test case can be provided.\n \n\njava.util.ConcurrentModificationException\n\tat org.eclipse.emf.common.util.BasicEList$EIterator.checkModCount(BasicEList.java:1327)\n\tat org.eclipse.emf.common.util.BasicEList$EIterator.next(BasicEList.java:1275)\n\tat org.eclipse.emf.common.util.BasicEList.getNonDuplicates(BasicEList.java:1907)\n\tat org.eclipse.emf.common.util.BasicEList.addAll(BasicEList.java:686)\n\tat org.eclipse.emf.ecore.impl.EClassImpl.getEAllStructuralFeatures(EClassImpl.java:388)\n\tat com.ibm.ws.bo.bomodel.impl.BusinessObjectTypeImpl.getEAllStructuralFeatures(BusinessObjectTypeImpl.java:86)\n\tat org.eclipse.emf.ecore.impl.EClassImpl.getEAllStructuralFeaturesData(EClassImpl.java:825)\n\tat org.eclipse.emf.ecore.impl.EClassImpl.getFeatureCount(EClassImpl.java:837)\n\tat com.ibm.ws.bo.bomodel.impl.BusinessObjectTypeImpl.getEStructuralFeature(BusinessObjectTypeImpl.java:171)\n\tat org.eclipse.emf.ecore.sdo.util.SDOUtil.setDate(SDOUtil.java:2187)\n\tat org.eclipse.emf.ecore.sdo.impl.DynamicEDataObjectImpl.setDate(DynamicEDataObjectImpl.java:497)\n\tat com.ibm.test.Test.doGet(Test.java:56)\n\tat javax.servlet.http.HttpServlet.service(HttpServlet.java:743)\n\tat javax.servlet.http.HttpServlet.service(HttpServlet.java:856)\n\tat com.ibm.ws.webcontainer.servlet.ServletWrapper.service(ServletWrapper.java:989)\n\tat com.ibm.ws.webcontainer.servlet.ServletWrapper.handleRequest(ServletWrapper.java:501)\n\tat com.ibm.ws.wswebcontainer.servlet.ServletWrapper.handleRequest(ServletWrapper.java:464)\n\tat com.ibm.ws.webcontainer.webapp.WebApp.handleRequest(WebApp.java:3252)\n\tat com.ibm.ws.webcontainer.webapp.WebGroup.handleRequest(WebGroup.java:264)\n\tat com.ibm.ws.webcontainer.WebContainer.handleRequest(WebContainer.java:811)\n\tat com.ibm.ws.wswebcontainer.WebContainer.handleRequest(WebContainer.java:1433)\n\tat com.ibm.ws.webcontainer.channel.WCChannelLink.ready(WCChannelLink.java:112)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleDiscrimination(HttpInboundLink.java:454)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleNewInformation(HttpInboundLink.java:383)\n\tat com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.ready(HttpInboundLink.java:263)\n\tat com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.sendToDiscriminators(NewConnectionInitialReadCallback.java:214)\n\tat com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.complete(NewConnectionInitialReadCallback.java:113)\n\tat com.ibm.ws.tcp.channel.impl.AioReadCompletionListener.futureCompleted(AioReadCompletionListener.java:165)\n\tat com.ibm.io.async.AbstractAsyncFuture.invokeCallback(AbstractAsyncFuture.java:217)\n\tat com.ibm.io.async.AsyncChannelFuture.fireCompletionActions(AsyncChannelFuture.java:161)\n\tat com.ibm.io.async.AsyncFuture.completed(AsyncFuture.java:136)\n\tat com.ibm.io.async.ResultHandler.complete(ResultHandler.java:195)\n\tat com.ibm.io.async.ResultHandler.runEventProcessingLoop(ResultHandler.java:743)\n\tat com.ibm.io.async.ResultHandler$2.run(ResultHandler.java:873)\n\tat com.ibm.ws.util.ThreadPool$Worker.run(ThreadPool.java:1469)\n\n\nMore information:",
+    "A reproducible test case will be necessary to understand if this is actually and EMF problem rather something that\u0027s caused by BusinessObjectTypeImpl.  I would suggest that you start with the folks who implemented com.ibm.ws.bo.bomodel.impl.BusinessObjectTypeImpl",
+    "I should point out too, that all the addAll calls in getEAllStructuralFeatures() are operating on local collections that can\u0027t be seen externally until the computations are completed and are adding contents from lists that should never been changing (because the Ecore model should be read only once you start creating instances according to that model).   So I\u0027m quite sure this is not a problem in EMF itself but rather one injected by BusinessObjectTypeImpl.getEAllStructuralFeatures.",
+    "BusinessObjectTypeImpl.getEAllStructuralFeatures() only extends from EClassImpl. So the only call in there is super.getEAllStructuralFeatures(); Can EMF add some concurrnet protection around these resources? I have seen several ConcurrentModificationExceptions in org.eclipse.emf.common.util.BasicEList$EIterator.checkModCount(BasicEList.java:1327)\n\nThey are coming from differnt paths but end up with same exception.\n",
+    "Kevin,\n\nAdding such a thing has a performance impact.  Even if multiple threads call this method, each should independently compute the same result.  The real question to my mind is what else is BusinessObjectTypeImpl.getEAllStructuralFeatures() doing that might not be thread safe?  After all, getEStructuralFeatures itself should only be surfacing a read only list that cannot be modified once created.  You\u0027re of course able to add synchronize to your own override if that\u0027s your desired approach...",
+    "BusinessObjectTypeImpl.getEAllStructuralFeatures() really only has one method to delegate the call to EClassImpl.\n\nsuper.getEAllStructuralFeatures();\n\nto get the EList back and return the result. I don\u0027t see any possibility introducing thread safty issues. I have seen several concurrent issues around this area - but coming from differnt execution paths. BusinessObjectTypeImpl is only one of the paths. Therefore, it should make more sense to provide some sync. guard in the common EMF layer.",
+    "Kevin,\n\nGiven that getEAllStructuralFeatures returns a read only list, it\u0027s seem impossible for it to return a list that results in concurrent modification exceptions.  So unless you can demonstrate an actual problem that occurs without your assumed innocuous mystery overrides, there will be no changes that affect performance for all user in the base code."
+  ],
+  "commentCreationDates": [
+    "2007-10-12T01:55:20+02:00",
+    "2007-10-12T11:08:17+02:00",
+    "2007-10-12T13:30:16+02:00",
+    "2007-11-01T23:20:44+01:00",
+    "2007-11-01T23:46:47+01:00",
+    "2007-11-03T00:07:15+01:00",
+    "2007-11-03T00:47:13+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.util.ConcurrentModificationException",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList$EIterator.checkModCount",
+          "source": "BasicEList.java:1327"
+        },
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList$EIterator.next",
+          "source": "BasicEList.java:1275"
+        },
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList.getNonDuplicates",
+          "source": "BasicEList.java:1907"
+        },
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList.addAll",
+          "source": "BasicEList.java:686"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.EClassImpl.getEAllStructuralFeatures",
+          "source": "EClassImpl.java:388"
+        },
+        {
+          "method": "com.ibm.ws.bo.bomodel.impl.BusinessObjectTypeImpl.getEAllStructuralFeatures",
+          "source": "BusinessObjectTypeImpl.java:86"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.EClassImpl.getEAllStructuralFeaturesData",
+          "source": "EClassImpl.java:825"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.EClassImpl.getFeatureCount",
+          "source": "EClassImpl.java:837"
+        },
+        {
+          "method": "com.ibm.ws.bo.bomodel.impl.BusinessObjectTypeImpl.getEStructuralFeature",
+          "source": "BusinessObjectTypeImpl.java:171"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.sdo.util.SDOUtil.setDate",
+          "source": "SDOUtil.java:2187"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.sdo.impl.DynamicEDataObjectImpl.setDate",
+          "source": "DynamicEDataObjectImpl.java:497"
+        },
+        {
+          "method": "com.ibm.test.Test.doGet",
+          "source": "Test.java:56"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:743"
+        },
+        {
+          "method": "javax.servlet.http.HttpServlet.service",
+          "source": "HttpServlet.java:856"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.ServletWrapper.service",
+          "source": "ServletWrapper.java:989"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.servlet.ServletWrapper.handleRequest",
+          "source": "ServletWrapper.java:501"
+        },
+        {
+          "method": "com.ibm.ws.wswebcontainer.servlet.ServletWrapper.handleRequest",
+          "source": "ServletWrapper.java:464"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.webapp.WebApp.handleRequest",
+          "source": "WebApp.java:3252"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.webapp.WebGroup.handleRequest",
+          "source": "WebGroup.java:264"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.WebContainer.handleRequest",
+          "source": "WebContainer.java:811"
+        },
+        {
+          "method": "com.ibm.ws.wswebcontainer.WebContainer.handleRequest",
+          "source": "WebContainer.java:1433"
+        },
+        {
+          "method": "com.ibm.ws.webcontainer.channel.WCChannelLink.ready",
+          "source": "WCChannelLink.java:112"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleDiscrimination",
+          "source": "HttpInboundLink.java:454"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.handleNewInformation",
+          "source": "HttpInboundLink.java:383"
+        },
+        {
+          "method": "com.ibm.ws.http.channel.inbound.impl.HttpInboundLink.ready",
+          "source": "HttpInboundLink.java:263"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.sendToDiscriminators",
+          "source": "NewConnectionInitialReadCallback.java:214"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.NewConnectionInitialReadCallback.complete",
+          "source": "NewConnectionInitialReadCallback.java:113"
+        },
+        {
+          "method": "com.ibm.ws.tcp.channel.impl.AioReadCompletionListener.futureCompleted",
+          "source": "AioReadCompletionListener.java:165"
+        },
+        {
+          "method": "com.ibm.io.async.AbstractAsyncFuture.invokeCallback",
+          "source": "AbstractAsyncFuture.java:217"
+        },
+        {
+          "method": "com.ibm.io.async.AsyncChannelFuture.fireCompletionActions",
+          "source": "AsyncChannelFuture.java:161"
+        },
+        {
+          "method": "com.ibm.io.async.AsyncFuture.completed",
+          "source": "AsyncFuture.java:136"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler.complete",
+          "source": "ResultHandler.java:195"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler.runEventProcessingLoop",
+          "source": "ResultHandler.java:743"
+        },
+        {
+          "method": "com.ibm.io.async.ResultHandler$2.run",
+          "source": "ResultHandler.java:873"
+        },
+        {
+          "method": "com.ibm.ws.util.ThreadPool$Worker.run",
+          "source": "ThreadPool.java:1469"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "206099",
+      "date": "2007-10-12T01:55:20+02:00",
+      "product": "EMF",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "206099",
+  "bugId": "206099",
+  "date": "2007-10-12T01:55:20+02:00",
+  "product": "EMF",
+  "component": "Core",
+  "severity": "normal"
+}

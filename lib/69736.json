@@ -1,0 +1,137 @@
+{
+  "comments": [
+    "When checking out a J2EE Project from CVS that does not contain a JRE_CONTAINER\nentry in the classpath (as such), using bean info will fails with error dialog\ndisplayed: \n\"IWAV0138E Remove VM terminated too soon. See .log file for trace of output...\"\n\nThe problem with requiring a JRE_CONTAINER value to be available in order for\nbean info to be available for other tools - is that - this is a new variable\nthat is particularly of Eclipse 3.0, and will not be there in old applications.\n So, any tool requiring bean info, and dealing w/ project that is checked out\nfrom CVS (for example) - will fail.\n\nNote that - this problem does not happen when IBM version of jdk is used to\nlaunch this runtime workspace, but happens when SUN jdk is used to launch the\nruntime workspace.\n\nIBM version:\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.2)\nClassic VM (build 1.4.2, J2RE 1.4.2 IBM Windows 32 build cn1420-20040626 (JIT en\nabled: jitc))\n\nSun version:\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.2_04-b05)\nJava HotSpot(TM) Client VM (build 1.4.2_04-b05, mixed mode)\n\nThe interesting thing is - after you click on OK for the Error dialog, and \nwaited for a while for progress information to complete (which was a while) -\neventually, the bean information was retrieveable from the tool. \n\nThe .log entry is as follows.\n\n!ENTRY org.eclipse.jem.proxy 2 0 Jul 09, 2004 11:11:54.614\n!MESSAGE IWAV0138E Remote VM terminated too soon. See .log file for trace of\noutput. For VM \"Project (StrutsExplorerTest11)-Beaninfo\".\nIWAV0072I Remote VM terminated before any commands can be sent. Following are\nthe error and output streams.\n-- Error Stream --\n\n-- Output Stream --\nError occurred during initialization of VM\njava/lang/NoClassDefFoundError: java/lang/Object\n\n-- End of Stream Output --\n\n!ENTRY org.eclipse.jem.proxy 2 0 Jul 09, 2004 11:12:53.849\n!MESSAGE No Server to retrieve a connection.\n\n!ENTRY org.eclipse.core.runtime 4 2 Jul 09, 2004 11:12:53.879\n!MESSAGE Problems occurred when invoking code from plug-in:\n\"org.eclipse.core.runtime\".\n!STACK 0\njava.lang.IllegalStateException: IWAV0171E Could not create a socket connection\nto remote vm.\n\tat\norg.eclipse.jem.internal.proxy.remote.REMProxyFactoryRegistry.createConnection(REMProxyFactoryRegistry.java:374)\n\tat\norg.eclipse.jem.internal.proxy.remote.REMProxyFactoryRegistry.getFreeConnection(REMProxyFactoryRegistry.java:309)\n\tat\norg.eclipse.jem.internal.proxy.remote.REMStandardBeanTypeProxyFactory.getBeanTypeProxy(REMStandardBeanTypeProxyFactory.java:286)\n\tat\norg.eclipse.jem.internal.proxy.remote.REMStandardBeanTypeProxyFactory.getBeanTypeProxy(REMStandardBeanTypeProxyFactory.java:237)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.BeaninfoProxyConstants.\u003cinit\u003e(BeaninfoProxyConstants.java:98)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.BeaninfoProxyConstants.getConstants(BeaninfoProxyConstants.java:89)\n\tat\norg.eclipse.jem.internal.beaninfo.core.Utilities.setBeanInfoSearchPath(Utilities.java:332)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.BeaninfoNature.setProxySearchPath(BeaninfoNature.java:402)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.BeaninfoNature$ConfigurationContributor.contributeToRegistry(BeaninfoNature.java:910)\n\tat\norg.eclipse.jem.internal.proxy.core.ProxyLaunchSupport$3.run(ProxyLaunchSupport.java:495)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:615)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:747)\n\tat\norg.eclipse.jem.internal.proxy.core.ProxyLaunchSupport.startImplementation(ProxyLaunchSupport.java:489)\n\tat\norg.eclipse.jem.internal.proxy.core.ProxyLaunchSupport.startImplementation(ProxyLaunchSupport.java:291)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.BeaninfoNature.createRegistry(BeaninfoNature.java:368)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.CreateRegistryJobHandler.doCreateRegistry(CreateRegistryJobHandler.java:154)\n\tat\norg.eclipse.jem.internal.beaninfo.adapters.UICreateRegistryJobHandler$1.run(UICreateRegistryJobHandler.java:85)\n\tat\norg.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:101)",
+    "I did a little debugging. The problem is that when no JRE_LIB or JRE_CONTAINER\nis found, it uses the default VM, but is supplies an explicitly empty bootclasspath.\n\n\nsomepath/javaw.exe -Xbootclasspath: -classpath ....\n\nMy guess is that the Sun JVM honors that there is no bootclasspath, so there is\nno java.lang.Object to access. However, I\u0027m guessing the IBM JDK says \"What! No\nbootclasspath! It\u0027s useless without an rt.jar, so I\u0027ll put it there myself.\".\nThat would explain why it worked with the IBM JDK and didn\u0027t with the Sun JDK.\n\nMy guess for a fix would be that if the bootclasspath is empty, that it should\nnot have a -Xbootclasspath: entry on the command line. That way it will use the\nrt.jar associated with the java that was launched.",
+    "Move to JDT/Debug for comment",
+    "The java debugger intentionally allows for an empty boot class path. The \ndefault bootpath is represented by JRE_CONTAINER or JRELIB_VARIABLE. The \nJRE_CONTAINER was new in 2.0, but JRELIB_VARIABLE has existed since 1.0. Why \nis neither on the buildpath? Does such a project compile?",
+    "The reason there was no JRE_LIB or JRE_CONTAINER was because this was an old\nproject that had a variable (NOT JRE_LIB) pointing to an rt.jar. So since rt.jar\nwas in the compile path it compiled fine. This was before we could specify\ndifferent levels of JRE per project and a different level was required, so they\nsimply pointed to a different rt.jar and removed the JRE_LIB. Unfortunately we\nnow have a compatibility problem. We must run old projects unchanged.\n\nWhat used to happen was if JDT found an rt.jar in the main classpath (and not\nthe bootclasspath) if moved it to the bootclasspath. It doesn\u0027t do that now. It\ndoes put the rt.jar on the regular classpath, but the sun jvm ignores the rt.jar\nin the classpath. It seems to only see it if in the bootclasspath.\n\nThe problem is the Sun JVM doesn\u0027t handle an explicit empty bootclasspath. It\nhonors it and says so you want a JVM with no rt.jar, fine, you got one.\n\nAs to the appropriate fix, I\u0027m not sure. What does an explicit empty\nbootclasspath really mean?",
+    "I verified that the Sun VM appears to honor the empty boot path argument, \nwhereas the IBM VM appears to ignore it (infers as default bootpath). I can\u0027t \nfind any documentation/spec that talks about empty boot paths, or what they \ncan be used for. Our implementation supports it for a matter of completeness. \nThe fact that different VMs interpret it differently is problematic.\n\nNot clear what the proper solution is.",
+    "There does not appear to be an overwhelming need for the ability to specify an \nempty bootpath (except that it is valid). Speaking with VM implementors, they \nagree this is a bug in the IBM VM (i.e. that it treats an empty bootpath to be \nthe default bootpath). Since specifying a bootpath that references a non-\nexistant jar results in boot failure, so should specification of an empty path.\n\nHowever, specifying an empty bootpath is likely the extreme case, and it could \nbe supported by creating a special JRE installation that has no class libs. \nThus, I propose to have the Java launcher treat an empty boot classpath as the \ndefault boot classpath, and not specify the argument on the command line.\n\nThis means that in the classpath UI, specification of JRE_CONTAINER, \nJRELIB_VARIABLE, or nothing (empty) will have the same meaning.",
+    "Fixed in 3.1 and 3.0.1 streams.",
+    "Please verify, Luc. Changes in StandardVMRunner. When the bootpath argument is \nempty, we no longer specify the -Xbootclasspath argument on the command line.",
+    "Verified.",
+    "Created an attachment (id\u003d14627)\n.log file\n",
+    "This bug needs to be reopened, I think.  We\u0027re now seeing (apparently) the same\n\"Remote VM terminated too soon\" error on JDT 3.0.1 on SuSE SLES 9 with IBM\u0027s\nJRE.  I\u0027m attaching the relevant section of my .log file.  I would have attached\nmy workspace as well but it is too big (about 6Mb), so I\u0027ll have to email it or\nsomething if you need it.",
+    "Trying to reopen per my previous comment.",
+    "That\u0027s probably not the same problem. The log looks like it is more a firewall\nproblem. The socket connection creation was refused. If it was the same problem\nas for this bug it would not even of gotton that far.",
+    "The \"remote\" VM is really local (i.e., on the same machine), right?  So no\nexternal firewall is likely to be involved.  As far as I know, this Linux box\nisn\u0027t running any internal/software firewall of its own.  And, for example, I\ncan remotely connect to it via things like ssh.  Do you know of any other way I\ncan test your firewall theory?",
+    "Local access still goes through firewalls if one is there. We found that out the\nhard way long ago. But as for the problem on your machine, I have no idea. The\nlog says connection refused, and in our previous experiences this was due to a\nfirewall. It may be something else, but it has something to do with the\nconfiguration of your machine. I don\u0027t know where to go from here, I\u0027m not a\nLinux person, I know very little about it. Sorry. Do you know any SuSE gurus?",
+    "We just found the probably problem. Somebody local had a similiar problem but\nthey knew SUSE. They found out that in the etc/hosts file that localhost was\nbeing redirected to a IpV6 format and apparently java doesn\u0027t understand that yet.\n\nHere is a copy of the fix:\n\n\u003e SLES9: change /etc/hosts to enable correct BeanInfo operation\n\n\u003e A default installation of SLES9 seems to install an /etc/hosts file\n\u003e with a line like the following\n\n\u003e - ::1             localhost ipv6-localhost ipv6-loopback\n\n\u003e to support IPv6 networking. This prevents BeanInfo (a name for\n\u003e JavaBean introspection functionality provided the org.eclipse.jem\n\u003e plugin) from connecting (via a localhost socket) to the JVM which it\n\u003e launches. To enable correct BeanInfo operation, remove \u0027localhost\u0027\n\u003e from that line, e.g.\n\n\u003e + # ::1             localhost ipv6-localhost ipv6-loopback\n\u003e + ::1             ipv6-localhost ipv6-loopback\n\n\u003e Do not remove the required line (which should also be in /etc/hosts by\n\u003e default)\n\n\u003e 127.0.0.1       localhost",
+    "This bug should still be marked as fix, regarding the empty bootpath. The \nother problem sited is not an Eclipse problem, but rather a workstation \nconfiguration problem.",
+    "Verified."
+  ],
+  "commentCreationDates": [
+    "2004-07-09T17:56:51+02:00",
+    "2004-07-09T18:03:15+02:00",
+    "2004-07-09T19:31:30+02:00",
+    "2004-07-27T17:03:48+02:00",
+    "2004-07-27T18:10:00+02:00",
+    "2004-07-27T18:36:05+02:00",
+    "2004-07-27T20:09:52+02:00",
+    "2004-07-27T20:38:26+02:00",
+    "2004-07-27T20:39:07+02:00",
+    "2004-08-02T19:55:52+02:00",
+    "2004-09-17T22:50:04+02:00",
+    "2004-09-17T22:56:51+02:00",
+    "2004-09-17T23:04:48+02:00",
+    "2004-09-20T16:46:23+02:00",
+    "2004-09-22T15:07:37+02:00",
+    "2004-09-22T16:03:10+02:00",
+    "2004-09-30T16:24:21+02:00",
+    "2004-09-30T17:43:53+02:00",
+    "2004-09-30T17:44:06+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalStateException",
+      "message": "IWAV0171E Could not create a socket connection to remote vm.",
+      "elements": [
+        {
+          "method": "org.eclipse.jem.internal.proxy.remote.REMProxyFactoryRegistry.createConnection",
+          "source": "REMProxyFactoryRegistry.java:374"
+        },
+        {
+          "method": "org.eclipse.jem.internal.proxy.remote.REMProxyFactoryRegistry.getFreeConnection",
+          "source": "REMProxyFactoryRegistry.java:309"
+        },
+        {
+          "method": "org.eclipse.jem.internal.proxy.remote.REMStandardBeanTypeProxyFactory.getBeanTypeProxy",
+          "source": "REMStandardBeanTypeProxyFactory.java:286"
+        },
+        {
+          "method": "org.eclipse.jem.internal.proxy.remote.REMStandardBeanTypeProxyFactory.getBeanTypeProxy",
+          "source": "REMStandardBeanTypeProxyFactory.java:237"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.BeaninfoProxyConstants.\u003cinit\u003e",
+          "source": "BeaninfoProxyConstants.java:98"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.BeaninfoProxyConstants.getConstants",
+          "source": "BeaninfoProxyConstants.java:89"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.core.Utilities.setBeanInfoSearchPath",
+          "source": "Utilities.java:332"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.BeaninfoNature.setProxySearchPath",
+          "source": "BeaninfoNature.java:402"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.BeaninfoNature$ConfigurationContributor.contributeToRegistry",
+          "source": "BeaninfoNature.java:910"
+        },
+        {
+          "method": "org.eclipse.jem.internal.proxy.core.ProxyLaunchSupport$3.run",
+          "source": "ProxyLaunchSupport.java:495"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:615"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:747"
+        },
+        {
+          "method": "org.eclipse.jem.internal.proxy.core.ProxyLaunchSupport.startImplementation",
+          "source": "ProxyLaunchSupport.java:489"
+        },
+        {
+          "method": "org.eclipse.jem.internal.proxy.core.ProxyLaunchSupport.startImplementation",
+          "source": "ProxyLaunchSupport.java:291"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.BeaninfoNature.createRegistry",
+          "source": "BeaninfoNature.java:368"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.CreateRegistryJobHandler.doCreateRegistry",
+          "source": "CreateRegistryJobHandler.java:154"
+        },
+        {
+          "method": "org.eclipse.jem.internal.beaninfo.adapters.UICreateRegistryJobHandler$1.run",
+          "source": "UICreateRegistryJobHandler.java:85"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:101"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "69736",
+      "date": "2004-07-09T17:56:51+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "major"
+    }
+  ],
+  "groupId": "69736",
+  "bugId": "69736",
+  "date": "2004-07-09T17:56:51+02:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "major"
+}

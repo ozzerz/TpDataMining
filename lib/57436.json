@@ -1,0 +1,57 @@
+{
+  "comments": [
+    "Java 1.5 beta reports a ClassFormatError when running programs (e.g., spacewar)\ncompiled by ajc 1.1.1 and the latest CVS head.  Sun\u0027s Java 1.5 beta\nbinary-compatibility docs say that some obfuscators violated the .class format\nspecification, so those .class files will fail when run under 1.5.  (The docs\nalso say they are still incomplete.)  \n\nAlthough 1.5 is still beta, we would want to submit a bug to Sun if our\nimplementation techniques are valid, so we don\u0027t have to change those\ntechniques.  For 1.2, we should at document if we don\u0027t fix, since many people\nare using 1.5.",
+    "P2/1.2: Recommending for investigation before the 1.2 release, at least to\ndocument the results.",
+    "Created an attachment (id\u003d9217)\nHelloWorld + logging\n\nReproduce problem:\n\njava version \"1.5.0-beta\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.5.0-beta-b32c)\nJava HotSpot(TM) Client VM (build 1.5.0-beta-b32c, mixed mode)\njava.lang.ClassFormatError: Invalid index 0 in LocalVariableTable in class file\nras/HelloWorldLogging\n\tat java.lang.ClassLoader.defineClass1(Native Method)\n\tat java.lang.ClassLoader.defineClass(ClassLoader.java:604)\n\tat\njava.security.SecureClassLoader.defineClass(SecureClassLoader.java:123)\n\tat java.net.URLClassLoader.defineClass(URLClassLoader.java:260)\n\tat java.net.URLClassLoader.access+100(URLClassLoader.java:56)\n\tat java.net.URLClassLoader+1.run(URLClassLoader.java:195)\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat java.net.URLClassLoader.findClass(URLClassLoader.java:188)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:289)\n\tat sun.misc.Launcher$AppClassLoader.loadClass(Launcher.java:279)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:235)\n\tat java.lang.ClassLoader.loadClassInternal(ClassLoader.java:302)\n\nException in thread \"main\" ",
+    "Here is a simple test program that causes the problem:\n\npublic class H {\n  public static void main(String[] argv) { }\n}\n\naspect A {\n  before(): execution(* *(..)) { }\n}\n\nNow, I\u0027m not saying this is the actual problem but there have always been \nissues with \u0027decompiling\u0027 the aspectOf() method. Running jad against the \nA.class file produced after compiling the above code, jad says it has \nproblems - it can\u0027t understand the aspectOf() method.  And indeed the gumpf \nthat is produced looks like this on decompilation:\n\n    public static A aspectOf()\n    {\n        ajc$perSingletonInstance;\n        if(ajc$perSingletonInstance \u003d\u003d null) goto _L2; else goto _L1\n_L1:\n        return;\n_L2:\n        throw new NoAspectBoundException(\"A\", ajc$initFailureCause);\n    }\n\nWhen it perhaps ought to read\n\n    public static A aspectOf()\n    {\n       if(ajc$perSingletonInstance !\u003d null) return ajc$perSingletonInstance;\n       throw new NoAspectBoundException(\"A\", ajc$initFailureCause);\n    }\n\nIt could be that JVM 1.5 is being more strict in what it allows in - I\u0027m not \nsure how to find out if thats actually whats happening !\n",
+    "I\u0027ve checked in a fix for this.  It works for my testcase and it passes all \nthe tests I can find.  I will write it up when I get back from my run.",
+    "Ok, here is the full gory details - mostly pasting bits and pieces in from a \ndiscussion I had with Jim.\n\nPrior to the fix I put in, anyone who tried to run \u0027javap -verbose\u0027 against an \naspect might have noticed something unusual.  Here is a snippet of javap -\nverbose for the aspect \u0027A\u0027 described earlier in this bug report:\n\npublic void ajc$before$A$50(); \n  org.aspectj.weaver.Advice: length \u003d 0x45 \n   01 01 03 01 00 00 00 00 05 05 00 01 2A 00 01 04 \n   FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF 00 \n00 \n FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF \n   FFFFFFFF FFFFFFFF 00 00 FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF \nFFFFFFFF \n FFFFFFFF FFFFFFFF 00 00 00 64 \n   00 00 00 6A 00 00 00 5A 00 00 00 6B 00 00 00 00 \n   50 00 00 00 6B \n  Code: \n   Stack\u003d0, Locals\u003d1, Args_size\u003d1 \n   0:   return \n  LocalVariableTable: \n   Start  Length  Slot  Name   Signature \n   0      0      0    this       LA; \n  LineNumberTable: \n   line 7: 0 \n\npublic static A aspectOf(); \n  org.aspectj.weaver.AjSynthetic: length \u003d 0x \n\n  Code: \n   Stack\u003d3, Locals\u003d0, Args_size\u003d0 \n   0:   getstatic       #25; //Field ajc$perSingletonInstance:LA; \n   3:   dup \n   4:   ifnull  8 \n   7:   areturn \n   8:   new     #27; //class NoAspectBoundException \n   11:  dup \n   12:  invokespecial   #28; //Method \norg/aspectj/lang/NoAspectBoundException.\"\u003c \ninit\u003e\":()V \n   15:  athrow \n  LocalVariableTable: \n   Start  Length  Slot  Name   Signature \n   0      16      0    this       LA; \n\nI have included the generated advice and the generated aspectOf() method.  \nObserve that the aspectOf method - a *static* method has a local variable \ntable with an entry in for \u0027this\u0027...  This is wrong - we should have no local \nvariable table at all for this aspectOf method (other static methods generated \nin the aspect exhibit the same problem).  The 1.5 beta appears to be policing \nthis kind of error situation where previous JDKs don\u0027t seem to have been \nchecking.  SUN might remove this agressive checking before 1.5 final ships - \nbut clearly AspectJ is generated incorrect information here.  So how do we fix \nit? Where did the local variable table come from?\n\nThe answer is that in AspectDeclaration.generateMethod() where we are \ngenerating the code for static methods like aspectOf(), hasAspect(), etc - we \nare using the codeStream object incorrectly.  We are calling codeStream.init() \nrather than codeStream.reset().  Not using reset() means that we don\u0027t alter \nthe method declaration object that the code stream thinks it is working with.  \nThis means that when we ask the classfile to fix up its code attributes \n(around line AspectDeclaration line 306 we call classFile.completeCodeAttribute\n()) the classfile asks the methoddeclaration for the codestream whether it is \nstatic - based on the result of this check, it generates a local variable \ntable entry for \u0027this\u0027 (See line 1413 in ClassFile).  Because we never updated \nthe codestream with a new method declaration, it still points to the method \ndeclaration for our previous created method - the advice itself (public void \najc$before$A$50();) - this was *not* static and so we end up creating a \u0027this\u0027 \nlocal variable entry for all the subsequent generated methods in the aspect.\n\nThe fix is to replace these calls to the codeStream:\n\n codeStream.init(classFile);\n codeStream.initializeMaxLocals(methodBinding);\n\nwith\n\n codeStream.reset(md,classFile); // md is a method declaration object \nrepresenting our static method\n\n(reset calls init and initializeMaxLocals and correctly updates the method \ndeclaration in the codestream).\n\nSo far, that all seems the perfect fix.  Unfortunately there is one twist.  \nConstructing a methoddeclaration of quite the right type to satisfy the \ncodestream is awkward.  Here is the fix I have put into the codebase:\n\n  MethodDeclaration md \u003d AstUtil.makeMethodDeclaration(methodBinding); \n  md.scope \u003d initializerScope; \n  codeStream.reset(md,classFile); \n\nThe makeMethodDeclaration() call conjures up a method declaration object OK \nand the \u0027is this method static?\u0027 check in the code to generate the attributes \nworks correctly.  However, code inside the reset() method tries to obtain a \ncompiler setting through \u0027methodDeclaration.scope\u0027.  I *have* to put something \nin the scope field or the reset() method (a JDT internal method) blows up with \nan NPE.  I didn\u0027t want to hack the JDT code to address this.\n\nI have a local scope around: initializerScope.  If I use that then reset() is \nhappy.  It isn\u0027t the right scope object but I\u0027m not sure how to construct a \nvalid one.  The scope seems to be used for only two things along this codepath:\nDetermining a compiler option and reporting an error about code_length\u003e64k.\n\nBecause the value in \u0027scope\u0027 doesn\u0027t seem to be used for anything more than \nthis, I did check the above code in.  With that fix in, we don\u0027t get rogue \nlocal variable table entries for \u0027this\u0027 for static methods in the aspect - and \nthe code runs on Java 1.5.\n\nI have tagged the scope setting with a XXX in case this causes any problem in \nthe future.  Since all tests I can find still pass, this seems a valid fix for \nthe problem.  I hope others agree.",
+    "fixed by Andy"
+  ],
+  "commentCreationDates": [
+    "2004-04-05T11:42:29+02:00",
+    "2004-04-05T11:43:31+02:00",
+    "2004-04-05T18:21:43+02:00",
+    "2004-04-07T17:34:40+02:00",
+    "2004-04-08T12:53:50+02:00",
+    "2004-04-09T20:08:34+02:00",
+    "2004-05-13T11:09:54+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassFormatError",
+      "message": "Invalid index 0 in LocalVariableTable in class file ras/HelloWorldLogging",
+      "elements": [
+        {
+          "method": "java.lang.ClassLoader.defineClass1",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.ClassLoader.defineClass",
+          "source": "ClassLoader.java:604"
+        },
+        {
+          "method": "java.security.SecureClassLoader.defineClass",
+          "source": "SecureClassLoader.java:123"
+        },
+        {
+          "method": "java.net.URLClassLoader.defineClass",
+          "source": "URLClassLoader.java:260"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "57436",
+      "date": "2004-04-05T18:21:43+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "57436",
+  "bugId": "57436",
+  "date": "2004-04-05T11:42:29+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

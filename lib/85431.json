@@ -1,0 +1,51 @@
+{
+  "comments": [
+    "The Crimson XML parser part of SUN JRE 1.4.x uses an internal buffer for the\ninput stream, the SAX events are not send until the buffer is full or the input\nstream is closed.\n\nCurrently I have a mechanism (only for Crimson case) that restarts the parser\nevery 500ms if there is data in the buffer, in order to load the data in an\nalmost real time fashion. This method has been proven unstable in some situations.\n\nWe need to find a better way to handle continuous parsing when Crimson parser is\nused.\n\nWhen Xerces parser is used everything works fine, because the restart method is\nnot used, Xerces doesn\u0027t buffer the input data.\n\nWe use JAXP API to obtain the parser instance, so the only workaround for this\nproblem is to enable Xerces parser through the endorsed option:\n\n\u003ceclipse-install-dir\u003eeclipse.exe -vmargs\n-Djava.endorsed.dirs\u003d\u003cpath-to-your-xerces-jars-folder\u003e",
+    "Marius, I have verified that the Xerces fix solves this problem for Scapa so \nthe issues around the crimson parser in the Sun JRE are mitigated for us.  \nAlthough I agree the workaround for the crimson parser is not ideal I can see \nno better solution other than bundling an XML parser with TPTP such as Xerces.\n\nIf that is not a viable solution then the bug that we found in the code that \nworks around the Crimson parser is as follows:\n\n\nRace condition between the TCPDataFlusher thread doing scanContent and the XML \nparser thread doing a fatalError.\n\n1. The XML parser thread does a synchronize(this) and then starts a restart but \nonly gets to a point BEFORE rootTagRequired \u003d true\n\n2. The TCPDataFlusher thread does a scanContent and checks if the root tag is \nrequired.  The TCPDataFlusher thread performs the check and finds it to be \nfalse.\n\n3. The XML parser thread then sets rootTagRequired to true and finishes\n\n4. The TCPDataFlusher thread does a writeBuf of some contiguousObservations \nwhich cause the XML parser to think it has reached the end of a document and \ncomplain about further \u0027\u003c\u0027 characters\n\n5. The TRACE tag is erroneously inserted on the next scanContent call but by \nthen the document is considered invalid\n\n\n\nThis can be easily reproduced by the insertion of a Thread.sleep call into the \nscanContent method of the SAXFragmentHandler.java class:\n\n   public void scanContent(byte[] fragment, int offset, int length) throws \nInvalidXMLException {\n\n      if (xml_stream !\u003d null) {\n         if (restart \u0026\u0026 rootTagRequired \u0026\u0026 rootTag!\u003dnull) {\n            xml_stream.add(rootTag, 0, rootTag.length);\n            rootTagRequired\u003dfalse;\n         }\n\n//BEGIN INSERTED SLEEP\t         \n         try {\n         \tThread.sleep(1000);\n         } catch (Exception e) {\n         }\n//END INSERTED SLEEP\n\t         \n         xml_stream.add(fragment, offset, length);\n      }\n      \n   }\n\n\n\n\n",
+    "We have also found that during long runs we get the following exception which \ncauses the stream to die:\n\njava.lang.ArrayIndexOutOfBoundsException: 10301\n\tat \norg.eclipse.hyades.internal.execution.local.common.TCPDataServer$BufferFlusher.p\nrocessData(TCPDataServer.java:341)\n\tat \norg.eclipse.hyades.internal.execution.local.common.TCPDataServer$BufferFlusher.r\nun(TCPDataServer.java:411)\n\n\nWe have not had a chance to look at this problem in any more detail.",
+    "Now that we have a \"3.3\" Version in bugzilla, updating bugzillas targeted to 3.3\nor a 3.3 iteration so that their Version matches their Target. \"future\",\n\"unspecified\", \"4.0\", and \"4.1\" Versions will not be updated.",
+    "*** Bug 91124 has been marked as a duplicate of this bug. ***",
+    "Deferring to 4.0 i4.",
+    "Convert to TPTP",
+    "Fix for Crimson case in CVS."
+  ],
+  "commentCreationDates": [
+    "2005-02-16T15:37:54+01:00",
+    "2005-02-22T11:34:38+01:00",
+    "2005-02-22T11:36:07+01:00",
+    "2005-03-15T23:17:11+01:00",
+    "2005-04-22T00:37:00+02:00",
+    "2005-05-06T17:08:17+02:00",
+    "2005-05-06T17:09:22+02:00",
+    "2005-06-07T22:06:12+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "message": "10301",
+      "elements": [
+        {
+          "method": "org.eclipse.hyades.internal.execution.local.common.TCPDataServer$BufferFlusher.processData",
+          "source": "TCPDataServer.java:341"
+        },
+        {
+          "method": "org.eclipse.hyades.internal.execution.local.common.TCPDataServer$BufferFlusher.run",
+          "source": "TCPDataServer.java:411"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "85431",
+      "date": "2005-02-22T11:36:07+01:00",
+      "product": "TPTP Profiling",
+      "component": "Platform.Model",
+      "severity": "major"
+    }
+  ],
+  "groupId": "85431",
+  "bugId": "85431",
+  "date": "2005-02-16T15:37:54+01:00",
+  "product": "TPTP Profiling",
+  "component": "Platform.Model",
+  "severity": "major"
+}

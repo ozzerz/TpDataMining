@@ -1,0 +1,68 @@
+{
+  "comments": [
+    "Build ID: Build id: I20070209-1006\n\nSteps To Reproduce:\nFound using the automated test framework - for example from\ntestClientConnectionResetTestAttach\n\n1. Run StartStop class in enabled mode (locally/remotely):\njava -classpath . -XrunpiAgent:server\u003denabled StartStop\n2. Attach and start monitoring StartStop.class java process.\n3. At this point the above class will crash with:\n\"Segmentation fault\" reported to the console.\n\n\n\nMore information:\nThis happens in all the linux test cases that use enabled mode:\nClientConnectionResetTestAttach\nDetachAttachTest5\nFilterTest03\nHeapJniCarTest02_enabled\nHeapTest02_enabled\nPauseResume05\n\nCan be reproduced regardless of security on or off using the\n4.4.0 0219 candidate.\n\nCannot reproduce with 4.2.1.",
+    "I am getting the same behavior on EM64T as well.\nMaybe it is related to remote profiling rather than\nthe platform. Both are attached to from the same \nwindows xp desktop.",
+    "Entered bug sizing.",
+    "The behaviour is different on my setup:\n- Fedora Core 6 (32-bit)\n- IBM JDK 1.5 SR3\n- TPTP AC 200703080100\n\nThe StartStop program, when profiling under enabled mode, hangs at the end of the profiling session during program exit.\n",
+    "More experiment on the following:\n- On our \"paradox-rh21as\" machine (RHEL 2.1 AS, kernel 2.4.9) it works fine\n- On our \"purple\" machine (Fedora Core 6, kernel 2.6.18) it hangs\n\nSame Sun JDK 1.5.0_11 and TPTP AC driver (200703090100) are being used.\n",
+    "Updated the summary.",
+    "updated the summary, please note that the EM64T host that I mentioned earlier\nis a Windows 2003 server (rnsx641) not a linux host.",
+    "Alan, can you reproduce using the latest IBM JRE 1.4.2?",
+    "When I use the 1.42 java I get a segmentation fault at the end of the \nprofiling rather than on attach.\n\nUsing: Windows XP tptp 4.4.0-200703270100D (current stable build)\n       Linux paradox-rh21as agent controller 4.4.0-200703270100D\n\nWith sun jdk 1.5_05 get the results in the original log entry.\nAfter replacing JAVA_HOME and first java in path with IBMJava2-SDK-1.4.2-8.0\n, rerunning SetConfig to point to this java and trying again the output is:\n\n/home/ractest/test_automation/automation-files/external_classes\u003e java -classpath . -XrunpiAgent:server\u003denabled StartStop\nStart timestamp \u003d Wed Apr 25 12:31:30 EDT 2007\n\nStop monitoring or detach and then press the Enter key.\n\n\nmethodA - Current timestamp \u003d Wed Apr 25 12:31:44 EDT 2007\n\nStart monitoring or attach and then press the Enter key.\n\nmethodB - Current timestamp \u003d Wed Apr 25 12:31:45 EDT 2007\n\nEnd timestamp \u003d Wed Apr 25 12:31:45 EDT 2007\nStart time \u003d 1177518690340\nEnd   time \u003d 1177518705617\nelapsed time \u003d 15277 msec\nJVMDG217: Dump Handler is Processing Signal 11 - Please Wait.\nJVMDG303: JVM Requesting Java core file\nJVMDG304: Java core file written to /home/ractest/test_automation/automation-files/external_classes/javacore.20070425.123145.6024.txt\nJVMDG215: Dump Handler has Processed Exception Signal 11.\nSegmentation fault\n/home/ractest/test_automation/automation-files/external_classes\u003e",
+    "This is found to be a JVM problem. I can reproduce the problem using a simple test case.\n\nThe crash/hang occurs when the profiling agent is request a heap dump. It does not matter which type of heap dump. All will crash on the following machine:\n- RHEL 2.1 AS\n- Fedora Core 6\n\nBut it works on:\n- SuSE SLES 9\n",
+    "Created an attachment (id\u003d65649)\nSimple test agent\n\n",
+    "Created an attachment (id\u003d65650)\nSimple test program\n\n",
+    "Created an attachment (id\u003d65651)\nCompiled test agent\n\n",
+    "Created an attachment (id\u003d65652)\nCompiled test program\n\n",
+    "IBM JDK bug 73019,001,866 reported.\n",
+    "I am having failures in the test framework using a 1.4.2 IBM jre and 4.4.0i2\nagent controller that is causing the java class to exit with an error for the\nsame types of cases (enabled and standalone). The error is different but the\nsteps to reproduce and the cases almost the same so Samson and I think there is\na good chance it is related.\n\nFilterTest03 is a case that fails in the original log but does not in this case.\nIt seems this error is not reproduced using the StartStop test class, HeapTest,\nHeapJniCarTest and InOut do reproduce it though.\n\nThe others all fail in this case as well.\n\nTo reproduce:\nOn Windows XP:\n1) start 4.4.0i2 agent controller configured for IBM java 1.4.2 \n2) run HeapTest (from automation framework external_classes) in enabled\nmode: java -classpath . -XrunpiAgent:server\u003denabled HeapTest\n - make sure agent controller bin is in your path when you do this\n3) attach to java process from workbench (can be running 1.4.2 or 1.5 java)\n4) on monitor hit enter in the console running HeapTest\n\nat this point the program fails with the output:\nD:\\test\\tptp\\440\\D\\ws\\org.eclipse.tptp.ac.testautomation\\automation-files\\extern\nal_classes\u003ejava -classpath . -XrunpiAgent:server\u003denabled HeapTest\n\nHeapTest about to run.\nIf Enabled mode, attach this process to agent.  Press Mark Heap from the menu ba\nr\nand then, press enter to continue...\n\nClass missing for error: java/lang/ClassFormatError at java.lang.ClassLoader.def\nineClass0(Native Method)\nException in thread \"main\" java.lang.OutOfMemoryError: JVMCL016:OutOfMemoryError\n, jvmpi_load_class_hook returned NULL pointer\n\nThis only happens with 4.4.0 and java 1.4.2, if I use a older ac or\njava 1.5 (on Windows XP) the program runs as expected.\n\n\n\n\n",
+    "According to JVM support, the handler for the CLASS_LOAD_HOOK event in the base piAgent code has to set both \"new_class_data\" and \"new_class_data_len\" to the old values if it chooses not to instrument this class.\n\nWhen we use the profiler without the agent extensions, the current handler for CLASS_LOAD_HOOK event is empty. Therefore we are seeing those JVM hangs/crashes.\n\nThe fix for this problem is to set the new value to the old ones:\n\nevent-\u003eu.class_load_hook.new_class_data \u003d event-\u003eu.class_load_hook.class_data;\nevent-\u003eu.class_load_hook.new_class_data_len \u003d event-\u003eu.class_load_hook.class_data_len;\n\nI have tested it for both standalone and enabled mode and it works fine.\n\nFix checked into CVS 2007/05/07 14:40 EDT.\n",
+    "Samson, this doesn\u0027t effect the case when there is an agent extension that makes use of this JVMPI event, does it?  The Probekit agent extension does make use of the CLASS_LOAD_HOOK event to instrument its classes.",
+    "Hi Navid. That\u0027s what we need to test during the test pass. From the piAgent code it seems that it won\u0027t affect the extensions since the original body of the handler is empty."
+  ],
+  "commentCreationDates": [
+    "2007-02-21T17:30:59+01:00",
+    "2007-02-21T23:05:02+01:00",
+    "2007-02-26T16:24:35+01:00",
+    "2007-03-09T13:25:31+01:00",
+    "2007-03-09T16:05:58+01:00",
+    "2007-03-12T17:34:08+01:00",
+    "2007-04-03T22:07:45+02:00",
+    "2007-04-20T16:31:25+02:00",
+    "2007-04-25T18:38:10+02:00",
+    "2007-05-02T19:24:17+02:00",
+    "2007-05-02T19:24:49+02:00",
+    "2007-05-02T19:25:11+02:00",
+    "2007-05-02T19:26:00+02:00",
+    "2007-05-02T19:26:20+02:00",
+    "2007-05-02T20:28:36+02:00",
+    "2007-05-03T22:05:16+02:00",
+    "2007-05-07T20:42:42+02:00",
+    "2007-05-07T22:00:18+02:00",
+    "2007-05-08T16:54:00+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassFormatError",
+      "elements": [
+        {
+          "method": "java.lang.ClassLoader.defineClass0",
+          "source": "Native Method"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 15,
+      "bugId": "174994",
+      "date": "2007-05-03T22:05:16+02:00",
+      "product": "TPTP Agent Controller",
+      "component": "Platform.Agents",
+      "severity": "major"
+    }
+  ],
+  "groupId": "174994",
+  "bugId": "174994",
+  "date": "2007-02-21T17:30:59+01:00",
+  "product": "TPTP Agent Controller",
+  "component": "Platform.Agents",
+  "severity": "major"
+}

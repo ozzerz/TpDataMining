@@ -1,0 +1,189 @@
+{
+  "comments": [
+    "While evaluating \"fFull.size() \u003d\u003d 100+size\" in VectorTest.testCapacity(), the \nfollowing appeared in the console (looks like the variables view is attempting \nto update while the evaluation is still in progress):\n\nInternal error logged from Debug UI:\norg.eclipse.debug.core.DebugException: Thread non suspended, stack frame unavail\nable.\n        at org.eclipse.jdt.internal.debug.core.JDIDebugElement.requestFailed(JDI\nDebugElement.java:170)\n        at org.eclipse.jdt.internal.debug.core.JDIStackFrame.getUnderlyingStackF\nrame(JDIStackFrame.java:842)\n        at org.eclipse.jdt.internal.debug.core.JDILocalVariable.retrieveValue(JD\nILocalVariable.java:49)\n        at org.eclipse.jdt.internal.debug.core.JDIVariable.getCurrentValue(JDIVa\nriable.java:60)\n        at org.eclipse.jdt.internal.debug.core.JDIVariable.getValue(JDIVariable.\njava:82)\n        at org.eclipse.debug.internal.ui.VariablesContentProvider.doGetChildren(\nVariablesContentProvider.java:44)\n        at org.eclipse.debug.internal.ui.BasicContentProvider.hasChildren(BasicC\nontentProvider.java:121)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.isExpandable(AbstractTre\neViewer.java:932)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.updateChildren(AbstractT\nreeViewer.java:1167)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh(Abstract\nTreeViewer.java:845)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh(Abstract\nTreeViewer.java:854)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh(Abstract\nTreeViewer.java:823)\n        at org.eclipse.jface.viewers.StructuredViewer$1.run(StructuredViewer.jav\na:577)\n        at org.eclipse.jface.viewers.StructuredViewer.preservingSelection(Struct\nuredViewer.java:547)\n        at org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.j\nava:575)\n        at org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.j\nava:567)\n        at org.eclipse.debug.internal.ui.BasicContentProvider.refresh(BasicConte\nntProvider.java:68)\n        at org.eclipse.debug.internal.ui.VariablesContentProvider.doHandleDebugE\nvent(VariablesContentProvider.java:77)\n        at org.eclipse.debug.internal.ui.BasicContentProvider$1.run(BasicContent\nProvider.java:95)\n        at org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:29)\n        at org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.ja\nva(Compiled Code))\n        at org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java(Compile\nd Code))\n        at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java(Compiled\n Code))\n        at org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:775)\n        at org.eclipse.ui.internal.Workbench.run(Workbench.java:758)\n        at org.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoa\nder.java:820)\n        at org.eclipse.core.boot.BootLoader.run(BootLoader.java:285)\n        at java.lang.reflect.Method.invoke(Native Method)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:151)\n        at org.eclipse.core.launcher.Main.run(Main.java:502)\n        at org.eclipse.core.launcher.UIMain.main(UIMain.java:52)",
+    "The same error appeared while holding down the \"step\" key in a tight loop \n(VectorTest.testCapacity()).",
+    "As temp fix, I avoided logging the error to the console. We are asking a local \nvariable for its value when its stack frame is no longer valid (i.e. its thread \nhas resumed). This could be a runnable queued on the UI that is no longer \nvalid. Needs more investigation.",
+    "This does not happen consistently. I believe the scenario is as follows:\n1) The evaluation is done, and fires a CHANGE event when compelte\n2) The variables view starts a refresh based on the change event\n3) The display view then invokes the underlying thread again, to calculate \nthe \u0027toString\u0027 of the evaluation result\n4) The variables view attempts to refresh the value of a local variable, but \nthe stack frame is no longer valid, as its thread has been resumed to calc \na \u0027toString\u0027",
+    "Fixed. I added a check in the variables view content provider to ensure that if \nthe input to the view is a stack frame, that its thread is suspended before \ndoing the update. There is still a small chance that the same timing problem \ncould occurr, i.e. the thread resumes after the suspend check, and before the \nrefresh completes. However, there is not much we can do about that, and the \nerror is handled properly.\n\nRe-assigning for verification.",
+    "please verify",
+    "Verified.",
+    "The problem is happenning to me a lot.",
+    "re-added temp fix for the build (i.e. do not report the error to the log).\n\nIn the longer term I think we need to have the stack frame/value throw an \nexception with a status that can be tested for \"THREAD NOT SUSPENDED\". We have \ncode that checks that state shortly before making the call, but it is \nerror/timing prone. We really need to make the call and the check the status of \nthe exception (if any) to see if the exception is possible/expected.",
+    "*** Bug 6736 has been marked as a duplicate of this bug. ***",
+    "There are two cases where this is happening\n(1) when a thread is created its state can be \"suspended\". The UI tries to \nrender the thread with stack frames. When stack frames are retrieved, the \nthread has been silently resumed by the VM.  (This is a model problem - i.e. \nits state is not in synch with the actual target).\n\n(2) When a local variable value is refreshed in the UI, the underlying stack \nframe is used to get the value. However, the stack frame is not available when \na thread has been resumed. The thread has been resumed for an evaluation, but \nthe UI is not aware of this.\n\nFixed (1) by auto-updating the model state when we detect that we are out of \nsynch. A \"resume\" event is fired for the thread, and the UI updates properly.",
+    "Fixed (2). This is also an error in the implementation of the debug model. The \njava debug model returns the last known value for a local variable in this \ncase. The UI will update to the correct value once the evaluation is complete, \nas the debug model fires another CHANGE event which will update the UI.\n\nRe-assigning for verification.",
+    "Please verify.",
+    "Re-opened :-( There are more cases.",
+    "*** Bug 6870 has been marked as a duplicate of this bug. ***",
+    "Fixed. The problem was that the \"details\" view was open while doing rapid \nstepping. The details area would invoke a \u0027toString\u0027 method from a non UI \nthread, while the UI thread requested a step over. The method invokcation and \nthe step request both resumed the thread causing trouble. Added synchronization \nto stepping and method invocation.",
+    "Please verify (Darin S)",
+    "*** Bug 6851 has been marked as a duplicate of this bug. ***",
+    "Verified."
+  ],
+  "commentCreationDates": [
+    "2001-12-03T21:05:03+01:00",
+    "2001-12-03T21:37:59+01:00",
+    "2001-12-04T01:54:40+01:00",
+    "2001-12-05T14:40:21+01:00",
+    "2001-12-05T15:06:47+01:00",
+    "2001-12-05T15:07:00+01:00",
+    "2001-12-05T21:30:17+01:00",
+    "2001-12-06T02:31:51+01:00",
+    "2001-12-06T03:14:49+01:00",
+    "2001-12-10T20:59:24+01:00",
+    "2001-12-12T16:57:47+01:00",
+    "2001-12-12T17:31:55+01:00",
+    "2001-12-12T17:32:07+01:00",
+    "2001-12-12T21:19:27+01:00",
+    "2001-12-12T21:26:05+01:00",
+    "2002-01-05T00:01:11+01:00",
+    "2002-01-05T00:01:29+01:00",
+    "2002-01-06T23:53:40+01:00",
+    "2002-01-14T17:03:28+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.debug.core.DebugException",
+      "message": "Thread non suspended, stack frame unavail able.",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JDIDebugElement.requestFailed",
+          "source": "JDI DebugElement.java:170"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JDIStackFrame.getUnderlyingStackFrame",
+          "source": "JDIStackFrame.java:842"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JDILocalVariable.retrieveValue",
+          "source": "JD ILocalVariable.java:49"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JDIVariable.getCurrentValue",
+          "source": "JDIVa riable.java:60"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JDIVariable.getValue",
+          "source": "JDIVariable. java:82"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.VariablesContentProvider.doGetChildren",
+          "source": " VariablesContentProvider.java:44"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.BasicContentProvider.hasChildren",
+          "source": "BasicC ontentProvider.java:121"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.isExpandable",
+          "source": "AbstractTre eViewer.java:932"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.updateChildren",
+          "source": "AbstractT reeViewer.java:1167"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh",
+          "source": "Abstract TreeViewer.java:845"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh",
+          "source": "Abstract TreeViewer.java:854"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh",
+          "source": "Abstract TreeViewer.java:823"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$1.run",
+          "source": "StructuredViewer.jav a:577"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.preservingSelection",
+          "source": "Struct uredViewer.java:547"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.j ava:575"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.j ava:567"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.BasicContentProvider.refresh",
+          "source": "BasicConte ntProvider.java:68"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.VariablesContentProvider.doHandleDebugEvent",
+          "source": "VariablesContentProvider.java:77"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.BasicContentProvider$1.run",
+          "source": "BasicContent Provider.java:95"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:29"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.ja va(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java(Compile d Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java(Compiled  Code)"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:775"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:758"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoa der.java:820"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:285"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:151"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:502"
+        },
+        {
+          "method": "org.eclipse.core.launcher.UIMain.main",
+          "source": "UIMain.java:52"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "6518",
+      "date": "2001-12-03T21:05:03+01:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "6518",
+  "bugId": "6518",
+  "date": "2001-12-03T21:05:03+01:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "critical"
+}

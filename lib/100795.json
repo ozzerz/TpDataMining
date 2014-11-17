@@ -1,0 +1,197 @@
+{
+  "comments": [
+    "- new workspace, new Java project, new package \u0027org.test\u0027\n- change preference \u0027Java \u003e Editor \u003e Code Assist \u003e Insertion\u0027 to \u0027Completion\noverwrites\u0027\n- create a new empty file \u0027Test.java\u0027\n- write \u0027package org.\u0027 and wait for content assist auto-activation\n\n\u003d\u003e no content assist, but a log entry:\n\norg.eclipse.swt.SWTException: Failed to execute runnable\n(java.lang.IllegalArgumentException: Argument not valid)\n        at org.eclipse.swt.SWT.error(SWT.java:2940)\n        at org.eclipse.swt.SWT.error(SWT.java:2863)\n        at\norg.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:121)\n        at org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3047)\n        at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2706)\n        at org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1699)\n        at org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1663)\n        at\norg.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:367)\n        at org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n        at org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:103)\n        at\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:226)\n        at\norg.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n        at\norg.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:163)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at\nsun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n        at\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n        at java.lang.reflect.Method.invoke(Method.java:585)\n        at org.eclipse.core.launcher.Main.invokeFramework(Main.java:334)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:278)\n        at org.eclipse.core.launcher.Main.run(Main.java:973)\n        at org.eclipse.core.launcher.Main.main(Main.java:948)\nCaused by: java.lang.IllegalArgumentException: Argument not valid\n        at org.eclipse.swt.SWT.error(SWT.java:2924)\n        at org.eclipse.swt.SWT.error(SWT.java:2863)\n        at org.eclipse.swt.SWT.error(SWT.java:2834)\n        at\norg.eclipse.swt.custom.StyledText.getStyleRangeAtOffset(StyledText.java:4305)\n        at\norg.eclipse.jdt.internal.ui.text.java.JavaCompletionProposal.updateStyle(JavaCompletionProposal.java:624)\n        at\norg.eclipse.jdt.internal.ui.text.java.JavaCompletionProposal.selected(JavaCompletionProposal.java:648)\n        at\norg.eclipse.jface.text.contentassist.CompletionProposalPopup.selectProposal(CompletionProposalPopup.java:822)\n        at\norg.eclipse.jface.text.contentassist.CompletionProposalPopup.setProposals(CompletionProposalPopup.java:608)\n        at\norg.eclipse.jface.text.contentassist.CompletionProposalPopup.access$13(CompletionProposalPopup.java:577)\n        at\norg.eclipse.jface.text.contentassist.CompletionProposalPopup$1.run(CompletionProposalPopup.java:236)\n        at org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\n        at\norg.eclipse.jface.text.contentassist.CompletionProposalPopup.showProposals(CompletionProposalPopup.java:212)\n        at\norg.eclipse.jface.text.contentassist.ContentAssistant$2.run(ContentAssistant.java:327)\n        at org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n        at\norg.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:118)\n        ... 18 more\nFailed to execute runnable (java.lang.IllegalArgumentException: Argument not valid)",
+    "Code assist no longer works afterwards. Worked in 3.0.\nTom, please investigate whether there\u0027s an easy fix.",
+    "The CompletionProposal instances received from core specify an illegal\nreplacement range. In the given example, the package completion proposals\nspecify a replaceOffset of 8 (the position of \u0027org\u0027 in the document) and an\nexclusive replaceEnd of 13, while the document length is 12.\n\nNote that the proposal is correct if there is a trailing space behind the caret.\nThen, the core proposal specifies a replace range of [8, 12).\n\nI filed bug 100808 against jdt-core about this.\n\nShould guard against illegal proposals?",
+    "yes.",
+    "Created an attachment (id\u003d23602)\nContentAssistant.diff\n\nPatch against ContentAssistant.\n\nWhenever one of the popups (proposals, contexts) is asked to display proposals,\nthis can lead to unexpected exceptions in the client side ICompletionProposal\nimplementations. If this happens, this patch tries to regularly shut down the\ncontent assistant (closing popup shells, removing listeners) and then rethrows\nthe exception.",
+    "+1 for 3.1 RC4.\n\nDirk and Martin, please cast your vote.",
+    "+1 to fix this for RC4. Having the editor in a state where code assist doesn\u0027t\nwork anymore is worth a fix.\nI\u0027m hestitating to ok the patch as I don\u0027t see how it guarantees to prevent the\nbad state. I would suggest to not try to solve the whole problem, but just the\ngiven scenario of invalid ranges:\n- either don\u0027t create the proposals with the invalid ranges at all\n- or add extra checks in the proposal before applying/selecting and do nothing\n",
+    "No action then. If we only want to handle just this instance for 3.1 then this\nhas to be done on J Core side (see bug 100808 comment 1).\n\nBug 101033 is about better protecting the content assistant.\n\n*** This bug has been marked as a duplicate of 100808 ***"
+  ],
+  "commentCreationDates": [
+    "2005-06-20T12:57:54+02:00",
+    "2005-06-20T13:47:39+02:00",
+    "2005-06-20T15:31:10+02:00",
+    "2005-06-20T15:52:01+02:00",
+    "2005-06-21T11:47:38+02:00",
+    "2005-06-21T12:01:23+02:00",
+    "2005-06-21T16:08:13+02:00",
+    "2005-06-21T17:22:39+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Argument not valid)",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2940"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2863"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:121"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3047"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2706"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1699"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1663"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:367"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:103"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:226"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:163"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:334"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:278"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:973"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:948"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.IllegalArgumentException",
+        "message": "Argument not valid",
+        "elements": [
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:2924"
+          },
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:2863"
+          },
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:2834"
+          },
+          {
+            "method": "org.eclipse.swt.custom.StyledText.getStyleRangeAtOffset",
+            "source": "StyledText.java:4305"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.text.java.JavaCompletionProposal.updateStyle",
+            "source": "JavaCompletionProposal.java:624"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.text.java.JavaCompletionProposal.selected",
+            "source": "JavaCompletionProposal.java:648"
+          },
+          {
+            "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.selectProposal",
+            "source": "CompletionProposalPopup.java:822"
+          },
+          {
+            "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.setProposals",
+            "source": "CompletionProposalPopup.java:608"
+          },
+          {
+            "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.access$13",
+            "source": "CompletionProposalPopup.java:577"
+          },
+          {
+            "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup$1.run",
+            "source": "CompletionProposalPopup.java:236"
+          },
+          {
+            "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+            "source": "BusyIndicator.java:69"
+          },
+          {
+            "method": "org.eclipse.jface.text.contentassist.CompletionProposalPopup.showProposals",
+            "source": "CompletionProposalPopup.java:212"
+          },
+          {
+            "method": "org.eclipse.jface.text.contentassist.ContentAssistant$2.run",
+            "source": "ContentAssistant.java:327"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.RunnableLock.run",
+            "source": "RunnableLock.java:35"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+            "source": "Synchronizer.java:118"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "100795",
+      "duplicateId": "100808",
+      "date": "2005-06-20T12:57:54+02:00",
+      "product": "JDT",
+      "component": "Text",
+      "severity": "major"
+    }
+  ],
+  "groupId": "100808",
+  "bugId": "100795",
+  "duplicateId": "100808",
+  "date": "2005-06-20T12:57:54+02:00",
+  "product": "JDT",
+  "component": "Text",
+  "severity": "major"
+}

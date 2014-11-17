@@ -1,0 +1,40 @@
+{
+  "comments": [
+    "When a \u003cclinit\u003e of a class contains after throwing advice that may catch\nExceptionInInitializer errors due to an embedded advice aspectOf() that\nfails,  the ExceptionInIntializer error does not get properly reported.\n\nFor the example below:\n\npublic class Main {\n  static int x \u003d 13;\n  int y;\n\n  public Main() {\n     y\u003d 14;\n  }\n\n  public static void main(String args[])\n    { Main m \u003d new Main();\n      m.y \u003d 3;\n      System.out.println(\"hi\");\n    }\n}\n\n\naspect Aspect {\n\n  before () :  within(*)\n    { System.out.println(\"BEFORE \" + thisJoinPointStaticPart.getKind() +\n                         \" at \" + thisJoinPointStaticPart.getSourceLocation());\n    }\n\n  after ()  : within(*)\n    { System.out.println(\"AFTER \" + thisJoinPointStaticPart.getKind() +\n                         \" at \" + thisJoinPointStaticPart.getSourceLocation());\n    }\n}\n\n\n....  \n\nwhen compiled with ajc, and then run,  the following exception is given,\n\nException in thread \"main\" java.lang.NoClassDefFoundError\n        at Main.\u003cclinit\u003e(Main.java:1)\n\nwhen really one wants the following:\n\nException in thread \"main\" java.lang.ExceptionInInitializerError\n        at Main. ...\nCaused by: org.aspectj.lang.NoAspectBoundException: Aspect\n        at Aspect.aspectOf ..\n        \n\n-------------\n\nHere is a fix ... I give the decompiled \u003cclinit\u003e for Main.java and indicate with\ncomments,\n  look for ***LJH ****,  what can be woven to fix it.   Basically, the catch\nblock for after throwing,  when in \u003cclinit\u003e,  should first check if the\ncaught exception if a ExceptionInInitializerError, and if so just throw it.\n\n----------- static\n    {\n        org.aspectj.runtime.reflect.Factory r1;\n        java.lang.Throwable r2, r31;\n        int $i0;\n\n        r1 \u003d new Factory(\"Main.java\", Class.forName(\"Main\"));\n        ajc$tjp_0 \u003d r1.makeSJP(\"field-set\", r1.makeFieldSig(\"8-x-Main-int-\"), 2);\n        ajc$tjp_1 \u003d r1.makeSJP(\"staticinitialization\",\nr1.makeInitializerSig(\"8--Main-\"), 2);\n        ajc$tjp_10 \u003d r1.makeSJP(\"preinitialization\",\nr1.makeConstructorSig(\"1--Main----\"), 5);\n        ajc$tjp_2 \u003d r1.makeSJP(\"field-set\", r1.makeFieldSig(\"0-y-Main-int-\"), 6);\n        ajc$tjp_3 \u003d r1.makeSJP(\"constructor-execution\",\nr1.makeConstructorSig(\"1--Main----\"), 6);\n        ajc$tjp_4 \u003d r1.makeSJP(\"constructor-call\",\nr1.makeConstructorSig(\"1--Main----\"), 10);\n        ajc$tjp_5 \u003d r1.makeSJP(\"field-set\", r1.makeFieldSig(\"0-y-Main-int-\"), 11);\n        ajc$tjp_6 \u003d r1.makeSJP(\"field-get\",\nr1.makeFieldSig(\"19-out-java.lang.System-java.io.PrintStream-\"), 12);\n        ajc$tjp_7 \u003d r1.makeSJP(\"method-call\",\nr1.makeMethodSig(\"1-println-java.io.PrintStream-java.lang.String:-arg0:--void-\"),\n12);\n        ajc$tjp_8 \u003d r1.makeSJP(\"method-execution\",\nr1.makeMethodSig(\"9-main-Main-[Ljava.lang.String;:-args:--void-\"), 10);\n        ajc$tjp_9 \u003d r1.makeSJP(\"initialization\",\nr1.makeConstructorSig(\"1--Main----\"), 6);\n\n try\n        {\n            Aspect.aspectOf().ajc$before$Aspect$1$36f01b1c(ajc$tjp_1);\n            $i0 \u003d 13;\n\n            try\n            {\n                Aspect.aspectOf().ajc$before$Aspect$1$36f01b1c(ajc$tjp_0);\n                x \u003d $i0;\n            }\n            catch (Throwable $r30)\n            {\n                /*** LJH insert here *****/\n                if ($r30 instanceof ExceptionInIntializerError) //***\n                  throw($r30); //***\n                /***********/\n                r31 \u003d $r30;\n                Aspect.aspectOf().ajc$after$Aspect$2$36f01b1c(ajc$tjp_0);\n                throw r31;\n            }\n\n            Aspect.aspectOf().ajc$after$Aspect$2$36f01b1c(ajc$tjp_0);\n        }\n        catch (Throwable $r36)\n        {\n           /*** LJH insert here *****/\n           if ($r36 instanceof ExceptionInIntializerError) //***\n           throw($r36); //***\n           /***********/\n            r2 \u003d $r36;\n            Aspect.aspectOf().ajc$after$Aspect$2$36f01b1c(ajc$tjp_1);\n            throw r2;\n        }\n\n        Aspect.aspectOf().ajc$after$Aspect$2$36f01b1c(ajc$tjp_1);\n    }",
+    "marked as target 1.2.1",
+    "argh!  bcel is a nightmare.  It has taken me ages to program BCEL to generate:\n\n if ($r36 instanceof ExceptionInInitializerError) \n   throw($r36);\n\nThis is the final incantation for BCEL:\n\n        if (this.getEnclosingMethod().getName().equals(\"\u003cclinit\u003e\")) {\n            ResolvedTypeX eiieType \u003d\n              world.resolve(\"java.lang.ExceptionInInitializerError\");\n            ObjectType eiieBcelType \u003d \n              (ObjectType)BcelWorld.makeBcelType(eiieType);\n            InstructionList ih \u003d new InstructionList(InstructionConstants.NOP);\n            handler.append(exceptionVar.createLoad(fact));\n            handler.append(fact.createInstanceOf(eiieBcelType));\n            BranchInstruction bi \u003d \n                InstructionFactory.createBranchInstruction(\n                Constants.IFEQ,ih.getStart());\n            handler.append(bi);\n            handler.append(exceptionVar.createLoad(fact));\n            handler.append(fact.createCheckCast(eiieBcelType));\n            handler.append(InstructionConstants.ATHROW);\n            handler.append(ih);\n        }\n\nI put that in the BcelShadow.weaveAfterThrowing() method.  You can see it does a\ncheck to determine if it is in the \u003cclinit\u003e before generating this extra check.\n\nHere is the extra bytecode that appears in the method:\n\n447: aload_1\n448: instanceof      #101; //class ExceptionInInitializerError\n451: ifeq    459\n454: aload_1\n455: checkcast       #101; //class ExceptionInInitializerError\n458: athrow\n459: nop\n\nYes, there is one extra NOP but I don\u0027t want to fight with BCEL to remove it.\n\nI\u0027ve put Lauries test program into the test suite to verify it behaves and we\nget the ExceptionInInitializerError rather than the NoClassDefFoundError.\n\nThanks Laurie for describing the right fix :)\n\nfix checked in, waiting for build.",
+    "Fix available:\n\nBUILD COMPLETE -  build.344\nDate of build: 08/18/2004 11:27:31\nTime to build: 92 minutes 31 seconds\nLast changed: 08/18/2004 10:55:59\nLatest good AspectJ jar available at:\ndownload.eclipse.org/technology/ajdt/dev/aspectj-DEVELOPMENT.jar",
+    "Fix released as part of AspectJ 1.2.1"
+  ],
+  "commentCreationDates": [
+    "2004-05-18T16:23:19+02:00",
+    "2004-08-09T21:25:38+02:00",
+    "2004-08-17T16:07:17+02:00",
+    "2004-08-18T14:09:34+02:00",
+    "2004-10-21T10:32:59+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "elements": [
+        {
+          "method": "Main.\u003cclinit\u003e",
+          "source": "Main.java:1"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "62642",
+      "date": "2004-05-18T16:23:19+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "62642",
+  "bugId": "62642",
+  "date": "2004-05-18T16:23:19+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

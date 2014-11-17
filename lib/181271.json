@@ -1,0 +1,182 @@
+{
+  "comments": [
+    "Run on Server isn\u0027t working on web 2.5 modules when clicking on static html pages. As far as I can tell, this is because there is no moduleArtifactAdater that handles static resources in web 2.5 modules.",
+    "Hi Tim,\n\n    When I try running a jsp/html page from a dynamic web project of version 2.5 on a Tomcat 6.0 server. I get this error\n\njava.lang.NullPointerException\nat org.eclipse.wst.server.ui.internal.actions.RunOnServerActionDelegate.selectionChanged(RunOnServerActionDelegate.java:716)\nat org.eclipse.wst.server.ui.internal.ServerLaunchShortcut.launch(ServerLaunchShortcut.java:38)\nat org.eclipse.debug.internal.ui.launchConfigurations.LaunchShortcutExtension.launch(LaunchShortcutExtension.java:430)\nat org.eclipse.debug.internal.ui.actions.LaunchShortcutAction.run(LaunchShortcutAction.java:66)\nat org.eclipse.jface.action.Action.runWithEvent(Action.java:498)\nat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:545)\nat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:490)\nat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:402)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:938)\nat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3673)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3284)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2337)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2301)\nat org.eclipse.ui.internal.Workbench.access$4(Workbench.java:2176)\nat org.eclipse.ui.internal.Workbench$4.run(Workbench.java:463)\nat org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:289)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:458)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\nat org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:101)\nat org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:146)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:106)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:76)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:356)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:171)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\nat java.lang.reflect.Method.invoke(Unknown Source)\nat org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:476)\nat org.eclipse.equinox.launcher.Main.basicRun(Main.java:416)\nat org.eclipse.equinox.launcher.Main.run(Main.java:1141)\n\n\nIs this related ?\n\nSeems so ?\n\nIs there an extension point we need to extend ?\n\nThanks\nRaj",
+    "Yup, that error occurs because there are no moduleArtifactAdapters configured for Web 2.5 modules, and it causes a NPE because server tools code doesn\u0027t handle the \u0027none\u0027 case. I\u0027ll be fixing the NPE, but this bug is opened to add an adapter, which would also avoid the NPE.",
+    "Thanks, Tim, I found the problem, I would like to suggest a change in \nModuleArtifactAdapter.getModuleArtifacts() method \n\npublic IModuleArtifact[] getModuleArtifacts(Object obj) {\n\t\ttry {\n\t\t\treturn getDelegate().getModuleArtifacts(obj);\n\t\t} catch (Exception e) {\n\t\t\tTrace.trace(Trace.SEVERE, \"Error calling delegate \" + toString() + \": \" + e.getMessage());\n\t\t\treturn null;\n\t\t}\n\t}\n\nIf the Trace.trace method were to be changed to\n\nTrace.trace(Trace.SEVERE, \"Error calling delegate \" + toString() + \": \" + e.getMessage(),  e);\n\nIt would print the actual exception and be easy to track, since its a Trace.SEVERE problem.\n\nI dont know if the above has been done on purpose, but just a suggestion.",
+    "Sure, I\u0027ll make that change as well. I believe it was that way because one of the adapters (I\u0027m sure it wasn\u0027t yours :) ) used to throw an exception every time and this cut down on the tracing.",
+    "Hi Tim, Chuck,\n\n  It looks like the adapters created should be enabled/queried only on the type of projects/modules they are supposed to handle. Looks like currently \nEar, EJB, Web get called for all  IProject \u0026 IFile\u0027s in the workspace.\n  I was able to modify filter expressions for the older moduleArtifactAdapters\nso that EJB, Web, Enterprise, Static Web are called only for the projects of the corresponding type.\n\nFor example for the moduleArtifactAdapter for Ear\u0027s\n\nI changed it \n\nFROM \n\n    \u003cmoduleArtifactAdapter\n            id\u003d\"org.eclipse.jst.j2ee.server.ear2\"\n            class\u003d\"org.eclipse.jst.j2ee.internal.deployables.EnterpriseDeployableArtifactAdapterFactory\"\u003e\n         \u003cenablement\u003e\n           \u003cwith variable\u003d\"selection\"\u003e\n             \u003cadapt type\u003d\"org.eclipse.core.resources.IProject\"/\u003e\n           \u003c/with\u003e\n         \u003c/enablement\u003e\n      \u003c/moduleArtifactAdapter\u003e\n      \n      \u003cmoduleArtifactAdapter\n            id\u003d\"org.eclipse.jst.j2ee.server.ear3\"\n            class\u003d\"org.eclipse.jst.j2ee.internal.deployables.EnterpriseDeployableArtifactAdapterFactory\"\u003e\n         \u003cenablement\u003e\n           \u003cwith variable\u003d\"selection\"\u003e\n             \u003cadapt type\u003d\"org.eclipse.core.resources.IFile\"/\u003e\n           \u003c/with\u003e\n         \u003c/enablement\u003e\n      \u003c/moduleArtifactAdapter\u003e\n\nTO\n\n\u003cmoduleArtifactAdapter\n            id\u003d\"org.eclipse.jst.j2ee.server.ear2\"\n            class\u003d\"org.eclipse.jst.j2ee.internal.deployables.EnterpriseDeployableArtifactAdapterFactory\"\u003e\n         \u003cenablement\u003e\n           \u003cwith variable\u003d\"selection\"\u003e\n             \u003cadapt type\u003d\"org.eclipse.core.resources.IProject\"\u003e\n             \t\u003ctest forcePluginActivation\u003d\"true\"\n\t\t\t\t\t\t\tproperty\u003d\"org.eclipse.wst.common.project.facet.core.projectFacet\"\n\t\t\t\t\t\t\tvalue\u003d\"jst.ear\" /\u003e\n\t\t\t \u003c/adapt\u003e\n             \n           \u003c/with\u003e\n         \u003c/enablement\u003e\n      \u003c/moduleArtifactAdapter\u003e\n      \n      \u003cmoduleArtifactAdapter\n            id\u003d\"org.eclipse.jst.j2ee.server.ear3\"\n            class\u003d\"org.eclipse.jst.j2ee.internal.deployables.EnterpriseDeployableArtifactAdapterFactory\"\u003e\n         \u003cenablement\u003e\n           \u003cwith variable\u003d\"selection\"\u003e\n             \u003cadapt type\u003d\"org.eclipse.core.resources.IFile\"\u003e\n             \t\u003ctest forcePluginActivation\u003d\"true\"\n\t\t\t\t\t\t\tproperty\u003d\"org.eclipse.wst.common.project.facet.core.projectFacet\"\n\t\t\t\t\t\t\tvalue\u003d\"jst.ear\" /\u003e\n\t\t\t \u003c/adapt\u003e\n           \u003c/with\u003e\n         \u003c/enablement\u003e\n      \u003c/moduleArtifactAdapter\u003e\n\nIn-fact we would need to add a new moduleArtifactAdapter that handles JEE projects and when we do that, we need to change for example the older web moduleArtifactAdapter \n\nFROM\n\n      \u003cmoduleArtifactAdapter\n            id\u003d\"org.eclipse.jst.web.server.webresource3\"\n            class\u003d\"org.eclipse.jst.servlet.ui.internal.deployables.WebDeployableArtifactAdapterFactory\"\u003e     \n         \u003cenablement\u003e\n           \u003cwith variable\u003d\"selection\"\u003e\n             \u003cadapt type\u003d\"org.eclipse.core.resources.IProject\"/\u003e\n           \u003c/with\u003e\n         \u003c/enablement\u003e\n       \u003c/moduleArtifactAdapter\u003e     \n       \n        \u003cmoduleArtifactAdapter\n            id\u003d\"org.eclipse.jst.web.server.webresource4\"\n            class\u003d\"org.eclipse.jst.servlet.ui.internal.deployables.WebDeployableArtifactAdapterFactory\"\u003e\n         \u003cenablement\u003e\n           \u003cwith variable\u003d\"selection\"\u003e\n             \u003cadapt type\u003d\"org.eclipse.core.resources.IFile\"/\u003e\n           \u003c/with\u003e\n         \u003c/enablement\u003e\n       \u003c/moduleArtifactAdapter\u003e\n\nTO something more specific to facet AND version\n\n\u003cmoduleArtifactAdapter\n            id\u003d\"org.eclipse.jst.web.server.webresource3\"\n            class\u003d\"org.eclipse.jst.servlet.ui.internal.deployables.WebDeployableArtifactAdapterFactory\"\u003e     \n         \u003cenablement\u003e\n           \u003cwith variable\u003d\"selection\"\u003e\n             \u003cadapt type\u003d\"org.eclipse.core.resources.IProject\"\u003e\n             \u003ctest forcePluginActivation\u003d\"true\"\n\t\t\t\t\t\t\tproperty\u003d\"org.eclipse.wst.common.project.facet.core.projectFacet\"\n\t\t\t\t\t\t\tvalue\u003d\"jst.web:2.4]\" /\u003e\n\t\t\t \u003c/adapt\u003e\n           \u003c/with\u003e\n         \u003c/enablement\u003e\n       \u003c/moduleArtifactAdapter\u003e     \n       \n        \u003cmoduleArtifactAdapter\n            id\u003d\"org.eclipse.jst.web.server.webresource4\"\n            class\u003d\"org.eclipse.jst.servlet.ui.internal.deployables.WebDeployableArtifactAdapterFactory\"\u003e\n         \u003cenablement\u003e\n           \u003cwith variable\u003d\"selection\"\u003e\n             \u003cadapt type\u003d\"org.eclipse.core.resources.IFile\"\u003e\n             \u003ctest forcePluginActivation\u003d\"true\"\n\t\t\t\t\t\t\tproperty\u003d\"org.eclipse.wst.common.project.facet.core.projectFacet\"\n\t\t\t\t\t\t\tvalue\u003d\"jst.web:2.4]\" /\u003e\n\t\t\t \u003c/adapt\u003e\n           \u003c/with\u003e\n         \u003c/enablement\u003e\n       \u003c/moduleArtifactAdapter\u003e\n\nNow I tried all of the above and it worked.\n\nBut I am just running it by you guys, if you think this approach is right or could cause problems.\n\n",
+    "Hi, Chuck, I added you to the cc list. can you comment on whether the changes I want to make seem alright.",
+    "I think these changes are great. It\u0027ll stop your plugins from being activated or called if someone selects a non-J2EE project and will ensure that the right adapter is called for each version.",
+    "Released my changes (correct error message when no artifact adapters are available, and tracing improvement) to the weekly I-build.",
+    "Created an attachment (id\u003d63563)\npatch to add moduleArtifactAdapter for jee web, ejb, ear\n\nPatch has been added to create new jee moduleArtifactAdapter for web, ejb, ear\nAlso to ensure the old adapters are enabled on the previous version of the projects only (both facet and version type checks have been added)",
+    "dropped",
+    "*** Bug 181960 has been marked as a duplicate of this bug. ***",
+    "verified as fixed",
+    "Closing."
+  ],
+  "commentCreationDates": [
+    "2007-04-05T20:24:45+02:00",
+    "2007-04-10T21:06:31+02:00",
+    "2007-04-10T21:23:41+02:00",
+    "2007-04-10T21:43:24+02:00",
+    "2007-04-10T23:25:44+02:00",
+    "2007-04-10T23:51:34+02:00",
+    "2007-04-10T23:52:19+02:00",
+    "2007-04-11T00:47:54+02:00",
+    "2007-04-11T22:29:05+02:00",
+    "2007-04-12T01:07:02+02:00",
+    "2007-04-12T06:05:03+02:00",
+    "2007-04-12T16:46:40+02:00",
+    "2007-06-06T20:09:10+02:00",
+    "2007-06-11T17:58:49+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.server.ui.internal.actions.RunOnServerActionDelegate.selectionChanged",
+          "source": "RunOnServerActionDelegate.java:716"
+        },
+        {
+          "method": "org.eclipse.wst.server.ui.internal.ServerLaunchShortcut.launch",
+          "source": "ServerLaunchShortcut.java:38"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchShortcutExtension.launch",
+          "source": "LaunchShortcutExtension.java:430"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.actions.LaunchShortcutAction.run",
+          "source": "LaunchShortcutAction.java:66"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:498"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:545"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:490"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:402"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:938"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3673"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3284"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2337"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2301"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:2176"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$4.run",
+          "source": "Workbench.java:463"
+        },
+        {
+          "method": "org.eclipse.core.databinding.observable.Realm.runWithDefault",
+          "source": "Realm.java:289"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:458"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.application.IDEApplication.start",
+          "source": "IDEApplication.java:101"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:146"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:106"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:76"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:356"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:171"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:476"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:416"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1141"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "181271",
+      "date": "2007-04-10T21:06:31+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "181271",
+  "bugId": "181271",
+  "date": "2007-04-05T20:24:45+02:00",
+  "product": "Web Tools",
+  "component": "jst.j2ee",
+  "severity": "normal"
+}

@@ -1,0 +1,75 @@
+{
+  "comments": [
+    "I am seeing a deadlock when I change the Runtime via the properties dialog - I have a job that kicks off that uninstalls/reinstalls a facet (because our facet versions correspond to the runtime).  This is the recommended strategy to get around modifying a faceted project from within a facet delegate. \n\nIt looks like the wizard holds a workspace lock and then my job runs and also tries to get a workspace lock and then deadlocks.\n\nI tried to get around this by specifying a non-workspace scheduling rule, but then get rule collision:\n\njava.lang.IllegalArgumentException: Attempted to beginRule: R/, does not match outer scope rule: P/myproj\n\tat org.eclipse.core.runtime.Assert.isLegal(Assert.java:62)\n\tat org.eclipse.core.internal.jobs.ThreadJob.illegalPush(ThreadJob.java:116)\n\tat org.eclipse.core.internal.jobs.ThreadJob.push(ThreadJob.java:225)\n\tat org.eclipse.core.internal.jobs.ImplicitJobs.begin(ImplicitJobs.java:80)\n\tat org.eclipse.core.internal.jobs.JobManager.beginRule(JobManager.java:219)\n\tat org.eclipse.core.internal.resources.WorkManager.checkIn(WorkManager.java:96)\n\tat org.eclipse.core.internal.resources.Workspace.prepareOperation(Workspace.java:1684)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1732)\n\tat org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modify(FacetedProject.java:256)",
+    "Info from a mail thread...\n\nThomas,\n\nInteresting... It looks like timing may have changed a bit to expose a race condition that leads to a deadlock. I think I know what the problem is, but could you open a bug (make sure to cc me) so this gets tracked properly?\n\nHere is what I think is happening:\n\n1. Add/remove facets wizard is in the midst of performing its finish operation. It holds a workspace scheduling lock for the duration. While holding the workspace scheduling lock it attempts to get a writer lock on the FacetedProject. It then blocks.\n\n2. Your worker thread is started as a Job with no scheduling rules so it is able to run immediately. It then acquires a writer lock on the FacetedProject and blocks trying to get the workspace scheduling lock.\n\nThe bug is that the FacetedProject api should be acquiring workspace lock prior to acquiring the writer lock. This will probably not get fixed until 1.5.1 since any changes to locking strategies are fairly high risk, but you should be able to work around this by starting your job with a scheduling rule (anything will do ? such as the project). That will force your job to wait until the add/remove facets job has completed.\n\n- Konstantin\n\n--------------------------------------------------------------------------------\n\nFrom: Thomas F Mutdosch [mailto:mutdosch@us.ibm.com] \nSent: Thursday, June 01, 2006 2:02 PM\nTo: Konstantin Komissarchik\nCc: Jay Cagle; Kevin Bauer\nSubject: RE: facet and server change migration issues\n\nHi Konstantin, \n\nIn recent builds I am seeing a deadlock when I change the Runtime via the properties dialog - I have a job that kicks off that uninstalls/reinstalls a facet (because our facet versions correspond to the runtime).  This was the strategy that you recommended to get around modifying a faceted project from within a facet delegate, and used to work fine.  But now it seems to deadlock.   \n\nIt looks like the SetRuntime call calls FacetedProject.beginModification() and then waits on the lock - and my Job tries to uninstall the facet by calling FacetedProject.modify() which runs a workspace job that seems to wait forever.  See the two thread stacks below.  Do you know if something has changed, or if this is still the reccomended way to do this kind of thing? \n\n\nMy Job: \nThread [Worker-32] (Suspended)         \n        waiting for: org.eclipse.core.internal.jobs.ThreadJob  (id\u003d692)         \n        java.lang.Object.wait(long) line: not available [native method]         \n        org.eclipse.core.internal.jobs.ThreadJob.joinRun(org.eclipse.core.runtime.IProgressMonitor) line: 182         \n        org.eclipse.core.internal.jobs.ImplicitJobs.begin(org.eclipse.core.runtime.jobs.ISchedulingRule, org.eclipse.core.runtime.IProgressMonitor, boolean) line: 87         \n        org.eclipse.core.internal.jobs.JobManager.beginRule(org.eclipse.core.runtime.jobs.ISchedulingRule, org.eclipse.core.runtime.IProgressMonitor) line: 219         \n        org.eclipse.core.internal.resources.WorkManager.checkIn(org.eclipse.core.runtime.jobs.ISchedulingRule, org.eclipse.core.runtime.IProgressMonitor) line: 96         \n        org.eclipse.core.internal.resources.Workspace.prepareOperation(org.eclipse.core.runtime.jobs.ISchedulingRule, org.eclipse.core.runtime.IProgressMonitor) line: 1684         \n        org.eclipse.core.internal.resources.Workspace.run(org.eclipse.core.resources.IWorkspaceRunnable, org.eclipse.core.runtime.jobs.ISchedulingRule, int, org.eclipse.core.runtime.IProgressMonitor) line: 1732         \n        org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modify(java.util.Set, org.eclipse.core.runtime.IProgressMonitor) line: 255         \n        com.ibm.etools.webtools.webproject.features.taglibs.internal.util.FacetUtil.uninstallFacet(org.eclipse.core.resources.IProject, java.lang.String, java.lang.String, org.eclipse.core.runtime.IProgressMonitor) line: 127         \n        com.ibm.etools.webtools.sdo.jdbc.ui.internal.feature.JDBCMediatorFacetUtil.uninstallJDBCMediatorFacet(org.eclipse.core.resources.IProject, java.lang.String, org.eclipse.core.runtime.IProgressMonitor) line: 93         \n        com.ibm.etools.webtools.sdo.jdbc.ui.internal.migration.JDBCMediatorRuntimeChangedJob.run(org.eclipse.core.runtime.IProgressMonitor) line: 90         \n        org.eclipse.core.internal.jobs.Worker.run() line: 58         \n\n\nFacet property page: \nThread [ModalContext] (Suspended)         \n        waiting for: java.lang.Object  (id\u003d695)         \n        java.lang.Object.wait(long) line: not available [native method]         \n        java.lang.Object.wait() line: not available [local variables unavailable]         \n        org.eclipse.wst.common.project.facet.core.internal.FacetedProject.beginModification() line: 1067         \n        org.eclipse.wst.common.project.facet.core.internal.FacetedProject.setPrimaryRuntime(org.eclipse.wst.common.project.facet.core.runtime.IRuntime, org.eclipse.core.runtime.IProgressMonitor) line: 821         \n        org.eclipse.wst.common.project.facet.ui.AddRemoveFacetsWizard.performFinish(org.eclipse.core.runtime.IProgressMonitor) line: 330         \n        org.eclipse.wst.common.project.facet.ui.AddRemoveFacetsWizard$2.run(org.eclipse.core.runtime.IProgressMonitor) line: 260         \n        org.eclipse.core.internal.resources.Workspace.run(org.eclipse.core.resources.IWorkspaceRunnable, org.eclipse.core.runtime.jobs.ISchedulingRule, int, org.eclipse.core.runtime.IProgressMonitor) line: 1737         \n\n",
+    "The fix is too risky for 1.5, but should fix for 1.5.1. The workaround described in Comment #1 should work with the modification to use the workspace scheduling rule (instead of the project scheduling rule).",
+    "Fix dropped into R1_5_maintenance stream. Will release as soon as the\nmaintenance stream officially opens.\n",
+    "Fix released to 1.5.1 and 2.0 streams.",
+    "Verified WTP 1.5.1 RC driver."
+  ],
+  "commentCreationDates": [
+    "2006-06-02T15:39:01+02:00",
+    "2006-06-02T15:52:16+02:00",
+    "2006-06-02T15:55:06+02:00",
+    "2006-06-14T01:36:17+02:00",
+    "2006-07-04T17:51:15+02:00",
+    "2006-09-26T19:03:02+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Attempted to beginRule: R/, does not match outer scope rule: P/myproj",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.Assert.isLegal",
+          "source": "Assert.java:62"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.illegalPush",
+          "source": "ThreadJob.java:116"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.push",
+          "source": "ThreadJob.java:225"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ImplicitJobs.begin",
+          "source": "ImplicitJobs.java:80"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobManager.beginRule",
+          "source": "JobManager.java:219"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.WorkManager.checkIn",
+          "source": "WorkManager.java:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.prepareOperation",
+          "source": "Workspace.java:1684"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1732"
+        },
+        {
+          "method": "org.eclipse.wst.common.project.facet.core.internal.FacetedProject.modify",
+          "source": "FacetedProject.java:256"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "145052",
+      "date": "2006-06-02T15:39:01+02:00",
+      "product": "Web Tools",
+      "component": "wst.common",
+      "severity": "major"
+    }
+  ],
+  "groupId": "145052",
+  "bugId": "145052",
+  "date": "2006-06-02T15:39:01+02:00",
+  "product": "Web Tools",
+  "component": "wst.common",
+  "severity": "major"
+}

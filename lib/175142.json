@@ -1,0 +1,100 @@
+{
+  "comments": [
+    "Start with a new workspace and bring up the New Connection wizard. Select Linux as the system type. Go to the last page of the wizard (i.e. keep clicking Next until the last page). Click Finish. Nothing happens and connection is not created. This is what I see in the log:\n\njava.lang.NullPointerException\n\tat org.eclipse.rse.ui.widgets.services.RSEModelServiceElement.\u003cinit\u003e(RSEModelServiceElement.java:38)\n\tat org.eclipse.rse.ui.widgets.services.ConnectorServiceElement.\u003cinit\u003e(ConnectorServiceElement.java:40)\n\tat org.eclipse.rse.ui.widgets.services.FactoryServiceElement.getChildren(FactoryServiceElement.java:80)\n\tat org.eclipse.rse.ui.widgets.services.FactoryServiceElement.commit(FactoryServiceElement.java:122)\n\tat org.eclipse.rse.ui.widgets.services.RootServiceElement.commit(RootServiceElement.java:93)\n\tat org.eclipse.rse.ui.wizards.SubSystemServiceWizardPage.performFinish(SubSystemServiceWizardPage.java:152)\n\tat org.eclipse.rse.ui.wizards.newconnection.RSEDefaultNewConnectionWizard.performFinish(RSEDefaultNewConnectionWizard.java:255)\n\n-------------------------------------------------------\nTM 2.0M5 Testing\ninstallation : eclipse-platform-3.3M5 (I20070209-1006)\nRSE install  : RSE-SDK-I20070221-1831\njava.runtime : J2RE 1.5.0 IBM J9 2.3\nos.name:     : Windows XP 5.1, Service Pack 2",
+    "Bumping up priority as I think this should be high priority.",
+    "Was not able to reproduce this using my development driver with the latest code changed. Looks like it\u0027s fixed. Please return if that is the case.",
+    "Actually I still see it with the latest code changes. I can also reproduce it with RSE-SDK-I20070222-1133, the latest build.",
+    "I can reproduce the issue on my installation:\nWindows XP SP1, Sun 1.4.2_13, RSE SDK+EMF+CDT+Discovery+Terminal+Tests,\nStarted on blank workspace, default private profile, no modification in wizard.\n\nI notice that when I press Finish on the 1st or 2nd page, it works OK. But when I press Finish on the 3rd (\"processes\") or last (\"shells\") page, it fails. I\u0027m making no modifications whatsoever in the wizard, just pressing Next.\n\nI assume that the issue is in the org.eclipse.rse.subsystems.processes.shell.linux plugin. When I rename this plugin to (.orig) and restart RSE, I cannot reproduce the issue any more.\n\nThis seems similar to bug 175101, where I could reproduce something like it by setting an Rexec server launcher on 2 pages. Actually, I\u0027m pretty sure that\u0027s a duplicate. The traceback that I\u0027m seeing is 3 times out of 4 like yours, but once it looks like the one from bug 175101.\n\nI consider this a must-fix for M5 - either by finding and fixing the issue, or by getting rid of the subsystems.processes.shell.linux plugin. Assigning to DaveM for now. Please reassign if you\u0027re not comfortable debugging it.\n",
+    "*** Bug 175101 has been marked as a duplicate of this bug. ***",
+    "Who owns the subsystems.processes.shell.linux plugin?",
+    "Martin, I think you\u0027re right. This has something to do with\norg.eclipse.rse.subsystems.processes.shell.linux plugin. If I don\u0027t load this\nplugin in my dev env, I don\u0027t see a problem.",
+    "I think Martin added it with bug 159522",
+    "(In reply to comment #6)\n\u003e Who owns the subsystems.processes.shell.linux plugin?\n\nYes I\u0027ve added it but it has no real owner yet. It comes from Montavista, and I refactored it to the best of my knowledge, but there\u0027s little more I can do now except filing bugs. For now, whoever thinks he can fix a bug in it should do so. Let\u0027s try and find an owner at the next committer meeting.\n\n",
+    "The problem is that in ShellProcessSubSystemConfiguration, there is the following method:\n\n    public IConnectorService getConnectorService(IHost host) {\n    \tIShellServiceSubSystem ss \u003d Activator.getShellServiceSubSystem(host);\n    \tif (ss!\u003dnull) {\n    \t\treturn ss.getConnectorService();\n    \t}\n    \treturn null;\n    }\n\nAt new connection creation time, this ends up being called to construct a service element, however the getShellServiceSubSystem() call will return null at this time because there is subsystem in existence yet.",
+    "Hm I see.. shell service is instantiated AFTER the process service.\nDo you see a chance to get it fixed?\n\nThe point is, that processes.shell doesn\u0027t have a connector service by its own since it re-uses the kind of shell that happens to be contributed. Or should we create a dummy ShellServiceConnectorService to make the wizard happy but have it delegate all methods to the Shell\u0027s connector service at runtime?",
+    "What I\u0027ve tried is changing the method in FactoryServiceElement to the following:\n\npublic ServiceElement[] getChildren()\n\t{\n\t\tif (_children \u003d\u003d null)\n\t\t{\n\t\t\tIHost host \u003d getHost();\n\t\t\t\n\t\t\tServiceServiceElement serviceElement \u003d new ServiceServiceElement(host, this, getService());\n\t\t\n\t\t\tIConnectorService connectorService \u003d getConnectorService();\t\t\n\t\t\tif (connectorService !\u003d null)\n\t\t\t{\n\t\t\t\t_children \u003d new ServiceElement[2];\n\t\t\t\t_children[0] \u003d serviceElement;\n\t\t\t\t_children[1] \u003d new ConnectorServiceElement(host, this, connectorService);\n\t\t\t\tif (host instanceof DummyHost)\n\t\t\t\t{\n\t\t\t\t\tIServerLauncherProperties sl \u003d connectorService.getRemoteServerLauncherProperties();\n\t\t\t\t\tif (sl \u003d\u003d null)\n\t\t\t\t\t{\n\t\t\t\t\t\tsl \u003d _factory.createServerLauncher(connectorService);\n\t\t\t\t\t\tconnectorService.setRemoteServerLauncherProperties(sl);\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t\telse\n\t\t\t{\n\t\t\t\t_children \u003d new ServiceElement[1];\n\t\t\t\t_children[0] \u003d serviceElement;\n\t\t\t}\n\t\t}\n\t\treturn _children;\n\t\t\n\t}\n\n\nIt seems to work okay for me then but I\u0027d like others to try that out too.  I have to go out for a bit but I\u0027ll be back in about an hour so feel free to commit this if it looks good.",
+    "Hm. What I\u0027d prefer at this point in the game is keeping the framework unchanged and trying a workaround in processes.shell.linux to make it more \"look like a real connector service\".\n\nUnless you can guarantee that your change cannot have any negative impact on other areas of RSE or the wizard.\n\nWhat about a generic class DelegatingConnectorService?",
+    "Martin, is this function absolutely necessary for M5? It looks to me to be a somewhat risky change at this point.\n\nI think a DelegatingConnectorService is a good idea.",
+    "If possible, I\u0027d like to see the plugin in M5 because it shows how a generic IShellService can be used to put other services on top of it. Also, MontaVista has been waiting for this really long now.\n\nBut if we can\u0027t get it running we can only get rid of it.",
+    "I don\u0027t know if a delagating connector service is any less riskier.  For this (and potentially other) service implementations, I don\u0027t see the need for users to have to configure the connector service the way it is done for others so I can imagine it being more appropriate to not show a connector service in such cases.",
+    "I decided to do the following:\n\n-added IDelegatingConnectorService and AbstractDelegatingConnectorService for taking care of delegation purposes.  I\u0027ve setup the shell processes configuration to return it, when a real service is unavailable.\n\nIn the FactoryServiceElement, any IDelegatingConnectorService is treated as no service since we shouldn\u0027t be exposing the properties of a delegated service there.  \n",
+    "BTW, I tried to use the new service but it\u0027s not giving me back anything.  Has anyone got this working?",
+    "It works fine with ssh shells but fails with dstore shells. Dont know why.\nAnd its pretty slow compared to the dstore processes service.",
+    "We think this is fixed now.",
+    "Ok, works fine for me for both dstore and ssh shells, although as Martin stated it\u0027s slower than using dstore processes.\n\nThe New Connection wizard problem is fixed.",
+    "Verified also with I20070223-0730 on Linux.\n\nTested all kinds of nasty things on the DelegatingConnectorService and it works just great. Thanks Dave!"
+  ],
+  "commentCreationDates": [
+    "2007-02-22T16:45:08+01:00",
+    "2007-02-22T16:45:59+01:00",
+    "2007-02-22T16:48:42+01:00",
+    "2007-02-22T17:25:52+01:00",
+    "2007-02-22T17:58:51+01:00",
+    "2007-02-22T17:59:31+01:00",
+    "2007-02-22T18:04:26+01:00",
+    "2007-02-22T18:04:57+01:00",
+    "2007-02-22T18:05:51+01:00",
+    "2007-02-22T18:10:49+01:00",
+    "2007-02-22T18:21:32+01:00",
+    "2007-02-22T18:27:00+01:00",
+    "2007-02-22T18:35:44+01:00",
+    "2007-02-22T18:39:50+01:00",
+    "2007-02-22T19:34:26+01:00",
+    "2007-02-22T19:36:51+01:00",
+    "2007-02-22T19:46:02+01:00",
+    "2007-02-22T21:11:02+01:00",
+    "2007-02-22T21:12:04+01:00",
+    "2007-02-22T22:48:00+01:00",
+    "2007-02-23T00:01:37+01:00",
+    "2007-02-23T01:41:45+01:00",
+    "2007-02-23T16:32:56+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.rse.ui.widgets.services.RSEModelServiceElement.\u003cinit\u003e",
+          "source": "RSEModelServiceElement.java:38"
+        },
+        {
+          "method": "org.eclipse.rse.ui.widgets.services.ConnectorServiceElement.\u003cinit\u003e",
+          "source": "ConnectorServiceElement.java:40"
+        },
+        {
+          "method": "org.eclipse.rse.ui.widgets.services.FactoryServiceElement.getChildren",
+          "source": "FactoryServiceElement.java:80"
+        },
+        {
+          "method": "org.eclipse.rse.ui.widgets.services.FactoryServiceElement.commit",
+          "source": "FactoryServiceElement.java:122"
+        },
+        {
+          "method": "org.eclipse.rse.ui.widgets.services.RootServiceElement.commit",
+          "source": "RootServiceElement.java:93"
+        },
+        {
+          "method": "org.eclipse.rse.ui.wizards.SubSystemServiceWizardPage.performFinish",
+          "source": "SubSystemServiceWizardPage.java:152"
+        },
+        {
+          "method": "org.eclipse.rse.ui.wizards.newconnection.RSEDefaultNewConnectionWizard.performFinish",
+          "source": "RSEDefaultNewConnectionWizard.java:255"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "175142",
+      "date": "2007-02-22T16:45:08+01:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "major"
+    }
+  ],
+  "groupId": "175142",
+  "bugId": "175142",
+  "date": "2007-02-22T16:45:08+01:00",
+  "product": "Target Management",
+  "component": "RSE",
+  "severity": "major"
+}

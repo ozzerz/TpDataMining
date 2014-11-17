@@ -1,0 +1,53 @@
+{
+  "comments": [
+    "Static inner classes and aspects are permitted to call private static methods \nin the enclosing class. In the case of aspects this should apply to both \nmethods and advice. However while the following testcase will compile it fails \nto run:\n\npackage bug_nnnn;\n\npublic class InnerAspectCallsPrivateMethod {\n\n\tpublic void test () {\n\t\tfoo(\"test\");\n\t}\n\t\n\tprivate static void foo (String from) {\n\t\tSystem.out.println(\"? foo() \" + from);\n\t}\n\t\n\tpublic static void main(String[] args) {\n\t\tnew InnerAspectCallsPrivateMethod().test();\n\t}\n\t\n\tprivate static aspect Aspect {\n\t\t\n\t\tpublic Aspect () {\n\t\t\tfoo(\"Aspect.\u003cinit\u003e\");\n\t\t}\n\t\t\n\t\tpointcut execTest () :\n\t\t\texecution(* InnerAspectCallsPrivateMethod.test());\n\t\t\n\t\tbefore () :  execTest () {\n\t\t\tfoo(\"before\");\n\t\t}\n\t\t\n\t\tvoid around () :  execTest () {\n\t\t\tfoo(\"around\");\n\t\t}\n\t}\n}\n\njava.lang.NoSuchMethodError: bug_nnnn.InnerAspectCallsPrivateMethod$Aspect.foo\n(Ljava/lang/String;)V\n? foo() Aspect.\u003cinit\u003e\n? foo() before\n\tat \nbug_nnnn.InnerAspectCallsPrivateMethod$Aspect.ajc$inlineAccessMethod$bug_nnnn_I\nnnerAspectCallsPrivateMethod$Aspect$bug_nnnn_InnerAspectCallsPrivateMethod$Aspe\nct$foo(InnerAspectCallsPrivateMethod.java)\n\tat bug_nnnn.InnerAspectCallsPrivateMethod.test_aroundBody1$advice\n(InnerAspectCallsPrivateMethod.java:43)\n\tat bug_nnnn.InnerAspectCallsPrivateMethod.test\n(InnerAspectCallsPrivateMethod.java)\n\tat bug_nnnn.InnerAspectCallsPrivateMethod.main\n(InnerAspectCallsPrivateMethod.java:26)\nException in thread \"main\"",
+    "The interesting bit of AJ source relating to this bug is in:\n\nAccessForInlineVisitor.getAccessibleMethod()\n\nwhich is called with a binding of \u0027void foo(java.lang.String)\u0027 and a receiver\nType of \u0027Aspect\u0027.  See comments relating to this bug, prefixed \u0027Andy\u0027 below:\n\n{\n  if (!binding.isValidBinding()) return binding;\n\t\t\n  makePublic(receiverType);  //???\n  if (isPublic(binding)) return binding;\n  if (binding instanceof InterTypeMethodBinding) return binding;\n\n  if (binding.isPrivate() \u0026\u0026  binding.declaringClass !\u003d inAspect.binding) {\n// Andy: This is where we end up in the case where foo() is a private\n// Andy: method.  We raise its visibility.\n\n    binding.modifiers \u003d AstUtil.makePackageVisible(binding.modifiers);\n  }\n\t\n// Andy: We then create a ResolvedMember in the *aspect* for the foo method\n// Andy: which never has its body generated (called something like \n// Andy: PrivateCall$Aspect.foo() - where PrivateCall is the name of the \n// Andy: class containing foo().\n  ResolvedMember m \u003d EclipseFactory.makeResolvedMember(binding, receiverType);\n  if (inAspect.accessForInline.containsKey(m)) \n    return (MethodBinding)inAspect.accessForInline.get(m);\n// Andy: Now we generate an inline accessor method that calls foo() and \n// Andy: we use it in the advice.  Of course this method will be generated \n// Andy: but its body will call the method PrivateCall$Aspect.foo() which is\n// Andy: never generated.\n  MethodBinding ret \u003d world.makeMethodBinding(\n    AjcMemberMaker.inlineAccessMethodForMethod(inAspect.typeX, m));\n  inAspect.accessForInline.put(m, ret);\n  return ret;\n}\n\nThe solution is to raise the visibility and just return the newly accessible\nmethod binding as it will then be completely visible to the advice (there is\nno need for an accessor method).\n\nI\u0027m thinking there are a whole bunch of related tests that could be written in\nthis area and currently puzzling through which are likely to break with the\nchange above.  \n\nQuestion for Matthew:\nDo we think it is allowed for around advice in the inner aspect to call a\nprivate method foo() in the enclosing class and yet have that around advice\naffect something in a completely different type?  \n\nIn this case the inlining may cause my change to break (but I suspect we are\nalready broken so I haven\u0027t made it worse...)",
+    "Ok.  I fixed it properly and have covered all cases with tests - even the case\nwhen you inline the around advice into an entirely different type.\n\nWaiting for build before closing",
+    "Fix available:\n\nBUILD COMPLETE -  build.340\nDate of build: 08/14/2004 10:57:39\nTime to build: 92 minutes 0 seconds\nLast changed: 08/14/2004 09:08:57\nLatest good AspectJ jar available at:\ndownload.eclipse.org/technology/ajdt/dev/aspectj-DEVELOPMENT.jar\n",
+    "Fix released as part of AspectJ 1.2.1"
+  ],
+  "commentCreationDates": [
+    "2004-08-04T15:29:43+02:00",
+    "2004-08-13T11:31:38+02:00",
+    "2004-08-13T16:51:51+02:00",
+    "2004-08-15T11:15:40+02:00",
+    "2004-10-21T10:32:09+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoSuchMethodError",
+      "message": "bug_nnnn.InnerAspectCallsPrivateMethod$Aspect.foo (Ljava/lang/String;)V ? foo() Aspect.\u003cinit\u003e ? foo() before",
+      "elements": [
+        {
+          "method": "bug_nnnn.InnerAspectCallsPrivateMethod$Aspect.ajc$inlineAccessMethod$bug_nnnn_InnerAspectCallsPrivateMethod$Aspect$bug_nnnn_InnerAspectCallsPrivateMethod$Aspect$foo",
+          "source": "InnerAspectCallsPrivateMethod.java"
+        },
+        {
+          "method": "bug_nnnn.InnerAspectCallsPrivateMethod.test_aroundBody1$advice",
+          "source": "InnerAspectCallsPrivateMethod.java:43"
+        },
+        {
+          "method": "bug_nnnn.InnerAspectCallsPrivateMethod.test",
+          "source": "InnerAspectCallsPrivateMethod.java"
+        },
+        {
+          "method": "bug_nnnn.InnerAspectCallsPrivateMethod.main",
+          "source": "InnerAspectCallsPrivateMethod.java:26"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "71372",
+      "date": "2004-08-04T15:29:43+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "71372",
+  "bugId": "71372",
+  "date": "2004-08-04T15:29:43+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

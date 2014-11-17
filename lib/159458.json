@@ -1,0 +1,156 @@
+{
+  "comments": [
+    "Driver:  WTP 1.5.1\n\nThere are situations where server runtime or runtime types could be null as a result of some user action with server runtimes or switching workspaces.  This could result in the Web services code giving a NPE such as:\n  \n   IWAB0014E Unexpected exception occured.\n  \n      java.lang.NullPointerException\n      at org.eclipse.jst.ws.internal.consumption.ui.wsrt.WebServiceRuntimeExtensionUtils2.getAllServerFactoryIdsWithRuntimes(Unknown Source)\n      at org.eclipse.jst.ws.internal.consumption.ui.wsrt.WebServiceRuntimeExtensionUtils2.getServerFactoryIdsByFacetRuntimes(Unknown Source)\n      at org.eclipse.jst.ws.internal.consumption.ui.wsrt.WebServiceRuntimeExtensionUtils2.getServerFactoryIdsByServiceRuntime(Unknown Source)\n      at org.eclipse.jst.ws.internal.consumption.ui.wsrt.WebServiceRuntimeExtensionUtils2.getServerFactoryIdsByServiceType(Unknown Source)\n      at org.eclipse.jst.ws.internal.consumption.ui.wsrt.WebServiceRuntimeExtensionUtils2.getDefaultServerValueFor(Unknown Source)\n      at org.eclipse.jst.ws.internal.creation.ui.widgets.ServerWizardWidgetDefaultingCommand.execute(Unknown Source)\n      at org.eclipse.wst.command.internal.env.core.fragment.CommandFragmentEngine.runCommand(Unknown Source)\n\nIn the above case, I was switching drivers while using workspace that has a certain rutnime type define.  In this case, in WebServiceRuntimeExtensionUtils2.getAllServerFactoryIdsWithRuntimes(), \n\n String runtimeRuntimeTypeId \u003d rt.getRuntimeType().getId();\n\ngetRuntimeType() returns null which results in NPE.\n\nIn another case, if the user defines some server runtime, define a server then remove the server runtime directory, \n\nServerSelectionUtils.getCompatibleExistingServers() could give an NPE in:\n\n  String serverRuntimeId \u003d server.getRuntime().getRuntimeType().getId();\n\nwhen getRuntime() returns null.\n\nA number of these situation is triggered by some \"questionable\" user action but the Web Services code should be more robust to handle these situation rather than giving an NPE.",
+    "GetRuntime() and getRuntimeType() returns valid values under normal use, but if the user (e.g.) deletes the runtime, deletes the entire server adapter plugins, or is using a workspace from another product that has a different server adapter, they could return null.",
+    "Kathy, back to you since you have a handle on the fix. The events that lead to this bug are well off the beaten path. Targetting to the 1.5.3 maintenance release.",
+    "*** Bug 159743 has been marked as a duplicate of this bug. ***",
+    "It seems one of the \"questionable\" user actions is to open the workspace using a later eclipse version. I had originally used 3.2.1, then tested something using 3.3M4 only to find out, that I get the mentioned exception.\n\nBut even after going back to 3.2.1 I now keep getting the very same exception and so I am currently stuck, i.e. I can\u0027t create any new WebService project any more.\n\nAny idea, how or what to do to clean this up?\n\nMichael\n",
+    "We had previously tried opening a WTP 1.5.3 workspace with WTP 2.0 M4 and was able to successfully run the Web serivce in that workspace and create new ones.  So it might be something particular in your workspace. Could you please attach it to this defect and specify the exact steps to recreate the problem?  Are you able to get this error everytime following those steps?\n\nTo get by the problem you are getting, please use a new workspace after you have switched from one version of the driver to another.",
+    "Mark, could you please take a look at this defect for WTP 1.5.3?",
+    "Created an attachment (id\u003d57171)\npatch for org.eclipse.jst.ws.consumption.ui\n\nUnder some circumstances like Kathy mentioned above it is possible that the server runtime type returned can be null.  We are not checking for this in our code so this patch fixes that.  There is at least one other plugin that doesn\u0027t check for null runtime types so there will be another patch coming.\n\nThis patch fixes the NPE with the stack trace given in this bug.",
+    "Created an attachment (id\u003d57173)\nPatch for org.eclipse.jst.ws\n\nThis one should checks for null server runtime types in the org.eclipse.jst.ws plugin",
+    "Created an attachment (id\u003d57292)\nrevised patch for org.eclipse.jst.ws.consumption.ui\n\n",
+    "Patches reviewed and committed to R1_5_maintenance and HEAD.  Thanks Mark!  Will release later.",
+    "Released to R1_5_maintenance as v200701230511 and to HEAD as v200701230517.",
+    "I tried with the WTP 1.5.3 20070125 driver and found that we still get NPE in the following scenario:\n\n1. Install a Tomcat 5.0 and Tomcat 5.5 server runtime.\n2. Create a Tomcat 5.5 server.\n3. Delete the Tomcat 5.5 server runtime.\n4. Create a Web project targetting Tomcat 5.0.\n5. Try creating a Web service in the Tomcat 5.0 targetted project resulted in:\n\nIWAB0234E An internal error occurred. Details: null\n    java.lang.NullPointerException\n    at org.eclipse.jst.ws.internal.consumption.ui.widgets.runtime.ClientRuntimeSelectionWidgetDefaultingCommand.getServerFromProject(ClientRuntimeSelectionWidgetDefaultingCommand.java:523)\n    at org.eclipse.jst.ws.internal.creation.ui.widgets.runtime.ServerRuntimeSelectionWidgetDefaultingCommand.setServiceDefaultServer(ServerRuntimeSelectionWidgetDefaultingCommand.java:308)\n    at org.eclipse.jst.ws.internal.creation.ui.widgets.runtime.ServerRuntimeSelectionWidgetDefaultingCommand.execute(ServerRuntimeSelectionWidgetDefaultingCommand.java:171)\n\nIn ClientRuntimeSelectionWidgetDefaultingCommand.getServerFromProject, line 523 is:\n \n     if (thisServer.getRuntime().getId().equals(sRuntime.getId()))\n\nSo we are looping through all the servers in the workspace to get thisServer.  In this case, the getRuntime() call on the Tomcat 5.5 server returns null because the runtime does not exist anymore.  We need to check against the case where the runtime is null and ignore those servers.\n\nI did test with the scenario where I open an existing workspace that had been created with more server adapter than the currently used driver.  In that case, I did not run into any NPE anymore.",
+    "Created an attachment (id\u003d58053)\nrevised jst.ws.consumption.ui patch\n\nMy last patches checked for null IRuntimeTypes, but it looks like the IRuntimes can come back as null too causing the exception in the scenario Kathy describes  in comment 12.  This patch checks for null IRuntimes, and fixes the problem Kathy described.\n\nThis is a minor change only affecting a few files.",
+    "Kathy, Mark,\nthanks for working on this. As discussed, however, I think the scope of this change is beyond what should be integrated into WTP 1.5.3 this close to the release date, particularly as (re)creation of the missing installed server runtime will work around the root problem.\n\nWhile the patch appears to safeguard the code against accessing a null server runtime and will avoid the NPEs, I am not sure what, if any, subtle implications to the behaviour of the user interface might result. Are there cases in which failure to find a particular runtime, or any installed runtimes at all, will produce inexplicable empty UI controls or block progress without, say, a useful error message? Until we backtrace the fixed code paths to the UI scenarios that will drive them to be sure the resulting UI behaviour is normal, I\u0027m not comfortable committing it.\n\nI would like us to revisit this in WTP 1.5.4, however, as such a target is not defined in Bugzilla yet, targetted to 2.0 for now.\n\nThanks - CB.",
+    "Chris, I agree with you.  I found dozens of places in the web services code where we call server tools API that could potentially return null that we fail to check. After submitting this patch Kathy and I found even more places where we are not checking for null return values.  Fixing this bug will involve changing several files, and it will take some investigation to find all the user scenarios that could run into problems.  Also, the scenarios which cause these null pointer exceptions to happen are probably not that common so fixing this for 1.5.3 is not essential.",
+    "I ran into this problem when I simply created a project, imported a WSDL, and tried to create a Top Down Skeleton Web service.  I got the same trace as comment #12.  \n\nThis seems like a pretty basic scenario, so I didn\u0027t expect that problem.\n\nThat said, the simple workaround is to add the project/EAR to the server and it works fine.",
+    "I just tried the steps that Seng just reported in comment #16 but was not able to reproduce the problem.  Need more specific steps from Seng to reproduce the problem.",
+    "Following up, I wasn\u0027t able to reproduce this again in a new workspace.\n\nMost likely, my previous workspace is messed up.  If I see it again, I\u0027ll try to notice anything peculiar in my workspace.",
+    "Targetted to WTP 1.5.4.",
+    "Created an attachment (id\u003d61332)\npatch for o.e.jst.ws.consumption.ui and o.e.jst.ws.creation.ui plugins\n\n",
+    "This patch adds some checks to prevent against null values where API states that null values returned are possible.  I spent some time testing this in the debugger by setting various things to null, and this seems to work.  Now if the wizards have trouble finding a server or runtime due to some strange setup the user should get a message saying that the runtime or server could not be found and to check their configuration.  This is much better than getting a NPE.  I\u0027ve also run the smoke test scenarios with this patch applied and didn\u0027t hit any problems.",
+    "This patch fixes the scenario described in comment 12.  No exception or errors are displayed to the user in that scenario, since the null runtime type is simply skipped over.",
+    "Requesting PMC approval for WTP 1.5.4.\n\nThe problem:\n\nGoing through Web service scenario with a server that has null server runtime (by deleting server runtime manually with existing server) would result in an NPE.\n\nWorkaround:\n\nDelete the server and re-run the scenario.\n\nThe fix:\n\nAdding null checks for null server type and server runtime in 3 files in 1 plugin.\n\nRisk:\n\nWe have follow through with each places that the null checks are added and verify that if the server is returned as null, all the user would get is the proper error message.  \n\nTesting:\n\nMark has explicitely tested setting the server to null in those places to simulate possible scenarios.  Those scenarios, smoke test scenarios and the original problem in comment #12 had all worked fine.\n\n",
+    "Reviewed and *almost* approved for WTP 1.5.4, but not quite - Three questions first, Mark...\n\n1. In comment 15 you confirmed there were several places where we get IRuntimes and IServerTypes and don\u0027t check for null. We had some discussions about whether we would hunt them all down under this bug, or only solve the ones proven to break user scenarios. Which approach have you taken here? For example, at line 401 in v1.57.2.1 + your patch of ClientRuntimeSelectionWidgetDefaultingCommand is this call:\n    clientIds_.setServerId(server.getServerType().getId());\nThis exists before your patch so isn\u0027t a latent regression, but it does look like an example of an explosion we haven\u0027t prevented yet.\n\n2. Same file, lines 750-751...\n    IRuntimeType sRuntimeType \u003d sRuntime.getRuntimeType();\n    if (sRuntimeType !\u003d null \u0026\u0026 sRuntime !\u003d null \u0026\u0026 thisServerType.getRuntimeType().getId().equals(sRuntimeType.getId()))\n...Looks like the null check on sRuntime is a tad too late. Line 750 will blow up before we get to 751.\n\n3. I\u0027ve noticed two different logic styles in your patch. In general, you are calling getServerType() twice in close proximity (eg. lines 368-370 in the same file as above) compared to getRuntime which you call once and use a local variable for caching (529-530). The latter pattern seems better from a performance standpoint, though I\u0027ll confess I don\u0027t know how expensive the typical getServerType() method call can be. Please discuss with Seng, and if there is any possible expense involved, please use a local variable for your calls to getServerType().\n\nThanks Mark - Overall a good patch. Just a couple gotchas to handle and retest, then I\u0027ll approve.",
+    "I\u0027ve removed \"PMC\", since seems component lead still had questions/review. \n\nOnce your team is happy, please re-mark if you still believe should be in maintenance. ",
+    "Created an attachment (id\u003d61560)\nupdated patch\n\nThanks Chris, this updated patch should address your comments.\n\n1. I decided to go with the approach of hunting them all down.  I was having a hard time coming up with scenarios that would cause the server tools API to give us nulls, but I did try to simulate these scenarios by setting things to null in the debugger.  I think this approach is pretty safe since if these defaulting commands encounter a null and skip some logic they will attempt other ways of determining the default runtime, and if that doesn\u0027t work a message is displayed to the user telling them to check their installed runtimes.  I have fixed up that line that you mentioned.\n\n2. Good catch, I\u0027ve fixed that one up.\n\n3. Some of the calls are simple getters (i.e. return someInstanceVar).  However IServerType.getRuntimeType looks a bit more complicated so I fixed up the patch to avoid calling that more than necessary.",
+    "Created an attachment (id\u003d61677)\nupdated patch (fixed patch)\n\nOops, I had the plugin jar built in my workspace and accidentally included it in the patch.",
+    "Mark,\nmany thanks. Hopefully one last thing. Line 777-779 of ClientRuntimeSelectionWidgetDefaultingCommand reads:\n\n...\n777\u003e IServerType thisServerType \u003d serverTypes[i];\n778\u003e IRuntimeType thisServerTypeRuntimeType \u003d thisServerType.getRuntimeType();\n779\u003e if (sRuntimeType !\u003d null \u0026\u0026 thisServerType!\u003d null \u0026\u0026 thisServerTypeRuntimeType !\u003d null \u0026\u0026 thisServerTypeRuntimeType.getId().equals(sRuntimeType.getId()))\n...\n\nLine 779\u0027s check for a null \"thisServerType\" is too late to prevent an NPE on line 778 if serverTypes[i] is null on line 777.\n\nWould you please tweak, retest and reattach?",
+    "Created an attachment (id\u003d61997)\nupdated patch\n\nThanks Chris.  I think checking thisServerType on the old line 779 was extraneous since I don\u0027t think thisServerType should ever be null.  However, there is no harm in checking so I have fixed up the patch and retested it.",
+    "Thanks for putting up with my requests for tweaks, Mark. This final patch looks good. Reviewed and approved.\n\nPMC, please review and approve this fix for WTP 1.5.4. Thanks - CB.",
+    "+1 \nI think I\u0027ve ran into this a few times! :) \n",
+    "Adding hot bug request information so that this can be formally be considered\nfor WTP 1.5.4\n\nAffiliation: IBM\nRelease you want this bug to be fixed in: 1.5.4\nJustification: A number of users had run into this problem when deleting server runtime or using existing workspace from a driver containing a particular server adapter to another one where the server adapter is absent.  The NPE does not accurately points to the cause of the problem and prevents the Web Services wizard to complete successfully.",
+    "+1\nFix is necessary to handle switching workspaces between different installs, bad/missing server adapters, etc.",
+    "+1\n",
+    "Released to R1_5_maintenance as v200704041932.  Will release to WTP 2.0 later on today.",
+    "Released to HEAD as v200704112139.",
+    "Verified fixed and closed.  I tried the scenario described in comment 12 using a WTP 2 build and did not run into any exceptions.",
+    "*** Bug 176826 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2006-10-02T16:40:53+02:00",
+    "2006-10-02T18:35:03+02:00",
+    "2006-10-03T14:19:29+02:00",
+    "2006-10-05T14:42:39+02:00",
+    "2007-01-17T14:47:28+01:00",
+    "2007-01-17T17:04:56+01:00",
+    "2007-01-19T16:00:03+01:00",
+    "2007-01-19T20:28:34+01:00",
+    "2007-01-19T20:34:58+01:00",
+    "2007-01-22T21:12:00+01:00",
+    "2007-01-23T02:32:49+01:00",
+    "2007-01-23T05:19:41+01:00",
+    "2007-02-01T17:00:20+01:00",
+    "2007-02-01T20:04:50+01:00",
+    "2007-02-02T04:39:12+01:00",
+    "2007-02-02T20:05:57+01:00",
+    "2007-02-07T20:39:07+01:00",
+    "2007-02-07T21:00:51+01:00",
+    "2007-02-07T21:42:44+01:00",
+    "2007-02-23T16:40:00+01:00",
+    "2007-03-19T22:14:36+01:00",
+    "2007-03-19T22:21:50+01:00",
+    "2007-03-19T22:36:28+01:00",
+    "2007-03-19T22:55:21+01:00",
+    "2007-03-20T21:00:45+01:00",
+    "2007-03-20T23:00:14+01:00",
+    "2007-03-21T16:26:58+01:00",
+    "2007-03-22T15:44:12+01:00",
+    "2007-03-26T18:47:39+02:00",
+    "2007-03-26T19:44:18+02:00",
+    "2007-03-30T23:38:00+02:00",
+    "2007-03-31T04:32:55+02:00",
+    "2007-04-02T20:20:49+02:00",
+    "2007-04-03T15:12:09+02:00",
+    "2007-04-04T01:26:59+02:00",
+    "2007-04-04T21:38:33+02:00",
+    "2007-04-11T23:42:37+02:00",
+    "2007-04-27T21:43:13+02:00",
+    "2007-07-19T21:53:21+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.ws.internal.consumption.ui.wsrt.WebServiceRuntimeExtensionUtils2.getAllServerFactoryIdsWithRuntimes",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.consumption.ui.wsrt.WebServiceRuntimeExtensionUtils2.getServerFactoryIdsByFacetRuntimes",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.consumption.ui.wsrt.WebServiceRuntimeExtensionUtils2.getServerFactoryIdsByServiceRuntime",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.consumption.ui.wsrt.WebServiceRuntimeExtensionUtils2.getServerFactoryIdsByServiceType",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.consumption.ui.wsrt.WebServiceRuntimeExtensionUtils2.getDefaultServerValueFor",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.creation.ui.widgets.ServerWizardWidgetDefaultingCommand.execute",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.core.fragment.CommandFragmentEngine.runCommand",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "159458",
+      "date": "2006-10-02T16:40:53+02:00",
+      "product": "Web Tools",
+      "component": "jst.ws",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.ws.internal.consumption.ui.widgets.runtime.ClientRuntimeSelectionWidgetDefaultingCommand.getServerFromProject",
+          "source": "ClientRuntimeSelectionWidgetDefaultingCommand.java:523"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.creation.ui.widgets.runtime.ServerRuntimeSelectionWidgetDefaultingCommand.setServiceDefaultServer",
+          "source": "ServerRuntimeSelectionWidgetDefaultingCommand.java:308"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.creation.ui.widgets.runtime.ServerRuntimeSelectionWidgetDefaultingCommand.execute",
+          "source": "ServerRuntimeSelectionWidgetDefaultingCommand.java:171"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 12,
+      "bugId": "159458",
+      "date": "2007-02-01T17:00:20+01:00",
+      "product": "Web Tools",
+      "component": "jst.ws",
+      "severity": "major"
+    }
+  ],
+  "groupId": "159458",
+  "bugId": "159458",
+  "date": "2006-10-02T16:40:53+02:00",
+  "product": "Web Tools",
+  "component": "jst.ws",
+  "severity": "major"
+}

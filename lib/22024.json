@@ -1,0 +1,60 @@
+{
+  "comments": [
+    "1. Get the latest AWT from http://www.ral.oti.com/teams/bbawt/drops/\n2. Run the class J9test from the attached jar file.\n3. Select \"Draw1.1\" from the test menu\n4. Start freehand drawing, moving the mouse rapidly\n\nIt doesn\u0027t take too long to get a message like the following in the console:\n\nXlib: unexpected async reply (sequence 0x3c68)!",
+    "Created an attachment (id\u003d1761)\nJ9 Test jar (let me know if there\u0027s a problem with the attachment)\n",
+    "\nIn the same J9test class, others tests that give similar messages are :\n\n1. \"Image\" - the message appears either when starting the test or running        \n             the test by clicking on the various options in the test window.\n\n2. \"Scrollpane\" - the message appears either when starting the test or\nrunning               \n                  the test by using the scrollbars present.\n\n3. \"Game\u003cHaikori\u003e\" , \n   \"Game\u003cSolitaire\u003e\",   - the message appears when these games are started or\n   \"Game\u003cKnight tour\u003e\",   played.\n   \"Game\u003cBlocks\u003e\"",
+    "I\u0027ll help with this one too.",
+    "It seems like there are multiple clients talking to X at the same time.  \nHowever this shouldn\u0027t be possible through SWT since all of our X/Xt/Motif \ninvocations are synchronized.\n\nDavid, do you know if it\u0027s possible to utilize your awt libraries while running \nwith a standard sun vm rather than j9?  If so then we\u0027d like to try this in \norder to eliminate (?) the possibility of this being a j9 locking bug.\n",
+    "\u003e David, do you know if it\u0027s possible to utilize your awt \n\u003e libraries while running with a standard sun vm rather \n\u003e than j9?  If so then we\u0027d like to try this in order to \n\u003e eliminate (?) the possibility of this being a j9 locking bug.\n\nIt doesn\u0027t seem possible.  I tried running an AWT testcase using the standard \nJDK, putting our AWT and SWT ahead of the JDK in the bootpath (using Eclipse).  \nI got the following error message in the console:\n\njava.lang.ExceptionInInitializerError: java.lang.NullPointerException\n\tat java.awt.Component.\u003cclinit\u003e(Component.java:155)\n\tat TestAwt.main(TestAwt.java:6)\nException in thread \"main\" \n\nPat, is this consistent with your expectations?\n\n",
+    "No, it\u0027s not consistent.  In fact, I\u0027ve run in the past this way (prepend our \nAWT in front of Sun\u0027s, and run under the Sun VM).  In fact, so co-op in PHX \nreported this a week or two ago as well.  We should be able to do this, unless, \nof course, there is a really, really good reason we can\u0027t.  In other words, \nwhat is the Component static initializer actually doing that\u0027s killing us?\n\nHowever, it seems unlikely the original problem reported has anything to do \nwith \"problems with j9 locking\".  Differences in timing, sure.  For a long time \nthe SWT natives were reaching into things the wrong way.  Basically, caching \nJNIEnv\u0027s.  It wouldn\u0027t hurt to pass the natives over to one of those weasel-ish \ncharacters to see if there is anything obviously unkosher about them.  I\u0027d say \nfocus on the callback stuff ...\n\nBTW, this message sounds awfully familiar, like something we\u0027ve seen a year or \nmore ago on Motif ...\n",
+    "Additional notes:\n- could not reproduce the problem on aix motif (I know this isn\u0027t an awt \nplatform, but we wanted to try)\n- this isn\u0027t a new problem; I\u0027ve replaced the utilized swt with versions as far \nback as v2032 on linux and it still happens\n- it would be nice if Silenio wasn\u0027t on vacation \u003cg\u003e\n",
+    "Not surprising you can go back that far - as Pat said, this seems familiar from \nlong ago.  You could probably recreate it with even, say, v0104.  We have never \nbeen able to run our AWT JUnit tests to completion on the Motif platform, and \nthis has prevented us from elevating AWT for Motif from \"beta\" status.",
+    "I\u0027m quite sure that the cause here is a j9 problem which has been recently \nfixed, because:\n\n- this problem no longer occurs with the 0816 j9, though it did consistently \nwith the 0719 j9\n- an identical problem that Christophe previously looked at here with running \nthe Caffeine tests no longer occurs with the 0816 j9, though it did \nconsistently with the 0719 j9\n- I asked some weasels...\nCan you look at http://dev.eclipse.org/bugs/show_bug.cgi?id\u003d22024 ?  This \nproblem has gone away since switching to the 0816 J9 drop (previous J9 drop \nthat was showing the problem was 0719).  Do you think any of the changes made \nbetween these two drops could have resulted in this problem being fixed?  Or \nare we now just getting lucky due to some change in timing?\n- ...and got two responses, the first one...\n(Roo) I remember getting pulled in to look at this with John D.  If I recall \ncorrectly the problem didn\u0027t happen with the JIT turned off. (however no \nmention of any change in behaviour if we turned off the JIT or not in the PR).  \nWe did fix a bug in the JIT that in some circumstances it was optimizing away \nthe monitor in a static synchronized native.  If this was the case in your \ncode, then it is possible that we did fix the actual problem -- however, from \nthe PR there isn\u0027t enough information for me to make anything better than a \nguess. [Note: swt\u0027s OS class is all static synchronized natives, and the \nproblem only occurred in 0719 with JIT turned on]\n- ... the second ...\n(John D) The error was \"Xlib: unexpected async reply (sequence 0x3c68)!\" which \nlooks thread/synchronized related and the JIT bug was removing these sync call \nso looks like a good bet.\n\nSo I\u0027d like to change this report\u0027s status to WORKSFORME, unless you have \nobjections or aren\u0027t convinced (?).\n",
+    "David, can we change this to WORKSFORME?",
+    "Sure... I haven\u0027t had time to test this anyway, as most of my time has been \ninvolved with helping the MIDP guys.",
+    "Status changed to WORKSFORME.\n"
+  ],
+  "commentCreationDates": [
+    "2002-07-30T01:09:52+02:00",
+    "2002-07-30T01:12:09+02:00",
+    "2002-07-30T18:08:44+02:00",
+    "2002-07-30T18:38:02+02:00",
+    "2002-08-06T16:06:03+02:00",
+    "2002-08-06T16:37:03+02:00",
+    "2002-08-06T17:35:08+02:00",
+    "2002-08-06T18:46:09+02:00",
+    "2002-08-06T19:08:28+02:00",
+    "2002-08-29T15:53:31+02:00",
+    "2002-09-10T16:21:05+02:00",
+    "2002-09-10T16:23:26+02:00",
+    "2002-09-10T16:35:38+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "java.awt.Component.\u003cclinit\u003e",
+          "source": "Component.java:155"
+        },
+        {
+          "method": "TestAwt.main",
+          "source": "TestAwt.java:6"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 5,
+      "bugId": "22024",
+      "date": "2002-08-06T16:37:03+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "major"
+    }
+  ],
+  "groupId": "22024",
+  "bugId": "22024",
+  "date": "2002-07-30T01:09:52+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "major"
+}

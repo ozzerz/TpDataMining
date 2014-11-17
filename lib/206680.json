@@ -1,0 +1,94 @@
+{
+  "comments": [
+    "Steps to reproduce:\n\n1. Create a new HTML file.\n2. type \u0026 inside the \u003cbody\u003e tag.\n3. Press Ctrl+Space to show the completion proposal.\n- On this stage: AbstractContentAssistProcessor.addEntityProposals() incorrectly calculates offset for new CustomCompletionProposal(). The offset passed is actually bigger than document length.\n3. choose any entity and press \u0027Enter\u0027.\n- Several errors occur:\n  1) java.lang.IllegalStateException\n\tat org.eclipse.jface.text.projection.ProjectionDocument.internalError(ProjectionDocument.java:148)\n\tat org.eclipse.jface.text.projection.ProjectionDocument.masterDocumentAboutToBeChanged(ProjectionDocument.java:720)\n\tat org.eclipse.jface.text.projection.ProjectionDocumentManager.fireDocumentEvent(ProjectionDocumentManager.java:121)\n\tat org.eclipse.jface.text.projection.ProjectionDocumentManager.documentAboutToBeChanged(ProjectionDocumentManager.java:138)\n\tat org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument._fireDocumentAboutToChange(BasicStructuredDocument.java:390)\n  2) Program Error: invalid structured document event\n  3) java.lang.RuntimeException: java.lang.ArrayIndexOutOfBoundsException\n\tat org.eclipse.wst.sse.core.internal.text.JobSafeStructuredDocument.replaceText(JobSafeStructuredDocument.java:117)",
+    "*** Bug 206538 has been marked as a duplicate of this bug. ***",
+    "Seva, is there more to that stack trace?  Additionally, I\u0027m not sure how this bug blocks development or testing (the definition of severity Blocker).\n\nAmy, is the completionRegion passed into org.eclipse.wst.xml.ui.internal.contentassist.AbstractContentAssistProcessor.addEntityProposals(Vector, Properties, String, int, IStructuredDocumentRegion, ITextRegion) is a document region?",
+    "Nitin,\n\n2) Sorry, the bug was marked as blocker incorrectly.\n\n1) More stack trace is unneeded. The current stack piece shows the exception is thrown when attempting to replace (insert) the text. The error\u0027s source, as reported, in calculating the offset. BTW, IMHO the first change should be done is a test that offset is lower than the document lenght with an additional exception thrown on calculation stage.",
+    "(In reply to comment #2)\n\u003e Amy, is the completionRegion passed into \n\u003e org.eclipse.wst.xml.ui.internal.contentassist.AbstractContentAssistProcessor.\n\u003e addEntityProposals(Vector, Properties, String, int, IStructuredDocumentRegion, \n\u003e ITextRegion) is a document region?\n\nYes, it is.  It looks like we\u0027re calling \nsdRegion.getStartOffset(completionRegion)\n\nto figure out the completion proposals\u0027 start offsets and since they\u0027re both regions with offsets relative to the document start, we\u0027re ending up with the wrong offset.",
+    "Created an attachment (id\u003d80908)\norg.eclipse.wst.xml.ui.patch\n\nThis problem only seemed to appear when you typed \u0027\u0026\u0027 and then prompted for content assist after the \u0027\u0026\u0027  If you type \u0027\u0026a\u0027 and then prompt for content assist.  Or if you type \u0027\u0026a\u0027 and then backspace and delete the \u0027a\u0027 and then prompt for content assist.  Everything works as expected.\n\nThe problem was in\nAbstractContentAssistProcessor#computeEntityReferenceProposals() :\n\nif ((regionText !\u003d null) \u0026\u0026 regionText.trim().equals(\"\") \u0026\u0026 (documentPosition \u003e 0)) { //$NON-NLS-1$\n\tIStructuredDocumentRegion prev \u003d treeNode.getStructuredDocument().getRegionAtCharacterOffset(documentPosition - 1);\n\tif ((prev !\u003d null) \u0026\u0026 prev.getFullText().trim().equals(\"\u0026\")) { \n\u003d\u003d\u003e\t\tcompletionRegion \u003d prev;\n\nInstead of setting completionRegion to prev which resulted in completionRegion being a document region, we should do this, instead:\n\tsdRegion \u003d prev;\n\tcompletionRegion \u003d prev.getLastRegion();\n",
+    "Seva,\nI know you\u0027ve already downgraded the severity of this defect from blocker to critical, but is there a reason why you find this to be a critical defect as opposed to normal?  Nothing crashes, there\u0027s no loss of data, and there doesn\u0027t appear to be a memory leak.\n\nI\u0027m just trying to get an understanding of whether or not the fix for this defect needs to be backported to wtp 2.0.2 or if you\u0027re fine with just putting this in wtp 3.0.",
+    "Amy,\n\nIndeed my severity estimation may seem subjective, but the bug is critical for our project. As you know, PDT (http://www.eclipse.org/pdt) project tightly bases on WST platform, thus any disability or damage happening in XML/HTML editor is automatically ported to PHP editor.\n\nWhile developing we don\u0027t only care of loss of data or crashes, we highly evaluate user experience and meeting user expectations. In my humble opinion, it would be more reasonable to not have this nice feature of entity completion at all, rather have it not working and popping errors.\n\nThus, we would much appreciate if you would find it possible to fix the defect for 2.0.2. :)\n\n(In reply to comment #6)\n\u003e Seva,\n\u003e I know you\u0027ve already downgraded the severity of this defect from blocker to\n\u003e critical, but is there a reason why you find this to be a critical defect as\n\u003e opposed to normal?  Nothing crashes, there\u0027s no loss of data, and there doesn\u0027t\n\u003e appear to be a memory leak.\n\u003e \n\u003e I\u0027m just trying to get an understanding of whether or not the fix for this\n\u003e defect needs to be backported to wtp 2.0.2 or if you\u0027re fine with just putting\n\u003e this in wtp 3.0.\n\u003e ",
+    "(updating target to wtp 2.0.2 and asking Nitin to review)\n\nNitin, the fix is isolated to content assist proposals for entities and it\u0027s a small, 2-line fix.",
+    "Aside from \"prev.getFullText().trim()\" being replacable with \"prev.getText()\" (which isn\u0027t new), looks good.",
+    "(In reply to comment #9)\n\u003e Aside from \"prev.getFullText().trim()\" being replacable with \"prev.getText()\"\n\u003e (which isn\u0027t new), looks good.\n\u003e \n\nMade the change mentioned, and released the fix for wtp 2.0.2 \u0026 wtp 3.0 m3.",
+    "Thank you all, guys.",
+    "Still happens in latest version",
+    "It\u0027s working for me on wtp2.0.2 20071128195033 sdk. Do you have a different, more specific scenario?  I followed the following steps:\n\n1. Create a new html file\n2. Prompt for content assist at |\n\u003cbody\u003e \u0026| \u003c/body\u003e\n3. Select an entity from the list of content assist proposals, like \u0026aacute;\n4. \u0026aacute; is inserted and no errors were logged\n\u003cbody\u003e \u0026aacute; \u003c/body\u003e\n",
+    "I was using the older version - with the one you indicate it works.\nThanks",
+    "fixed in newest version"
+  ],
+  "commentCreationDates": [
+    "2007-10-17T21:06:17+02:00",
+    "2007-10-17T21:08:01+02:00",
+    "2007-10-20T00:47:20+02:00",
+    "2007-10-21T15:11:14+02:00",
+    "2007-10-22T19:29:31+02:00",
+    "2007-10-22T22:41:32+02:00",
+    "2007-10-22T22:50:18+02:00",
+    "2007-10-23T08:56:40+02:00",
+    "2007-10-23T11:56:23+02:00",
+    "2007-10-25T09:47:52+02:00",
+    "2007-10-29T18:34:53+01:00",
+    "2007-10-30T00:02:40+01:00",
+    "2007-12-12T16:27:57+01:00",
+    "2007-12-12T17:07:21+01:00",
+    "2007-12-13T08:12:56+01:00",
+    "2007-12-13T08:21:36+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalStateException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.text.projection.ProjectionDocument.internalError",
+          "source": "ProjectionDocument.java:148"
+        },
+        {
+          "method": "org.eclipse.jface.text.projection.ProjectionDocument.masterDocumentAboutToBeChanged",
+          "source": "ProjectionDocument.java:720"
+        },
+        {
+          "method": "org.eclipse.jface.text.projection.ProjectionDocumentManager.fireDocumentEvent",
+          "source": "ProjectionDocumentManager.java:121"
+        },
+        {
+          "method": "org.eclipse.jface.text.projection.ProjectionDocumentManager.documentAboutToBeChanged",
+          "source": "ProjectionDocumentManager.java:138"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument._fireDocumentAboutToChange",
+          "source": "BasicStructuredDocument.java:390"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "206680",
+      "date": "2007-10-17T21:06:17+02:00",
+      "product": "Web Tools",
+      "component": "wst.xml",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.JobSafeStructuredDocument.replaceText",
+          "source": "JobSafeStructuredDocument.java:117"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "206680",
+      "date": "2007-10-17T21:06:17+02:00",
+      "product": "Web Tools",
+      "component": "wst.xml",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "206680",
+  "bugId": "206680",
+  "date": "2007-10-17T21:06:17+02:00",
+  "product": "Web Tools",
+  "component": "wst.xml",
+  "severity": "critical"
+}

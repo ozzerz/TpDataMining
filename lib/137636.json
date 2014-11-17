@@ -1,0 +1,275 @@
+{
+  "comments": [
+    "1) To repro this problem, check out org.eclipse.jdt.apt.tests. \n2) edit org.eclipse.jdt.apt.tests.annotations.generic.GenericFactory\n   a) change the type of the setProcessor method from Object to AbstractGenericProcessor and save\n3) Open org.eclipse.jdt.apt.tests.MirrorDeclarationTests\n   a) Run As \"JUnit Plugin Test\"\n\nI apologize for the convoluted repro. Nothing simpler seemed to fail. In both cases, everything builds fine. It seems like there is some interaction between the VM\u0027s verifier and the classloader where the classloader does not see the types from the parent plugins.\n\nThe call to setProcessor() (on line 233 of MirrorDeclarationTests) if passed null will cause the exception to not happen. Given that there is no difference in the ConstantPool of the class file, it seems the resolution of \"AnnotationProcessor\" is happening due to bytecode verification while ensuring that the argument is assignable to the formal parameter type.\n\nThe test fails immediately with the following stacktrace:\nException in thread \"WorkbenchTestable\" org.eclipse.swt.SWTException: Failed to execute runnable (java.lang.NoClassDefFoundError: com/sun/mirror/apt/AnnotationProcessor)\n\tat org.eclipse.swt.SWT.error(SWT.java:3374)\n\tat org.eclipse.swt.SWT.error(SWT.java:3297)\n\tat org.eclipse.swt.widgets.Synchronizer.syncExec(Synchronizer.java:178)\n\tat org.eclipse.ui.internal.UISynchronizer.syncExec(UISynchronizer.java:28)\n\tat org.eclipse.swt.widgets.Display.syncExec(Display.java:3761)\n\tat org.eclipse.ui.internal.testing.WorkbenchTestable.runTest(WorkbenchTestable.java:109)\n\tat org.eclipse.pde.internal.junit.runtime.UITestApplication.runTests(UITestApplication.java:103)\n\tat org.eclipse.ui.internal.testing.WorkbenchTestable$1.run(WorkbenchTestable.java:68)\n\tat java.lang.Thread.run(Thread.java:595)\nCaused by: java.lang.NoClassDefFoundError: com/sun/mirror/apt/AnnotationProcessor\n\tat java.lang.ClassLoader.defineClass1(Native Method)\n\tat java.lang.ClassLoader.defineClass(ClassLoader.java:620)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.defineClass(DefaultClassLoader.java:160)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.defineClass(ClasspathManager.java:491)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findClassImpl(ClasspathManager.java:461)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClassImpl(ClasspathManager.java:420)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClass(ClasspathManager.java:403)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.findLocalClass(DefaultClassLoader.java:188)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass(BundleLoader.java:339)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:391)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:352)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass(DefaultClassLoader.java:83)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:251)\n\tat java.lang.ClassLoader.loadClassInternal(ClassLoader.java:319)\n\tat java.lang.Class.getDeclaredMethods0(Native Method)\n\tat java.lang.Class.privateGetDeclaredMethods(Class.java:2365)\n\tat java.lang.Class.getMethod0(Class.java:2611)\n\tat java.lang.Class.getMethod(Class.java:1579)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.getTest(RemoteTestRunner.java:399)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:448)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run(RemoteTestRunner.java:347)\n\tat org.eclipse.pde.internal.junit.runtime.RemotePluginTestRunner.main(RemotePluginTestRunner.java:57)\n\tat org.eclipse.pde.internal.junit.runtime.UITestApplication$1.run(UITestApplication.java:105)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3323)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2969)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1914)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1878)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\n\tat org.eclipse.pde.internal.junit.runtime.UITestApplication.run(UITestApplication.java:45)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:169)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)",
+    "this feels like one of the indirect reference bugs where either a) the underlying classlib is doing some funky classloader tricks and doing it poorly or b) that your plugin actually does have a dependency on some class in a lib that is not listed as a direct dependency (eg., some super class of one of your classes or static value, ...).  During the verification of your class, this other class is needed and your classloader is asked to get it.  Unless you can see it directly, you can\u0027t load it.  Everything compiles ok because at compile time you are able to see the classes available on the transitive closure of your prerequisite bundles.\n\nThe trick here would be how to get access to the com.sun.mirror.apt package.  that is, who will export that.  I wonder if this is available on all Java 5 JREs (e.g., IBM).  If you can get someone to export it and get your bundle to import it, then you should be happy.\n\nOf course, I could be completely out to lunch...\ncom/sun/mirror/apt/",
+    "What VM (vender/version) are you running with?",
+    "I\u0027m running the Sun VM version 1.5.0_06. \n\nThe class \"com.sun.mirror.apt.AnnotationProcessor\" is exported by the apt plugin. It is checked in as source. The test plugin depends on the apt plugin directly.\n\nSo I don\u0027t think there\u0027s anything funky going on. Plus if you look at the test plugin there are dozens of references to this exact class. It is only this one that is causing a problem.",
+    "Created an attachment (id\u003d39061)\nlog for workspace\n\nI was able to reproduce using the Sun 1.5.0 VM.  It looks like the org.eclipse.jdt.apt.core is failing to start because of a ClassCircularityError.  I find it odd that the org.eclipse.jdt.apt.core bundle includes com.sun packages.  It seems like this is causing the errors.  Does this bundle start under normal conditions? or does it always get the ClassCircularityErrors?",
+    "It is definitely odd that we include com.sun classes. They are a part of tools.jar Sun open-sourced these classes specifically at our request. \n\nThe bundle definitely starts under normal conditions. For example, just run the tests as they exist in CVS. They will make extensive use of the com.sun classes. \n\nI don\u0027t think they could be causing a circularity error. Everything in the com.sun .mirror packages only refer other types in that package or types in rt.jar.",
+    "That stacktrace is very strange. ClassCircularityError is thrown when there is circular inheritance(eg, A extends B \u0026 B extends A). This is only possible if something strange happens during build. It is especially strange since the interface in question, AnnotationProcessor extends nothing.\n",
+    "The problem is you create executable extensions during during the activation of org.eclipse.jdt.apt.core.  This can potentially cause ClassCircularityErrors, see bug 5875 comment 19 for details.\n\nBasically a bundle is asking org.eclipse.jdt.apt.core to load com/sun/mirror/apt/AnnotationProcessor but it is not activated yet.  So it gets asked to activate.  While it is activating it creates executable extensions which force the com/sun/mirror/apt/AnnotationProcessor to attempt to be loaded from the org.eclipse.jdt.apt.core again (when it is currently in the middle of loading it).  This causes the circularity error to occur.",
+    "Thanks so much for your help. That was it. We fixed it in our plugin.",
+    "Fixed to switch to lazy-loading of APT factories."
+  ],
+  "commentCreationDates": [
+    "2006-04-20T02:46:10+02:00",
+    "2006-04-20T03:34:39+02:00",
+    "2006-04-20T13:50:07+02:00",
+    "2006-04-20T18:17:25+02:00",
+    "2006-04-20T18:39:02+02:00",
+    "2006-04-20T18:53:25+02:00",
+    "2006-04-20T19:02:17+02:00",
+    "2006-04-20T20:27:43+02:00",
+    "2006-04-20T20:46:33+02:00",
+    "2006-04-20T20:47:53+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "com/sun/mirror/apt/AnnotationProcessor)",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3374"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3297"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.syncExec",
+          "source": "Synchronizer.java:178"
+        },
+        {
+          "method": "org.eclipse.ui.internal.UISynchronizer.syncExec",
+          "source": "UISynchronizer.java:28"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.syncExec",
+          "source": "Display.java:3761"
+        },
+        {
+          "method": "org.eclipse.ui.internal.testing.WorkbenchTestable.runTest",
+          "source": "WorkbenchTestable.java:109"
+        },
+        {
+          "method": "org.eclipse.pde.internal.junit.runtime.UITestApplication.runTests",
+          "source": "UITestApplication.java:103"
+        },
+        {
+          "method": "org.eclipse.ui.internal.testing.WorkbenchTestable$1.run",
+          "source": "WorkbenchTestable.java:68"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.NoClassDefFoundError",
+        "message": "com/sun/mirror/apt/AnnotationProcessor",
+        "elements": [
+          {
+            "method": "java.lang.ClassLoader.defineClass1",
+            "source": "Native Method"
+          },
+          {
+            "method": "java.lang.ClassLoader.defineClass",
+            "source": "ClassLoader.java:620"
+          },
+          {
+            "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.defineClass",
+            "source": "DefaultClassLoader.java:160"
+          },
+          {
+            "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.defineClass",
+            "source": "ClasspathManager.java:491"
+          },
+          {
+            "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findClassImpl",
+            "source": "ClasspathManager.java:461"
+          },
+          {
+            "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClassImpl",
+            "source": "ClasspathManager.java:420"
+          },
+          {
+            "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClass",
+            "source": "ClasspathManager.java:403"
+          },
+          {
+            "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.findLocalClass",
+            "source": "DefaultClassLoader.java:188"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+            "source": "BundleLoader.java:339"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+            "source": "BundleLoader.java:391"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+            "source": "BundleLoader.java:352"
+          },
+          {
+            "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass",
+            "source": "DefaultClassLoader.java:83"
+          },
+          {
+            "method": "java.lang.ClassLoader.loadClass",
+            "source": "ClassLoader.java:251"
+          },
+          {
+            "method": "java.lang.ClassLoader.loadClassInternal",
+            "source": "ClassLoader.java:319"
+          },
+          {
+            "method": "java.lang.Class.getDeclaredMethods0",
+            "source": "Native Method"
+          },
+          {
+            "method": "java.lang.Class.privateGetDeclaredMethods",
+            "source": "Class.java:2365"
+          },
+          {
+            "method": "java.lang.Class.getMethod0",
+            "source": "Class.java:2611"
+          },
+          {
+            "method": "java.lang.Class.getMethod",
+            "source": "Class.java:1579"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.getTest",
+            "source": "RemoteTestRunner.java:399"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests",
+            "source": "RemoteTestRunner.java:448"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run",
+            "source": "RemoteTestRunner.java:347"
+          },
+          {
+            "method": "org.eclipse.pde.internal.junit.runtime.RemotePluginTestRunner.main",
+            "source": "RemotePluginTestRunner.java:57"
+          },
+          {
+            "method": "org.eclipse.pde.internal.junit.runtime.UITestApplication$1.run",
+            "source": "UITestApplication.java:105"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.RunnableLock.run",
+            "source": "RunnableLock.java:35"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+            "source": "Synchronizer.java:123"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+            "source": "Display.java:3323"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+            "source": "Display.java:2969"
+          },
+          {
+            "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+            "source": "Workbench.java:1914"
+          },
+          {
+            "method": "org.eclipse.ui.internal.Workbench.runUI",
+            "source": "Workbench.java:1878"
+          },
+          {
+            "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+            "source": "Workbench.java:419"
+          },
+          {
+            "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+            "source": "PlatformUI.java:143"
+          },
+          {
+            "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+            "source": "IDEApplication.java:95"
+          },
+          {
+            "method": "org.eclipse.pde.internal.junit.runtime.UITestApplication.run",
+            "source": "UITestApplication.java:45"
+          },
+          {
+            "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+            "source": "PlatformActivator.java:78"
+          },
+          {
+            "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+            "source": "EclipseAppLauncher.java:92"
+          },
+          {
+            "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+            "source": "EclipseAppLauncher.java:68"
+          },
+          {
+            "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+            "source": "EclipseStarter.java:376"
+          },
+          {
+            "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+            "source": "EclipseStarter.java:169"
+          },
+          {
+            "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+            "source": "Native Method"
+          },
+          {
+            "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+            "source": "NativeMethodAccessorImpl.java:39"
+          },
+          {
+            "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+            "source": "DelegatingMethodAccessorImpl.java:25"
+          },
+          {
+            "method": "java.lang.reflect.Method.invoke",
+            "source": "Method.java:585"
+          },
+          {
+            "method": "org.eclipse.core.launcher.Main.invokeFramework",
+            "source": "Main.java:336"
+          },
+          {
+            "method": "org.eclipse.core.launcher.Main.basicRun",
+            "source": "Main.java:280"
+          },
+          {
+            "method": "org.eclipse.core.launcher.Main.run",
+            "source": "Main.java:977"
+          },
+          {
+            "method": "org.eclipse.core.launcher.Main.main",
+            "source": "Main.java:952"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "137636",
+      "date": "2006-04-20T02:46:10+02:00",
+      "product": "JDT",
+      "component": "APT",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "137636",
+  "bugId": "137636",
+  "date": "2006-04-20T02:46:10+02:00",
+  "product": "JDT",
+  "component": "APT",
+  "severity": "critical"
+}

@@ -1,0 +1,118 @@
+{
+  "comments": [
+    "When opening an external editor, ExternalEditor calls IFileEditorInput.getPath().  This API calls file.getLocation() which (in Eclipse 3.2) returns null for IFiles that are not stored on the local filesystem. (see http://help.eclipse.org/help32/index.jsp?topic\u003d/org.eclipse.platform.doc.isv/porting/3.2/incompatibilities.html)\n\nTo reproduce this:\n\n1) Install a non-local filesystem EFS extension.  The example below uses the HTTP IFileStore implementation listed at http://wiki.eclipse.org/index.php/EFS#HTTP\n\n2) Create a project with the following descriptor (.project file):\n\n\u003c?xml version\u003d\"1.0\" encoding\u003d\"UTF-8\"?\u003e\n\u003cprojectDescription\u003e\n\t\u003cname\u003elinktest\u003c/name\u003e\n\t\u003ccomment\u003e\u003c/comment\u003e\n\t\u003cprojects\u003e\n\t\u003c/projects\u003e\n\t\u003cbuildSpec\u003e\n\t\u003c/buildSpec\u003e\n\t\u003cnatures\u003e\n\t\u003c/natures\u003e\n\t\u003clinkedResources\u003e\n\t\t\u003clink\u003e\n\t\t\t\u003cname\u003eindex.html\u003c/name\u003e\n\t\t\t\u003ctype\u003e1\u003c/type\u003e\n\t\t\t\u003clocationURI\u003ehttp://www.eclipse.com/index.html\u003c/locationURI\u003e\n\t\t\u003c/link\u003e\n\t\u003c/linkedResources\u003e\n\u003c/projectDescription\u003e\n\n3) Try to open the index.html link file (double-click).\n\nThe IDE tries to launch the system editor and fails with a NullPointerException (dialog).  The ErrorLog contains the following stack trace:\n\njava.lang.NullPointerException\n\tat org.eclipse.ui.internal.browser.BrowserLauncher.open(BrowserLauncher.java:33)\n\tat org.eclipse.ui.internal.EditorManager$3.run(EditorManager.java:743)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:67)\n\tat org.eclipse.ui.internal.EditorManager.openExternalEditor(EditorManager.java:736)\n\tat org.eclipse.ui.internal.EditorManager.openEditorFromDescriptor(EditorManager.java:710)\n\tat org.eclipse.ui.internal.EditorManager.openEditor(EditorManager.java:680)\n\tat org.eclipse.ui.internal.WorkbenchPage.busyOpenEditorBatched(WorkbenchPage.java:2593)\n\tat org.eclipse.ui.internal.WorkbenchPage.busyOpenEditor(WorkbenchPage.java:2528)\n\tat org.eclipse.ui.internal.WorkbenchPage.access$10(WorkbenchPage.java:2520)\n\tat org.eclipse.ui.internal.WorkbenchPage$9.run(WorkbenchPage.java:2505)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:67)\n\tat org.eclipse.ui.internal.WorkbenchPage.openEditor(WorkbenchPage.java:2500)\n\tat org.eclipse.ui.internal.WorkbenchPage.openEditor(WorkbenchPage.java:2485)\n\tat org.eclipse.ui.ide.IDE.openEditor(IDE.java:388)\n\tat org.eclipse.ui.ide.IDE.openEditor(IDE.java:350)\n\u003csnip\u003e\n\nThe actual source of the failure is, I believe, at. \n\n\nThread [main] (Suspended)\t\n\torg.eclipse.ui.part.FileEditorInput.getPath() line: 154\t\n\torg.eclipse.ui.internal.EditorManager$3.run() line: 744\t\n\torg.eclipse.swt.custom.BusyIndicator.showWhile(org.eclipse.swt.widgets.Display, java.lang.Runnable) line: 67\t\n\torg.eclipse.ui.internal.EditorManager.openExternalEditor(org.eclipse.ui.internal.registry.EditorDescriptor, org.eclipse.ui.IEditorInput) line: 736\t\n\torg.eclipse.ui.internal.EditorManager.openEditorFromDescriptor(org.eclipse.ui.internal.registry.EditorDescriptor, org.eclipse.ui.IEditorInput) line: 710\t\n\torg.eclipse.ui.internal.EditorManager.openEditor(java.lang.String, org.eclipse.ui.IEditorInput, boolean) line: 680\t\n\torg.eclipse.ui.internal.WorkbenchPage.busyOpenEditorBatched(org.eclipse.ui.IEditorInput, java.lang.String, boolean, int) line: 2593\t\n\torg.eclipse.ui.internal.WorkbenchPage.busyOpenEditor(org.eclipse.ui.IEditorInput, java.lang.String, boolean, int) line: 2528\t\n\u003csnip\u003e",
+    "The NPE occurs in BrowserLauncher, but it\u0027s because EditorManager.openExternalEditor is passing in a null path.  I think this bug is actually in FileEditorInput, since it is returning the null path which the spec of IPathEditorInput does not allow. Tod/Szymon, this is another EFS bug.",
+    "Created an attachment (id\u003d54181)\nSolution of this problem inside patch\n\n",
+    "Currently we can\u0027t refer to URI in org.eclipse.ui.workbench because URI was introduced in Java 1.4, but workbench compiles against foundation 1.0 class libraries.  I think generalizing IEditorLauncher to use URI would be a better answer, but we are limited right now by a lack of an IPath replacement that we can use in org.eclipse.ui.workbench.   \n\nKrzysztof: could you see if we can solve this in FileEditorInput instead? I.e., make sure FileEditorInput.getPath() returns a local file system path for non-local resources, by using IFileStore.toLocalFile. That should make this scenario work without requiring new API. Also, that would save all the implementors of IEditorLauncher from having to adopt new API to make this work.",
+    "I think this is the problem in IDE\n\nprivate static IEditorInput getEditorInput(IFileStore fileStore) {\n\t\tIFile workspaceFile \u003d getWorkspaceFile(fileStore);\n\t\tif (workspaceFile !\u003d null)\n\t\t\treturn new FileEditorInput(workspaceFile);\n\t\treturn new FileStoreEditorInput(fileStore);\n\t}\n\nif the workspace file getPath is null we should use the file store input. This is more like it (but you will need to test it).\n\nprivate static IEditorInput getEditorInput(IFileStore fileStore) {\n\t\tIFile workspaceFile \u003d getWorkspaceFile(fileStore);\n\t\tif (workspaceFile !\u003d null \u0026\u0026 workspaceFile.getPath() !\u003dnull)\n\t\t\treturn new FileEditorInput(workspaceFile);\n\t\treturn new FileStoreEditorInput(fileStore);\n\t}",
+    "The problem with that solution is that it would prevent others from getting access to the IFile within the editor input.  I.e., there are lots of people with code like this:\n\n  if (editorInput instanceof IFileEditorInput) {\n     IFile file \u003d ((IFileEditorInput)editorInput).getFile().\n     ... do something interesting with the IFile ...\n  }\n\nThese clients would be broken by switching to a different editor input. I think it\u0027s better to just fix FileEditorInput.getPath() to return the local file system path using IFileStore.toLocalFile.",
+    "Krzysztof  let us know if you need some help with John\u0027s suggestions",
+    "I\u0027m curious about the suggestion to use IFileStore.toLocalFile.  \n\nWould the external editor then have no knowledge of the real file location?  Following the example originally documented, would the launched web browser be referencing a local (temporary) file:/// url?  \n\nIf so, would operations such as a refresh button in the external editor (common in a web browser) only reload the local temp file, rather than cause EFS to re-cache the file?\n ",
+    "John about your suggestion to use IFileStore.toLocalFile. I don\u0027t know how it could resolve our problem. Because in this case we have http filesystem and remote file couldn\u0027t be represent as local filesystem path. You right we can cached this remote file but this solution doesn\u0027t resolve problem. If we do it as you suggest, we will have web page without resources e.g. images. I think one rightly solution for this case is solution depend on URI.",
+    "\n\u003e Would the external editor then have no knowledge of the real file location? \n\u003e Following the example originally documented, would the launched web browser be\n\u003e referencing a local (temporary) file:/// url?  \n\nYes you right editor have not information about real location. \n\n\u003e If so, would operations such as a refresh button in the external editor (common\n\u003e in a web browser) only reload the local temp file, rather than cause EFS to\n\u003e re-cache the file?\n\u003e \n\nYes you right if we solve it using path we will have only local cached file and refresh work on local cached file. It\u0027s not properly.",
+    "Created an attachment (id\u003d54644)\nSolution using IPath\n\nI attached solution to this problem which depend on IPath. It\u0027s not work properly. I think my previous solution works much better.",
+    "I talked with Kryzsztof about this.  The current problem is that org.eclipse.ui.workbench must run on the Foundation 1.0 class library (http://java.sun.com/products/foundation/).  Since this profile does not include the URI class, we cannot implement a general solution in the workbench plugin at the moment.  What we can do in the short term is fix the bug in FileEditorInput.getPath() - this method must never return null, so we can use IFileStore.toLocalPath to return a non-null result.  \n\nThe best solution would be a generalized replacement for IEditorLauncher that allowed passing a URI to the external editor.  The browser is probably the only external editor that will actually be able to support this, since most external editors deal directly with the local file system. We should fix the NPE for now, and keep a bug open to track the more general problem (along with Krzysztof\u0027s first patch which is close to being a good general solution).",
+    "Created an attachment (id\u003d55198)\nTemporary solution\n\nTemporary solution fixes the NPE.",
+    "Thanks. Patch applied.",
+    "Created an attachment (id\u003d55234)\nPath to FileEditorInput\n\nI have also released this patch so that FileEditorInput does not return null (not allowed by spec of IPathEditorInput).",
+    "*** Bug 148413 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2006-10-14T14:33:30+02:00",
+    "2006-11-17T18:38:08+01:00",
+    "2006-11-20T17:25:17+01:00",
+    "2006-11-20T22:50:18+01:00",
+    "2006-11-24T14:41:30+01:00",
+    "2006-11-24T14:57:38+01:00",
+    "2006-11-28T14:49:00+01:00",
+    "2006-11-28T15:02:30+01:00",
+    "2006-11-28T16:02:03+01:00",
+    "2006-11-28T16:11:04+01:00",
+    "2006-11-28T16:16:29+01:00",
+    "2006-11-28T17:35:08+01:00",
+    "2006-12-07T09:29:40+01:00",
+    "2006-12-07T14:48:59+01:00",
+    "2006-12-07T14:50:28+01:00",
+    "2007-05-22T20:26:17+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.browser.BrowserLauncher.open",
+          "source": "BrowserLauncher.java:33"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorManager$3.run",
+          "source": "EditorManager.java:743"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:67"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorManager.openExternalEditor",
+          "source": "EditorManager.java:736"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorManager.openEditorFromDescriptor",
+          "source": "EditorManager.java:710"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorManager.openEditor",
+          "source": "EditorManager.java:680"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.busyOpenEditorBatched",
+          "source": "WorkbenchPage.java:2593"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.busyOpenEditor",
+          "source": "WorkbenchPage.java:2528"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.access$10",
+          "source": "WorkbenchPage.java:2520"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage$9.run",
+          "source": "WorkbenchPage.java:2505"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:67"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.openEditor",
+          "source": "WorkbenchPage.java:2500"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.openEditor",
+          "source": "WorkbenchPage.java:2485"
+        },
+        {
+          "method": "org.eclipse.ui.ide.IDE.openEditor",
+          "source": "IDE.java:388"
+        },
+        {
+          "method": "org.eclipse.ui.ide.IDE.openEditor",
+          "source": "IDE.java:350"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "160959",
+      "date": "2006-10-14T14:33:30+02:00",
+      "product": "Platform",
+      "component": "IDE",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "160959",
+  "bugId": "160959",
+  "date": "2006-10-14T14:33:30+02:00",
+  "product": "Platform",
+  "component": "IDE",
+  "severity": "normal"
+}

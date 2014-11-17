@@ -1,0 +1,572 @@
+{
+  "comments": [
+    "When I create a project in the Navigator view, then \"Team/share project\" with\nthe CA Harvest Change Management CM system and then delete the project from the\nNavigator view, I receive the following error.  A retry will successfully delete\nthe project.\n\nAn internal error occurred during: \"Deleting resources\".\n\njava.lang.IllegalArgumentException: Attempted to beginRule: R/, does not match\nouter scope rule: P/testx\n\tat org.eclipse.core.internal.runtime.Assert.isLegal(Assert.java:58)\n\tat org.eclipse.core.internal.jobs.ThreadJob.illegalPush(ThreadJob.java:117)\n\tat org.eclipse.core.internal.jobs.ThreadJob.push(ThreadJob.java:211)\n\tat org.eclipse.core.internal.jobs.ImplicitJobs.begin(ImplicitJobs.java:59)\n\tat org.eclipse.core.internal.jobs.JobManager.beginRule(JobManager.java:190)\n\tat org.eclipse.team.core.RepositoryProvider.unmap(RepositoryProvider.java:220)\n\tat com.ca.harvest.core.utils.CAHResourceUtil.unregister(CAHResourceUtil.java:1809)\n\tat com.ca.harvest.core.utils.CAHResourceUtil.unregister(CAHResourceUtil.java:1774)\n\tat com.ca.harvest.ui.CAHMoveDeleteHook.deleteProject(CAHMoveDeleteHook.java:260)\n\tat\norg.eclipse.team.internal.core.MoveDeleteManager.deleteProject(MoveDeleteManager.java:74)\n\tat\norg.eclipse.core.internal.resources.Resource.unprotectedDelete(Resource.java:1557)\n\tat org.eclipse.core.internal.resources.Resource.delete(Resource.java:664)\n\tat org.eclipse.core.internal.resources.Project.delete(Project.java:329)\n\tat\norg.eclipse.ui.actions.DeleteResourceAction.delete(DeleteResourceAction.java:383)\n\tat\norg.eclipse.ui.actions.DeleteResourceAction.delete(DeleteResourceAction.java:359)\n\tat\norg.eclipse.ui.actions.DeleteResourceAction.access$0(DeleteResourceAction.java:349)\n\tat org.eclipse.ui.actions.DeleteResourceAction$3.run(DeleteResourceAction.java:466)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1716)\n\tat org.eclipse.ui.actions.DeleteResourceAction$2.run(DeleteResourceAction.java:464)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:67)",
+    "This could be a bug in the CA Harvest plugin. If you are implementing the move\ndelete hook, and your hook needs to \"modify\" other resources outside the\nproject, then you should also be extending the TeamHook extension point and\nsupplying your own scheduling rule factory (IResourceRuleFactory).\n\nAre you already implementing the TeamHook and/or the resource rule factory?\n\nI have noticed that the documentation on this is a bit thin... we\u0027ll try to fix\nthis up for the 3.1 release (although all of this was added in 3.0).  We can\nanswer any questions you might have within this bug report.",
+    "(In reply to comment #1)\nIt appears that neither TeamHook nor the resource rule factory is implemented. \nAs you say, the documentation looks a little thin.  I\u0027m not sure what we\u0027re\nsupposed to supply when getRuleFactory gets called.\n\n\n\n\n\n",
+    "(In reply to comment #1)\nWhat do you mean by \"outside\" the project?  We are modifying information in the\nHarvest Repository is that considered outside the project?",
+    "(In reply to comment #1)\nWe are also sometimes seeing this same error when doing an automatic checkout as\na result of validateEdit being called.  Is this also related to not implementing\nthe TeamHook extension?\n\njava.lang.IllegalArgumentException: Attempted to beginRule: R/, does not match\nouter scope rule: P/testABCD\nat org.eclipse.core.internal.runtime.Assert.isLegal(Assert.java:58)\nat org.eclipse.core.internal.jobs.ThreadJob.illegalPush(ThreadJob.java:106)\nat org.eclipse.core.internal.jobs.ThreadJob.push(ThreadJob.java:200)\nat org.eclipse.core.internal.jobs.ImplicitJobs.begin(ImplicitJobs.java:58)\nat org.eclipse.core.internal.jobs.JobManager.beginRule(JobManager.java:170)\nat org.eclipse.core.internal.resources.WorkManager.checkIn(WorkManager.java:95)\nat\norg.eclipse.core.internal.resources.Workspace.prepareOperation(Workspace.java:1628)\nat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1668)\nat\norg.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:105)\nat com.ca.harvest.core.CAHarvestProvider.checkout(CAHarvestProvider.java:387)",
+    "Actually, individual repository providers do not implement the TeamHook. That \nis strictly a hook between the Resource component and the Team component. What \nis of interest here is the resource rule factory that is returned by the \nHarvest repository provider (RepositoryProvider#getRuleFactory). By default, \nthe rule factory returned by a provider is pessimistic in the sense that it \nreturns the Workspace as the rule for all operations (i.e. the entire \nworkspace will be locked when operations are performed). \n\nFor the first failure you reported, the delete action obtains the deleteRule \nfor the project while the unmap obtains the modify rule. For the default rule \nfactory, these should both be the Workspace. Are you explicitly obtaining a \nrule in the move/delete hook? As an aside, you don\u0027t need to do an unmap \nduring a delete as the mapping information will be deleted with the project \nanyway.\n\nFor the second failure, are you explicitly obtaining a rule when doing a \ncheckout? You should always use the rule factory when determinign what rule to \nuse for a project. A repository provider determines what rules are needed for \nprojects that are shared with it by overriding the getRuleFactory method.",
+    "I actually found a few doc links for you to read (all under Help \u003e Help Contents\n\u003e Platform Plugin Developers Guide):\n\nProgrammer\u0027s Guide\n  Resources Overview\n    Modifying the workspace\n      Batching resource changes\n  Team Support\n    Repository Providers - describe rule hook at the bottom of the page\n\nBacking up a second, what build of Eclipse are you using?  Are you in the\nprocess of porting the Harvest plugin from a 2.x release to a 3.x release, or\nwas it working in 3.0 and now not working in 3.1?",
+    "(In reply to comment #6)\n\n\u003e Backing up a second, what build of Eclipse are you using?  Are you in the\n\u003e process of porting the Harvest plugin from a 2.x release to a 3.x release, or\n\u003e was it working in 3.0 and now not working in 3.1?\n\nThis plugin has been ported from 2.1 to 3.0 and is now moving to 3.1.  The\nproblem reported here is occurring in 3.1.  The delete project is working okay\nin 3.0.  But, certain other operations get a similiar error.\n\n",
+    "(In reply to comment #5)\n\u003e Actually, individual repository providers do not implement the TeamHook. That \n\u003e is strictly a hook between the Resource component and the Team component. What \n\u003e is of interest here is the resource rule factory that is returned by the \n\u003e Harvest repository provider (RepositoryProvider#getRuleFactory). By default, \n\u003e the rule factory returned by a provider is pessimistic in the sense that it \n\u003e returns the Workspace as the rule for all operations (i.e. the entire \n\u003e workspace will be locked when operations are performed). \n\u003e\nWe are currently using the default rule factory.\n\u003e \n\u003e For the first failure you reported, the delete action obtains the deleteRule \n\u003e for the project while the unmap obtains the modify rule. For the default rule \n\u003e factory, these should both be the Workspace. Are you explicitly obtaining a \n\u003e rule in the move/delete hook? As an aside, you don\u0027t need to do an unmap \n\u003e during a delete as the mapping information will be deleted with the project \n\u003e anyway.\n\u003e\nWe are not overriding the default rules.\nIt appears that since we are using the default rule with its pessimistic locking\nof the workspace that the operation should not be getting this failure. \nShouldn\u0027t the default rules work for us in this situation eventhough the locking\ncould be optimized with more specific rules?",
+    "Well, the default rule factory would never return a project as a rule for \nanything so it is clear that either another rule factory is being used or \nsomeone is obtaining a scheduling rule on the project directly without \nconsulting the rule factory. So the possible causes are:\n\n1) The Harvest provider provided it\u0027s own rule factory. You say it didn\u0027t so \nthat leaves one of the remaining options.\n\n2) Someone is obtaining a rule on the project without consulting the rule \nfactory. John, is there tracing that can be enabled to see if this is \nhappening?\n\n3) Someone has provided an alternate TeamHook that is overriding the one from \nthe team component. John, does the Resource plugin log a message if there is \nmore than one Team Hook registered?\n\n4) An operation is causing the rule factory being used to change in the middle \nof an operation. This could happen, for instance, in the following case \n(please excuse any errors in syntax etc.):\n\n  workspace.run(new IWorkspaceRunnable() {\n      run(IProgressMonitor monitor) {\n          shareProject(project)\n          beginRule(getRuleFactory(project).modifyRule(project)));\n      }\n  }, getRuleFactory(project).modifyRule(project));\n\nThe outer rule of the unshared project would be the project itself. However, \ninside the runnable after the project is shared, the rule will be the \nworkspace thus resulting in an error. I don\u0027t think this would be the case in \nthe first traceback but it could be the cause in the second you provided. The \nsolution is to obtain the workspace rule for the outer operation or to provide \na less restrictive rule factory.",
+    "(In reply to comment #9)\n\n\u003e 1) The Harvest provider provided it\u0027s own rule factory. You say it didn\u0027t so \n\u003e that leaves one of the remaining options.\n\u003e \n\nThe provider is not implementing getRuleFactory so the default pessimistic rule\nfactory is being used.  No rule setting is being done in the Harvest plugin.\n--\nAs a test this morning, I implemented the getRuleFactory method in the Harvest\nprovider and it is using the default rules provided by the ResourceRuleFactory\nclass.  I am still getting the same error as shown in the second traceback.  My\nthought was that the default rule provides the file parent, so the rule should\nhave been consistent with the the project scope of the outer rule.  But, I\u0027m\nstill seeing \"Attempted to beginRule: R/, does not match outer scope rule:\nP/testABCD\".  Using the debugger, I did see ResourceRuleFactory.validateEditRule\nget execution for the file resource I was about to edit.  It appeared to return\nthe parent as the rule.\n",
+    "The second traceback shown above is occurring on version 3.0.2.\n",
+    "The same test case referred to in comment 11 fails on version 3.1 also.  The\nstack trace for 3.1RC is shown below.\n\njava.lang.IllegalArgumentException: Attempted to beginRule: R/, does not match\nouter scope rule: P/testX1\nat org.eclipse.core.internal.runtime.Assert.isLegal(Assert.java:58)\nat org.eclipse.core.internal.jobs.ThreadJob.illegalPush(ThreadJob.java:117)\nat org.eclipse.core.internal.jobs.ThreadJob.push(ThreadJob.java:211)\nat org.eclipse.core.internal.jobs.ImplicitJobs.begin(ImplicitJobs.java:59)\nat org.eclipse.core.internal.jobs.JobManager.beginRule(JobManager.java:190)\nat org.eclipse.core.internal.resources.WorkManager.checkIn(WorkManager.java:96)\nat\norg.eclipse.core.internal.resources.Workspace.prepareOperation(Workspace.java:1671)\nat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1711)\nat\norg.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:110)\nat com.ca.harvest.core.CAHarvestProvider.checkout(CAHarvestProvider.java:387)\n",
+    "Is this stacktrace complete? It looks like there is some entries missing. In \neither case, what we need to find out is who is obtaining the project \nscheduling rule. Perhaps you can run the debugger on this and place a \nbreakpoint on the JobManager#beginRule method to see who is calling it with \nthe invalid rule.\n\nAlso, I have tried the delete scenario with a test provider that uses the \ndefault rule and have not seen the error you report. Are you sure that the \nHarvest repository provider is not obtainign a scheduling rule in the \nCAHMoveDeleteHook.deleteProject method or the CAHResourceUtil.unregister \nmethod?",
+    "(In reply to comment #13)\nThe stacktrace is the last 2/3 of the total stacktrace.  I included the \nportion from the plugin to the failure.\n",
+    "The missing trace entries may indicate where the first rule is obtained (the \nprovided part only has the place where the failed rule attempt is made). \nRegardless, I don\u0027t see any evidence that either of these failures is a bug in \nEclipse so the onus is on you at this point to identify who is obtaining the \nproject rule. Are you self-hosting (i.e launching an Eclipse that contains the \nHarvest provider from the Eclipse you are developing in)? If so, you can \nenable the org.eclipse.core.runtime tracing (on the tracing page of the lauch \ndialog) and then enable the jobs/beginend tracepoint. This will write all \nattempts to obtain scheduling rules to the console. If you are self-hosting, \nyou could also put a breakpoint in JobManager#beginRule just before you delete \nthe project to see who is obtainign the rules.",
+    "(In reply to comment #15)\nThanks for the tracing and debugging information.  I am currently away from my \ntest environment but I will try it tomorrow.",
+    "(In reply to comment #15)\nAs you recommended, I turned on the begin/end job tracing and set a breakpoint\nat JobManager.beginRule.  Here are the stacktraces of interest.\n\n------------------------ begin  P/testABCD ------------------------------------\n\nThread [main] (Suspended (breakpoint at line 170 in JobManager))\n\tJobManager.beginRule(ISchedulingRule, IProgressMonitor) line: 170\n\tWorkManager.checkIn(ISchedulingRule, IProgressMonitor) line: 95\n\tWorkspace.prepareOperation(ISchedulingRule, IProgressMonitor) line: 1628\n\tWorkspace.run(IWorkspaceRunnable, ISchedulingRule, int, IProgressMonitor) line:\n1668\n\tWorkspaceModifyDelegatingOperation(WorkspaceModifyOperation).run(IProgressMonitor)\nline: 105\n\tWorkspaceOperationRunner.run(boolean, boolean, IRunnableWithProgress,\nISchedulingRule) line: 73\n\tWorkspaceOperationRunner.run(boolean, boolean, IRunnableWithProgress) line: 63\n\tCompilationUnitDocumentProvider(TextFileDocumentProvider).executeOperation(TextFileDocumentProvider$DocumentProviderOperation,\nIProgressMonitor) line: 440\n\tCompilationUnitDocumentProvider(TextFileDocumentProvider).validateState(Object,\nObject) line: 994\n\tCompilationUnitEditor(AbstractTextEditor).validateState(IEditorInput) line: 3424\n\tAbstractTextEditor$17.run() line: 3475\n\tBusyIndicator.showWhile(Display, Runnable) line: 69\n\tCompilationUnitEditor(AbstractTextEditor).validateEditorInputState() line: 3470\n\tAbstractTextEditor$ElementStateListener$Validator.verifyText(VerifyEvent) line: 238\n\tTypedListener.handleEvent(Event) line: 193\n\tEventTable.sendEvent(Event) line: 82\n\tStyledText(Widget).sendEvent(Event) line: 796\n\tStyledText(Widget).sendEvent(int, Event, boolean) line: 820\n\tStyledText(Widget).sendEvent(int, Event) line: 805\n\tStyledText(Widget).notifyListeners(int, Event) line: 613\n\tStyledText.modifyContent(Event, boolean) line: 5571\n\tStyledText.sendKeyEvent(Event) line: 6441\n\tStyledText.doContent(char) line: 2536\n\tStyledText.handleKey(Event) line: 4979\n\tStyledText.handleKeyDown(Event) line: 5002\n\tStyledText$7.handleEvent(Event) line: 4747\n\tEventTable.sendEvent(Event) line: 82\n\tStyledText(Widget).sendEvent(Event) line: 796\n\tStyledText(Widget).sendEvent(int, Event, boolean) line: 820\n\tStyledText(Widget).sendEvent(int, Event) line: 805\n\tStyledText(Control).sendKeyEvent(int, int, int, int, Event) line: 1734\n\tStyledText(Control).sendKeyEvent(int, int, int, int) line: 1730\n\tStyledText(Control).WM_CHAR(int, int) line: 3067\n\tStyledText(Control).windowProc(int, int, int, int) line: 2970\n\tDisplay.windowProc(int, int, int, int) line: 3339\n\tOS.DispatchMessageW(MSG) line: not available [native method]\n\tOS.DispatchMessage(MSG) line: 1473\n\tDisplay.readAndDispatch() line: 2430\n\tWorkbench.runEventLoop(Window$IExceptionHandler, Display) line: 1377\n\tWorkbench.runUI() line: 1348\n\tWorkbench.createAndRunWorkbench(Display, WorkbenchAdvisor) line: 254\n\tPlatformUI.createAndRunWorkbench(Display, WorkbenchAdvisor) line: 141\n\tIDEApplication.run(Object) line: 96\n\tPlatformActivator$1.run(Object) line: 335\n\tEclipseStarter.run(Object) line: 273\n\tEclipseStarter.run(String[], Runnable) line: 129\n\tNativeMethodAccessorImpl.invoke0(Method, Object, Object[]) line: not available\n[native method]\n\tNativeMethodAccessorImpl.invoke(Object, Object[]) line: not available\n\tDelegatingMethodAccessorImpl.invoke(Object, Object[]) line: not available\n\tMethod.invoke(Object, Object...) line: not available\n\tMain.basicRun(String[]) line: 185\n\tMain.run(String[]) line: 704\n\tMain.main(String[]) line: 688\nThread [Framework Event Dispatcher] (Running)\nThread [Start Level Event Dispatcher] (Running)\nThread [Reference Cleaner - 1] (Running)\nThread [Reference Cleaner - 2] (Running)\nThread [Worker-0] (Running)\nThread [Worker-3] (Running)\nThread [org.eclipse.jdt.internal.ui.text.JavaReconciler] (Running)\nThread [Java indexing] (Running)\n\n-------------------------------- begin R/  (P/testABCD not yet at End)\n--------------------------\n\nThread [Framework Event Dispatcher] (Running)\nThread [Start Level Event Dispatcher] (Running)\nThread [Reference Cleaner - 1] (Running)\nThread [Reference Cleaner - 2] (Running)\nThread [Worker-0] (Running)\nJobManager.beginRule(ISchedulingRule, IProgressMonitor) line: 170\nWorkManager.checkIn(ISchedulingRule, IProgressMonitor) line: 95\nWorkspace.prepareOperation(ISchedulingRule, IProgressMonitor) line: 1628\nWorkspace.run(IWorkspaceRunnable, ISchedulingRule, int, IProgressMonitor) line: 1668\nCAHarvestProvider$2(WorkspaceModifyOperation).run(IProgressMonitor) line: 105\nCAHarvestProvider.checkout(JCaContext, IResource[], int, IProgressMonitor) line: 392\nCAHModificationValidator.validateEdit(IFile[], Object) line: 181\nCAHarvestProvider.validateEdit(IFile[], Object) line: 2291\nFileModificationValidatorManager.validateEdit(IFile[], Object) line: 70\nWorkspace$5.run() line: 1883\nInternalPlatform.run(ISafeRunnable) line: 616\nPlatform.run(ISafeRunnable) line: 747\nWorkspace.validateEdit(IFile[], Object) line: 1890\nResourceTextFileBuffer(ResourceFileBuffer).validateState(IProgressMonitor,\nObject) line: 330\nTextFileDocumentProvider$4.execute(IProgressMonitor) line: 981\nTextFileDocumentProvider$4(TextFileDocumentProvider$DocumentProviderOperation).run(IProgressMonitor)\nline: 126\nThread [org.eclipse.jdt.internal.ui.text.JavaReconciler] (Running)\nWorkspaceModifyDelegatingOperation.execute(IProgressMonitor) line: 67\nWorkspaceModifyOperation$1.run(IProgressMonitor) line: 91\nWorkspace.run(IWorkspaceRunnable, ISchedulingRule, int, IProgressMonitor) line: 1673\nWorkspaceModifyDelegatingOperation(WorkspaceModifyOperation).run(IProgressMonitor)\nline: 105\nWorkspaceOperationRunner.run(boolean, boolean, IRunnableWithProgress,\nISchedulingRule) line: 73\nWorkspaceOperationRunner.run(boolean, boolean, IRunnableWithProgress) line: 63\nCompilationUnitDocumentProvider(TextFileDocumentProvider).executeOperation(TextFileDocumentProvider$DocumentProviderOperation,\nIProgressMonitor) line: 440\nCompilationUnitDocumentProvider(TextFileDocumentProvider).validateState(Object,\nObject) line: 994\nCompilationUnitEditor(AbstractTextEditor).validateState(IEditorInput) line: 3424\nAbstractTextEditor$17.run() line: 3475\nBusyIndicator.showWhile(Display, Runnable) line: 69\nCompilationUnitEditor(AbstractTextEditor).validateEditorInputState() line: 3470\nAbstractTextEditor$ElementStateListener$Validator.verifyText(VerifyEvent) line: 238\nTypedListener.handleEvent(Event) line: 193\nEventTable.sendEvent(Event) line: 82\nStyledText(Widget).sendEvent(Event) line: 796\nStyledText(Widget).sendEvent(int, Event, boolean) line: 820\nStyledText(Widget).sendEvent(int, Event) line: 805\nStyledText(Widget).notifyListeners(int, Event) line: 613\nStyledText.modifyContent(Event, boolean) line: 5571\nStyledText.sendKeyEvent(Event) line: 6441\nStyledText.doContent(char) line: 2536\nStyledText.handleKey(Event) line: 4979\nStyledText.handleKeyDown(Event) line: 5002\nStyledText$7.handleEvent(Event) line: 4747\nEventTable.sendEvent(Event) line: 82\nStyledText(Widget).sendEvent(Event) line: 796\nStyledText(Widget).sendEvent(int, Event, boolean) line: 820\nStyledText(Widget).sendEvent(int, Event) line: 805\nStyledText(Control).sendKeyEvent(int, int, int, int, Event) line: 1734\nStyledText(Control).sendKeyEvent(int, int, int, int) line: 1730\nStyledText(Control).WM_CHAR(int, int) line: 3067\nStyledText(Control).windowProc(int, int, int, int) line: 2970\nDisplay.windowProc(int, int, int, int) line: 3339\nOS.DispatchMessageW(MSG) line: not available [native method]\nOS.DispatchMessage(MSG) line: 1473\nDisplay.readAndDispatch() line: 2430\nWorkbench.runEventLoop(Window$IExceptionHandler, Display) line: 1377\nWorkbench.runUI() line: 1348\nWorkbench.createAndRunWorkbench(Display, WorkbenchAdvisor) line: 254\nPlatformUI.createAndRunWorkbench(Display, WorkbenchAdvisor) line: 141\nIDEApplication.run(Object) line: 96\nPlatformActivator$1.run(Object) line: 335\nEclipseStarter.run(Object) line: 273\nEclipseStarter.run(String[], Runnable) line: 129\nNativeMethodAccessorImpl.invoke0(Method, Object, Object[]) line: not available\n[native method]\nNativeMethodAccessorImpl.invoke(Object, Object[]) line: not available\nDelegatingMethodAccessorImpl.invoke(Object, Object[]) line: not available\nMethod.invoke(Object, Object...) line: not available\nMain.basicRun(String[]) line: 185\nMain.run(String[]) line: 704\nMain.main(String[]) line: 688\nThread [Java indexing] (Running)\n\n----------------------  Failure  ---------------------------------------------------\n\njava.lang.IllegalArgumentException: Attempted to beginRule: R/, does not match\nouter scope rule: P/testABCD\nat org.eclipse.core.internal.runtime.Assert.isLegal(Assert.java:58)\nat org.eclipse.core.internal.jobs.ThreadJob.illegalPush(ThreadJob.java:106)\nat org.eclipse.core.internal.jobs.ThreadJob.push(ThreadJob.java:200)\nat org.eclipse.core.internal.jobs.ImplicitJobs.begin(ImplicitJobs.java:58)\nat org.eclipse.core.internal.jobs.JobManager.beginRule(JobManager.java:170)\nat org.eclipse.core.internal.resources.WorkManager.checkIn(WorkManager.java:95)\nat\norg.eclipse.core.internal.resources.Workspace.prepareOperation(Workspace.java:1628)\nat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1668)\nat\norg.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:105)\nat com.ca.harvest.core.CAHarvestProvider.checkout(CAHarvestProvider.java:392)\nat\ncom.ca.harvest.ui.CAHModificationValidator.validateEdit(CAHModificationValidator.java:181)\nat com.ca.harvest.core.CAHarvestProvider.validateEdit(CAHarvestProvider.java:2291)\nat\norg.eclipse.team.internal.core.FileModificationValidatorManager.validateEdit(FileModificationValidatorManager.java:70)\nat org.eclipse.core.internal.resources.Workspace$5.run(Workspace.java:1883)\nat org.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:616)\nat org.eclipse.core.runtime.Platform.run(Platform.java:747)\nat org.eclipse.core.internal.resources.Workspace.validateEdit(Workspace.java:1890)\nat\norg.eclipse.core.internal.filebuffers.ResourceFileBuffer.validateState(ResourceFileBuffer.java:330)\nat\norg.eclipse.ui.editors.text.TextFileDocumentProvider$4.execute(TextFileDocumentProvider.java:981)\nat\norg.eclipse.ui.editors.text.TextFileDocumentProvider$DocumentProviderOperation.run(TextFileDocumentProvider.java:126)\nat\norg.eclipse.ui.actions.WorkspaceModifyDelegatingOperation.execute(WorkspaceModifyDelegatingOperation.java:67)\nat\norg.eclipse.ui.actions.WorkspaceModifyOperation$1.run(WorkspaceModifyOperation.java:91)\nat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1673)\nat\norg.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:105)\nat\norg.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:73)\nat\norg.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:63)\nat\norg.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation(TextFileDocumentProvider.java:440)\nat\norg.eclipse.ui.editors.text.TextFileDocumentProvider.validateState(TextFileDocumentProvider.java:994)\nat\norg.eclipse.ui.texteditor.AbstractTextEditor.validateState(AbstractTextEditor.java:3424)\nat org.eclipse.ui.texteditor.AbstractTextEditor$17.run(AbstractTextEditor.java:3475)\nat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\nat\norg.eclipse.ui.texteditor.AbstractTextEditor.validateEditorInputState(AbstractTextEditor.java:3470)\nat\norg.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener$Validator.verifyText(AbstractTextEditor.java:238)\nat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:193)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:796)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:820)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:805)\nat org.eclipse.swt.widgets.Widget.notifyListeners(Widget.java:613)\nat org.eclipse.swt.custom.StyledText.modifyContent(StyledText.java:5571)\nat org.eclipse.swt.custom.StyledText.sendKeyEvent(StyledText.java:6441)\nat org.eclipse.swt.custom.StyledText.doContent(StyledText.java:2536)\nat org.eclipse.swt.custom.StyledText.handleKey(StyledText.java:4979)\nat org.eclipse.swt.custom.StyledText.handleKeyDown(StyledText.java:5002)\nat org.eclipse.swt.custom.StyledText$7.handleEvent(StyledText.java:4747)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:796)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:820)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:805)\nat org.eclipse.swt.widgets.Control.sendKeyEvent(Control.java:1734)\nat org.eclipse.swt.widgets.Control.sendKeyEvent(Control.java:1730)\nat org.eclipse.swt.widgets.Control.WM_CHAR(Control.java:3067)\nat org.eclipse.swt.widgets.Control.windowProc(Control.java:2970)\nat org.eclipse.swt.widgets.Display.windowProc(Display.java:3339)\nat org.eclipse.swt.internal.win32.OS.DispatchMessageW(Native Method)\nat org.eclipse.swt.internal.win32.OS.DispatchMessage(OS.java:1473)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2430)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1377)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1348)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:254)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\nat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:96)\nat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:335)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:273)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:129)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\nat java.lang.reflect.Method.invoke(Unknown Source)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\nat org.eclipse.core.launcher.Main.run(Main.java:704)\nat org.eclipse.core.launcher.Main.main(Main.java:688)",
+    "I\u0027ve checked the text editor code and it does use the rule factory. What rule \nis used in the CA Harvest checkout code?\n\nJobManager.beginRule(ISchedulingRule, IProgressMonitor) line: 170\nWorkManager.checkIn(ISchedulingRule, IProgressMonitor) line: 95\nWorkspace.prepareOperation(ISchedulingRule, IProgressMonitor) line: 1628\nWorkspace.run(IWorkspaceRunnable, ISchedulingRule, int, IProgressMonitor) \nline: 1668\nCAHarvestProvider$2(WorkspaceModifyOperation).run(IProgressMonitor) line: 105\nCAHarvestProvider.checkout(JCaContext, IResource[], int, IProgressMonitor) \nline: 392\nCAHModificationValidator.validateEdit(IFile[], Object) line: 181\nCAHarvestProvider.validateEdit(IFile[], Object) line: 2291\n",
+    "(In reply to comment #18)\n\u003e I\u0027ve checked the text editor code and it does use the rule factory. What rule \n\u003e is used in the CA Harvest checkout code?\n\u003e \nIt appears that the text editor is setting the project level rule.  The checkout\ncode is calling the empty constructor on WorkspaceModifyOperation which seems to\nresult in a root rule.  ",
+    "(In reply to comment #19)\nShould the editor be getting its rule from the repository provider?",
+    "Gerald, I had misunderstood the behavior of scheduling rule conflict detection \nbut John has set me straight. So, in the lastest stack traces you are \nproviding it MUST be the text framework that is obtaining the project rule \n(and in the deletion case, it must be the DeleteResourceAction). I have \nverified that, in both the cases, the rule factory is used. So, that leaves us \nwith the following possibilities:\n\n1) The Resources plugin is not delegating to the Team plugin when a rule \nfactory for a project is required. You can verify this by placing a breakpoint \nin TeamHookDispatcher#getRuleFactory(IProject). This method should be asked \nfor the rule factory for all projects.\n2) Team is not delegating to the CA Harvest Repository Provider. You can \nverify this by tracing through the TeamHookDispatcher#getRuleFactory(IProject) \nmethod to see who is providing the rule factory.\n1) The CA Harvest provider is not returning the pessimistic rule factory. The \nrule factory returned by TeamHookDispatcher#getRuleFactory(IProject) should be \nan instance of PessimisticRuleFactory (unless the CA Harvest provider has \ndefined its own).",
+    "(In reply to comment #21)\n\u003e 1) The Resources plugin is not delegating to the Team plugin when a rule \n\u003e factory for a project is required. You can verify this by placing a breakpoint \n\u003e in TeamHookDispatcher#getRuleFactory(IProject). This method should be asked \n\u003e for the rule factory for all projects.\n\nI set the breakpoint at TeamHookDispatcher#getRuleFactory(IProject) and found a\ncouple of interesting things.  \n\no -- if I create and share a project to our repository provider, this breakpoint\nis never hit while I modify files in that project during the execution of that\ninstance of Eclipse.\n\no -- if I shutdown the Eclipse instance and restart it and then begin editing a\nfile that is in the project shared with the repository during the execution of\nthe first Eclipse instance, the breakpoint is then hit.  The rule setting then\nproceeds as expected.\n\nDo we need to change something in our \"Share Project\" logic to get our rule\nfactory into play?",
+    "Are you saying that the TeamHookDispatcher#getRuleFactory(IProject) method is \nnever hit? This could only happen if there was a problem loading the Hook \nimplementation provided by the Tam component or if a second part registered a \nTeamHook. Is there anything in the error log (found in the .log file in \nthe .metadata directory of your workspace)?",
+    "(In reply to comment #23)\nThe breakpoint was hit if the project was already shared with the repository\nwhen the Eclipse instance started.  The breakpoint was never hit when editing\nfiles in a project that had been shared with the repository since the start of\nthe Eclipse instance.\n\nThere was no .log file in the .metadata directory.  The .metadata directory\ncontained:\n.plugins\n.lock\nversion.ini\nEclipseHarvest.log (log of Harvest Repository related activities)",
+    "Basically, that breakpoint should always be hit when a rule factory is \nrequired even for unshared projects. So either there is something seriously \nwrong in your Eclipse, there is a difference in the cases you are testing \n(i.e. the failed case doesn\u0027t need a rule factory for some reason) or the \nbreakpoint location is not where I think it is. Since, I haven\u0027t (and can\u0027t \never in most likelyhood) see your code, I can\u0027t really help out with what you \nmight be going wrong. We do, however, have a couple of example providers that \nship with our coding examples (one of which is a pessimistic provider example \nthat requires checkouts). Perhaps you could play around with them and see what \nbehavior you get. If everything works with the examples, you can compare your \ncode to see if you are doing anything differently. If something fails with the \nexamples, then it should be easy for me to try and reproduce it at this end.",
+    "(In reply to comment #25)\nThe test was run using 3.0.2 is this logic the same with 3.1?\n\nI am about to leave on vacation and will not be able to try the provider in the\nsamples in the near future.  In the meantime, we have implemented a rule factory\nto set the locking at the project level for operations involving resources\ninside the project.  This makes the rule used by our code match with the project\nlevel locking that is coming from the CompilationUnitDocumentProvider (wherever\nit gets it from).\n\n",
+    "Nothing should have changed here between 3.0 and 3.1. John just informed me of \nanother misunderstanding I had. The getRuleFactory method is only called once \nper project. Once it is cached, it must be explicitly set again. This is done \nby the RepositoryProvider#map method. I assume you use RepositoryProvider.map \nto map your provider to a project.\n\nAnyway, if you are now providing a rule factory and it works, there\u0027s not much \npoint in persuing this. I\u0027ll mark this as REMIND and you can reopen it if \nfurther problems occur.",
+    "(In reply to comment #27)\n\nYes, RepositoryProvider.map is called during the Share Project processing.  I\nstepped through it when I did a Share Project and everything looked okay.  I\nthen tried to edit a shared file and TeamHookDispatcher.getRuleFactory was not\ncalled."
+  ],
+  "commentCreationDates": [
+    "2005-06-07T18:04:38+02:00",
+    "2005-06-07T23:51:53+02:00",
+    "2005-06-08T00:18:48+02:00",
+    "2005-06-08T00:26:44+02:00",
+    "2005-06-08T00:51:52+02:00",
+    "2005-06-08T15:57:28+02:00",
+    "2005-06-08T16:12:10+02:00",
+    "2005-06-08T17:24:03+02:00",
+    "2005-06-08T17:32:44+02:00",
+    "2005-06-08T18:06:45+02:00",
+    "2005-06-08T18:26:21+02:00",
+    "2005-06-08T18:29:39+02:00",
+    "2005-06-08T18:35:13+02:00",
+    "2005-06-08T19:17:11+02:00",
+    "2005-06-08T20:24:45+02:00",
+    "2005-06-08T20:42:54+02:00",
+    "2005-06-08T22:02:20+02:00",
+    "2005-06-09T17:39:11+02:00",
+    "2005-06-09T18:15:38+02:00",
+    "2005-06-09T18:22:47+02:00",
+    "2005-06-09T19:19:00+02:00",
+    "2005-06-09T20:31:00+02:00",
+    "2005-06-10T20:29:49+02:00",
+    "2005-06-10T20:41:11+02:00",
+    "2005-06-10T20:52:40+02:00",
+    "2005-06-10T21:16:40+02:00",
+    "2005-06-10T21:41:40+02:00",
+    "2005-06-10T21:47:52+02:00",
+    "2005-06-10T22:12:13+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Attempted to beginRule: R/, does not match outer scope rule: P/testx",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.Assert.isLegal",
+          "source": "Assert.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.illegalPush",
+          "source": "ThreadJob.java:117"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.push",
+          "source": "ThreadJob.java:211"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ImplicitJobs.begin",
+          "source": "ImplicitJobs.java:59"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobManager.beginRule",
+          "source": "JobManager.java:190"
+        },
+        {
+          "method": "org.eclipse.team.core.RepositoryProvider.unmap",
+          "source": "RepositoryProvider.java:220"
+        },
+        {
+          "method": "com.ca.harvest.core.utils.CAHResourceUtil.unregister",
+          "source": "CAHResourceUtil.java:1809"
+        },
+        {
+          "method": "com.ca.harvest.core.utils.CAHResourceUtil.unregister",
+          "source": "CAHResourceUtil.java:1774"
+        },
+        {
+          "method": "com.ca.harvest.ui.CAHMoveDeleteHook.deleteProject",
+          "source": "CAHMoveDeleteHook.java:260"
+        },
+        {
+          "method": "org.eclipse.team.internal.core.MoveDeleteManager.deleteProject",
+          "source": "MoveDeleteManager.java:74"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.unprotectedDelete",
+          "source": "Resource.java:1557"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.delete",
+          "source": "Resource.java:664"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Project.delete",
+          "source": "Project.java:329"
+        },
+        {
+          "method": "org.eclipse.ui.actions.DeleteResourceAction.delete",
+          "source": "DeleteResourceAction.java:383"
+        },
+        {
+          "method": "org.eclipse.ui.actions.DeleteResourceAction.delete",
+          "source": "DeleteResourceAction.java:359"
+        },
+        {
+          "method": "org.eclipse.ui.actions.DeleteResourceAction.access$0",
+          "source": "DeleteResourceAction.java:349"
+        },
+        {
+          "method": "org.eclipse.ui.actions.DeleteResourceAction$3.run",
+          "source": "DeleteResourceAction.java:466"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1716"
+        },
+        {
+          "method": "org.eclipse.ui.actions.DeleteResourceAction$2.run",
+          "source": "DeleteResourceAction.java:464"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:67"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "98714",
+      "date": "2005-06-07T18:04:38+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Attempted to beginRule: R/, does not match outer scope rule: P/testABCD",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.Assert.isLegal",
+          "source": "Assert.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.illegalPush",
+          "source": "ThreadJob.java:106"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.push",
+          "source": "ThreadJob.java:200"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ImplicitJobs.begin",
+          "source": "ImplicitJobs.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobManager.beginRule",
+          "source": "JobManager.java:170"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.WorkManager.checkIn",
+          "source": "WorkManager.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.prepareOperation",
+          "source": "Workspace.java:1628"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1668"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:105"
+        },
+        {
+          "method": "com.ca.harvest.core.CAHarvestProvider.checkout",
+          "source": "CAHarvestProvider.java:387"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 4,
+      "bugId": "98714",
+      "date": "2005-06-08T00:51:52+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Attempted to beginRule: R/, does not match outer scope rule: P/testX1",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.Assert.isLegal",
+          "source": "Assert.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.illegalPush",
+          "source": "ThreadJob.java:117"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.push",
+          "source": "ThreadJob.java:211"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ImplicitJobs.begin",
+          "source": "ImplicitJobs.java:59"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobManager.beginRule",
+          "source": "JobManager.java:190"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.WorkManager.checkIn",
+          "source": "WorkManager.java:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.prepareOperation",
+          "source": "Workspace.java:1671"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1711"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:110"
+        },
+        {
+          "method": "com.ca.harvest.core.CAHarvestProvider.checkout",
+          "source": "CAHarvestProvider.java:387"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 12,
+      "bugId": "98714",
+      "date": "2005-06-08T18:35:13+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Attempted to beginRule: R/, does not match outer scope rule: P/testABCD",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.Assert.isLegal",
+          "source": "Assert.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.illegalPush",
+          "source": "ThreadJob.java:106"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.push",
+          "source": "ThreadJob.java:200"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ImplicitJobs.begin",
+          "source": "ImplicitJobs.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobManager.beginRule",
+          "source": "JobManager.java:170"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.WorkManager.checkIn",
+          "source": "WorkManager.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.prepareOperation",
+          "source": "Workspace.java:1628"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1668"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:105"
+        },
+        {
+          "method": "com.ca.harvest.core.CAHarvestProvider.checkout",
+          "source": "CAHarvestProvider.java:392"
+        },
+        {
+          "method": "com.ca.harvest.ui.CAHModificationValidator.validateEdit",
+          "source": "CAHModificationValidator.java:181"
+        },
+        {
+          "method": "com.ca.harvest.core.CAHarvestProvider.validateEdit",
+          "source": "CAHarvestProvider.java:2291"
+        },
+        {
+          "method": "org.eclipse.team.internal.core.FileModificationValidatorManager.validateEdit",
+          "source": "FileModificationValidatorManager.java:70"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace$5.run",
+          "source": "Workspace.java:1883"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:616"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:747"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.validateEdit",
+          "source": "Workspace.java:1890"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceFileBuffer.validateState",
+          "source": "ResourceFileBuffer.java:330"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$4.execute",
+          "source": "TextFileDocumentProvider.java:981"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$DocumentProviderOperation.run",
+          "source": "TextFileDocumentProvider.java:126"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyDelegatingOperation.execute",
+          "source": "WorkspaceModifyDelegatingOperation.java:67"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation$1.run",
+          "source": "WorkspaceModifyOperation.java:91"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1673"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:105"
+        },
+        {
+          "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+          "source": "WorkspaceOperationRunner.java:73"
+        },
+        {
+          "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+          "source": "WorkspaceOperationRunner.java:63"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation",
+          "source": "TextFileDocumentProvider.java:440"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.validateState",
+          "source": "TextFileDocumentProvider.java:994"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor.validateState",
+          "source": "AbstractTextEditor.java:3424"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$17.run",
+          "source": "AbstractTextEditor.java:3475"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor.validateEditorInputState",
+          "source": "AbstractTextEditor.java:3470"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener$Validator.verifyText",
+          "source": "AbstractTextEditor.java:238"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:193"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:796"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:820"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:805"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.notifyListeners",
+          "source": "Widget.java:613"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.modifyContent",
+          "source": "StyledText.java:5571"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.sendKeyEvent",
+          "source": "StyledText.java:6441"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.doContent",
+          "source": "StyledText.java:2536"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.handleKey",
+          "source": "StyledText.java:4979"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.handleKeyDown",
+          "source": "StyledText.java:5002"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText$7.handleEvent",
+          "source": "StyledText.java:4747"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:796"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:820"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:805"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.sendKeyEvent",
+          "source": "Control.java:1734"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.sendKeyEvent",
+          "source": "Control.java:1730"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_CHAR",
+          "source": "Control.java:3067"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2970"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:3339"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessage",
+          "source": "OS.java:1473"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2430"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1377"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1348"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:254"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:335"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:129"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:704"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:688"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 17,
+      "bugId": "98714",
+      "date": "2005-06-09T17:39:11+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "98714",
+  "bugId": "98714",
+  "date": "2005-06-07T18:04:38+02:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "normal"
+}

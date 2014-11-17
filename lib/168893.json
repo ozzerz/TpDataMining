@@ -1,0 +1,303 @@
+{
+  "comments": [
+    "When using a serial connection through the terminal view new lines are not shifted to the beginning of the line, but are indented to the end of the previous line.  It seems like \\r is not being processed properly.  I have also run a test (Program 2 below) that suggests that \\r and \\n are both treated the same.  The same application performs correctly under minicom. (Telnet and SSH both operate properly as well)\n\nEnvironment: Eclipse 3.2.1 w/ j2sdk1.4.2_12 and Java comm3.0_u1 under Debian Linux, RSE 1.0.1. Tested using a standard Linux getty running on the remote board as well as a UART test program on a different board.  Settings were vt100 emulation, 9600, 8n1.  Also tested with 115200 baud.\ngetty command was: T0:23:respawn:/sbin/getty -L ttyS0 9600 vt100\n(also tried without -L and on different serial ports with different cables to eliminate hardware error possibilities).\n\nTests and results:\n\nProgram1: loops printing \"test\\r\\n\" to the console\nMinicom shows:\ntest\ntest\ntest\ntest\n...\n\nTerminal view shows (note the blank line between each print): \ntest\n\n    test\n\n        test\n\n            ...\n\nProgram2:\nwhile(1) {\n    printf(\"test\\r\\n\");\n    printf(\"\\\\r\\r\");\n    printf(\"\\\\n\\n\");\n    sleep(1);\n}\n-- If operating properly, the first \\r should be overwritten by the \\n.\n\nMinicom worked properly with this.\ntest\n\\n\ntest\n\\n\n...\n\nTerminal view printed:\ntest\n\n    \\r\n      \\n\n\n...\n\n\nI have screen shots of the above tests as well as the UART test that I ran through if needed.  These would show the same information, but show them being run for a longer period of time.\n\n                                             \nThanks,\n\nTravis",
+    "Thanks for the thorough description.\nWill check early next year.",
+    "I reproduced the problem on SUSE Linux 10.0, and found that the culprit is the Sun comm3.0_u1 implementation. Our Terminal already receives \"\\n\\n\" from the Serial driver where it should receive \"\\r\\n\".\n\nI also verified with an older implementation of comm.jar together with an older version of rxtx, that it works correctly by replacing the comm driver implementation. Unfortunately that older version of the driver is not easily available any more (I took it out of our commercial product).\n\nI\u0027m not sure what\u0027s the right way to proceed. Sun already announced that they would discontinue the current comm.jar implementation, so filing a bug against their comm.jar is probably not of much help. Rxtx has also changed and supports the new gnu.io namespace only with their newer versions. I tried the old rxtx-2.0-7pre1 from http://users.frii.com/jarvi/rxtx/download.html but it crashed my VM.\n\nThe version of rxtx from our commercial product which worked seems to be rxtx-1.4, since it is using \"jcl.jar\" instead of the newer \"RXTXcomm.jar\", so it might be worth trying to get the sources of rxtx-1.4 and compile them or search the Internet for existing Linux binaries of it. I made a first check with rxtx-1.4 from ftp://ftp.qbang.org/pub/rxtx/rxtx-1.4-16pre2.tar.gz and it seems to compile OK but I\u0027m running out of time now.\n\nPlease check rxtx-1.4-16pre2 yourself if you can. README and INSTALL instructions are quite elaborate (they are much better than the rxtx-2.0 ones).",
+    "Note that for rxtx-2.0 and below, you\u0027ll need Sun Javacomm-2.0 from\nhttp://java.sun.com/products/javacomm/index.jsp\n\nIt will fail with javacomm-3.0x, perhaps that\u0027s why rxtx-2.0 crashed my VM in the first try.",
+    "After installing rxtx1.4 w/ comm.jar2.0.3 from Sun, I got the following error message:\n\n\"\njava.lang.UnsatisfiedLinkError: isSessionActive\n\tat com.sun.comm.SunrayInfo.isSessionActive(Native Method)\n\tat com.sun.comm.Portmapping.registerCommPorts(Portmapping.java:155)\n\tat com.sun.comm.Portmapping.refreshPortDatabase(Portmapping.java:100)\n\tat javax.comm.CommPortIdentifier.\u003cclinit\u003e(CommPortIdentifier.java:138)\n\tat org.eclipse.tm.terminal.internal.serial.SerialProperties.setupProperties(SerialProperties.java:147)\n\tat org.eclipse.tm.terminal.internal.serial.SerialProperties.\u003cinit\u003e(SerialProperties.java:42)\n\tat org.eclipse.tm.terminal.internal.serial.SerialSettings.\u003cinit\u003e(SerialSettings.java:31)\n\tat org.eclipse.tm.terminal.internal.serial.SerialConnector.\u003cinit\u003e(SerialConnector.java:45)\n\tat sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)\n\tat sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:39)\n\tat sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:27)\n\tat java.lang.reflect.Constructor.newInstance(Constructor.java:274)\n\tat java.lang.Class.newInstance0(Class.java:308)\n\tat java.lang.Class.newInstance(Class.java:261)\n\tat org.eclipse.core.internal.registry.osgi.RegistryStrategyOSGI.createExecutableExtension(RegistryStrategyOSGI.java:157)\n\tat org.eclipse.core.internal.registry.ExtensionRegistry.createExecutableExtension(ExtensionRegistry.java:759)\n\tat org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension(ConfigurationElement.java:243)\n\tat org.eclipse.core.internal.registry.ConfigurationElementHandle.createExecutableExtension(ConfigurationElementHandle.java:51)\n\tat org.eclipse.tm.terminal.TerminalConnectorExtension.getTerminalConnectors(TerminalConnectorExtension.java:38)\n\tat org.eclipse.tm.terminal.internal.view.TerminalView.setupControls(TerminalView.java:410)\n\tat org.eclipse.tm.terminal.internal.view.TerminalView.createPartControl(TerminalView.java:352)\n\tat org.eclipse.ui.internal.ViewReference.createPartHelper(ViewReference.java:332)\n\tat org.eclipse.ui.internal.ViewReference.createPart(ViewReference.java:197)\n\tat org.eclipse.ui.internal.WorkbenchPartReference.getPart(WorkbenchPartReference.java:566)\n\tat org.eclipse.ui.internal.ViewReference.getView(ViewReference.java:164)\n\tat org.eclipse.ui.internal.WorkbenchPage.busyShowView(WorkbenchPage.java:979)\n\tat org.eclipse.ui.internal.WorkbenchPage.access$13(WorkbenchPage.java:968)\n\tat org.eclipse.ui.internal.WorkbenchPage$13.run(WorkbenchPage.java:3514)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:67)\n\tat org.eclipse.ui.internal.WorkbenchPage.showView(WorkbenchPage.java:3511)\n\tat org.eclipse.ui.internal.WorkbenchPage.showView(WorkbenchPage.java:3487)\n\tat org.eclipse.ui.handlers.ShowViewHandler.openView(ShowViewHandler.java:148)\n\tat org.eclipse.ui.handlers.ShowViewHandler.openOther(ShowViewHandler.java:104)\n\tat org.eclipse.ui.handlers.ShowViewHandler.execute(ShowViewHandler.java:70)\n\tat org.eclipse.ui.internal.ShowViewMenu$3.run(ShowViewMenu.java:114)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:499)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:539)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:488)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:400)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1085)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3166)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2842)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1914)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1878)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:400)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:177)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)\n\"\n\nwhen I tried to open a terminal session w/in Eclipse.  I will keep looking at it a little longer to try and find a good combination.\n\n",
+    "Does javax.comm.properties contain the line\ndriver\u003dgnu.io.RXTXCommDriver\n\nlike specified in\nhttp://dev.eclipse.org/viewcvs/index.cgi/org.eclipse.tm.core/terminal/org.eclipse.tm.terminal.serial/README.txt?root\u003dDSDP_Project\u0026view\u003dco\n?",
+    "I was experiencing some Java weirdness -- it was looking in different places for the javax.comm.properties file.  I actually had two of them and it was reading the wrong one.  I then discovered other problems with my Java install and wiped everything out.  I did a clean install of the Sun JDK 1.5.0 deb package.  \n\nI then reinstalled comm3.0 and verified the bug.  I went back to comm2.0.3 and installed rxtx-2.0-7pre1 (w/ edited javax.comm.properties).  This crashed the VM when I attempted to load Eclipse.  \n\nI attempted to build rxtx-1.4 again without success this time, so I attempted a manual install of it by copying over the jcl.jar (configured for 1.5.0) and other libs.  This needs more checking to figure out exactly why it wouldn\u0027t build and make sure that the libraries were configured properly, but I think that it should be OK.  \n\nUsing rxtx-1.4 w/ comm2.0.3 as above doesn\u0027t produce an error message, but cannot find any valid serial ports to connect to.  i.e. the settings page gives no possible connections.  BlackBox reports that it can\u0027t find any ports also.\n\nNOTE: When running BlackBox from comm3.0 under 1.5.0, \\r is processed, but it seems that they are forced.  For example, when running on a serial text terminal connection with another board, pressing enter after a command will cause 2 returns to be sent to the board (you will get the prompt twice after the command completes).  Also, there will be a blank line between each line printed (even if you, for example, cat a file). This suggests that the error is indeed in the Java comm libs.\n\n",
+    "These observations are consistent with what I\u0027m seeing: rxtx compiling only once, crashing vm, not finding serial ports, complaining about lockfiles.\n\nI read the Sun javacomm FAQs again and searched their bug database on http://bugs.sun.com/bugdatabase/index.jsp but I didn\u0027t find anything.\nSo I filed a new bugreport against Sun javacomm3.0u1, referencing this bug -- let\u0027s see what comes out.\n\nIn the meantime, the only thing I can do is assure you that it is possible to get it running with rxtx -- with the old precompiled version from our commercial product, I made it work correctly with Sun javacomm2.0.3 on jdk1.6.0, 1.5.0_10 as well as 1.4.2_13. Unfortunately I cannot give you these libs since the GPL forbids distribution without source and I currently neither know the exact version nor do I have the source -- will need to ask my colleagues where to find these (we certainly do have it somewhere).\n\nI think I got furthest with compiling rxtx-1.4 myself, and it might have failed only because of the messages complaining about lockfiles. Perhaps configuring with --disable-locking as suggested in the INSTALL file would help. I also noticed that our old binary was compiled against GLIB2.0, so compiling on a very old Linux box might help (if you still have one) - glib tends to do their backward compatibility pretty well.\n\nAnother option for you might be to grab the terminal serial source, and rewrite it to use rxtx-2.1 (with the gnu.io namespace). Should be simple and straightforward, we just haven\u0027t done it so far because of the GPL license which is not compatible with EPL for redistribution, but for your own products it should be ok. We\u0027d appreciate if you could contribute a version of the serial plugin that runs with rxtx-2.1.\n\nSince there\u0027s nothing more I can do, I\u0027m resetting the target milestone. Sorry I cannot help you further here - looking forward to feedback from Sun or you.",
+    "BTW, rxtx-bins.1.tar.gz from http://wass.homelinux.net/howtos/Comm_How-To.shtml also failed because it could not obtain a lock on my Redhat Enterprise WS4 box.",
+    "I installed RXTX2.1-7.2 from source (after removing all Javacomm libs) and tested it on an application that I had that was using javax.comm by changing these to gnu.io.  It worked without a hitch, so I changed the source of the Terminal serial plugin in plugins/org.eclipse.tm.terminal.serial.source_0.9.0.v20061215------0842283437/\nsrc/org.eclipse.tm.terminal.serial_0.9.0.v20061215/src/org/eclipse/tm/terminal/\ninternal/serial\n\nHowever, I haven\u0027t been able to figure out how to recompile the plugin.  What steps should be used for this / where can I find instructions for something similar to figure out how to do it?\n\nThanks.",
+    "To change and rebuild, best get the terminal from CVS.\nThere is a team project set available on the web that you can easily import.\nSee the FAQ:\n\nhttp://wiki.eclipse.org/index.php/TM_and_RSE_FAQ#How_do_I_build_RSE_from_CVS_if_I_want_a_more_recent_build_than_is_on_the_downloads_page.3F\n\nBasically,\n* You need Eclipse-SDK + RSE installed\n* File \u003e Import \u003e Team \u003e Project Set to get the terminal sources\n* Modify, build, and export as deployable features when you are done\n\nPlease let me know when you find the FAQ unclear [or, better yet, improve it yourself on the wiki].",
+    "Thanks, I found that FAQ yesterday afternoon.  Everything compiles and runs correctly by simply installing RXTX2.1, (after uninstalling javax.comm) and changing all \"import javax.comm.\" to \"import gun.io.\".  The terminal now functions exactly as I would expect.  \n\nTo get this to work, I had to do a little hacking to trick it into using my stuff.   Maybe you can tell me where I went wrong in doing it the \"right\" way. \n\nDoing \"Export as deployable feature\" didn\u0027t work because it kept telling me that it couldn\u0027t find the plugin org.eclipse.tm.terminal.serial_0.9.0v20061215 (I don\u0027t have the exact error message so there might be a period or something out of place in that name).  I then tried \"Export as deployable plug-ins and fragments\" which worked, and put the jar archive in my /usr/local/eclipse/plugins where I expected it.  When I tried to use the terminal plugin it would only show SSH or Telnet, and looking in my \"Manage Configuration\" view told me that it couldn\u0027t find the source folder for the serial view, which existed anyway.  I\u0027m wandering if I messed this up sometime yesterday when I was looking at the source (even though I restored it to the original after changing it).\n\nI deleted that source folder and reinstalled it from the TM updates site, which made it stop complaining.  Then, I had to rename the jar archive that was created in my plugins directory from the Export to the 0.9.0.v20061215.jar version that it was looking for.  This made things work properly after restarting eclipse.  As you can tell, this is my first attempt at building any kind of Eclipse plugin... What should I have done differently?  I can try again later and then possibly add some blips to the WIKI after I figure out what it is that confused me :).\n\nThanks",
+    "Hm.. what you\u0027ve done is not so wrong.\n\nWhat I\u0027d be recommending, is get the sources from CVS (through the team project set) and then use \"export as deployable plug-in\" only. You should be able to drop the result right into your eclipse installation, if the version number is higher than what\u0027s there you don\u0027t even need to move the existing plugin away.\n",
+    "Thanks. I used the CVS sources the first time (according to the FAQ), but will try again.  It may take me a few days to get back to it, but I will post my results when I have something new.",
+    "Fixed by moving to rxtx-2.1-7r2 as the default comm implementation.",
+    "Closing [api] bugs that have apparently been fixed in the code."
+  ],
+  "commentCreationDates": [
+    "2006-12-21T19:23:33+01:00",
+    "2006-12-22T19:33:02+01:00",
+    "2007-01-03T17:38:02+01:00",
+    "2007-01-03T17:40:43+01:00",
+    "2007-01-03T20:00:03+01:00",
+    "2007-01-03T20:08:54+01:00",
+    "2007-01-04T00:04:19+01:00",
+    "2007-01-04T11:29:27+01:00",
+    "2007-01-04T11:30:45+01:00",
+    "2007-01-04T19:13:17+01:00",
+    "2007-01-05T14:28:47+01:00",
+    "2007-01-05T18:31:20+01:00",
+    "2007-01-12T15:29:39+01:00",
+    "2007-01-12T16:01:28+01:00",
+    "2007-01-17T20:24:36+01:00",
+    "2007-02-14T16:17:02+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.UnsatisfiedLinkError",
+      "message": "isSessionActive",
+      "elements": [
+        {
+          "method": "com.sun.comm.SunrayInfo.isSessionActive",
+          "source": "Native Method"
+        },
+        {
+          "method": "com.sun.comm.Portmapping.registerCommPorts",
+          "source": "Portmapping.java:155"
+        },
+        {
+          "method": "com.sun.comm.Portmapping.refreshPortDatabase",
+          "source": "Portmapping.java:100"
+        },
+        {
+          "method": "javax.comm.CommPortIdentifier.\u003cclinit\u003e",
+          "source": "CommPortIdentifier.java:138"
+        },
+        {
+          "method": "org.eclipse.tm.terminal.internal.serial.SerialProperties.setupProperties",
+          "source": "SerialProperties.java:147"
+        },
+        {
+          "method": "org.eclipse.tm.terminal.internal.serial.SerialProperties.\u003cinit\u003e",
+          "source": "SerialProperties.java:42"
+        },
+        {
+          "method": "org.eclipse.tm.terminal.internal.serial.SerialSettings.\u003cinit\u003e",
+          "source": "SerialSettings.java:31"
+        },
+        {
+          "method": "org.eclipse.tm.terminal.internal.serial.SerialConnector.\u003cinit\u003e",
+          "source": "SerialConnector.java:45"
+        },
+        {
+          "method": "sun.reflect.NativeConstructorAccessorImpl.newInstance0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeConstructorAccessorImpl.newInstance",
+          "source": "NativeConstructorAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingConstructorAccessorImpl.newInstance",
+          "source": "DelegatingConstructorAccessorImpl.java:27"
+        },
+        {
+          "method": "java.lang.reflect.Constructor.newInstance",
+          "source": "Constructor.java:274"
+        },
+        {
+          "method": "java.lang.Class.newInstance0",
+          "source": "Class.java:308"
+        },
+        {
+          "method": "java.lang.Class.newInstance",
+          "source": "Class.java:261"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.osgi.RegistryStrategyOSGI.createExecutableExtension",
+          "source": "RegistryStrategyOSGI.java:157"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ExtensionRegistry.createExecutableExtension",
+          "source": "ExtensionRegistry.java:759"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:243"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElementHandle.createExecutableExtension",
+          "source": "ConfigurationElementHandle.java:51"
+        },
+        {
+          "method": "org.eclipse.tm.terminal.TerminalConnectorExtension.getTerminalConnectors",
+          "source": "TerminalConnectorExtension.java:38"
+        },
+        {
+          "method": "org.eclipse.tm.terminal.internal.view.TerminalView.setupControls",
+          "source": "TerminalView.java:410"
+        },
+        {
+          "method": "org.eclipse.tm.terminal.internal.view.TerminalView.createPartControl",
+          "source": "TerminalView.java:352"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPartHelper",
+          "source": "ViewReference.java:332"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPart",
+          "source": "ViewReference.java:197"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.getPart",
+          "source": "WorkbenchPartReference.java:566"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.getView",
+          "source": "ViewReference.java:164"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.busyShowView",
+          "source": "WorkbenchPage.java:979"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.access$13",
+          "source": "WorkbenchPage.java:968"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage$13.run",
+          "source": "WorkbenchPage.java:3514"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:67"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.showView",
+          "source": "WorkbenchPage.java:3511"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.showView",
+          "source": "WorkbenchPage.java:3487"
+        },
+        {
+          "method": "org.eclipse.ui.handlers.ShowViewHandler.openView",
+          "source": "ShowViewHandler.java:148"
+        },
+        {
+          "method": "org.eclipse.ui.handlers.ShowViewHandler.openOther",
+          "source": "ShowViewHandler.java:104"
+        },
+        {
+          "method": "org.eclipse.ui.handlers.ShowViewHandler.execute",
+          "source": "ShowViewHandler.java:70"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ShowViewMenu$3.run",
+          "source": "ShowViewMenu.java:114"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:499"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:539"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:488"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1085"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3166"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2842"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1914"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1878"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:400"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:177"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "168893",
+      "date": "2007-01-03T20:00:03+01:00",
+      "product": "Target Management",
+      "component": "Terminal",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "168893",
+  "bugId": "168893",
+  "date": "2006-12-21T19:23:33+01:00",
+  "product": "Target Management",
+  "component": "Terminal",
+  "severity": "normal"
+}

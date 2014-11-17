@@ -1,0 +1,100 @@
+{
+  "comments": [
+    "I2003-04-07\n\n\nI saw this exception when shutting down a runtime workbench. (with junit and a\ncouple of editors open). \nIt is not reproducible in a couple of tries.\n\n\njava.lang.NullPointerException\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat java.lang.NullPointerException.\u003cinit\u003e(NullPointerException.java:60)\n\tat org.eclipse.swt.widgets.Synchronizer.asyncExec(Synchronizer.java:70)\n\tat org.eclipse.swt.widgets.Display.asyncExec(Display.java:492)\n\tat\norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.reconciled(CompilationUnitEditor.java:1658)\n\tat\norg.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.reconcile(JavaReconcilingStrategy.java:107)\n\tat\norg.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.initialReconcile(JavaReconcilingStrategy.java:145)\n\tat\norg.eclipse.jface.text.reconciler.CompositeReconcilingStrategy.initialReconcile(CompositeReconcilingStrategy.java:111)\n\tat\norg.eclipse.jdt.internal.ui.text.JavaCompositeReconcilingStrategy.initialReconcile(JavaCompositeReconcilingStrategy.java:128)\n\tat\norg.eclipse.jface.text.reconciler.MonoReconciler.initialProcess(MonoReconciler.java:104)\n\tat\norg.eclipse.jdt.internal.ui.text.JavaReconciler.initialProcess(JavaReconciler.java:280)\n\tat\norg.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread.run(AbstractReconciler.java)",
+    "That\u0027s I2004-04-07, of course.",
+    "SN I notice you\u0027ve made a recent change here, later than the swt that would be \nin the 0407 integration build, so this NPE may not be possible now (?).  Please \ninvestigate.\n",
+    "The null pointer comes from the fact that asyncs are being added while the \nDisplay is getting disposed.  The Job Manager was supposed to be changed to \nhandle this?  There is also a separate SWT bug report that I can\u0027t find now \nthat captures this problem for SWT.",
+    "In this particular case, jobs are not involved, but the effect is the same. The\nfollowing code:\n\nif (shell !\u003d null \u0026\u0026 !shell.isDisposed()) {\n  shell.getDisplay().asyncExec(\n\ncan throw a NullPointerException if the display is disposed after calling\nshell.isDisposed() but before calling asyncExec. It should throw a more logical\nexception like SWTException with ERROR_DEVICE_DISPOSED instead of NPE. This is\nreported in bug 45294.\n\nHowever, the JFace reconciler could protect itself here by ensuring that its\nthread is terminated before the editor is disposed. In this situation, the\nreconciler is still running after the display is disposed. Moving to platform\ntext for consideration.\n",
+    "This is really a dup of bug 34800.\n\nWe currently don\u0027t wait for the reconciler to finish when reusing an editor (see\nbug 63898 and bug 66176).\n\nThere are two options:\n\n- Wait for the reconciler to finish when closing an editor (includes closing the\nworkbench). Pro: reconcilers have a valid environment to deal with. Con: may\nslow everything down.\n\n- Any code that may run inside the reconciler must be aware of this and deal\nwith situations like this.",
+    "Created an attachment (id\u003d12178)\nCompilationUnitEditor.java.diff\n\nFixes the problem locally by protecting the access to Display.asyncExcec.",
+    "Created an attachment (id\u003d12179)\nAbstractReconciler.java.diff\n\nFixes AbstractReconciler.uninstall to join the reconciler thread after\ncancelling it. Not sure what to do if joining fails after the timeout. \n\nThis also influences what we do upon editor reuse.\n\nThis fix is the real solution, as anything bad can happen if we let the\nreconciler run behind. This can be easily simulated by following these steps:\n\n- set a breakpoing on JavaReconcilingStrategy::reconcile(117 - just before\ncalling reconciled(...).\n- set a breakpoint to Runtime.exit()\n- start a target workbench\n- open a java editor\n- dirty it until the reconciler thread hits the breakpoint\n- close the target workbench\n-\u003e the main thread hits the Runtime.exit() breakpoint\n-\u003e resume the reconciler thread \n\nThis can be varied by stopping the main thread at different locations during\nthe shutdown process.",
+    "After review by Kai:\n- the fix (joining the reconciler thread) is very risky at this stage due to\npossibe deadlocks\n- although bad, the reconciler running does not destroy anything - no lost work\n\nWe will not fix this for 3.0. Changing milestone to 3.1.",
+    "\n\n*** This bug has been marked as a duplicate of 34800 ***"
+  ],
+  "commentCreationDates": [
+    "2004-04-13T13:37:10+02:00",
+    "2004-04-13T13:37:39+02:00",
+    "2004-04-13T16:01:58+02:00",
+    "2004-04-13T16:44:12+02:00",
+    "2004-04-13T19:45:41+02:00",
+    "2004-06-15T17:21:29+02:00",
+    "2004-06-15T20:16:23+02:00",
+    "2004-06-15T20:23:20+02:00",
+    "2004-06-17T17:54:38+02:00",
+    "2004-07-23T16:23:09+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.NullPointerException.\u003cinit\u003e",
+          "source": "NullPointerException.java:60"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.asyncExec",
+          "source": "Synchronizer.java:70"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.asyncExec",
+          "source": "Display.java:492"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.reconciled",
+          "source": "CompilationUnitEditor.java:1658"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.reconcile",
+          "source": "JavaReconcilingStrategy.java:107"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.JavaReconcilingStrategy.initialReconcile",
+          "source": "JavaReconcilingStrategy.java:145"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.CompositeReconcilingStrategy.initialReconcile",
+          "source": "CompositeReconcilingStrategy.java:111"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.JavaCompositeReconcilingStrategy.initialReconcile",
+          "source": "JavaCompositeReconcilingStrategy.java:128"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.MonoReconciler.initialProcess",
+          "source": "MonoReconciler.java:104"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.JavaReconciler.initialProcess",
+          "source": "JavaReconciler.java:280"
+        },
+        {
+          "method": "org.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread.run",
+          "source": "AbstractReconciler.java"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "58245",
+      "duplicateId": "34800",
+      "date": "2004-04-13T13:37:10+02:00",
+      "product": "Platform",
+      "component": "Text",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "34800",
+  "bugId": "58245",
+  "duplicateId": "34800",
+  "date": "2004-04-13T13:37:10+02:00",
+  "product": "Platform",
+  "component": "Text",
+  "severity": "normal"
+}

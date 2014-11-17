@@ -1,0 +1,180 @@
+{
+  "comments": [
+    "Follow the steps exactly as outlined below:\n\n1) Open the profile launch configuration\n2) Create an external Java application\n3) Switch to the main tab and specify the path of the java class attached to this report\n4) Switch to the monitor tab and select\nAgent Discoverer\nBasic Memory Analysis\n5) Once the application starts, detach the profiling agent\n6) Re-attach the profiling agent\n\nNotice that it take 8-10 seconds for the re-attach to happen.  This delay is not experienced with IAC or when the profiling agent is launched without the Agent Discoverer.\n\n*IMPORTANT*: Make sure the patch from https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d143758 is applied to org.eclipse.hyades.trace.ui before running the above use case.",
+    "Created an attachment (id\u003d42774)\nTest class\n\n",
+    "Andy - is this associated with the regression reported in bug 143994 ?",
+    "Setting target to i4 - Need to triage this one.",
+    "This does not appear to be related to 143994.\n\nThe problem seems to only occur if the profiling is run with the Agent Discoverer.  The behavior is the same whether it is being run with the new AC, the old RAC or the IAC.  Therefore, I think that this is something going on with the agent itself.\n\nNote: I do see this behavior with the IAC.",
+    "This is a problem from the execution framework.  The block happens in NodeImpl.listProcesses():\n\nsynchronized (_agentDetailsLock) {\ntry {\n\t\t\t\t\t\t\t        _connection.sendMessage(message, _commandHandler);\t\t\t\t\t_agentDetailsLock.wait(DEFAULT_TIMEOUT);\n\n} catch (Exception e) {\ne.printStackTrace();\nreturn null;\n}\n}\n\nThe value of DEFAULT_TIMEOUT is 15 seconds.  That\u0027s a noticeable wait time.  We should maybe to 15 seconds in increments of 1 second.",
+    "The problem is not the \"timeout\" but rather the \"Agent Discoverer\" does not have any agent details to report. The call \"_agentDetailsLock.wait(DEFAULT_TIMEOUT);\" will break as soon as an agent detail command is received. Somehow this \"Agent Discoverer\" agent does not have any agent details associated and thus no agent detail command is ever sent back. I bet the \"Agent Discoverer\" is not a proper agent, which means it is missing some or all of the following agent property:\n- process UUID\n- agent UUID\n- agent type\n",
+    "A \"hack\" is to try not to query the agent details. How to determine whether or not to query the agent details might be a little bit tricky. My proprosal is to check whether an \"Agent\" is active or not before querying its details. I still need to investigate whether this is safe to do or not.",
+    "Created an attachment (id\u003d43301)\nPatch for execution plugin\n\nAli, Please verify if this patch works. Thanks.",
+    "Samson,\n\nI occasionally get an NPE because the UUID of the profiling agent is not set (see the stack trace below).  I think there is a racing condition some where that I was able to avoid before because of the long period wait.  You\u0027re right about the \"Agent Discoverer\" not being a \"real\" agent.  It is a dummy agent that only does periodic queries for agent that may get registered under the same process.\n\n\n\njava.lang.NullPointerException\n\tat org.eclipse.hyades.trace.ui.internal.util.PDCoreUtil.getAgentInstance(PDCoreUtil.java:1110)\n\tat org.eclipse.hyades.trace.ui.internal.actions.AttachActionDelegate.run(AttachActionDelegate.java:49)\n\tat org.eclipse.hyades.trace.ui.internal.actions.AttachActionDelegate.doAction(AttachActionDelegate.java:158)\n\tat org.eclipse.tptp.trace.ui.provisional.control.provider.StandardAgentStateModifier.performProfileAction(StandardAgentStateModifier.java:169)\n\tat org.eclipse.tptp.trace.ui.provisional.control.provider.StandardAgentStateModifier.attach(StandardAgentStateModifier.java:87)\n\tat org.eclipse.tptp.trace.ui.provisional.control.provider.AbstractAgentControlProvider$1$AttachControlItem.run(AbstractAgentControlProvider.java:107)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:499)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:539)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:488)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:400)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:928)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3348)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2968)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1914)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1878)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:400)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:177)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n\tat java.lang.reflect.Method.invoke(Unknown Source)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)\n\n\n",
+    "The Agent Discoverer is not a proper Agent and therefore it should not be manually registered on the client side. The Agent Controller does not have any information about that agent since it is never registered with it. I think this is not a supported agent interface usage scenario.\n\nTransfer back to Ali for further investigation.\n",
+    "Non-blocking.  Targeting to 4.3",
+    "Fix in CVS - HEAD.  The log agent discoverer no longer uses an execution agent."
+  ],
+  "commentCreationDates": [
+    "2006-05-26T21:56:14+02:00",
+    "2006-05-26T21:56:49+02:00",
+    "2006-05-27T00:58:46+02:00",
+    "2006-05-31T18:22:15+02:00",
+    "2006-05-31T20:24:17+02:00",
+    "2006-05-31T21:13:04+02:00",
+    "2006-06-01T21:17:01+02:00",
+    "2006-06-01T21:47:05+02:00",
+    "2006-06-01T22:03:36+02:00",
+    "2006-06-02T00:07:55+02:00",
+    "2006-06-02T17:29:03+02:00",
+    "2006-06-02T19:25:08+02:00",
+    "2006-08-22T17:02:09+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.hyades.trace.ui.internal.util.PDCoreUtil.getAgentInstance",
+          "source": "PDCoreUtil.java:1110"
+        },
+        {
+          "method": "org.eclipse.hyades.trace.ui.internal.actions.AttachActionDelegate.run",
+          "source": "AttachActionDelegate.java:49"
+        },
+        {
+          "method": "org.eclipse.hyades.trace.ui.internal.actions.AttachActionDelegate.doAction",
+          "source": "AttachActionDelegate.java:158"
+        },
+        {
+          "method": "org.eclipse.tptp.trace.ui.provisional.control.provider.StandardAgentStateModifier.performProfileAction",
+          "source": "StandardAgentStateModifier.java:169"
+        },
+        {
+          "method": "org.eclipse.tptp.trace.ui.provisional.control.provider.StandardAgentStateModifier.attach",
+          "source": "StandardAgentStateModifier.java:87"
+        },
+        {
+          "method": "org.eclipse.tptp.trace.ui.provisional.control.provider.AbstractAgentControlProvider$1$AttachControlItem.run",
+          "source": "AbstractAgentControlProvider.java:107"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:499"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:539"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:488"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:928"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3348"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2968"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1914"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1878"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:400"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:177"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 9,
+      "bugId": "144032",
+      "date": "2006-06-02T00:07:55+02:00",
+      "product": "TPTP Profiling",
+      "component": "Platform.Agents.JVMPI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "144032",
+  "bugId": "144032",
+  "date": "2006-05-26T21:56:14+02:00",
+  "product": "TPTP Profiling",
+  "component": "Platform.Agents.JVMPI",
+  "severity": "major"
+}

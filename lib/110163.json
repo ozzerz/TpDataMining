@@ -1,0 +1,760 @@
+{
+  "comments": [
+    "I get an X Window System error, which occurs when running under\n\nLinux/GTK, where the look and feel is set to the system look and feel, and\n\nan SVG is rendered with batik (via SWT_AWT) in a composite in a StackLayout,\nwhere the\n\ncomposite is not the top control of the stack layout.\n\n \nthe crash is as follows:\n\n\n\nThe program \u0027SWT\u0027 received an X Window System error.\n\nThis probably reflects a bug in the program.\n\nThe error was \u0027BadMatch (invalid parameter attributes)\u0027.\n\n  (Details: serial 295 error_code 8 request_code 144 minor_code 4)\n\n  (Note to programmers: normally, X errors are reported asynchronously;\n\n   that is, you will receive the error a while after causing it.\n\n   To debug your program, run it with the --sync command line\n\n   option to change this behavior. You can then get a meaningful\n\n   backtrace from your debugger if you break on the gdk_x_error() function.)\n\n\n\nThis has been reproduced on:\n\nSuse Linux 9.3 x86_64, SWT 3.2M1 running Sun jdk1.5.0_04, single processor system\n\nSuse Linux 9.3 x86_64, SWT 3.1.0 running Sun jdk1.5.0_04, dual processor system\n\nSuse Linux 9.3 x86 (32-bit), SWT 3.1.0 running Sun jdk1.5.0\n\n\n\nIt does not appear to occur when running SWT/Motif.\n\n\n\nSimilar to Bug #74095 SWT_AWT X error with JadeDisplay integration.  I\u0027m filing\nthis as a new bug because that one is closed.\n\n\nI will attach sample code.",
+    "Created an attachment (id\u003d27332)\nTest case (zip file - SVGBadMatchTester.zip)\n\nSee comments in SVGBadMatchTester.java",
+    "By the way, I am not sure how much this actually has to do with SVG.  I am\npretty sure the test case could be simplified to produce the problem without SVG\n- I think the problem is more related to SWT_AWT.  The reason I think this is\nthat I think I\u0027ve gotten similar problems using JFreeChart in a stack layout\nusing SWT_AWT.",
+    "Ken, what happens when you run with the debug flags of bug 74095?  Can you get \na better stack trace?",
+    "Steve -\n\nI tried doing:\n\n\t\tDeviceData data \u003d new DeviceData();\n\n\t\tdata.debug \u003d true;\n\n\t\tDisplay display \u003d new Display(data);\n\nAnd it doesn\u0027t seem to work.  In initializing the display I get:\n\nException in thread \"main\" java.lang.NoSuchMethodError: XErrorProc\n\tat org.eclipse.swt.internal.Callback.bind(Native Method)\n\tat org.eclipse.swt.internal.Callback.\u003cinit\u003e(Callback.java:123)\n\tat org.eclipse.swt.internal.Callback.\u003cinit\u003e(Callback.java:78)\n\tat org.eclipse.swt.internal.Callback.\u003cinit\u003e(Callback.java:60)\n\tat org.eclipse.swt.graphics.Device.init(Device.java:540)\n\tat org.eclipse.swt.widgets.Display.init(Display.java:2027)\n\tat org.eclipse.swt.graphics.Device.\u003cinit\u003e(Device.java:142)\n\tat org.eclipse.swt.widgets.Display.\u003cinit\u003e(Display.java:429)\n\tat SVGBadMatchTester.run(SVGBadMatchTester.java:63)\n\tat SVGBadMatchTester.main(SVGBadMatchTester.java:56)\n\nI\u0027m using SWT 3.2M1.\n\nThanks, Ken",
+    "The error doesn\u0027t make sense, can you verify that the XErrorProc method exists\nin the version of Device.class that you\u0027re using?\n\nI tried adding the DeviceData thing to the top of Snippet135 and it worked for me.",
+    "If I look at the type Device, it has\nstatic int XErrorProc(int xDisplay, int xErrorEvent)",
+    "So then how can you get a NoSuchMethodError? :)\n\nCan you try just with Snippet135 maybe to try something simpler?",
+    "I was wondering the same thing about the NoMethodError.  I looked into it and\nthat appears to be a bug in the 64-bit version.  I\u0027ve filed that as a new bug\n#110767.\n\nIf I try Snippet135 on 64-bit, as expected, I get the same NoMethodError if I\nadd the Display debug code.  Otherwise, with or without setting the look and\nfeel, I get no X windows crash.  But this is no surprise, Snippet134 and my\nsample code have little in common except for using SWT_AWT.  The problem I\nreported here only seems to happen with stack layout, where the AWT stuff is\ngoing on in the non-top control of the stack layout, using the system look and\nfeel.  It might be possible to modify snippet 135 to do these things.\n\nUsing my test program (attachment 1), I tried setting the display to debug on\n32-bit Linux, and I get the same X windows crash, but no additional stack trace\nor information.\n\n",
+    "Ok, this will make it easier to reproduce the problem.\n\nTake Snippet134, and make the following changes:\n\nin main(), add as the first line:\n\nUIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());\n\nthen below in main, where the layout of the shell is set, change it to:\n//\t\tshell.setLayout(layout);\n\t\tshell.setLayout(new StackLayout());\n\nRun the modified Snippet135 and voila, you get the X windows crash.",
+    "SSQ and SN to investigate.",
+    "I cannot reproduce this problem with all themes. Which theme are you running?\nHere are the debug stacks for different themes.\n\n+++++++++++++++++++ Grand Canyon ++++++++++++++++++++++++++\norg.eclipse.swt.SWTError: Unspecified error\n\tat org.eclipse.swt.graphics.Device.XErrorProc(Device.java:793)\n\tat sun.java2d.loops.MaskBlit.MaskBlit(Native Method)\n\tat sun.java2d.loops.Blit$GeneralMaskBlit.Blit(Blit.java:186)\n\tat sun.java2d.pipe.DrawImage.blitSurfaceData(DrawImage.java:795)\n\tat sun.java2d.pipe.DrawImage.renderImageCopy(DrawImage.java:429)\n\tat sun.java2d.pipe.DrawImage.renderImageXform(DrawImage.java:398)\n\tat sun.java2d.pipe.DrawImage.transformImage(DrawImage.java:237)\n\tat sun.java2d.pipe.DrawImage.scaleImage(DrawImage.java:607)\n\tat sun.java2d.pipe.DrawImage.scaleImage(DrawImage.java:902)\n\tat sun.java2d.SunGraphics2D.drawImage(SunGraphics2D.java:2921)\n\tat sun.awt.image.ImageRepresentation.drawToBufImage(ImageRepresentation.java:792)\n\tat sun.java2d.pipe.DrawImage.scaleImage(DrawImage.java:910)\n\tat sun.java2d.SunGraphics2D.drawImage(SunGraphics2D.java:2921)\n\tat sun.java2d.SunGraphics2D.drawImage(SunGraphics2D.java:2870)\n\tat com.sun.java.swing.plaf.gtk.PixmapEngine.drawChunk(PixmapEngine.java:507)\n\tat com.sun.java.swing.plaf.gtk.PixmapEngine.paintImage(PixmapEngine.java:429)\n\tat com.sun.java.swing.plaf.gtk.PixmapEngine.paintPixmap(PixmapEngine.java:330)\n\tat com.sun.java.swing.plaf.gtk.PixmapEngine.paintBox(PixmapEngine.java:111)\n\tat\ncom.sun.java.swing.plaf.gtk.GTKPainter.paintButtonBackground(GTKPainter.java:386)\n\tat com.sun.java.swing.plaf.gtk.GTKPainter.paintLabelBackground(GTKPainter.java:240)\n\tat javax.swing.plaf.synth.SynthLabelUI.update(SynthLabelUI.java:96)\n\tat javax.swing.JComponent.paintComponent(JComponent.java:740)\n\tat javax.swing.JComponent.paint(JComponent.java:1003)\n\tat javax.swing.CellRendererPane.paintComponent(CellRendererPane.java:134)\n\tat javax.swing.plaf.basic.BasicTableHeaderUI.paintCell(BasicTableHeaderUI.java:394)\n\tat javax.swing.plaf.basic.BasicTableHeaderUI.paint(BasicTableHeaderUI.java:341)\n\tat javax.swing.plaf.synth.SynthTableHeaderUI.paint(SynthTableHeaderUI.java:106)\n\tat javax.swing.plaf.synth.SynthTableHeaderUI.update(SynthTableHeaderUI.java:94)\n\tat javax.swing.JComponent.paintComponent(JComponent.java:740)\n\tat javax.swing.JComponent.paint(JComponent.java:1003)\n\tat javax.swing.JComponent.paintChildren(JComponent.java:840)\n\tat javax.swing.JComponent.paint(JComponent.java:1012)\n\tat javax.swing.JViewport.paint(JViewport.java:728)\n\tat javax.swing.JComponent.paintChildren(JComponent.java:840)\n\tat javax.swing.JComponent.paint(JComponent.java:1012)\n\tat javax.swing.JComponent._paintImmediately(JComponent.java:4836)\n\tat javax.swing.JComponent.paintImmediately(JComponent.java:4633)\n\tat javax.swing.RepaintManager.paintDirtyRegions(RepaintManager.java:451)\n\tat\njavax.swing.SystemEventQueueUtilities$ComponentWorkRequest.run(SystemEventQueueUtilities.java:114)\n\tat java.awt.event.InvocationEvent.dispatch(InvocationEvent.java:209)\n\tat java.awt.EventQueue.dispatchEvent(EventQueue.java:461)\n\tat\njava.awt.EventDispatchThread.pumpOneEventForHierarchy(EventDispatchThread.java:234)\n\tat\njava.awt.EventDispatchThread.pumpEventsForHierarchy(EventDispatchThread.java:163)\n\tat java.awt.EventDispatchThread.pumpEvents(EventDispatchThread.java:157)\n\tat java.awt.EventDispatchThread.pumpEvents(EventDispatchThread.java:149)\n\tat java.awt.EventDispatchThread.run(EventDispatchThread.java:110)\nThe program \u0027SWT\u0027 received an X Window System error.\nThis probably reflects a bug in the program.\nThe error was \u0027BadMatch (invalid parameter attributes)\u0027.\n  (Details: serial 917 error_code 8 request_code 73 minor_code 0)\n  (Note to programmers: normally, X errors are reported asynchronously;\n   that is, you will receive the error a while after causing it.\n   To debug your program, run it with the --sync command line\n   option to change this behavior. You can then get a meaningful\n   backtrace from your debugger if you break on the gdk_x_error() function.)\n\n++++++++++++++++++++++++++++++++Simple++++++++++++++++++++++++++++++\norg.eclipse.swt.SWTError: Unspecified error\n\tat org.eclipse.swt.graphics.Device.XErrorProc(Device.java:793)\n\tat sun.java2d.loops.DrawGlyphListAA.DrawGlyphListAA(Native Method)\n\tat sun.java2d.pipe.AATextRenderer.drawGlyphList(AATextRenderer.java:36)\n\tat sun.java2d.pipe.GlyphListPipe.drawString(GlyphListPipe.java:53)\n\tat sun.java2d.pipe.ValidatePipe.drawString(ValidatePipe.java:147)\n\tat sun.java2d.SunGraphics2D.drawString(SunGraphics2D.java:2643)\n\tat com.sun.java.swing.SwingUtilities2.drawString(SwingUtilities2.java:386)\n\tat javax.swing.plaf.synth.SynthGraphicsUtils.paintText(SynthGraphicsUtils.java:279)\n\tat com.sun.java.swing.plaf.gtk.GTKGraphicsUtils.paintText(GTKGraphicsUtils.java:38)\n\tat javax.swing.plaf.synth.SynthGraphicsUtils.paintText(SynthGraphicsUtils.java:256)\n\tat com.sun.java.swing.plaf.gtk.GTKGraphicsUtils.paintText(GTKGraphicsUtils.java:71)\n\tat javax.swing.plaf.synth.SynthGraphicsUtils.paintText(SynthGraphicsUtils.java:352)\n\tat javax.swing.plaf.synth.SynthLabelUI.paint(SynthLabelUI.java:117)\n\tat javax.swing.plaf.synth.SynthLabelUI.update(SynthLabelUI.java:98)\n\tat javax.swing.JComponent.paintComponent(JComponent.java:740)\n\tat javax.swing.JComponent.paint(JComponent.java:1003)\n\tat javax.swing.CellRendererPane.paintComponent(CellRendererPane.java:134)\n\tat javax.swing.plaf.basic.BasicTableHeaderUI.paintCell(BasicTableHeaderUI.java:394)\n\tat javax.swing.plaf.basic.BasicTableHeaderUI.paint(BasicTableHeaderUI.java:341)\n\tat javax.swing.plaf.synth.SynthTableHeaderUI.paint(SynthTableHeaderUI.java:106)\n\tat javax.swing.plaf.synth.SynthTableHeaderUI.update(SynthTableHeaderUI.java:94)\n\tat javax.swing.JComponent.paintComponent(JComponent.java:740)\n\tat javax.swing.JComponent.paint(JComponent.java:1003)\n\tat javax.swing.JComponent.paintChildren(JComponent.java:840)\n\tat javax.swing.JComponent.paint(JComponent.java:1012)\n\tat javax.swing.JViewport.paint(JViewport.java:728)\n\tat javax.swing.JComponent.paintChildren(JComponent.java:840)\n\tat javax.swing.JComponent.paint(JComponent.java:1012)\n\tat javax.swing.JComponent._paintImmediately(JComponent.java:4836)\n\tat javax.swing.JComponent.paintImmediately(JComponent.java:4633)\n\tat javax.swing.RepaintManager.paintDirtyRegions(RepaintManager.java:451)\n\tat\njavax.swing.SystemEventQueueUtilities$ComponentWorkRequest.run(SystemEventQueueUtilities.java:114)\n\tat java.awt.event.InvocationEvent.dispatch(InvocationEvent.java:209)\n\tat java.awt.EventQueue.dispatchEvent(EventQueue.java:461)\n\tat\njava.awt.EventDispatchThread.pumpOneEventForHierarchy(EventDispatchThread.java:234)\n\tat\njava.awt.EventDispatchThread.pumpEventsForHierarchy(EventDispatchThread.java:163)\n\tat java.awt.EventDispatchThread.pumpEvents(EventDispatchThread.java:157)\n\tat java.awt.EventDispatchThread.pumpEvents(EventDispatchThread.java:149)\n\tat java.awt.EventDispatchThread.run(EventDispatchThread.java:110)\nThe program \u0027SWT\u0027 received an X Window System error.\nThis probably reflects a bug in the program.\nThe error was \u0027BadMatch (invalid parameter attributes)\u0027.\n  (Details: serial 897 error_code 8 request_code 73 minor_code 0)\n  (Note to programmers: normally, X errors are reported asynchronously;\n   that is, you will receive the error a while after causing it.\n   To debug your program, run it with the --sync command line\n   option to change this behavior. You can then get a meaningful\n   backtrace from your debugger if you break on the gdk_x_error() function.)\n",
+    "Denis, it looks like the X errors are coming from AWT. Could you take a look at it?",
+    "I was running SphereCrystal.\n\nHowever, I\u0027ve tried all the themes in SuSE 9.3, and I found that all of them\ncrash most of the time, but all of them will not crash occasionally.  Different\nones seem more likely to crash.  But I could get all of them to both crash and\nnot crash by running them no more than 15 times in a row.  Most of them could be\nmade to do both within about 4 tries.\n\nFor reference, all of the themes I have available, and tried:\n\nCrash:\nIndustrial\n6nome\nGlider\nGrand Canyon\nHigh Contrast\nHigh Contrast Inverse\nHigh Contrast Large Print\nHigh Contrast Large Print Inverse\nLarge Print\nLow Contrast\nLow Contrast Large Print\nMist\nOcean Dream\nSimple\nSphereCrystal\nTraditional",
+    "Hi Ken, we fixed the bug on 64-bit when debugging is enabled. Are you able to \ntry the latest and attach the debug stack traces so that we can determine if \nwe are seeing the same bug as you are? Thanks!",
+    "Well the problem occurs also on 32-bit, and I have enabled debug on the display,\nbut I get no additional information.  Do I need to be running 3.2M1/M2?  I\u0027m\nrunning SWT 3.1 on that machine.\n\nI\u0027ve always been running SWT with the jars, can you give me a quick pointer to\nhow I can easily get the latest 64-bit SWT from cvs?",
+    "I\u0027ve found another way to get the X windows bad match error, without changing\nthe system look and feel, and without necessarily using a stack layout.  I don\u0027t\nknow whether this is the same or a different bug, I\u0027m assuming it is the same. \n\nI am posting another version of SVGBadMatchTester - it uses Batik/SVG.\n\nTo reproduce the problem, run the app, and then resize the window continuously\nwith the mouse for up to 25 seconds.  Usually\n it won\u0027t last that long.\n\n\nThis has been reproduced on:\n\nSuse Linux 9.3 x86_64, SWT 3.2M1 running Sun jdk1.5.0_04, single processor system\n\nSuse Linux 9.3 x86 (32-bit), SWT 3.1.0 running Sun jdk1.5.0",
+    "Created an attachment (id\u003d27720)\nzip of SVGBadMatchTester project to reproduce using resizing\n\nThe main file to run is SVGBadMatchTester.java.\n\nI\u0027m obsoleting the old project because the old one\u0027s symptoms can be duplicated\nby modifying Snippet135",
+    "Sorry I did not notice it before. In order to get the debug stacks in the AWT \nX display, you need to enable debug globally (not just for the SWT Display). \nThis is done by adding this line to the beginning of main():\n\nDevice.DEBUG \u003d true;\n\nYou don\u0027t need SWT 3.2 for this.\n",
+    "I\u0027ve added Display.DEBUG\u003dtrue, but I still don\u0027t get any stack trace, I tried\nboth the modified Snippet135, and the most recent SVGBadMatchTester, with SWT\n3.1 on a 32-bit linux machine.",
+    "Billy or SSQ, he has given us the attachment.  Can we make it fail here?",
+    "Here is the stack trace of the error.  You have to have the line:\n   Display.DEBUG \u003d true;\nat the very beginning of main(), before any SWT code has been executed.\n\nX request code 73 is an XGetImage() request.  If it\u0027s during AA drawing it may\nbe part an Xft call for its compositing, but this is just a guess.  Since it\u0027s\nnot SWT code that\u0027s causing the error it\u0027s hard for me to say what\u0027s up or know\nif we\u0027re causing it.\n\norg.eclipse.swt.SWTError: Unspecified error\n\tat org.eclipse.swt.graphics.Device.XErrorProc(Device.java:793)\n\tat sun.java2d.loops.DrawGlyphListAA.DrawGlyphListAA(Native Method)\n\tat sun.java2d.pipe.AATextRenderer.drawGlyphList(Unknown Source)\n\tat sun.java2d.pipe.GlyphListPipe.drawString(Unknown Source)\n\tat sun.java2d.pipe.ValidatePipe.drawString(Unknown Source)\n\tat sun.java2d.SunGraphics2D.drawString(Unknown Source)\n\tat com.sun.java.swing.SwingUtilities2.drawString(Unknown Source)\n\tat javax.swing.plaf.synth.SynthGraphicsUtils.paintText(Unknown Source)\n\tat com.sun.java.swing.plaf.gtk.GTKGraphicsUtils.paintText(Unknown Source)\n\tat javax.swing.plaf.synth.SynthGraphicsUtils.paintText(Unknown Source)\n\tat com.sun.java.swing.plaf.gtk.GTKGraphicsUtils.paintText(Unknown Source)\n\tat javax.swing.plaf.synth.SynthGraphicsUtils.paintText(Unknown Source)\n\tat javax.swing.plaf.synth.SynthLabelUI.paint(Unknown Source)\n\tat javax.swing.plaf.synth.SynthLabelUI.update(Unknown Source)\n\tat javax.swing.JComponent.paintComponent(Unknown Source)\n\tat javax.swing.JComponent.paint(Unknown Source)\n\tat javax.swing.CellRendererPane.paintComponent(Unknown Source)\n\tat javax.swing.plaf.basic.BasicTableHeaderUI.paintCell(Unknown Source)\n\tat javax.swing.plaf.basic.BasicTableHeaderUI.paint(Unknown Source)\n\tat javax.swing.plaf.synth.SynthTableHeaderUI.paint(Unknown Source)\n\tat javax.swing.plaf.synth.SynthTableHeaderUI.update(Unknown Source)\n\tat javax.swing.JComponent.paintComponent(Unknown Source)\n\tat javax.swing.JComponent.paint(Unknown Source)\n\tat javax.swing.JComponent.paintChildren(Unknown Source)\n\tat javax.swing.JComponent.paint(Unknown Source)\n\tat javax.swing.JViewport.paint(Unknown Source)\n\tat javax.swing.JComponent.paintChildren(Unknown Source)\n\tat javax.swing.JComponent.paint(Unknown Source)\n\tat javax.swing.JComponent._paintImmediately(Unknown Source)\n\tat javax.swing.JComponent.paintImmediately(Unknown Source)\n\tat javax.swing.RepaintManager.paintDirtyRegions(Unknown Source)\n\tat javax.swing.SystemEventQueueUtilities$ComponentWorkRequest.run(Unknown Source)\n\tat java.awt.event.InvocationEvent.dispatch(Unknown Source)\n\tat java.awt.EventQueue.dispatchEvent(Unknown Source)\n\tat java.awt.EventDispatchThread.pumpOneEventForHierarchy(Unknown Source)\n\tat java.awt.EventDispatchThread.pumpEventsForHierarchy(Unknown Source)\n\tat java.awt.EventDispatchThread.pumpEvents(Unknown Source)\n\tat java.awt.EventDispatchThread.pumpEvents(Unknown Source)\n\tat java.awt.EventDispatchThread.run(Unknown Source)\nThe program \u0027SWT\u0027 received an X Window System error.\nThis probably reflects a bug in the program.\nThe error was \u0027BadMatch (invalid parameter attributes)\u0027.\n  (Details: serial 1430 error_code 8 request_code 73 minor_code 0)",
+    "Strange, I tried both the modified Snippet135 and the SVGBadMatchTester\n(attachment #2) with Display.DEBUG \u003d true; as the first line in main.  Still get\nthe x windows error, but no stack trace.  This is with SWT 3.1.\n\nJust a stab, is it possible that AWT/Swing and SWT are not behaving in a\nthread-safe manner with respect to each other using GTK?  I\u0027m just applying what\nI know about other troubleshooting here, I have no GTK programming experience.",
+    "I suppose that\u0027s possible however, SWT and AWT have different X connections so \nthere should not be a thread problem.\n\nHas anyone done the obvious and hack the example so that it runs in a Frame \nrather than an EmbeddedFrame to make sure the problem goes away?",
+    "Denis, do you have any ideas why we might get this AWT error?",
+    "Oleg, do you have any ideas why we might get this AWT error?",
+    "Oleg, the ball is in your court.  The X errors are comming from AWT (although SWT might be involved somewhere).  We need to confirm that the X errors are caused by the SWT_AWT by running the example in a Frame rather than an EmbeddedFrame.",
+    "    In case this helps: We also have an RCP application that is running on Linux (Gnome Ubuntu 5.10) and Eclipse 3.2M4 that is rendering SVG via batik (via SWT_AWT) that also crashes with :\n     \n    The error was \u0027BadMatch (invalid parameter attributes)\u0027.\n      (Details: serial 6333 error_code 8 request_code 145 minor_code 4)\n      (Note to programmers: normally, X errors are reported asynchronously;\n       that is, you will receive the error a while after causing it.\n       To debug your program, run it with the --sync command line\n       option to change this behavior. You can then get a meaningful\n       backtrace from your debugger if you break on the gdk_x_error() function.)\n\n    It can be recreated by resizing the application. It occurs more frequently if there is another application (such as a browser) running under the RCP app. But it also crashes when our rendering gets called for a few times after resizing. \n\n",
+    "For now I\u0027d say this most likely an jdk problem, but I need a test to work with.\nI\u0027ve tried attached one, compile and run it and see an empty shell with mebu bar \n:(  I\u0027ve tried both SVGBadMatchTester and Snippet135.\nI see no exceptions in console.  Did I miss something?",
+    "Linux GTK, right?  In comment #21, Billy was able to make it happen.  SSQ, have you seen this?\n\nDoug, can you do the \"DEBUG \u003d true\" dance from comment #21 and post the stack trace here?  Thanks.",
+    "Yes, I was able to reproduce this. I got several BadMatch errors with different theme managers.",
+    "Whe should try stepping Oleg through it.  First of all, it may be JDK and/or GTK version related.  Oleg, what are you running?",
+    "After much effort, I am unable to get a more complete stack trace. I put the Display.DEBUG\u003dtrue on the first line of the Application object(IPlatformRunnable) before display gets created...should it be elsewhere?  \n\nMy libgtk version is 2.8.6-0ubuntu2.1\nI am on jdk1.5.0_04 though others on my team have already moved to jdk1.5.0_06 and are reporting the problem.\n\nThanks for all the effort on this one.",
+    "We can\u0027t look at this now.  Please ping this bug report post 3.2 M5.",
+    "What is the nature of these Bad Match errors?  Is it possible that there is one root cause for these errors?    Are the specifics of the error (i.e. the error_code request_code, etc) relevant?\n\nI have been commenting on bug:   https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d74095.   We can easily reproduce the bad match errors in-house, but are unable to produce a sample application that demonstrates the problem without a bunch of dependencies on our client/server code.  We also have not had any luck configuring the application to gather additional debug information.\n\nIs there significant value is us continuing to track down our Bad Match error, or is there already sufficient information in this bug for you to go on?  Thanks.",
+    "More information would be good.  It might turn out that these bug reports are duplicates.\n\nPut \"Display.DEBUG \u003d true\" in the first line of main() and you should see the debugging information.  Make sure you are running the latest SWT because we made changes in this area to enable debugging that you might not have in the version you are running.  (You should also be running the latest so that we are all testing the same thing).",
+    "Working with Jamie on this...\n\nSometimes I get the BadMatch error and other times the app will just exit out with an error value 139.  What is a 139?",
+    "Well, I was able to reproduce problems with XSetInputFocus using Snippet135.java\nWill investigate this.",
+    "I\u0027ve filed bug about this agains AWT - 6381653 (should be publicly visible in a few days)",
+    "Along the the \"BadMatch\" error I am also seeing a \"BadValue\" error in which the trace looks the same as the BadMatch error.  Are these related?\n\nRecived an X Window System error.\nThis probably reflects a bug in the program.\nThe error was \u0027BadValue (integer parameter out of range for operation)\u0027.\n  (Details: serial 16917 error_code 2 request_code 12 minor_code 0)\n  (Note to programmers: normally, X errors are reported asynchronously;\n   that is, you will receive the error a while after causing it.\n   To debug your program, run it with the --sync command line\n   option to change this behavior. You can then get a meaningful\n   backtrace from your debugger if you break on the gdk_x_error() function.)\n\n",
+    "(In reply to comment #38)\n\u003e I\u0027ve filed bug about this agains AWT - 6381653 (should be publicly visible in a\n\u003e few days)\n\u003e \nI am new to SWT and the SWT_AWT bridge and I am having a difficult time understanding the nature of these problems.\n\nWhy are these AWT bugs non-fatal in a standard Swing environment but fatal when they occur in the SWT_AWT bridge on Linux?\n\nI have many years experience developing Swing based applications and I\u0027ve never seen one exit with a BadMatch error.  Is there some way of traping these errors so they are non-fatal?\n\nCan someone point me towards some documentation that might help me understand this a bit better?",
+    "I believe this problem is not fatal.\nAs far as I understand, the app exists because of debug handler added by SWT.",
+    "(In reply to comment #41)\n\u003e I believe this problem is not fatal.\n\u003e As far as I understand, the app exists because of debug handler added by SWT.\n\nIt would be great if the SWT handling of these types of errors could be fixed.  Steve, is it possible to trap these non-fatal AWT errors in the SWT_AWT bridge before they cause the application to crash?",
+    "I just checked the SWT source.  We call both XSetErrorHandler() and XSetIOErrorHandler() and the handlers for both do not exit().  Instead, they print a stack trace and call the previous handler, which was saved away when the handers were installed.  It prints the X error message. It is possible that GTK is exit()\u0027ing from their X handlers but I doubt it.  Billy, you know?\n\nIt\u0027s easy enough to hack the SWT source and not install any SWT hanlders to see whether the actual installing of the handler has anything to do with it.  The method you want is Device.init().",
+    "The message that says \"gdk_x_error\" (as in comment #39) is in gdkmain-x11.c\nand it does call exit (1).",
+    "Helloooooo Billy!\n\nThanks GTK for calling exit() for a non-fatal X error.  How does that help?  I guess we could consider not calling the default handler but we need to print the X error.  I remember that there was an X call to get some of the information but I\u0027d rather let them print it.  Any chance we can stop GTK from exit()\u0027ing?",
+    "Don\u0027t call it or use gdk_error_trap_push/pop, but really X errors are bad bad\nbad and you should make sure the problem is understood and fixed, or only\ntrapped around code you know will generate the mistaken error.",
+    "Would calling gdk_error_trap_push/pop inside the handler work?  I can\u0027t imagine calling gdk_error_trap_push() at the start of the program and leaving errors off.  That would be worse.",
+    "I figured I would ping this bug again now that 3.2m5 is out.\n\nI am particurlarly interested in the issue Steve raised in Comment #45 about GTK calling exit() for a non-fatal X error.\n\nAny updates would be greatly appreciated.\n",
+    "Billy, will calling gdk_error_trap_push/pop stop GTK from exit()\u0027ing for non-fatal errors?  Jamie is interested in getting this bug resolved for 3.2.",
+    "If you call gdk_error_trap_push() you\u0027ll avoid the exit() and you can\nthen install your own error handler.",
+    "Figured I would just ping this bug again to see if/when you guys thought it might be fixed.\n\nJust to give you a little background on what we are doing and what our priorities are?  We are trying to use the Eclipse RCP as the base client framework for a large swing client/server application.  We plan to rewrite some of the application in SWT, but a large portion of it would remain implemented in Swing.  So far we are still in the prototype stage. On windows everything works great.  On Linux we have seen stability issues resulting in ?bad match? crashes at seemingly random points during application execution.  At this point my team and I are focused on other tasks, but I need to make a decision shortly about the viability of this solution.  We have evaluated the other offerings out there and in our opinion the Eclipse RCP design and features are far superior, but unfortunately, there is this crash to deal with.\n\nAny updates would be appreciated.\n",
+    "here is a stack for one of problematic focus calls:\n        at sun.awt.X11.XlibWrapper.XSetInputFocus(Native Method)\n        at sun.awt.X11.XBaseWindow.xRequestFocus(XBaseWindow.java:588)\n        at sun.awt.X11.XDecoratedPeer.requestXFocus(XDecoratedPeer.java:1118)\n        at sun.awt.X11.XWindowPeer.requestXFocus(XWindowPeer.java:482)\n        at sun.awt.X11.XWindowPeer.requestInitialFocus(XWindowPeer.java:838)\n        at sun.awt.X11.XEmbeddedFramePeer.requestInitialFocus(XEmbeddedFramePeer.java:86)\n        at sun.awt.X11.XWindowPeer.handleMapNotifyEvent(XWindowPeer.java:831)\n        at sun.awt.X11.XEmbeddedFramePeer.handleMapNotifyEvent(XEmbeddedFramePeer.java:20)\n        at sun.awt.X11.XBaseWindow.dispatchEvent(XBaseWindow.java:1116)\n        at sun.awt.X11.XBaseWindow.dispatchToWindow(XBaseWindow.java:1069)\n        at sun.awt.X11.XToolkit.dispatchEvent(XToolkit.java:474)\n        at sun.awt.X11.XToolkit.run(XToolkit.java:632)\n        at sun.awt.X11.XToolkit.run(XToolkit.java:566)\n        at java.lang.Thread.run(Thread.java:626)\n\nI think it is result of fix for 5067062 ([Cinnabar12 linux] Can\u0027t input any character into Liveconnect applet).\nSWT creates XEmbeddedFrame using ctor with one param, but now it assumes that\nxembed is not supported.  So, we receives the problem which is similar to 5067062.\nTo fix this problem SWT needs to create XEmbeddedFrame with two-params ctor, to\nspecify that XEmbed is supported (XEmbeddedFrame(long handle, boolean supportsXEmbed))\n\nAfter this we do not receives such XErrors for XSetFocus.\nAlthough from time to time we do receive \nXlib: unexpected async reply (sequence 0x300)!\n\nnot sure who reports it (and I was unable to receive such pessage in synchronized mode (after Xynchronize() call)",
+    "SWT 3.2 has been changed to call the contructor with two params already. I believe the change want in around July 2005. Even with these changes, it is possible to reproduce the problem following steps from comment#16 and comment#17.",
+    "I\u0027ve tried with 3.2m6 and was unable to reproduce the problem with Snippet135.java\nIs the problem you is only reproducible with that \"BIG\" SVGBadMatchTester only?\nI suspect it will take some time for me to get all jars it requires and \nrun it w/o Eclipse (or with it) since I\u0027m not used to use Eclips (and any other\nIDE)",
+    "I\u0027m not sure if that last comment is a question for me, the bug reporter.\n\nThe SVG example was the first example, which, yes, requires a bunch of batik jars.\n\nHowever, as of the last time I tried anything (which would have been the time of my last comment), I could get the error either with a modified snippet (comment #9) or the SVG example.\n\nI have not tested anything with any more recent versions than I indicated in my comments.",
+    "i have played with SVGBadMatchTester and i do next first :\n\nchange SVGBadMatchTester#main to this\n\nToolkit toolkit \u003d Toolkit.getDefaultToolkit();\nnew SVGBadMatchTester().run();\n\nit crash on start now (it crash eclipse 3.1, 3.2m6 and 3.2rc1)\n\nnext : it doesn\u0027t crash in next cases\n- when i call previous 2 lines in EventQueue thread or\n- change NoFlickerPanel update method to repaint() instead paint(g)\n\n  this mean that it\u0027s threading problem \n\nnow i download gtk source (2.8.17) and comment exit in gdkmain_x11.c\neclipse work and SVGBadMatchTester doesn\u0027t crash on start, but crash after resizing\n(it is possible that exists calling exit on other places  in gtk)\n\n  I have other application which crash often, but it doesn\u0027t crash with previous gtk patch\n\n  I know that this gtk patch isn\u0027t too smart, but i want test and it looks that\ngtk exit too often for non-fatal error.",
+    "this is new (reopened) bug for AWT_SWT crash on linux and i comment in this\nhttps://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d110163\n\ni have tried (before) other thing and find that crash is mostly in \nfFormDesigner.componentActivated();\nI will try do it in event thread and it fix crash on this place, but i can\u0027t fix crash in dragging routines (it is netbeans code)\n\nI can\u0027t crash matisse with gtk patch, but, but example from eclipse bugzilla crash\nand with gtk patch (eclipse\u0027s example doesn\u0027t crash in event thread with or without gtk patch)",
+    "my comment #57 is mistake .Sorry.",
+    "Does anyone know how the folks from Genuitec with their Matisse4Eclipse product were able to work around these problems with SWT_AWT on GTK?",
+    "Matisse4MyEclipse suffers from this problem. Thus it blocked us from shipping a Linux supported version in the 1st milestone release. We have spent a lot of time trying to isolate this problem and have made minor progress but nothing significant to report yet.  What we have learned so far is that GTK is aggressively terminating the VM process on exception. We have a patched GTK that we force to continue operating and we do not encounter any negative UI behavior at this time. We are now working to isolate the exact conditions that manifest the problem  We will update with more info asap. ",
+    "Ok, I was able to run SVGBadMatchTester with swt (I20060331) and batij 1.6\nI was able to reproduce problems with 1.5.0_04, but not wiht 6.0b79 (good news for\nAWT :)\nIs someone able to reproduce the problem with mustang (6.0) or it is 1.5.0_XX specific problem?\nWill try to instrument 1.5.0_XX to get more information.",
+    "I try with java 6 b81 and eclipse nigthly build N20060504-0010 and i can crash eclipse with SVGBadMatch Test easy\n\njust add next in main \nToolkit toolkit \u003d Toolkit.getDefaultToolkit();\nnew SVGBadMatchTester().run();\n\nand eclipse crash on start (no need for resizing)",
+    "Thanks, I was able to reproduce the problem.  Interesting that the XErrorHandler\nI\u0027ve registered does not receive this error.  It looks like gtk receives it \nearlier and exits :(  DO you know how to turn this off?\nBTW does anyone know what request_code 143 means (Xproto.h on on my SuSe 9.3 describes request codes from 1 to 127 only :(",
+    "I\u0027ve filed bug against 2D about XErors for requests 143\u002673.\nBug id - 6424371, it should become visible on java.sun.com in a few days",
+    "I have made fix (workaround) for this bug\nIt work fine with SVGBadMatchTester and other my cases\nJamie, please can you check for your case\n\nmake class like this :\n\npublic class MyEventQueue extends EventQueue{ \n    public void postEvent(AWTEvent event) {\n        OS.gdk_error_trap_push();\n        super.postEvent(event);\n        OS.gdk_error_trap_pop();\n    }\n\n    protected void dispatchEvent(AWTEvent event){\n        OS.gdk_error_trap_push();\n        super.dispatchEvent(event);\n        OS.gdk_error_trap_pop();\n    }\n\n    public AWTEvent getNextEvent() throws InterruptedException {\n        OS.gdk_error_trap_push();\n        AWTEvent event \u003d super.getNextEvent();\n        OS.gdk_error_trap_pop();\n        return event;\n    }\n\n    public synchronized AWTEvent peekEvent() {\n        OS.gdk_error_trap_push();\n        AWTEvent event \u003d super.peekEvent();\n        OS.gdk_error_trap_pop();\n        return event;\n    }\n\n    public synchronized AWTEvent peekEvent(int id) {\n        OS.gdk_error_trap_push();\n        AWTEvent event \u003d super.peekEvent(id);\n        OS.gdk_error_trap_pop();\n        return event;\n    }\n\n    protected void pop() throws EmptyStackException {\n        OS.gdk_error_trap_push();\n        super.pop();\n        OS.gdk_error_trap_pop();\n    }\n\n    public synchronized void push(EventQueue newEventQueue) {\n        OS.gdk_error_trap_push();\n        super.push(newEventQueue);\n        OS.gdk_error_trap_pop();\n        \n    }\n    \n} \n\nand call this before some call SWT_AWT.new_Frame (in main for swt application, start plugin or startup of rcp application)\n\nif (Platform.getOS().equals(Platform.OS_LINUX) || Platform.getWS().equals(Platform.WS_GTK)) {\n            Toolkit.getDefaultToolkit().getSystemEventQueue().push(new MyEventQueue());\n}\n\nIt is evident that gtk make unnecesary (non-fatal) exit",
+    "Hey Oleg!\n\n1) Is the original X error that caused this bug report gone?\n2) Can you stop GTK from exiting inside of AWT so people don\u0027t need to hack the EventQueue?",
+    "Hi Steve,\n\n\u003e 1) Is the original X error that caused this bug report gone?\n\ndo you mean error for request#144? I was unable to reproduce it.\n\n\u003e 2) Can you stop GTK from exiting inside of AWT so people don\u0027t need to hack the EventQueue?\n\nAnyone may set custom error handler at any time, and he/she may do this because of\nparticular reason why AWT shouldn\u0027t allow this?  As for these particular errors,\nwe\u0027ve got, we will set handlers which will suppress expected errors.\n",
+    "No I mean comment 61 that says you could make it happen in some versions of the JKD and not others.  I\u0027m wondering what the current status is.\n\nFrom comment 21, sun.java2d.loops.DrawGlyphListAA.DrawGlyphListAA() is exiting issuing an X error.  The issue here is that GTK has decided to _exit() when any X error or warning occurs, even ones that are recoverable.  Motif applications don\u0027t do this.  They just print the error message.\n\nI\u0027m not sure exactly how to proceed.  I understand that you aren\u0027t happy hiding X errors but comment 65 shows that this works and allows people to ship their code.  I don\u0027t think that SWT should be patching the AWT event queue like this for a number of reasons, including threading.\n\nWhat do you suggest?  Under what circumstances can sun.java2d.loops.DrawGlyphListAA.DrawGlyphListAA() fail?",
+    "\u003e No I mean comment 61 that says you could make it happen in some versions of the\n\u003e JKD and not others.  I\u0027m wondering what the current status is.\n\nthe Sun bug I filed is reproducible with 6.0\n\n\u003e From comment 21, sun.java2d.loops.DrawGlyphListAA.DrawGlyphListAA() is exiting\n\u003e issuing an X error.  The issue here is that GTK has decided to _exit() when any\n\u003e X error or warning occurs, even ones that are recoverable.  Motif applications\n\u003e don\u0027t do this.  They just print the error message.\n\nAWT doesn\u0027t exit on XError and do not use gtk to do this.  I thought that this \nis SWT who uses GTK and activates this handler somehow.\n\n\u003e What do you suggest?  Under what circumstances can\n\u003e sun.java2d.loops.DrawGlyphListAA.DrawGlyphListAA() fail?\n\nI was not able to reproduce this problem, so I\u0027ll try to find the reason which \nmay cause this. But, most likely, the code was unabele to get some image (I \nwonder why X throws XError even if I can check status using return value :)",
+    "  This is a gtk problem (motif works , it is a proof; swt and X use motif and it works).\n  Comment #61 is mistake and comment #21 is only one reason for this bug (batik code can be fixed with paint event,only,  but I have other problematic code that crashs on focus event, invocation event etc)\n  I have tried print error and suppress exit in gtk code (just comment exit) and it works the same as my hack from comment #65.However, I think that it\u0027s danger and gtk guys can tell more about that.",
+    "I don\u0027t see that we can do anything here for 3.2.1 (or 3.3).  The X error are coming from AWT and GTK is exit()\u0027ing.  SWT can\u0027t/shouldn\u0027t patch the AWT event queue.\n\nOleg?",
+    "I\u0027m afraid the answer is the same as for 142644 :(\nSun\u0027s bug id is 6461488 (should be visible on bugparade in a few days)\nAnd feel free to vote for it, so we could prioritize it correctly.",
+    "*** Bug 142644 has been marked as a duplicate of this bug. ***",
+    "Fixed \u003e 20060829\n\nOk, I give up.  Since GTK exits when it sees and X error and X error can come from AWT somehow (we never actually got to the bottom of this), the only thing to do is hide the X errors that AWT generate and stop GTK from exiting.  I know that hiding an X error is awful, but this bug has been around for a while and has made the bridge look unstable.  It\u0027s time to choose the lesser of the evils.  The downside is the X error will be hidden for SWT too.",
+    "With regard to comment 74:\n\nFirst, thanks for making the tough choice.  This sort of thing is not pleasant when you really want to find and do the right thing.\n\nSecond, is the change in both the 3.2.1 and 3.3 streams?\n",
+    "I am working on it right now.",
+    "Fixed for 3.2.1",
+    "*** Bug 144953 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2005-09-21T14:34:12+02:00",
+    "2005-09-21T14:35:57+02:00",
+    "2005-09-21T15:02:49+02:00",
+    "2005-09-23T02:08:45+02:00",
+    "2005-09-23T14:23:02+02:00",
+    "2005-09-23T16:39:54+02:00",
+    "2005-09-23T20:24:42+02:00",
+    "2005-09-27T06:01:52+02:00",
+    "2005-09-27T10:08:48+02:00",
+    "2005-09-27T10:15:33+02:00",
+    "2005-09-27T18:54:10+02:00",
+    "2005-09-28T21:09:38+02:00",
+    "2005-09-28T21:18:37+02:00",
+    "2005-09-29T11:21:55+02:00",
+    "2005-09-29T17:04:44+02:00",
+    "2005-09-30T11:27:29+02:00",
+    "2005-09-30T15:23:14+02:00",
+    "2005-09-30T15:26:12+02:00",
+    "2005-09-30T16:32:29+02:00",
+    "2005-09-30T18:06:11+02:00",
+    "2005-10-01T00:02:39+02:00",
+    "2005-10-01T06:41:41+02:00",
+    "2005-10-01T11:55:17+02:00",
+    "2005-10-03T16:53:54+02:00",
+    "2006-01-04T15:40:13+01:00",
+    "2006-01-10T15:46:11+01:00",
+    "2006-01-25T20:27:37+01:00",
+    "2006-01-25T20:35:50+01:00",
+    "2006-01-26T12:32:39+01:00",
+    "2006-01-27T15:25:13+01:00",
+    "2006-01-27T15:38:50+01:00",
+    "2006-01-27T16:41:52+01:00",
+    "2006-01-27T17:58:20+01:00",
+    "2006-01-31T23:36:53+01:00",
+    "2006-02-03T15:17:00+01:00",
+    "2006-02-03T15:44:13+01:00",
+    "2006-02-03T19:16:43+01:00",
+    "2006-02-06T17:16:35+01:00",
+    "2006-02-06T17:26:08+01:00",
+    "2006-02-07T15:01:40+01:00",
+    "2006-02-08T14:15:56+01:00",
+    "2006-02-08T15:14:37+01:00",
+    "2006-02-08T16:00:26+01:00",
+    "2006-02-09T03:52:05+01:00",
+    "2006-02-09T04:00:27+01:00",
+    "2006-02-09T04:08:21+01:00",
+    "2006-02-09T04:18:20+01:00",
+    "2006-02-09T04:27:40+01:00",
+    "2006-02-22T12:32:59+01:00",
+    "2006-03-14T01:33:28+01:00",
+    "2006-03-14T02:12:38+01:00",
+    "2006-03-16T18:41:34+01:00",
+    "2006-04-05T16:21:14+02:00",
+    "2006-04-05T18:31:18+02:00",
+    "2006-04-05T18:58:30+02:00",
+    "2006-04-20T20:16:05+02:00",
+    "2006-04-29T02:10:25+02:00",
+    "2006-04-29T02:20:55+02:00",
+    "2006-04-29T02:29:47+02:00",
+    "2006-05-01T19:44:43+02:00",
+    "2006-05-05T18:13:40+02:00",
+    "2006-05-05T19:28:36+02:00",
+    "2006-05-05T21:10:44+02:00",
+    "2006-05-06T10:45:57+02:00",
+    "2006-05-11T00:47:02+02:00",
+    "2006-05-22T18:14:30+02:00",
+    "2006-06-15T22:47:12+02:00",
+    "2006-06-16T15:25:14+02:00",
+    "2006-06-16T15:46:12+02:00",
+    "2006-06-16T16:26:02+02:00",
+    "2006-06-16T17:00:07+02:00",
+    "2006-08-16T18:37:34+02:00",
+    "2006-08-18T09:50:41+02:00",
+    "2006-08-29T21:16:36+02:00",
+    "2006-08-29T21:18:27+02:00",
+    "2006-08-29T21:28:24+02:00",
+    "2006-08-29T21:32:19+02:00",
+    "2006-08-29T21:38:26+02:00",
+    "2006-11-17T22:08:46+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoSuchMethodError",
+      "message": "XErrorProc",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.internal.Callback.bind",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.Callback.\u003cinit\u003e",
+          "source": "Callback.java:123"
+        },
+        {
+          "method": "org.eclipse.swt.internal.Callback.\u003cinit\u003e",
+          "source": "Callback.java:78"
+        },
+        {
+          "method": "org.eclipse.swt.internal.Callback.\u003cinit\u003e",
+          "source": "Callback.java:60"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Device.init",
+          "source": "Device.java:540"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.init",
+          "source": "Display.java:2027"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Device.\u003cinit\u003e",
+          "source": "Device.java:142"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.\u003cinit\u003e",
+          "source": "Display.java:429"
+        },
+        {
+          "method": "SVGBadMatchTester.run",
+          "source": "SVGBadMatchTester.java:63"
+        },
+        {
+          "method": "SVGBadMatchTester.main",
+          "source": "SVGBadMatchTester.java:56"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "110163",
+      "date": "2005-09-23T14:23:02+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "Unspecified error",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.graphics.Device.XErrorProc",
+          "source": "Device.java:793"
+        },
+        {
+          "method": "sun.java2d.loops.MaskBlit.MaskBlit",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.java2d.loops.Blit$GeneralMaskBlit.Blit",
+          "source": "Blit.java:186"
+        },
+        {
+          "method": "sun.java2d.pipe.DrawImage.blitSurfaceData",
+          "source": "DrawImage.java:795"
+        },
+        {
+          "method": "sun.java2d.pipe.DrawImage.renderImageCopy",
+          "source": "DrawImage.java:429"
+        },
+        {
+          "method": "sun.java2d.pipe.DrawImage.renderImageXform",
+          "source": "DrawImage.java:398"
+        },
+        {
+          "method": "sun.java2d.pipe.DrawImage.transformImage",
+          "source": "DrawImage.java:237"
+        },
+        {
+          "method": "sun.java2d.pipe.DrawImage.scaleImage",
+          "source": "DrawImage.java:607"
+        },
+        {
+          "method": "sun.java2d.pipe.DrawImage.scaleImage",
+          "source": "DrawImage.java:902"
+        },
+        {
+          "method": "sun.java2d.SunGraphics2D.drawImage",
+          "source": "SunGraphics2D.java:2921"
+        },
+        {
+          "method": "sun.awt.image.ImageRepresentation.drawToBufImage",
+          "source": "ImageRepresentation.java:792"
+        },
+        {
+          "method": "sun.java2d.pipe.DrawImage.scaleImage",
+          "source": "DrawImage.java:910"
+        },
+        {
+          "method": "sun.java2d.SunGraphics2D.drawImage",
+          "source": "SunGraphics2D.java:2921"
+        },
+        {
+          "method": "sun.java2d.SunGraphics2D.drawImage",
+          "source": "SunGraphics2D.java:2870"
+        },
+        {
+          "method": "com.sun.java.swing.plaf.gtk.PixmapEngine.drawChunk",
+          "source": "PixmapEngine.java:507"
+        },
+        {
+          "method": "com.sun.java.swing.plaf.gtk.PixmapEngine.paintImage",
+          "source": "PixmapEngine.java:429"
+        },
+        {
+          "method": "com.sun.java.swing.plaf.gtk.PixmapEngine.paintPixmap",
+          "source": "PixmapEngine.java:330"
+        },
+        {
+          "method": "com.sun.java.swing.plaf.gtk.PixmapEngine.paintBox",
+          "source": "PixmapEngine.java:111"
+        },
+        {
+          "method": "com.sun.java.swing.plaf.gtk.GTKPainter.paintButtonBackground",
+          "source": "GTKPainter.java:386"
+        },
+        {
+          "method": "com.sun.java.swing.plaf.gtk.GTKPainter.paintLabelBackground",
+          "source": "GTKPainter.java:240"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthLabelUI.update",
+          "source": "SynthLabelUI.java:96"
+        },
+        {
+          "method": "javax.swing.JComponent.paintComponent",
+          "source": "JComponent.java:740"
+        },
+        {
+          "method": "javax.swing.JComponent.paint",
+          "source": "JComponent.java:1003"
+        },
+        {
+          "method": "javax.swing.CellRendererPane.paintComponent",
+          "source": "CellRendererPane.java:134"
+        },
+        {
+          "method": "javax.swing.plaf.basic.BasicTableHeaderUI.paintCell",
+          "source": "BasicTableHeaderUI.java:394"
+        },
+        {
+          "method": "javax.swing.plaf.basic.BasicTableHeaderUI.paint",
+          "source": "BasicTableHeaderUI.java:341"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthTableHeaderUI.paint",
+          "source": "SynthTableHeaderUI.java:106"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthTableHeaderUI.update",
+          "source": "SynthTableHeaderUI.java:94"
+        },
+        {
+          "method": "javax.swing.JComponent.paintComponent",
+          "source": "JComponent.java:740"
+        },
+        {
+          "method": "javax.swing.JComponent.paint",
+          "source": "JComponent.java:1003"
+        },
+        {
+          "method": "javax.swing.JComponent.paintChildren",
+          "source": "JComponent.java:840"
+        },
+        {
+          "method": "javax.swing.JComponent.paint",
+          "source": "JComponent.java:1012"
+        },
+        {
+          "method": "javax.swing.JViewport.paint",
+          "source": "JViewport.java:728"
+        },
+        {
+          "method": "javax.swing.JComponent.paintChildren",
+          "source": "JComponent.java:840"
+        },
+        {
+          "method": "javax.swing.JComponent.paint",
+          "source": "JComponent.java:1012"
+        },
+        {
+          "method": "javax.swing.JComponent._paintImmediately",
+          "source": "JComponent.java:4836"
+        },
+        {
+          "method": "javax.swing.JComponent.paintImmediately",
+          "source": "JComponent.java:4633"
+        },
+        {
+          "method": "javax.swing.RepaintManager.paintDirtyRegions",
+          "source": "RepaintManager.java:451"
+        },
+        {
+          "method": "javax.swing.SystemEventQueueUtilities$ComponentWorkRequest.run",
+          "source": "SystemEventQueueUtilities.java:114"
+        },
+        {
+          "method": "java.awt.event.InvocationEvent.dispatch",
+          "source": "InvocationEvent.java:209"
+        },
+        {
+          "method": "java.awt.EventQueue.dispatchEvent",
+          "source": "EventQueue.java:461"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpOneEventForHierarchy",
+          "source": "EventDispatchThread.java:234"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEventsForHierarchy",
+          "source": "EventDispatchThread.java:163"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:157"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:149"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.run",
+          "source": "EventDispatchThread.java:110"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 11,
+      "bugId": "110163",
+      "date": "2005-09-28T21:09:38+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "Unspecified error",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.graphics.Device.XErrorProc",
+          "source": "Device.java:793"
+        },
+        {
+          "method": "sun.java2d.loops.DrawGlyphListAA.DrawGlyphListAA",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.java2d.pipe.AATextRenderer.drawGlyphList",
+          "source": "AATextRenderer.java:36"
+        },
+        {
+          "method": "sun.java2d.pipe.GlyphListPipe.drawString",
+          "source": "GlyphListPipe.java:53"
+        },
+        {
+          "method": "sun.java2d.pipe.ValidatePipe.drawString",
+          "source": "ValidatePipe.java:147"
+        },
+        {
+          "method": "sun.java2d.SunGraphics2D.drawString",
+          "source": "SunGraphics2D.java:2643"
+        },
+        {
+          "method": "com.sun.java.swing.SwingUtilities2.drawString",
+          "source": "SwingUtilities2.java:386"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthGraphicsUtils.paintText",
+          "source": "SynthGraphicsUtils.java:279"
+        },
+        {
+          "method": "com.sun.java.swing.plaf.gtk.GTKGraphicsUtils.paintText",
+          "source": "GTKGraphicsUtils.java:38"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthGraphicsUtils.paintText",
+          "source": "SynthGraphicsUtils.java:256"
+        },
+        {
+          "method": "com.sun.java.swing.plaf.gtk.GTKGraphicsUtils.paintText",
+          "source": "GTKGraphicsUtils.java:71"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthGraphicsUtils.paintText",
+          "source": "SynthGraphicsUtils.java:352"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthLabelUI.paint",
+          "source": "SynthLabelUI.java:117"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthLabelUI.update",
+          "source": "SynthLabelUI.java:98"
+        },
+        {
+          "method": "javax.swing.JComponent.paintComponent",
+          "source": "JComponent.java:740"
+        },
+        {
+          "method": "javax.swing.JComponent.paint",
+          "source": "JComponent.java:1003"
+        },
+        {
+          "method": "javax.swing.CellRendererPane.paintComponent",
+          "source": "CellRendererPane.java:134"
+        },
+        {
+          "method": "javax.swing.plaf.basic.BasicTableHeaderUI.paintCell",
+          "source": "BasicTableHeaderUI.java:394"
+        },
+        {
+          "method": "javax.swing.plaf.basic.BasicTableHeaderUI.paint",
+          "source": "BasicTableHeaderUI.java:341"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthTableHeaderUI.paint",
+          "source": "SynthTableHeaderUI.java:106"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthTableHeaderUI.update",
+          "source": "SynthTableHeaderUI.java:94"
+        },
+        {
+          "method": "javax.swing.JComponent.paintComponent",
+          "source": "JComponent.java:740"
+        },
+        {
+          "method": "javax.swing.JComponent.paint",
+          "source": "JComponent.java:1003"
+        },
+        {
+          "method": "javax.swing.JComponent.paintChildren",
+          "source": "JComponent.java:840"
+        },
+        {
+          "method": "javax.swing.JComponent.paint",
+          "source": "JComponent.java:1012"
+        },
+        {
+          "method": "javax.swing.JViewport.paint",
+          "source": "JViewport.java:728"
+        },
+        {
+          "method": "javax.swing.JComponent.paintChildren",
+          "source": "JComponent.java:840"
+        },
+        {
+          "method": "javax.swing.JComponent.paint",
+          "source": "JComponent.java:1012"
+        },
+        {
+          "method": "javax.swing.JComponent._paintImmediately",
+          "source": "JComponent.java:4836"
+        },
+        {
+          "method": "javax.swing.JComponent.paintImmediately",
+          "source": "JComponent.java:4633"
+        },
+        {
+          "method": "javax.swing.RepaintManager.paintDirtyRegions",
+          "source": "RepaintManager.java:451"
+        },
+        {
+          "method": "javax.swing.SystemEventQueueUtilities$ComponentWorkRequest.run",
+          "source": "SystemEventQueueUtilities.java:114"
+        },
+        {
+          "method": "java.awt.event.InvocationEvent.dispatch",
+          "source": "InvocationEvent.java:209"
+        },
+        {
+          "method": "java.awt.EventQueue.dispatchEvent",
+          "source": "EventQueue.java:461"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpOneEventForHierarchy",
+          "source": "EventDispatchThread.java:234"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEventsForHierarchy",
+          "source": "EventDispatchThread.java:163"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:157"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "EventDispatchThread.java:149"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.run",
+          "source": "EventDispatchThread.java:110"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 11,
+      "bugId": "110163",
+      "date": "2005-09-28T21:09:38+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "Unspecified error",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.graphics.Device.XErrorProc",
+          "source": "Device.java:793"
+        },
+        {
+          "method": "sun.java2d.loops.DrawGlyphListAA.DrawGlyphListAA",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.java2d.pipe.AATextRenderer.drawGlyphList",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.java2d.pipe.GlyphListPipe.drawString",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.java2d.pipe.ValidatePipe.drawString",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.java2d.SunGraphics2D.drawString",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "com.sun.java.swing.SwingUtilities2.drawString",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthGraphicsUtils.paintText",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "com.sun.java.swing.plaf.gtk.GTKGraphicsUtils.paintText",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthGraphicsUtils.paintText",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "com.sun.java.swing.plaf.gtk.GTKGraphicsUtils.paintText",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthGraphicsUtils.paintText",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthLabelUI.paint",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthLabelUI.update",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.JComponent.paintComponent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.JComponent.paint",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.CellRendererPane.paintComponent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.plaf.basic.BasicTableHeaderUI.paintCell",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.plaf.basic.BasicTableHeaderUI.paint",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthTableHeaderUI.paint",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.plaf.synth.SynthTableHeaderUI.update",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.JComponent.paintComponent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.JComponent.paint",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.JComponent.paintChildren",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.JComponent.paint",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.JViewport.paint",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.JComponent.paintChildren",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.JComponent.paint",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.JComponent._paintImmediately",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.JComponent.paintImmediately",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.RepaintManager.paintDirtyRegions",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.swing.SystemEventQueueUtilities$ComponentWorkRequest.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.awt.event.InvocationEvent.dispatch",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.awt.EventQueue.dispatchEvent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpOneEventForHierarchy",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEventsForHierarchy",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.pumpEvents",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.awt.EventDispatchThread.run",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 21,
+      "bugId": "110163",
+      "date": "2005-10-01T06:41:41+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "110163",
+  "bugId": "110163",
+  "date": "2005-09-21T14:34:12+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

@@ -1,0 +1,49 @@
+{
+  "comments": [
+    "With Eclipse 3.1M5a, JDK 1.5.0_01, on XP Home SP2.\n\nI can run my existing (OMELET) plug-ins normally after migrating to 3.1M5a.\nNo obvious problems, some improvements through starting with a clean\nworkspace again.\n\nI get catastrophic NoSuchMethodExceptions when I attempt to debug.\nThe behaviour is difficult to diagnose precisely, because \u0027Next\u0027\nsometimes shoots off more than one line.\n\nThe problem appears to be\n\nabstract class X\u003cM\u003e implements IX\u003cM\u003e ...\nabstract class Y\u003cM\u003e extends X\u003cM\u003e ...\nclass Z extends Y\u003cQ\u003e ...\n\nX has an M member with a getter returning M.\nwhile constructing a Z, for debugging purposes, I insert an\ninvocation of the getter within the X constructor. The\nNoSuchMethodException occurs as I step over the getter.\nSurely there is no way the getter of an own class can\nnot be present? anyway there is no exception when\nrun non-debug.\n\nThe relevant getter is listed as at line 1 after after stepping\n\u0027into\u0027 it.\n\nI also got strange com.sun.jdi.InvocationException while\nstepping seemingly because a derived toString() was being\ninvoked during the super constructor that had yet to null\na member. Not a problem in 3.1M4. This became a bit more\ntractable when I commented out the derived toString().\n\nIt seems something very bad has happened to debug generic\nclass loading in 3.1M5a.\n\nI cannot debug plug-ins on 3.1M5a and so must revert.",
+    "Whoops. Retraction. Nothing that can\u0027t be solved by a good solid clean.\n\nConfusing that the apparent full rebuild from importing projects was ok\nto allow code to run but not to allow for debug.",
+    "Sorry. This is back again and reproducible in a much simplified context, though\nI\u0027m puzzled how it managed to go away for a bit, possibly a side effect of\nswitching back to 3.1M4 for a bit only to find that had developed the failure\nthat suggested a clean was needed.\n\nInserting a reflective dump of the available class methods just before the\nNoSuchMethodException reveals that the relevant method really is missing. \n\nThe inherited method from\n\npublic abstract interface IModelLeafRepresentation\u003cM\u003e extends \nIModelRepresentation {\n\tpublic M getManifestationOrNull();\n}\n\nabstract public class ModelLeafRepresentation\u003cM\u003e implements \nIModelLeafRepresentation\u003cM\u003e\n{\n\tprivate M manifestation \u003d null;\n\n\tpublic M getManifestationOrNull() { return manifestation; }\n}\n\nvia\n\nabstract public class ModelInputOutputRepresentation\u003cM\u003e extends \nModelLeafRepresentation\u003cM\u003e\n\timplements IModelSourceRepresentation\u003cM\u003e, IModelTargetRepresentation\u003cM\u003e \n{...}\n\nin\n\npublic class DiagnosticsRepresentation extends \nModelInputOutputRepresentation\u003cDiagnostics\u003e\n\timplements IModelDiagnosticsRepresentation\u003cDiagnostics\u003e {\n    ...\n    public Diagnostics getManifestation() {\n\tDiagnostics manifestation \u003d getManifestationOrNull();\n\treturn manifestation !\u003d null ? manifestation : new Diagnostics();\n    }\n    // No override of getManifestationOrNull()\n}\n\n\nis listed by reflection as\n\nMethod public volatile java.lang.Object \norg.eclipse.omelet.core.representations.DiagnosticsRepresentation.getManifestati\nonOrNull()\n\nwhich seems wrong because there is no such method declared in \nDiagnosticsRepresentation. If returning the erased type, it should\nbe in ModelLeafRepresentation which is what the exception.\n\njava.lang.NoSuchMethodError: \norg.eclipse.omelet.core.representation.ModelLeafRepresentation.getManifestationO\nrNull()Lorg/eclipse/omelet/core/diagnostics/Diagnostics;\nat \norg.eclipse.omelet.core.representations.DiagnosticsRepresentation.getManifestati\nonOrNull(DiagnosticsRepresentation.java:1)\nat org.eclipse.omelet.core.thread.ModelThread.getDiagnostics\n(ModelThread.java:220)\n\ncomplains about.\n\nIf the above is insufficient, I can probably trim my reproducible case\nfrom 3 plug-ins to perhaps just 3 classes.\n\n",
+    "It would be helpful if you have time to attach a simple test case (an exported \nproject that exhibits the problem).",
+    "Created an attachment (id\u003d18635)\nDemonstration test case\n\nIt took a while to trim down, but the attached is just 3 relevant classes and 2\ninterfaces in one plug-in. Any further shrinkage seems to make the problem go\naway.\n\nImport the project. Run up a nested Eclipse. Load/create any project in nested\nEclipse. Invoke the Navigator Project Menu entry \"Activate OMELET\" to activate\nthe plug-in and demonstrate the bug. Console shows:\n\nAbout to new DiagnosticsRepresentation\nAbout to getManifestationOrNull\nCould not create action delegate for id: ActivateAction\nReason:\nPlug-in org.eclipse.omelet.eclipse was unable to load class\norg.eclipse.omelet.eclipse.action.ActivateAction.\n\nIf you trim further by changing the parameterisation from Diagnostics to\nObject or removing the IModelDiagnosticsRepresentation\u003cDiagnostics\u003e from\nDiagnosticsRepresentation, the console correctly shows\n\nAbout to new DiagnosticsRepresentation\nAbout to getManifestationOrNull\nDone getManifestationOrNull\n",
+    "When I run the example, I get the expected output:\n\nAbout to new DiagnosticsRepresentation\nAbout to getManifestationOrNull\nDone getManifestationOrNull",
+    "Marking as works for me"
+  ],
+  "commentCreationDates": [
+    "2005-02-24T08:22:40+01:00",
+    "2005-02-24T09:17:21+01:00",
+    "2005-02-25T09:20:06+01:00",
+    "2005-03-08T22:24:04+01:00",
+    "2005-03-10T07:49:33+01:00",
+    "2005-05-25T23:00:36+02:00",
+    "2005-05-26T17:52:08+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoSuchMethodError",
+      "message": "org.eclipse.omelet.core.representation.ModelLeafRepresentation.getManifestationO rNull()Lorg/eclipse/omelet/core/diagnostics/Diagnostics;",
+      "elements": [
+        {
+          "method": "org.eclipse.omelet.core.representations.DiagnosticsRepresentation.getManifestationOrNull",
+          "source": "DiagnosticsRepresentation.java:1"
+        },
+        {
+          "method": "org.eclipse.omelet.core.thread.ModelThread.getDiagnostics",
+          "source": "ModelThread.java:220"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "86442",
+      "date": "2005-02-25T09:20:06+01:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "86442",
+  "bugId": "86442",
+  "date": "2005-02-24T08:22:40+01:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

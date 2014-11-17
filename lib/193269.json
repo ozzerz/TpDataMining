@@ -1,0 +1,88 @@
+{
+  "comments": [
+    "I occasionally(!) get a strange NullPointerException in java.util.zip.Inflator.ensureOpen when i try to open a stream to a bundleentry. I retrieve the URLs via bundle.findEntries(...). Currently the exception is only reproduceable if the bundle is exported as jar.\n\nHere comes the method which produces the exception:\n\nThe exception-line is:\nInputStream entryIS \u003d entry.openStream();\n\n-------\nprivate void writeBundle(NodeDesc nd, OutputStream outputStream, BundleContext context) {\n    ZipOutputStream zos \u003d new ZipOutputStream(outputStream);\n    Enumeration bundleEntries \u003d context.getBundle().findEntries(\"/jarcontent\", \"*\", true);\n    try {\n        byte[] copyBuf \u003d new byte[512];\n        while(bundleEntries.hasMoreElements()) {\n            java.net.URL entry \u003d (java.net.URL)bundleEntries.nextElement(); \n            InputStream entryIS \u003d entry.openStream(); //THIS LINE PRODUCE THE EXCEPTION\n\t\t\t\t\n            [... the method copy the entries from entryIS to the zipoutputstream- but this code is not reached if the exceptionoccurs ...]\n        } catch (IOException e) {\n            e.printStackTrace();\n        }\n    }\n-------\n(The method searches all files in /jarcontent which contain template files for a dynamically created bundle. Then it iterates the entries, modifys them if needed, and copy them into the new jar.)\n\nThe interesting part is that the exception only occours occasionally. But after the start of the osgi framework i can (nearly) always reproduce it for 1 time. If i trigger the method again, no execption occurs. I also get this exception in 2 other bundles which contain war files for a webapp container.\n\nTested with JDKs:\n+ 1.5.0_10-b03\n+ 1.6.0-b105\n\n\nHere the Exception:\njava.lang.NullPointerException\n        at java.util.zip.Inflater.ensureOpen(Inflater.java:325)\n        at java.util.zip.Inflater.reset(Inflater.java:294)\n        at java.util.zip.ZipFile.getInflater(ZipFile.java:372)\n        at java.util.zip.ZipFile.getInputStream(ZipFile.java:320)\n        at java.util.zip.ZipFile.getInputStream(ZipFile.java:286)\n        at org.eclipse.osgi.baseadaptor.bundlefile.ZipBundleEntry.getInputStream(ZipBundleEntry.java:51)\n        at org.eclipse.osgi.framework.internal.core.BundleURLConnection.connect(BundleURLConnection.java:53)\n        at org.eclipse.osgi.framework.internal.core.BundleURLConnection.getInputStream(BundleURLConnection.java:99)\n        at java.net.URL.openStream(URL.java:1007)\n        at com.v8tech.mmc.adminsupport.newwizard.AdminPluginGeneratorServlet.writeBundle(AdminPluginGeneratorServlet.java:79)\n        at com.v8tech.mmc.adminsupport.newwizard.AdminPluginGeneratorServlet.process(AdminPluginGeneratorServlet.java:55)",
+    "Is the configuration setting osgi.bundlefile.limit set?  I think this can happen if the zipfile is closed while you are reading from it.  That may happen if the osgi.bundlefile.limit is set to low and we are thrashing the zip open/close operations.\n\nOr are is the bundle being uninstalled while you are reading from it?  That would close the zipfile also.",
+    "No, osgi.bundlefile.limit is not set. I?ve set it to 1000 to test, but there is no difference (I set it with -Dosgi... - hope this is correct).\n\nThe bundle is also not being uninstalled.\n\nCurrently my test procedure is the following:\n+ Export my project as feature of my server\n+ Start the osgi framework\n+ Make the first request in the browser \u003d\u003e Exception\n+ Make the second request in the browser \u003d\u003e No exception\n+ ... all following invokations return the correct result.\n\n\nIf i make the first request with the browser, the exception occurs. On the second request the data is created correctly.\n\n\n(In reply to comment #1)\n\u003e Is the configuration setting osgi.bundlefile.limit set?  I think this can\n\u003e happen if the zipfile is closed while you are reading from it.  That may happen\n\u003e if the osgi.bundlefile.limit is set to low and we are thrashing the zip\n\u003e open/close operations.\n\u003e \n\u003e Or are is the bundle being uninstalled while you are reading from it?  That\n\u003e would close the zipfile also.\n\u003e \n\n",
+    "How many bundles do you have in your target?  Do you reproduce when launching from PDE or only when launching externally as a built product.  Can you attach a test bundle with a set of steps to reproduce.  If osgi.bundlefile.limit is not set then I do not know what is going on.  \n\nIt appears that someone is closing the zipfile but nothing should do that unless a bundle is uninstalled or a refresh packages is occurring.  Do you see anything in your log file when this occurs?  Please attach the log if so.  Thanks.",
+    "I?ve only tested after i exported the application. I?ve never launched the app within the PDE.\nAfter a few other tests i was also able to reproduce the problem within the knopflerfish framework. Maybe my code causes the bug but as you can see, its very trivial.\n\nCurrently it looks like that the exception does only occur if:\n+ The bundle is exported as jar\n+ The URL to a bundleentry must be retrieved via Bundle.findEntries(...) or Bundle.getEntry(...).\n+ The thread invoking url.openConnection is NOT the osgi-thread which invokes the life-cycle methods start() or stop() of the BundleActivator. In my case, its a thread from the webserver. If i try to access the data within this thread, it works in all cases. (And no - my bundle is not stopped before the other thread tries to access the data :-))\n\nAnother interesting point is that the exception only occurs on the first request of url.openConnection(). On the second request, the entry is returned correctly.\n\nI?ll do further investigations and I?ll try to create a setup with which you can reproduce the bug.\n\n",
+    "You mention multiple threads.  Is one of the threads installing the bundles for the first time? or does this happen from a cached install when accessing the bundle data for the first time in an instance of the framework?",
+    "The exception occurs regardless of weather it?s a cached launch or not. (Deleting all in datadir except config.ini).\n\nThe thread accessing the bundle content has nothing to do with the deployment of the bundle. The bundle is deployed via the osgi.bundles property in config.ini.\n\nAfter the full framework launch I use a browser to do a request on the servlet which uses Activator.getInstance().getBundleContext() and tries to retrieve bundledata. Then the exception occurs (The first time). The second request (hitting F5 to the browser) is ok. Also the time between the startup of the framework and the request with the browser has no effect on the bug.\n",
+    "Any chance you could attach an example we can use to reproduce?  Also is this only reproduced on Linux or does it happen on other OS\u0027s",
+    "I have seen the same exception under similar circumstances. A web server thread is trying to load a resource through Bundle.getResource(). In my case it occurs on Linux and Windows. I have not yet been able to produce a small test case."
+  ],
+  "commentCreationDates": [
+    "2007-06-19T09:32:29+02:00",
+    "2007-06-19T16:19:49+02:00",
+    "2007-06-19T17:59:26+02:00",
+    "2007-06-20T15:14:20+02:00",
+    "2007-06-26T16:42:45+02:00",
+    "2007-06-27T14:06:25+02:00",
+    "2007-06-27T14:35:59+02:00",
+    "2007-07-30T18:01:38+02:00",
+    "2007-08-15T20:58:18+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "java.util.zip.Inflater.ensureOpen",
+          "source": "Inflater.java:325"
+        },
+        {
+          "method": "java.util.zip.Inflater.reset",
+          "source": "Inflater.java:294"
+        },
+        {
+          "method": "java.util.zip.ZipFile.getInflater",
+          "source": "ZipFile.java:372"
+        },
+        {
+          "method": "java.util.zip.ZipFile.getInputStream",
+          "source": "ZipFile.java:320"
+        },
+        {
+          "method": "java.util.zip.ZipFile.getInputStream",
+          "source": "ZipFile.java:286"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.bundlefile.ZipBundleEntry.getInputStream",
+          "source": "ZipBundleEntry.java:51"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleURLConnection.connect",
+          "source": "BundleURLConnection.java:53"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleURLConnection.getInputStream",
+          "source": "BundleURLConnection.java:99"
+        },
+        {
+          "method": "java.net.URL.openStream",
+          "source": "URL.java:1007"
+        },
+        {
+          "method": "com.v8tech.mmc.adminsupport.newwizard.AdminPluginGeneratorServlet.writeBundle",
+          "source": "AdminPluginGeneratorServlet.java:79"
+        },
+        {
+          "method": "com.v8tech.mmc.adminsupport.newwizard.AdminPluginGeneratorServlet.process",
+          "source": "AdminPluginGeneratorServlet.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "193269",
+      "date": "2007-06-19T09:32:29+02:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "193269",
+  "bugId": "193269",
+  "date": "2007-06-19T09:32:29+02:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "normal"
+}

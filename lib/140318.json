@@ -1,0 +1,118 @@
+{
+  "comments": [
+    "RC2\n\nIn the following code, @Test is not imported, but the SimpleName \u0027Test\u0027 has still a binding.\nbinding.getName() throws an NPE, see below. See also bug 139889.\n\nBy design, bindings should be either complete or not there.\n\n----\n\npackage p1;\n\nimport java.util.List;\n\npublic class C {\n\t/**\n\t * @category fo\n\t */\n\t@Test private int fXoo;\n}\n\n--\njava.lang.NullPointerException\n\tat org.eclipse.jdt.core.dom.AnnotationBinding.getName(AnnotationBinding.java:104)\n\tat org.eclipse.jdt.astview.views.Binding.getChildren(Binding.java:78)\n\tat org.eclipse.jdt.astview.views.ASTViewContentProvider.getChildren(ASTViewContentProvider.java:95)\n\tat org.eclipse.jdt.astview.views.ASTViewContentProvider.hasChildren(ASTViewContentProvider.java:245)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.isExpandable(AbstractTreeViewer.java:1860)\n\tat org.eclipse.jface.viewers.TreeViewer.isExpandable(TreeViewer.java:830)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.isExpandable(AbstractTreeViewer.java:1883)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.updatePlus(AbstractTreeViewer.java:2454)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.createTreeItem(AbstractTreeViewer.java:739)",
+    "Reproduced.\nThe problem comes from the resolution of the annotation.\nWe have this code in:\nTypeBinding typeBinding \u003d this.type.resolveType(scope);\nif (typeBinding \u003d\u003d null) {\n\tif (initializeCompilerAnnotation)\n\t\tthis.compilerAnnotation \u003d new AnnotationBinding(this);\n\treturn null;\n}\nSo even if the type binding is null, we still have a annotation binding. We can either fix this in the resolution of the annotation to return null or we fix the binding resolver in the ast world.\n",
+    "What do you expect in the case where Test is a class for example ?\nDo you expect null?\nI would say so.",
+    "If Test is a class, I would expect:\n@Test .resolveAnnotationBinding() \u003d\u003e null\nbut Test.resolveBinding() or resolveTypeBinding() \u003d\u003e Type Test.\n\nDo you agree with this?",
+    "Theodora,\n\nDo you have any idea why an annotation binding is set for an annotation even if the type cannot be resolved or is not an annotation?\nI would expect that nothing is set in the compilerAnnotation field in these cases.",
+    "CC\u0027ing Tim Hanson on this one for some insight.",
+    "(In reply to comment #4)\n\u003e Do you have any idea why an annotation binding is set for an annotation even if\n\u003e the type cannot be resolved or is not an annotation?\n\nI think this is a mistake. I believe Theodora was emulating the behaviour of our compiler which would create partial bindings.\n\n\u003e I would expect that nothing is set in the compilerAnnotation field in these\n\u003e cases.\n\nI agree.\n\n",
+    "So I will propose a fix by changing the resolution of the compiler annotation. There is no need to make any change on the DOM side.",
+    "Created an attachment (id\u003d40509)\nProposed fix\n\n",
+    "Created an attachment (id\u003d40510)\nRegression test\n\n",
+    "This patch prevents incomplete bindings from being returned when resolveAnnotationBinding() is called.",
+    "Tim,\n\nCould you please test that patch in APT to be sure that you don\u0027t have any assumption made on the fact that compilerAnnotation is not null?\nThanks.\nAll existing DOM tests are passing as well as the two regression tests in the patch.",
+    "All APT tests pass.",
+    "Philippe,\n\nDo you want it as a candidate for RC4?",
+    "+1 for 3.2RC4.\n\nMartin \u0026 Tim/Jess: please cast your votes.",
+    "Created an attachment (id\u003d40727)\nBetter patch\n\nTim,\n\nThis patch is not setting a value in the compilerAnnotation field in case the binding cannot be resolved or the type binding is not an annotation.\nCould you please check that the APT tests are still ok with it? Thanks.",
+    "Olivier, the last added line in the change, is it necessary? Don\u0027t you want to just eleminate the line\n   if (initializeCompilerAnnotation)?\n",
+    "In case the type cannot be resolved or the type is not an annotation, there is nothing to do even if initializeCompilerAnnotation is set to true.",
+    "I simply moved the code that initialize the initializeCompilerAnnotation temp variable down to where it is used.\nRight now it is set to true, but I wanted to preserve the comment behind.\nUnclear why this is always set to true.",
+    "Tim,\n\nWould you know why the initializeCompilerAnnotation is set to true? It looks better to use:\nboolean initializeCompilerAnnotation \u003d scope.compilerOptions().storeAnnotations;,\ndoesn\u0027t it?",
+    "All APT test pass.\n\n+1 for RC4.\n\nI don\u0027t know why the options aren\u0027t being consulted for this. I thought it was there because we didn\u0027t want to waste the space for annotations if they weren\u0027t needed.\n",
+    "Created an attachment (id\u003d40896)\nLast patch\n\nI removed the if (true) to use the option instead.\nAll APT, JDT/UI and JDT/Core tests passed. For JDT/UI, I got some failures, but I got the same failures without the patch. So the patch doesn\u0027t seem to be the cause of the failures.",
+    "As in RC3 we had \u0027boolean initializeCompilerAnnotation \u003d true;\u0027\nI would rather be conservative and not change that.\nSo I would rather prefer the previous patch from comment 15.",
+    "I disagree.\nWe don\u0027t want users to rely on bindings that should not be there. The option should have been used and it was not the case.\nPhilippe, Tim, any thoughts?",
+    "The theory is that annotation bindings are an optional feature since they slow down the compiler. Why did they get added inconditionnally during RC3 ? Was this a mistake or intended ?\n\nI would also favour making the code conditional again... but for RC4, I could live with inconditional mode (still fix it for 3.2.1 or 3.3).",
+    "Fixed and released in HEAD.\nI released the version that does the unconditional initialization of the annotation binding to minimise the impact of the change.\nI opened bug 141030 to track the second issue with the usage of the compiler option.\nRegression tests added in org.eclipse.jdt.core.tests.dom.ASTConverter15Test.test0218/0219",
+    "+1 for 3.2 RC4",
+    "Verified with I20060511-2000 for 3.2RC4"
+  ],
+  "commentCreationDates": [
+    "2006-05-05T11:20:45+02:00",
+    "2006-05-05T17:25:14+02:00",
+    "2006-05-05T17:45:16+02:00",
+    "2006-05-05T18:04:59+02:00",
+    "2006-05-05T19:23:12+02:00",
+    "2006-05-05T19:27:22+02:00",
+    "2006-05-05T19:46:54+02:00",
+    "2006-05-05T20:35:08+02:00",
+    "2006-05-05T20:42:43+02:00",
+    "2006-05-05T20:43:03+02:00",
+    "2006-05-05T20:43:32+02:00",
+    "2006-05-05T20:50:21+02:00",
+    "2006-05-05T21:21:00+02:00",
+    "2006-05-05T21:36:39+02:00",
+    "2006-05-09T16:14:34+02:00",
+    "2006-05-09T16:24:50+02:00",
+    "2006-05-09T16:49:07+02:00",
+    "2006-05-09T16:51:43+02:00",
+    "2006-05-09T16:53:50+02:00",
+    "2006-05-09T17:52:24+02:00",
+    "2006-05-09T18:14:22+02:00",
+    "2006-05-10T03:02:24+02:00",
+    "2006-05-10T10:09:19+02:00",
+    "2006-05-10T15:51:47+02:00",
+    "2006-05-10T16:10:05+02:00",
+    "2006-05-10T16:22:18+02:00",
+    "2006-05-10T16:28:32+02:00",
+    "2006-05-12T04:04:54+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.core.dom.AnnotationBinding.getName",
+          "source": "AnnotationBinding.java:104"
+        },
+        {
+          "method": "org.eclipse.jdt.astview.views.Binding.getChildren",
+          "source": "Binding.java:78"
+        },
+        {
+          "method": "org.eclipse.jdt.astview.views.ASTViewContentProvider.getChildren",
+          "source": "ASTViewContentProvider.java:95"
+        },
+        {
+          "method": "org.eclipse.jdt.astview.views.ASTViewContentProvider.hasChildren",
+          "source": "ASTViewContentProvider.java:245"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.isExpandable",
+          "source": "AbstractTreeViewer.java:1860"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TreeViewer.isExpandable",
+          "source": "TreeViewer.java:830"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.isExpandable",
+          "source": "AbstractTreeViewer.java:1883"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.updatePlus",
+          "source": "AbstractTreeViewer.java:2454"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.createTreeItem",
+          "source": "AbstractTreeViewer.java:739"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "140318",
+      "date": "2006-05-05T11:20:45+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "major"
+    }
+  ],
+  "groupId": "140318",
+  "bugId": "140318",
+  "date": "2006-05-05T11:20:45+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "major"
+}

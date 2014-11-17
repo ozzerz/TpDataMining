@@ -1,0 +1,335 @@
+{
+  "comments": [
+    "A little history behind this bug report first:\n\nWhen starting Eclipse after installing our plugins, I was getting an error dialog with no details before the Welcome screen appears and subsequently the Package Explorer view (and several other platform views) were failing to initialize correctly.  The problem seemed to be related to the loading classes from the com.ibm.icu.text package.  For stack trace below, the org.eclipse.jdt.ui plugin manifest does specify\n\nImport-Package: com.ibm.icu.text\n\nbut it does not have a Requires-Bundle entry for \"com.ibm.icu\".\n\nI noticed lots of other platform plugins do the same thing (import the package but don\u0027t explicitly add the bundle dependency) (the justification is provided at https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d132749) \n\nAt startup, the Exception reported was \n\njava.lang.NoClassDefFoundError: com/ibm/icu/text/MessageFormat\nat org.eclipse.jdt.internal.corext.util.Messages.format(Messages.java:23)\nat org.eclipse.jdt.internal.ui.filters.FilterDescriptor.createViewerFilter(FilterDescriptor.java:121)\nat org.eclipse.jdt.ui.actions.CustomFiltersActionGroup.updateBuiltInFilters(CustomFiltersActionGroup.java:510)\nat org.eclipse.jdt.ui.actions.CustomFiltersActionGroup.installFilters(CustomFiltersActionGroup.java:474)\nat org.eclipse.jdt.ui.actions.CustomFiltersActionGroup.\u003cinit\u003e(CustomFiltersActionGroup.java:232)\nat org.eclipse.jdt.ui.actions.CustomFiltersActionGroup.\u003cinit\u003e(CustomFiltersActionGroup.java:212)\nat org.eclipse.jdt.internal.ui.packageview.PackageExplorerActionGroup.\u003cinit\u003e(PackageExplorerActionGroup.java:128)\nat org.eclipse.jdt.internal.ui.packageview.PackageExplorerPart.makeActions(PackageExplorerPart.java:917)\nat org.eclipse.jdt.internal.ui.packageview.PackageExplorerPart.createPartControl(PackageExplorerPart.java:632)\nat org.eclipse.ui.internal.ViewReference.createPartHelper(ViewReference.java:332)\nat org.eclipse.ui.internal.ViewReference.createPart(ViewReference.java:197)\nat org.eclipse.ui.internal.WorkbenchPartReference.getPart(WorkbenchPartReference.java:566)\nat org.eclipse.ui.internal.PartPane.setVisible(PartPane.java:290)\nat org.eclipse.ui.internal.ViewPane.setVisible(ViewPane.java:525)\nat org.eclipse.ui.internal.presentations.PresentablePart.setVisible(PresentablePart.java:140)\nat org.eclipse.ui.internal.presentations.util.PresentablePartFolder.select(PresentablePartFolder.java:268)\nat org.eclipse.ui.internal.presentations.util.LeftToRightTabOrder.select(LeftToRightTabOrder.java:65)\nat org.eclipse.ui.internal.presentations.util.TabbedStackPresentation.selectPart(TabbedStackPresentation.java:394)\nat org.eclipse.ui.internal.PartStack.refreshPresentationSelection(PartStack.java:1144)\nat org.eclipse.ui.internal.PartStack.setSelection(PartStack.java:1097)\nat org.eclipse.ui.internal.PartStack.showPart(PartStack.java:1311)\nat org.eclipse.ui.internal.PartStack.createControl(PartStack.java:601)\nat org.eclipse.ui.internal.PartStack.createControl(PartStack.java:532)\nat org.eclipse.ui.internal.PartSashContainer.createControl(PartSashContainer.java:562)\nat org.eclipse.ui.internal.PerspectiveHelper.activate(PerspectiveHelper.java:244)\nat org.eclipse.ui.internal.Perspective.onActivate(Perspective.java:815)\nat org.eclipse.ui.internal.WorkbenchPage.onActivate(WorkbenchPage.java:2429)\nat org.eclipse.ui.internal.WorkbenchWindow$6.run(WorkbenchWindow.java:2616)\nat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:67)\nat org.eclipse.ui.internal.WorkbenchWindow.setActivePage(WorkbenchWindow.java:2597)\nat org.eclipse.ui.internal.WorkbenchWindow.busyOpenPage(WorkbenchWindow.java:658)\nat org.eclipse.ui.internal.Workbench.busyOpenWorkbenchWindow(Workbench.java:795)\nat org.eclipse.ui.internal.Workbench.doOpenFirstTimeWindow(Workbench.java:1437)\nat org.eclipse.ui.internal.Workbench.access$10(Workbench.java:1435)\nat org.eclipse.ui.internal.Workbench$16.run(Workbench.java:1399)\nat org.eclipse.ui.internal.Workbench.runStartupWithProgress(Workbench.java:1421)\nat org.eclipse.ui.internal.Workbench.openFirstTimeWindow(Workbench.java:1397)\nat org.eclipse.ui.internal.WorkbenchConfigurer.openFirstTimeWindow(WorkbenchConfigurer.java:190)\nat org.eclipse.ui.application.WorkbenchAdvisor.openWindows(WorkbenchAdvisor.java:708)\nat org.eclipse.ui.internal.Workbench.init(Workbench.java:1085)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1847)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\nat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\nat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:400)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:177)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\nat java.lang.reflect.Method.invoke(Method.java:324)\nat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\nat org.eclipse.core.launcher.Main.run(Main.java:977)\nat org.eclipse.core.launcher.Main.main(Main.java:952) \n\n\n--------------------\nI have tracked down the cause of this but I\u0027m not sure if the behavior is a bug in the OSGi classloader implementation or expected behavior. \n\nWhen debugging this issue I discovered that one of our plugins internally contains (and exports the packages of) an icu4j v2.8 jar file.  This version of ICU does contain a com.ibm.icu.text package but not a com.ibm.icu.text.MessageFormat class.\nDuring startup, when the workbench was initializing the JDT Package Explorer the OSGi classloaders got a bit lost while trying to load the MessageFormat class.  It ended up trying to load the class from our bundle, rather than from the com.ibm.icu bundle.\n\nSee attached stack trace and variable dump (stack_vars.txt) illustrating that the bundle classloaders\na) have determined that the package (com.ibm.icu.text) is an Imported Source package.\nb) use an \u0027invalid\u0027 PackageSource (SingleSourcePackage) instance to try subsequently load the class (MessageFormat).\n\nThe problem seems to be that the \u0027BundleLoader#importedSources\u0027 KeyedHashSet for \"org.eclipse.jdt.ui_3.2.0.v20060526-0010\" plugin has only an entry, pointing to our bundle.\n\n(For reference, our plugin does declare that it exports the com.ibm.icu... packages from the jar it contains, but I can\u0027t figure out how that bundle ended up in importedsources!\n\nThis smells of a bug.  As Paul Webster commented on eclipse.platform newsgroup, it might be that equinox only handles a package being exported from one bundle.  Even if you could export the same package from more than one bundle, how would Import-Package know which exporting bundle (com.ibm.icu or com.acme.adapters.icu) is supplying the correct version?  Can the import package directive be version qualified in some way?\n \n\nThe manner in which the ICU plugin (and it\u0027s stub equivalent) packages are being resolved (using Import-Package rather than Requires-Bundle) by various 3.2 platform bundles is a bit of a concern.  Also, the advised practice of using Import-Package to allow the user to drop in a different ICU plugin to reduce bundle sizes (see 132749 bug report above) seems a bit out of place with OSGi\u0027s abilities.  \n\nIn any case, the current implementation restricts adapters in that they cannot export a different version of ICU packages from one of their plugins for reuse by other plugins they develop.",
+    "Created an attachment (id\u003d43854)\nDebug stack trace and variable dump\n\nThis stack trace and variable dump illustrates the wrong bundle being asked to load a class that is in a package that was exported from com.ibm.icu and one of our plugins.  Our plugin exports an earlier version of ICU which does contain the package, but not the class requested.",
+    "This is working as designed (according to the OSGi spec at least).\n\nWhen a package is imported (using Import-Package) then the framework will choose a single exporter to resolve the import against.  At classload time the single exporter is the only source that is delegated to when Import-Package is used.  In your case the resolver is choosing the partial package export from your bundle.\n\ncom.ibm.icu should likely export its packages using the version attribute, but if you have another bundle that exports the package using the same version attribute then we still could end up in the same situation.\n\nIf you are exporting a subset of the full package then you could add a mandatory directive to your export to prevent \"casual\" importers from getting wired to your partial package.  For example,\n\nExport-Package: com.ibm.icu.lang; mandatory:\u003d\"partial_icu\"; partial_icu\u003d\"true\",\n com.ibm.icu.math; mandatory:\u003d\"partial_icu\"; partial_icu\u003d\"true\",\n com.ibm.icu.text; mandatory:\u003d\"partial_icu\"; partial_icu\u003d\"true\",\n com.ibm.icu.util; mandatory:\u003d\"partial_icu\"; partial_icu\u003d\"true\"\n\nThis will force bundle using Import-Package to specify the partial_icu matching attribute\n\nImport-Package: com.ibm.icu.lang; partial_icu\u003d\"true\"\n\nThis way normal importers that are expecting the complete package cannot be wired to your partial package.\n",
+    "That\u0027s a fair explanation, I guess I fell into a bit of a hole there.  \n\nI still feel platform need to tighen up their dependency on the verion of the packages that are in com.ibm.icu.  Would it make sense to re-assign this bug to platform to get the necessary version attribute (\"version\u003d\"3.4.4.1\") added to the various plugins that import the com.ibm.icu packages?",
+    "Unfortunately Eclipse does not maintain the source for icu4j.  You should open a bug against icu4j at http://icu.sourceforge.net/bugs.html.",
+    "I\u0027m not too familiar with OSGi spec therefore asking: if bundle X has version v isn\u0027t it possible to use this version in the Import-Package statement as it is in the Require-Bundle statement?",
+    "sure, but that does not guarantee the source of the import.  Lets use the icu example.\n\nThe icu bundle in the eclipse SDK exports the following packages ...\n\nExport-Package: com.ibm.icu.lang,\n com.ibm.icu.math,\n com.ibm.icu.text,\n com.ibm.icu.util\n\nSince it does not specify versions on the exports the versions default to \"0.0.0\".  Now all the bundles in eclipse that need icu packages just do normal imports and do not specify a version ...\n\nImport-Package: com.ibm.icu.text\n\nIf another bundle is installed that exports the icu packages with a version ...\n\nExport-Package: com.ibm.icu.lang; version\u003d1.0,\n com.ibm.icu.math; version\u003d1.0,\n com.ibm.icu.text; version\u003d1.0,\n com.ibm.icu.util\n\nThe framework will resolve the icu imports the the highest version possible, which is 1.0 in this case.  You can use version ranges on the imports to scope the versions you accept ...\n\nImport-Package: com.ibm.icu.text; version\u003d\"[0.0,1.0)\"\n\nBut if two bundles export the com.ibm.icu.text package at version 0.0 then it is not predictable which export will get choosen.  If you are exporting a package it is best to supply the complete implementation of that package at the version you claim to support.\n\nIf icu has a well defined API that has evolved over time (new classes/methods/packages added) then each version of the bundle should increment the versions of the packages it exports.  The same rules used the increment bundle version numbers should be used to increment package export version numbers.  See http://www.eclipse.org/equinox/documents/plugin-versioning.html for more details on how to evolve versions.\n\nIf the icu follows these rules then the bundle included in eclipse should export the packages at the version that specifies the level of the API.  For example, the icu bundle in eclipse has a bundle version of 3.4.4.1.  If this version number indicates the level of the icu API then each export from icu could use this as the export package version.\n\nIf another bundle is installed which provides an earlier version of the icu API (which may be missing some of the newer classes/methods/packages) then it should use an earlier version (e.g. 3.2.0).\n\nRight now this is not possible because the icu bundle in the Eclipse SDK uses \"0.0.0\" for it exported packages.  If another bundle specified 3.2.0 on its own icu exports then they would take priority over the 0.0.0 versions.",
+    "\u003eSince it does not specify versions on the exports the versions default to\n\u003e\"0.0.0\".\nAh, I see - I would have expected to use the bundle-version and not \"0.0.0\". Do you know why it\u0027s like this? If it would take the bundle-version then Eclipse could use the ICU bundle-version when specifying the imports.",
+    "\u003e Ah, I see - I would have expected to use the bundle-version and not \"0.0.0\". Do\n\u003e you know why it\u0027s like this? If it would take the bundle-version then Eclipse\n\u003e could use the ICU bundle-version when specifying the imports.\n\nI vaguely remember OSGi discussing this.  In the end it was decided to keep the OSGi R3 defaults of 0.0.0 package versions.  It is not really accurate to use the bundle-version as the package version default because package versions can be incremented independently from each other and the bundle-version.\n\n",
+    "(In reply to comment #4)\n\u003e Unfortunately Eclipse does not maintain the source for icu4j.  You should open\n\u003e a bug against icu4j at http://icu.sourceforge.net/bugs.html.\n\u003e \n\nThomas, \nI just had a look at the ICU sourceforge/IBM pages before logging a bug there but I couldn\u0027t see any mention of their maintaining (or distributing) an \u0027official\u0027 ICU OSGi bundle.  Looks like the bundle in Eclipse is coming from Eclipse.org CVS - http://dev.eclipse.org/viewcvs/index.cgi/org.eclipse.sdk-feature/plugins/com.ibm.icu/\n\nShould this bug be re-assigned to Platform?",
+    "I\u0027ll have to look into it more.  It was my understanding that Eclipse checked the binary icu jar from sourceforge into CVS and uses it as is.  Anyone else know more about this?",
+    "Adding Karice. She might have more info.",
+    "Karice knows about the ICU plugin.\n\nIf I understand this thread correctly, we have introduced a compatibility problem in the eclispe 3.2 SDK.  We can potentially kill eclipse when someone deploys their 3.1 plugins if they are using icu4j as well.\n\nWe chose to use the Import-Package method so that the icu plugin could be swapped out for a stub plugin (necessary for RCP).  It sounds like we have some more thinking to do in platform.\n\nHave I misread this bug?\n\nPW\n",
+    "Tom, it\u0027s not quite as simple as us checking in the icu4j jar that is available on sourceforge.  An ICU4J Eclipse plug-in is made specifically for Eclipse.",
+    "(In reply to comment #12)\n\u003e Have I misread this bug?\n\u003e PW\n\nYes, Import-Package is good for easy substitution and should contiue to be used\nin this case.  The issue is the icu bundle does not specify package versions so\nif any other bundle is installed at the same time as the icu bundle included in\nthe Eclispe SDK AND that bundle exports the icu packages then it is\nunpredictable which icu package will be used.  In the case of this bug another\nbundle was installed which exported a subset of the icu packages (I assume this\nis because it contains a downlevel version of the ICU API).  As a result the\nicu imports were getting wired to the downlevel version of the icu packages.\n\nProperly versioning the icu packages should help ensure that bundles are\nresolved to the best possible fit.\n",
+    "(In reply to comment #13)\n\u003e Tom, it\u0027s not quite as simple as us checking in the icu4j jar that is available\n\u003e on sourceforge.  An ICU4J Eclipse plug-in is made specifically for Eclipse.\n\nWho does this?  Where should a bug be opened for issues with the icu bundle manifest?",
+    "Tom, the ICU team packages the plug-in (with our help) and the Eclipse team gets it from them.  In this case the problem is with the plug-in, not ICU function, so I think it\u0027s ok to park this bug somewhere in Eclipse (Platform-UI is fine for now, since our team integrated ICU4J into Eclipse).  ",
+    "Thanks Karice.\n\nMoving to platform-ui.",
+    "Sorry for the spam.  Bugzilla does not seem to allow you to reopen a bug and reassign the owner at the same time ...",
+    "I replicated the problem and indeed specifying versions for the exported packages in com.ibm.icu appeared to fix it.  The only remaining questions are:\n1. is this the right fix for this problem for the ICU4J plug-in in Eclipse (i.e. is there a better or more suitable solution for this problem)?  \n(Also note, I believe the versions of the exported packages in the replacement plug-in will also have to be changed to match the versions of the exported packages in the ICU4J plug-in).\n2. as this seems to be a risky fix at this stage for 3.2, should we fix this for 3.2 or 3.2.1 (i.e. how bad is it if we ship 3.2 with this problem)?\n\nJeff, your thoughts?",
+    "Tom, can you think of any problems that might be created for others that are happily running Eclipse 3.2 if we were to version the packages in the ICU4J plug-in?  Is there a situation in which we could break anyone by doing this?",
+    "The only way this could break an existing client is if they put a strict version range on their import that excluds the version you use on your export.  For example, if you add the version\u003d\"3.4.4\" attributes:\n\nExport-Package: com.ibm.icu.lang; version\u003d\"3.4.4\",\n com.ibm.icu.math; version\u003d\"3.4.4\",\n com.ibm.icu.text; version\u003d\"3.4.4\",\n com.ibm.icu.util; version\u003d\"3.4.4\"\n\nThen an existing importer that specified a version range \"[0.0,1.0)\" would not resolve:\n\nImport-Pacakge: com.ibm.icu.text; version\u003d\"[0.0,1.0)\"\n\nThis indicates that the import can only be resolved to an export with a version from 0.0 up to but not including 1.0.  It is very unlikely that any bundles are putting such a strict version range on their imports of icu packages.  I would bet that all cases of icu imports either specify no version or a version\u003d\"0.0.0\".  Both indicate that any version is acceptable.\n",
+    "John, did you end up changing your plug-ins to depend on Eclipse\u0027s exported ICU packages, instead of the older version of the packages that you had exported?",
+    "(In reply to comment #22)\n\u003e John, did you end up changing your plug-ins to depend on Eclipse\u0027s exported ICU\n\u003e packages, instead of the older version of the packages that you had exported?\n\u003e \n\nYes, I\u0027ve actually removed the older version completely - all our bundles now depend on the com.ibm.icu bundle instead. ",
+    "Thanks for the update, John.  In light of that, I think we will defer this bug until the package versioning story is more clearly defined.  ",
+    "Are we sure we want to wait until 3.3?\n\nAny 3.1 plugins that deployed with an earlier version of ICU won\u0027t be able to run on 3.2 without being changed and rebuilt.\n\nPW\n",
+    "Jeff, McQ - can we consider fixing this for 3.2.1?",
+    "This was discussed by the PMC. As I remember it, we decided not to do it for R3.2.1. Jeff, do you concur?\n",
+    "Tom or Jeff,\nIn order to resolve this bug, I need to know which version number to start with and when/how to increment the package versions.  I assume the guidelines specified on the wiki be used for this? \nhttp://wiki.eclipse.org/index.php/Version_Numbering\nWhat version number should the ICU4J team start with for versioning their packages - 1.0 or the current version number of the ICU4J bundle?\n\n",
+    "Looking at the original icu4j jar (non-bundle) I notice the following entry in the jar manifest\n\nName: com/ibm/icu/\nSpecification-Title: ICU for Java\nSpecification-Version: 3.4.5\nSpecification-Vendor: ICU\nImplementation-Title: ICU for Java\nImplementation-Version: 3.4.5\nImplementation-Vendor: IBM Corporation\nImplementation-Vendor-Id: com.ibm\n\nThis indicates that the original jar gives the packages under com.ibm.icu a specification-version of 3.4.5.  I suggest we model the exports from the icu bundle the same way.  If we take the packages from the 3.4.5 version of icu the we should have the following package versions in the Export-Package statement:\n\nExport-Package:\n com.ibm.icu.lang;\n com.ibm.icu.math;\n com.ibm.icu.text;\n com.ibm.icu.util; version\u003d\"3.4.5\"\n\nNotice the use of \u0027;\u0027 instead of \u0027,\u0027 to separate the package names.  This indicates that the version attribute is applied to the group of packages.  This way we don\u0027t have to duplicate the version\u003d\"3.4.5\" for each individual package.  We can only do this if the version of the packages all increment at the same time.  Otherwise we need to use \u0027,\u0027 and specify version attr for each like this:\n\nExport-Package: com.ibm.icu.lang; version\u003d\"3.4.5\",\n com.ibm.icu.math; version\u003d\"3.4.5\",\n com.ibm.icu.text; version\u003d\"3.4.5\",\n com.ibm.icu.util; version\u003d\"3.4.5\"\n\nThe original icu jar indicates that they version all the packages together instead of assigning each their own version.  I recommend the first approach so you don\u0027t have to maintain the version attr for each package.",
+    "It turns out PDE cannot handle when packages are grouped together with the same set of attributes.  See bug 160233.\n\nFor now I recommend using the following syntax which requires you to duplicate the version attr across all your exported packages.\n\nExport-Package: com.ibm.icu.lang; version\u003d\"3.4.5\",\n com.ibm.icu.math; version\u003d\"3.4.5\",\n com.ibm.icu.text; version\u003d\"3.4.5\",\n com.ibm.icu.util; version\u003d\"3.4.5\"\n",
+    "I\u0027ve hit this problem with my plugin development.  I gather that there is a workaround, but I can\u0027t figure it out from all of the discussion here. Can someone summarize the actions that a plugin developer needs to take until Eclipse is fixed (3.3?)\n\nThanks,\nJohn.",
+    "JohnB, in comment #22 JohnO said he removed his ICU bundle and is now using the ICU4J bundle that is now included with the platform.  He then ran into bug 157840, which you may or may not run into depending on what API\u0027s from ICU4J you are using.  ",
+    "Tom, a quick question.  Is it correct to only version API packages? Apparently it is common practice to export all packages in the bundle (see bug 163249) including impl packages, but it doesn\u0027t seem right to supply a version for the internal packages (they will be marked with x-internal:\u003dtrue). Is that correct?  ",
+    "I do not recommend versioning internal packages.  Clients of these packages are using them at their own risk.  If they want to ensure they are getting a specific version of an internal package then they must use Require-Bundle or use Import-Package with the bundle-symbolic-name and bundle-version matching attrs, for example\n\nImport-Package: \n com.ibm.icu.impl; bundle-symbolic-name\u003dcom.ibm.icu; bundle-version\u003d\"[1.4,1.5)\"\n\nAn exception to this rule may be provisional packages that are evolving before they become public API.",
+    "*** Bug 169917 has been marked as a duplicate of this bug. ***",
+    "Summarizing my comments from bug 169917:\n\nI ran into this after an update to 3.2.1, and the only way to get Eclipse\u0027s java and text editors and package viewer to work was to disable an internal plugin. In the end, I found a workaround that allows me to continue using the said internal plugin:\nin Eclipse\u0027s plugins directory, I noticed I had ICU jars for two versions,\n3.4.4.1 and 3.4.5, where the latter was installed as part of my 3.2.1 update. I\ntried temporarily removing 3.4.5 jar, but then Eclipse wouldn\u0027t even start with\nerrors in the log that it is missing the ICU bundle. I then made a copy of\n3.4.4.1 jar and named it com.ibm.icu_3.4.5.jar, and now everything works fine,\nand I don\u0027t have to disable any plugins. I\u0027ve no idea why this helped, or how\nlong it will work, though.",
+    "Davor, this plugin doesn\u0027t play well when 2 versions are around because of the use of Import-Package rather than Require-Bundle. We had to do this for other reasons.  You should use ICU4J 3.4.5, not rename 3.4.4.1 to 3.4.5.  The reason this fails is because the packages were not versioned.  I am hoping to rectify this in 3.2.2 by resolving this bug.",
+    "The problem is rectified in 3.2.2 stream. I tested having 2 versions of ICU4J present in the plugins directory using the M20070110 build. This build includes the latest version of ICU4J (3.4.5.20061213) which now provides versions for the exported packages.  The code in the versioned packages appears to be used.\n",
+    "ICU4J was updated in M20070112-1200 and versions for the packages are now specified."
+  ],
+  "commentCreationDates": [
+    "2006-06-08T14:33:20+02:00",
+    "2006-06-08T14:36:09+02:00",
+    "2006-06-08T15:08:36+02:00",
+    "2006-06-08T15:53:33+02:00",
+    "2006-06-08T16:12:04+02:00",
+    "2006-06-09T10:17:27+02:00",
+    "2006-06-09T15:03:33+02:00",
+    "2006-06-09T15:15:20+02:00",
+    "2006-06-09T15:31:50+02:00",
+    "2006-06-09T15:46:37+02:00",
+    "2006-06-09T16:31:25+02:00",
+    "2006-06-09T16:40:35+02:00",
+    "2006-06-09T16:46:28+02:00",
+    "2006-06-09T16:49:50+02:00",
+    "2006-06-09T16:54:37+02:00",
+    "2006-06-09T16:56:08+02:00",
+    "2006-06-09T17:10:48+02:00",
+    "2006-06-09T17:21:25+02:00",
+    "2006-06-09T17:22:44+02:00",
+    "2006-06-09T22:10:36+02:00",
+    "2006-06-13T18:47:36+02:00",
+    "2006-06-14T14:46:36+02:00",
+    "2006-06-19T20:35:04+02:00",
+    "2006-06-20T10:06:23+02:00",
+    "2006-06-20T16:23:39+02:00",
+    "2006-06-22T13:57:33+02:00",
+    "2006-06-22T16:02:25+02:00",
+    "2006-06-22T17:00:37+02:00",
+    "2006-09-22T22:03:04+02:00",
+    "2006-10-09T16:58:49+02:00",
+    "2006-10-09T19:42:28+02:00",
+    "2006-10-13T19:29:29+02:00",
+    "2006-10-16T18:08:21+02:00",
+    "2006-11-15T19:25:47+01:00",
+    "2006-11-15T19:44:44+01:00",
+    "2007-01-09T21:15:00+01:00",
+    "2007-01-09T21:51:07+01:00",
+    "2007-01-09T22:08:12+01:00",
+    "2007-01-11T22:10:52+01:00",
+    "2007-01-17T00:32:18+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "com/ibm/icu/text/MessageForm",
+      "elements": [
+        {
+          "method": "atorg.eclipse.jdt.internal.corext.util.Messages.format",
+          "source": "Messages.java:23"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.filters.FilterDescriptor.createViewerFilter",
+          "source": "FilterDescriptor.java:121"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.CustomFiltersActionGroup.updateBuiltInFilters",
+          "source": "CustomFiltersActionGroup.java:510"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.CustomFiltersActionGroup.installFilters",
+          "source": "CustomFiltersActionGroup.java:474"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.CustomFiltersActionGroup.\u003cinit\u003e",
+          "source": "CustomFiltersActionGroup.java:232"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.CustomFiltersActionGroup.\u003cinit\u003e",
+          "source": "CustomFiltersActionGroup.java:212"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerActionGroup.\u003cinit\u003e",
+          "source": "PackageExplorerActionGroup.java:128"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerPart.makeActions",
+          "source": "PackageExplorerPart.java:917"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerPart.createPartControl",
+          "source": "PackageExplorerPart.java:632"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPartHelper",
+          "source": "ViewReference.java:332"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPart",
+          "source": "ViewReference.java:197"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.getPart",
+          "source": "WorkbenchPartReference.java:566"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.setVisible",
+          "source": "PartPane.java:290"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewPane.setVisible",
+          "source": "ViewPane.java:525"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.PresentablePart.setVisible",
+          "source": "PresentablePart.java:140"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.PresentablePartFolder.select",
+          "source": "PresentablePartFolder.java:268"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.LeftToRightTabOrder.select",
+          "source": "LeftToRightTabOrder.java:65"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.TabbedStackPresentation.selectPart",
+          "source": "TabbedStackPresentation.java:394"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.refreshPresentationSelection",
+          "source": "PartStack.java:1144"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.setSelection",
+          "source": "PartStack.java:1097"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.showPart",
+          "source": "PartStack.java:1311"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.createControl",
+          "source": "PartStack.java:601"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.createControl",
+          "source": "PartStack.java:532"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartSashContainer.createControl",
+          "source": "PartSashContainer.java:562"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PerspectiveHelper.activate",
+          "source": "PerspectiveHelper.java:244"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Perspective.onActivate",
+          "source": "Perspective.java:815"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.onActivate",
+          "source": "WorkbenchPage.java:2429"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow$6.run",
+          "source": "WorkbenchWindow.java:2616"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:67"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.setActivePage",
+          "source": "WorkbenchWindow.java:2597"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.busyOpenPage",
+          "source": "WorkbenchWindow.java:658"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.busyOpenWorkbenchWindow",
+          "source": "Workbench.java:795"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.doOpenFirstTimeWindow",
+          "source": "Workbench.java:1437"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$10",
+          "source": "Workbench.java:1435"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$16.run",
+          "source": "Workbench.java:1399"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runStartupWithProgress",
+          "source": "Workbench.java:1421"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.openFirstTimeWindow",
+          "source": "Workbench.java:1397"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchConfigurer.openFirstTimeWindow",
+          "source": "WorkbenchConfigurer.java:190"
+        },
+        {
+          "method": "org.eclipse.ui.application.WorkbenchAdvisor.openWindows",
+          "source": "WorkbenchAdvisor.java:708"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.init",
+          "source": "Workbench.java:1085"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1847"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:400"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:177"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "145988",
+      "date": "2006-06-08T14:33:20+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "145988",
+  "bugId": "145988",
+  "date": "2006-06-08T14:33:20+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

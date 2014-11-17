@@ -1,0 +1,228 @@
+{
+  "comments": [
+    "build I20051213-0010 + latest from head\n\n- Change the browser example\u0027s BrowserPerspectiveFactory to have:\n\n\tpublic void createInitialLayout(IPageLayout layout) {\n\t\tlayout.addView(IBrowserConstants.BROWSER_VIEW_ID, IPageLayout.RIGHT, .25f, IPageLayout.ID_EDITOR_AREA);\n\t\tlayout.addStandaloneView(IBrowserConstants.HISTORY_VIEW_ID, false, IPageLayout.TOP, .3f, IBrowserConstants.BROWSER_VIEW_ID);\n\t\tlayout.setEditorAreaVisible(false);\n}\n\n- Run the browser example\n- Choose View \u003e History to hide the History view\n- get the following NPE\n- the view is closed, but the stack remains as an empty frame\n\njava.lang.NullPointerException\n\tat org.eclipse.ui.internal.presentations.PresentablePart.removePropertyListener(PresentablePart.java:121)\n\tat org.eclipse.ui.internal.presentations.util.PresentablePartFolder.disposed(PresentablePartFolder.java:143)\n\tat org.eclipse.ui.internal.presentations.util.PresentablePartFolder$4.widgetDisposed(PresentablePartFolder.java:94)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:101)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:914)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:938)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:919)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:729)\n\tat org.eclipse.swt.widgets.Widget.dispose(Widget.java:401)\n\tat org.eclipse.ui.internal.presentations.util.TabbedStackPresentation.dispose(TabbedStackPresentation.java:267)\n\tat org.eclipse.ui.internal.DefaultStackPresentationSite.dispose(DefaultStackPresentationSite.java:76)\n\tat org.eclipse.ui.internal.PartStack.dispose(PartStack.java:663)\n\tat org.eclipse.ui.internal.PerspectiveHelper.removePart(PerspectiveHelper.java:1144)\n\tat org.eclipse.ui.internal.Perspective.hideView(Perspective.java:494)\n\tat org.eclipse.ui.internal.WorkbenchPage.hideView(WorkbenchPage.java:2048)\n\tat org.eclipse.ui.internal.WorkbenchPage.hideView(WorkbenchPage.java:2062)\n\tat org.eclipse.ui.examples.rcp.browser.BrowserActionBarAdvisor$2.run(BrowserActionBarAdvisor.java:123)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:492)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:530)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:480)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:392)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:914)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3241)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2861)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1762)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1726)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:397)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.examples.rcp.browser.BrowserApp.run(BrowserApp.java:47)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:109)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:379)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:177)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:85)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:58)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:60)\n\tat java.lang.reflect.Method.invoke(Method.java:391)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:338)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:282)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)",
+    "The part was not getting removed from the folder before the folder was disposed.\nPartTabFolder.internalRemove has:\n\n    private void internalRemove(IPresentablePart toRemove) {\n        AbstractTabItem item \u003d getTab(toRemove);\n        if (item !\u003d null) {\n            item.dispose();\n            toRemove.removePropertyListener(childPropertyChangeListener);\n            partList.remove(toRemove);\n        }\n    }\n\nbut for standalone views, the folder is an EmptyTabFolder, which has no tabs and always returns null for getTab.\n\nI suggest changing it to:\n    private void internalRemove(IPresentablePart toRemove) {\n        AbstractTabItem item \u003d getTab(toRemove);\n        if (item !\u003d null) {\n            item.dispose();\n        }\n        if (partList.contains(toRemove)) {\n\t        toRemove.removePropertyListener(childPropertyChangeListener);\n\t        partList.remove(toRemove);\n        }\n    }\n\nHowever, there are other places that use getTab to check if the part is contained in the folder.  These should all be checked to whether they work as appropriate for the EmptyFolder case.\n",
+    "In particular, getPartList() on the folder returns the empty array, because it iterates over the tabs.\n",
+    "Currently, EmptyTabFolder.add returns an EmptyTabItem, but it\u0027s just a \"null object\", and is not held onto.  Maybe EmptyTabFolder should maintain a list (normally of size 1) for its part.  Would need EmptyTabItem.get/setData to be properly implemented.\n",
+    "Looks like this has been in here since 3.1, so I think we can let it slide to M5.\n",
+    "If this is not needed for M4 I\u0027ll look at it first thing Monday.\n\nPW\n",
+    "The NPE was easy to reproduce in a test.\n\nI\u0027ve released the suggested change from comment #2 and a test into HEAD \u003e20060104\n\nI\u0027ll continue the investigation of EmptyTabFolder and EmptyTabItem\n\nPW\n",
+    "I mean the change from comment #1 ... and I was sure I had checked the comment number before I hit commit :-)\n\nPW\n",
+    "The other code that uses getTab() on EmptyTabFolder at least seems to be safe.  Some more investigation still needs to be done, but the main problem is fixed.\n\nPW\n",
+    "Fixed for M5.\n",
+    "verified in the tests in I20060216-0010\n\nPW\n"
+  ],
+  "commentCreationDates": [
+    "2005-12-14T19:22:57+01:00",
+    "2005-12-14T19:42:52+01:00",
+    "2005-12-14T19:45:30+01:00",
+    "2005-12-14T19:48:29+01:00",
+    "2005-12-14T20:51:54+01:00",
+    "2005-12-14T20:57:43+01:00",
+    "2006-01-04T20:11:00+01:00",
+    "2006-01-04T20:12:05+01:00",
+    "2006-01-05T14:53:58+01:00",
+    "2006-02-07T14:56:18+01:00",
+    "2006-02-16T17:46:26+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.presentations.PresentablePart.removePropertyListener",
+          "source": "PresentablePart.java:121"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.PresentablePartFolder.disposed",
+          "source": "PresentablePartFolder.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.PresentablePartFolder$4.widgetDisposed",
+          "source": "PresentablePartFolder.java:94"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:101"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:914"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:938"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:919"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:729"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.dispose",
+          "source": "Widget.java:401"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.TabbedStackPresentation.dispose",
+          "source": "TabbedStackPresentation.java:267"
+        },
+        {
+          "method": "org.eclipse.ui.internal.DefaultStackPresentationSite.dispose",
+          "source": "DefaultStackPresentationSite.java:76"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.dispose",
+          "source": "PartStack.java:663"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PerspectiveHelper.removePart",
+          "source": "PerspectiveHelper.java:1144"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Perspective.hideView",
+          "source": "Perspective.java:494"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.hideView",
+          "source": "WorkbenchPage.java:2048"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.hideView",
+          "source": "WorkbenchPage.java:2062"
+        },
+        {
+          "method": "org.eclipse.ui.examples.rcp.browser.BrowserActionBarAdvisor$2.run",
+          "source": "BrowserActionBarAdvisor.java:123"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:492"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:530"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:480"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:392"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:914"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3241"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2861"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1762"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1726"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:397"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.examples.rcp.browser.BrowserApp.run",
+          "source": "BrowserApp.java:47"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:109"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:379"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:177"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:85"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:58"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:60"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:391"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:338"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:282"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "120934",
+      "date": "2005-12-14T19:22:57+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "120934",
+  "bugId": "120934",
+  "date": "2005-12-14T19:22:57+01:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

@@ -1,0 +1,136 @@
+{
+  "comments": [
+    "In the 0612 build:\n\n  Imported all of the plugins from source.\n  Unziped to file system some test plugins. \n  Imported these plugins as well.\n\n  Added breakpoints in the test plugins.\n  Debugged the runtime workbench\n\n  Noticed that the breakpoints did not fire.\n\n\nOther observatations:\n\n   In the breakpoint view the were no check marks beside them.\n\n   Removing and re-adding a breakpoint caused the breakpoint to be installed\n   and debuging works as expected.\n\n   Also observed the following exception in the .log\n\n!SESSION Jun 12, 2002 15:39:22.707 ---------------------------------------------\njava.fullversion\u003dJ2RE 1.3.1 IBM Windows 32 build cn131-20020403 (JIT enabled: \njitc)\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_CA\nCommand-line arguments: -os win32 -ws win32 -arch x86 -install \nfile:D:/0612/eclipse/\n!ENTRY org.eclipse.core.resources 1 2 Jun 12, 2002 15:39:22.717\n!MESSAGE Missing project nature extension for \ncom.ibm.etools.ctc.javaprojectnature.\n!ENTRY org.eclipse.core.resources 1 2 Jun 12, 2002 15:39:22.937\n!MESSAGE Missing project nature extension for \ncom.ibm.etools.ctc.javaprojectnature.\n!ENTRY org.eclipse.core.resources 1 2 Jun 12, 2002 15:39:23.248\n!MESSAGE Missing project nature extension for \ncom.ibm.etools.ctc.javaprojectnature.\n!ENTRY org.eclipse.core.resources 2 1 Jun 12, 2002 15:39:23.638\n!MESSAGE Skipping builder com.ibm.etools.ctc.serviceprojectbuilder for project \nTestPluginC. Either the builder is missing from the install, or it belongs to a \nproject nature that is missing or disabled.\n!ENTRY org.eclipse.core.resources 2 1 Jun 12, 2002 15:39:23.668\n!MESSAGE Skipping builder com.ibm.etools.ctc.serviceprojectbuilder for project \nTestPluginA. Either the builder is missing from the install, or it belongs to a \nproject nature that is missing or disabled.\n!ENTRY org.eclipse.core.resources 2 1 Jun 12, 2002 15:39:23.718\n!MESSAGE Skipping builder com.ibm.etools.ctc.serviceprojectbuilder for project \nTestPluginB. Either the builder is missing from the install, or it belongs to a \nproject nature that is missing or disabled.\n!ENTRY org.eclipse.core.runtime 4 2 Jun 12, 2002 16:51:41.746\n!MESSAGE Problems occurred when invoking code from plug-\nin: \"org.eclipse.core.runtime\".\n!STACK 0\njava.util.ConcurrentModificationException\n\tat java.util.AbstractList$Itr.next(AbstractList.java(Compiled Code))\n\tat java.util.AbstractList$Itr.next(AbstractList.java(Compiled Code))\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.removeAllBreakpoints\n(JDIDebugTarget.java:1346)\n\tat org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.cleanup\n(JDIDebugTarget.java:1313)\n\tat org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.shutdown\n(JDIDebugTarget.java:1417)\n\tat org.eclipse.jdt.internal.debug.core.JDIDebugPlugin.shutdown\n(JDIDebugPlugin.java:152)\n\tat org.eclipse.core.internal.plugins.PluginRegistry$2.run\n(PluginRegistry.java:274)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run\n(InternalPlatform.java(Compiled Code))\n\tat org.eclipse.core.internal.plugins.PluginRegistry$1.visit\n(PluginRegistry.java:287)\n\tat org.eclipse.core.internal.plugins.PluginRegistry.accept\n(PluginRegistry.java:51)\n\tat org.eclipse.core.internal.plugins.PluginRegistry.shutdownPlugins\n(PluginRegistry.java:290)\n\tat org.eclipse.core.internal.plugins.PluginRegistry.shutdown\n(PluginRegistry.java:256)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.loaderShutdown\n(InternalPlatform.java:507)\n\tat java.lang.reflect.Method.invoke(Native Method)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.shutdown\n(InternalBootLoader.java:842)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:744)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:462)\n\tat java.lang.reflect.Method.invoke(Native Method)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:248)\n\tat org.eclipse.core.launcher.Main.run(Main.java:697)\n\tat org.eclipse.core.launcher.Main.main(Main.java:530)\n\n\nWill send you the workspace if it helps.",
+    "Determined from the supplied workspace that the package name on the breakpoints \nis wrong. For example, one breakpoint is set \nin \"TestPluginC.TestPluginCPlugin\", but the breakpoint was created as if it \nexsited in the default package -\u003e it was listening for a classload \nof \"TestPluginCPlugin\", and thus was never hit. Recreating the breakpoints, re-\ncreated the breakpoints with proper package qaulification, and then they work. \n(I could see things were wrong in the breakpoints view, because it is \ndisplaying qualified names, but no package names were shown).\n\nSo, the question is, how did the package names go missing?",
+    "Also need to investigate the \"concurrent modifiation\" exception here. The \npossibility I see is that the event dispatch thread and the workspace shutdown \nthread are both accessing the breakpoints somehow.",
+    "Important additional information:\nThe problem is that the breakpoints were added to the imported java files \nbefore the files\u0027 directory was added to the build path.\n\nSuspect that our breakpoints aren\u0027t getting the package name because the files \nhaven\u0027t been added to the Java model yet.\n\nThere are a number of possible explanations here, including user error, Java \nmodel error - no package info, and debugger error - should we allow you to add \nbreakpoints in this case?",
+    "I was able to get an incorrect breakpoint by having two source folders A and B, \nand only placing A on the build path. I then added a breakpoint to a type in B, \nwhich gave it the wrong package name. Then I added B to the build path, and the \nbreakpoint remained with the incorrect package qualification.\n\nChanging a source root removes breakpoints as expected.",
+    "Ideally, we could \"re-create\" the proper breakpoints. I was able to make a \nsimple fix to remove the invalid breakpoints (which is an easier fix). However, \nnot clear that this needs to be fixed for 2.0 - it is an uncommon use case \n(i.e. adding breakpoints to .java files, and then adding them to the build \npath).",
+    "Marking as F4 candidate. Another solution may be to disallow breakpoint \ncreation when the associated type is not contained in a package fragment root.",
+    "The best solution seems to be to disallow breakpoint creation when a type is \nnot on the build path. There is a simple test to determine this:\n\ntype.getJavaProject().isOnClasspath(type)",
+    "ARCH team approval: the consequence of not fixing this is that if a user \nhappens to add a breakpoint to a type that is not on the build path, and later \nadds that type to the build path (i.e. by adding a source folder to the build \npath), the breakpoints in that type will not be hit at runtime. This is \nconfusing to the user - but the workaround is to remove/re-add the breakpoints \nto the type. Suggested fix is to disallow setting breakpoints in types that are \nnot on the build path.",
+    "This fix needs to be added to all the actions that create breakpoints - line \nbreakpoints, method entry breakpoints, and watchpoints.",
+    "Concurrent modification bug log as bug 20469.",
+    "Released candidate fix. Waiting for F4 approval.\n",
+    "Verified."
+  ],
+  "commentCreationDates": [
+    "2002-06-13T00:04:28+02:00",
+    "2002-06-13T01:05:13+02:00",
+    "2002-06-13T15:53:42+02:00",
+    "2002-06-13T19:05:35+02:00",
+    "2002-06-13T20:41:20+02:00",
+    "2002-06-13T22:36:51+02:00",
+    "2002-06-14T15:17:27+02:00",
+    "2002-06-14T16:09:32+02:00",
+    "2002-06-14T17:37:39+02:00",
+    "2002-06-17T16:19:08+02:00",
+    "2002-06-17T18:13:57+02:00",
+    "2002-06-17T22:53:49+02:00",
+    "2002-06-19T19:03:06+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.util.ConcurrentModificationException",
+      "elements": [
+        {
+          "method": "java.util.AbstractList$Itr.next",
+          "source": "AbstractList.java(Compiled Code)"
+        },
+        {
+          "method": "java.util.AbstractList$Itr.next",
+          "source": "AbstractList.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.removeAllBreakpoints",
+          "source": "JDIDebugTarget.java:1346"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.cleanup",
+          "source": "JDIDebugTarget.java:1313"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.shutdown",
+          "source": "JDIDebugTarget.java:1417"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JDIDebugPlugin.shutdown",
+          "source": "JDIDebugPlugin.java:152"
+        },
+        {
+          "method": "org.eclipse.core.internal.plugins.PluginRegistry$2.run",
+          "source": "PluginRegistry.java:274"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.core.internal.plugins.PluginRegistry$1.visit",
+          "source": "PluginRegistry.java:287"
+        },
+        {
+          "method": "org.eclipse.core.internal.plugins.PluginRegistry.accept",
+          "source": "PluginRegistry.java:51"
+        },
+        {
+          "method": "org.eclipse.core.internal.plugins.PluginRegistry.shutdownPlugins",
+          "source": "PluginRegistry.java:290"
+        },
+        {
+          "method": "org.eclipse.core.internal.plugins.PluginRegistry.shutdown",
+          "source": "PluginRegistry.java:256"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.loaderShutdown",
+          "source": "InternalPlatform.java:507"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.shutdown",
+          "source": "InternalBootLoader.java:842"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:744"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:462"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:248"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:697"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:530"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "20086",
+      "date": "2002-06-13T00:04:28+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "20086",
+  "bugId": "20086",
+  "date": "2002-06-13T00:04:28+02:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

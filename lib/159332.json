@@ -1,0 +1,189 @@
+{
+  "comments": [
+    "I\u0027m consistently getting a ClassCastException when I try to delete a particular\nelement or its children from my model using the generated editor. \n\nThe stacktrace for the exception, and the model (in XML) are below:\n\norg.eclipse.emf.common.util.WrappedException: An exception was ignored during command execution\nat org.eclipse.emf.common.command.BasicCommandStack.handleError(BasicCommandStack.java:279)\nat org.eclipse.emf.common.command.BasicCommandStack.execute(BasicCommandStack.java:98)\nat org.eclipse.emf.edit.ui.action.CommandActionHandler.run(CommandActionHandler.java:91)\nat org.eclipse.ui.actions.BaseSelectionListenerAction.runWithEvent(BaseSelectionListenerAction.java:168)\nat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:539)\nat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:488)\nat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:400)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1085)\nat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3164)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2840)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1914)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1878)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\nat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\nat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:400)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:177)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\nat java.lang.reflect.Method.invoke(Method.java:585)\nat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\nat org.eclipse.core.launcher.Main.run(Main.java:977)\nat org.eclipse.core.launcher.Main.main(Main.java:952)\nCaused by: java.lang.ClassCastException: org.eclipse.emf.common.util.BasicEList\nat org.eclipse.emf.ecore.impl.BasicEObjectImpl.eSetting(BasicEObjectImpl.java:1131)\nat org.eclipse.emf.ecore.util.EcoreUtil$CrossReferencer.add(EcoreUtil.java:1579)\nat org.eclipse.emf.ecore.util.EcoreUtil$CrossReferencer.handleCrossReference(EcoreUtil.java:1571)\nat org.eclipse.emf.ecore.util.EcoreUtil$CrossReferencer.crossReference(EcoreUtil.java:1541)\nat org.eclipse.emf.ecore.util.EcoreUtil$UsageCrossReferencer.findAllUsage(EcoreUtil.java:2348)\nat org.eclipse.emf.ecore.util.EcoreUtil$UsageCrossReferencer.findAll(EcoreUtil.java:2428)\nat org.eclipse.emf.edit.command.DeleteCommand.execute(DeleteCommand.java:127)\nat org.eclipse.emf.common.command.BasicCommandStack.execute(BasicCommandStack.java:91)\n... 27 more\n\n\u003c?xml version\u003d\"1.0\" encoding\u003d\"UTF-8\"?\u003e\n\u003csdameta:PipelineConfiguration xmi:version\u003d\"2.0\" xmlns:xmi\u003d\"http://www.omg.org/XMI\" xmlns:xsi\u003d\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:sdameta\u003d\"http://amazon.com/sda/metadata\" pipeline\u003d\"Test\" stage\u003d\"Alpha\"\u003e\n  \u003callFieldProcessors\u003e\n    \u003centries name\u003d\"FP\"\u003e\n      \u003cformals xsi:type\u003d\"sdameta:FormalInputField\" name\u003d\"f1\"\u003e\n        \u003ctype xsi:nil\u003d\"true\"/\u003e\n      \u003c/formals\u003e\n      \u003cformals xsi:type\u003d\"sdameta:FormalOutputField\" name\u003d\"f2\"\u003e\n        \u003ctype xsi:nil\u003d\"true\"/\u003e\n      \u003c/formals\u003e\n      \u003cformals xsi:type\u003d\"sdameta:FormalParam\" name\u003d\"p1\"\u003e\n        \u003ctype xsi:nil\u003d\"true\"/\u003e\n      \u003c/formals\u003e\n    \u003c/entries\u003e\n  \u003c/allFieldProcessors\u003e\n\u003c/sdameta:PipelineConfiguration\u003e",
+    "I think I\u0027ve found the root cause of my problem.\n\nThe model node corresponding to the \"FP\" XML node is an instance of something called FieldProcessor.  The FieldProcessor class has a number of structural features including References called \"formals\", \"formalInputs\", \"formalOutputs\" and \"formalParams\".  The first of these is a containment Reference whose type is an abstract class called Formal (which has concrete subclasses FormalInput, FormalOutput and FormalParam).  The other three References are derived References that are provide convenience projections of the association defined by the primary Reference.\n\nNow the problem was that the formalParams Reference was mistakenly defined with containement \u003d\u003d false.  In other words, I had derived a non-container association from a container association.\n\nWhen I fixed this, the ClassCastException stopped ocurring.\n\nSo I guess this bug could be forked into two; a) make the \u0027eSetting\u0027 method more robust and b) fix the generator to deal with non-container derived References better.\n\nI was going to say \u0027improve ecore model validation\u0027, but then I realised that the validator could not know that by primary and derived References were inconsistent.  There is nothing in the ecore model that would allow the validator to know what the References are supposed to be semantically related.  I guess if there was a way to define derived associations etc using OCL (as we did informally in the MOF 1.x specifications) there might be something to give the validator traction ...\n\n",
+    "The list returned by an isMany reference must implement InternalEList and EStructuralFeature.Setting.  You can use EcoreEList/DelegatingEcoreEList or one of its derived classes, such as EcoreEList.UnmodifiableEList for that purpose; if the list is derived, you probably don\u0027t want to support direct modification of it.  The UML2 project supports list implementations like this that act as derived/filtered views, so that\u0027s another possible approach."
+  ],
+  "commentCreationDates": [
+    "2006-09-29T20:10:33+02:00",
+    "2006-09-29T21:07:46+02:00",
+    "2006-09-29T21:33:35+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.emf.common.util.WrappedException",
+      "message": "An exception was ignored during command execution",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.common.command.BasicCommandStack.handleError",
+          "source": "BasicCommandStack.java:279"
+        },
+        {
+          "method": "org.eclipse.emf.common.command.BasicCommandStack.execute",
+          "source": "BasicCommandStack.java:98"
+        },
+        {
+          "method": "org.eclipse.emf.edit.ui.action.CommandActionHandler.run",
+          "source": "CommandActionHandler.java:91"
+        },
+        {
+          "method": "org.eclipse.ui.actions.BaseSelectionListenerAction.runWithEvent",
+          "source": "BaseSelectionListenerAction.java:168"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:539"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:488"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1085"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3164"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2840"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1914"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1878"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:400"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:177"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.ClassCastException",
+        "message": "org.eclipse.emf.common.util.BasicEList",
+        "elements": [
+          {
+            "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eSetting",
+            "source": "BasicEObjectImpl.java:1131"
+          },
+          {
+            "method": "org.eclipse.emf.ecore.util.EcoreUtil$CrossReferencer.add",
+            "source": "EcoreUtil.java:1579"
+          },
+          {
+            "method": "org.eclipse.emf.ecore.util.EcoreUtil$CrossReferencer.handleCrossReference",
+            "source": "EcoreUtil.java:1571"
+          },
+          {
+            "method": "org.eclipse.emf.ecore.util.EcoreUtil$CrossReferencer.crossReference",
+            "source": "EcoreUtil.java:1541"
+          },
+          {
+            "method": "org.eclipse.emf.ecore.util.EcoreUtil$UsageCrossReferencer.findAllUsage",
+            "source": "EcoreUtil.java:2348"
+          },
+          {
+            "method": "org.eclipse.emf.ecore.util.EcoreUtil$UsageCrossReferencer.findAll",
+            "source": "EcoreUtil.java:2428"
+          },
+          {
+            "method": "org.eclipse.emf.edit.command.DeleteCommand.execute",
+            "source": "DeleteCommand.java:127"
+          },
+          {
+            "method": "org.eclipse.emf.common.command.BasicCommandStack.execute",
+            "source": "BasicCommandStack.java:91"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "159332",
+      "date": "2006-09-29T20:10:33+02:00",
+      "product": "EMF",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "159332",
+  "bugId": "159332",
+  "date": "2006-09-29T20:10:33+02:00",
+  "product": "EMF",
+  "component": "Core",
+  "severity": "normal"
+}

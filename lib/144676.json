@@ -1,0 +1,408 @@
+{
+  "comments": [
+    "Adopter:IBM\nbug found: WTP 1.5 RC4\nfix needed in: WTP 1.5 RC5\n\nIn our headless mode app that is based on WTP 1.5 we get the following\nexception.  (we have the emfworkbench integration plugin and the class is there)\n\n*** ERROR ***: Tue May 30 10:33:25 EDT 2006    Problem loading extension not found for key \"ValidateEditContext\".\n*** ERROR ***: Tue May 30 10:33:25 EDT 2006    org.eclipse.core.runtime.CoreException: Plug-in org.eclipse.wst.xml.core was unable to load class org.eclipse.wst.common.internal.emfworkbench.validateedit.ValidateEditHeadlessContext.\n    \tat org.eclipse.core.internal.registry.osgi.RegistryStrategyOSGI.throwException(RegistryStrategyOSGI.java:165)\n    \tat org.eclipse.core.internal.registry.osgi.RegistryStrategyOSGI.createExecutableExtension(RegistryStrategyOSGI.java:149)\n    \tat org.eclipse.core.internal.registry.ExtensionRegistry.createExecutableExtension(ExtensionRegistry.java:759)\n    \tat org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension(ConfigurationElement.java:243)\n    \tat org.eclipse.core.internal.registry.ConfigurationElementHandle.createExecutableExtension(ConfigurationElementHandle.java:51)\n    \tat org.eclipse.jem.util.UIContextDetermination.createInstance(UIContextDetermination.java:65)\n    \tat org.eclipse.wst.common.componentcore.internal.StructureEdit.validateEdit(StructureEdit.java:936)\n    \tat org.eclipse.wst.common.componentcore.internal.StructureEdit.saveIfNecessary(StructureEdit.java:378)\n    \tat org.eclipse.wst.common.componentcore.internal.resources.VirtualComponent.create(VirtualComponent.java:283)\n    \tat org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.getDestinationFolder(J2EEElementChangedListener.java:141)\n    \tat org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.access$0(J2EEElementChangedListener.java:139)\n    \tat org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener$2.runInWorkspace(J2EEElementChangedListener.java:123)\n    \tat org.eclipse.core.internal.resources.InternalWorkspaceJob.run(InternalWorkspaceJob.java:38)\n    \tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n    org.eclipse.core.runtime.CoreException[1]: java.lang.ClassNotFoundException: org.eclipse.wst.common.internal.emfworkbench.validateedit.ValidateEditHeadlessContext\n    \tat java.lang.Throwable.\u003cinit\u003e(Throwable.java:57)\n    \tat java.lang.Throwable.\u003cinit\u003e(Throwable.java:81)\n    \tat java.lang.ClassNotFoundException.\u003cinit\u003e(ClassNotFoundException.java:80)\n    \tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:407)\n    \tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:352)\n    \tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass(DefaultClassLoader.java:83)\n    \tat java.lang.ClassLoader.loadClass(ClassLoader.java:561)\n    \tat org.eclipse.osgi.framework.internal.core.BundleLoader.loadClass(BundleLoader.java:276)\n    \tat org.eclipse.osgi.framework.internal.core.BundleHost.loadClass(BundleHost.java:227)\n    \tat org.eclipse.osgi.framework.internal.core.AbstractBundle.loadClass(AbstractBundle.java:1245)\n    \tat org.eclipse.core.internal.registry.osgi.RegistryStrategyOSGI.createExecutableExtension(RegistryStrategyOSGI.java:147)\n    \tat org.eclipse.core.internal.registry.ExtensionRegistry.createExecutableExtension(ExtensionRegistry.java:759)\n    \tat org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension(ConfigurationElement.java:243)\n    \tat org.eclipse.core.internal.registry.ConfigurationElementHandle.createExecutableExtension(ConfigurationElementHandle.java:51)\n    \tat org.eclipse.jem.util.UIContextDetermination.createInstance(UIContextDetermination.java:65)\n    \tat org.eclipse.wst.common.componentcore.internal.StructureEdit.validateEdit(StructureEdit.java:936)\n    \tat org.eclipse.wst.common.componentcore.internal.StructureEdit.saveIfNecessary(StructureEdit.java:378)\n    \tat org.eclipse.wst.common.componentcore.internal.resources.VirtualComponent.create(VirtualComponent.java:283)\n    \tat org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.getDestinationFolder(J2EEElementChangedListener.java:141)\n    \tat org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.access$0(J2EEElementChangedListener.java:139)\n    \tat org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener$2.runInWorkspace(J2EEElementChangedListener.java:123)\n    \tat org.eclipse.core.internal.resources.InternalWorkspaceJob.run(InternalWorkspaceJob.java:38)\n    \tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)",
+    "There was a problem with the SDK builds last week.  The wrong content was added to the plugin jars so class loading issues were seen all over.  Please pick up the RC4 declared build from 0531 and retry.  This issue should be resolved.",
+    "This happens on the declared RC4 as well.  Note that this\nhappens in the healdess mode",
+    "The failure is happening in the worker thread whenever there is\na failure in the main thread",
+    "\nAfter discussing the issue with Bala, I\u0027m thinking this might be a timing issue where the workbench is shutting down, and it attempts to load the class through the ui context sensitive class loader extension. \n\nThere is code in J2EEElementChangedListener that always tries to create a component: \n\n\t/*\n\t * Retrieves the IVirtualFolder to which Java src folders should be mapped\n\t */\n\tprivate IVirtualFolder getDestinationFolder(final IProject project) throws CoreException {\n\t\tfinal IVirtualComponent c \u003d ComponentCore.createComponent(project);\n\t\tc.create(0, null); \u003c-- this line scares me\n\t\tfinal IVirtualFolder root \u003d c.getRootFolder();\n\t\tif (J2EEProjectUtilities.isDynamicWebProject(project)) {\n\t\t\t// web projects map to WEB-INF/classes\n\t\t\treturn root.getFolder(new Path(J2EEConstants.WEB_INF_CLASSES));\n\t\t}\n\t\t// all other J2EE project types (that are Java projects) map \n\t\t// Java src folders to the project root\n\t\treturn root;\n\t}\n\nI\u0027m not sure of the flow here, but it seems like the component is always created (or forcibly re-created), without checking if it already exists. This create() call causes the .component file to be loaded, modified, and saved, which trips the load of the validate edit context. \n\nI\u0027m copying Rob Frost to get some feedback on why this is required. \n\nThe validate edit extension can be moved from the org.eclipse.wst.xml.core plugin to the org.eclipse.wst.common.emfworkbench.integration plugin, which is where the class is actually defined. However, a patch with this change did not correct the problem in Bala\u0027s environment, so I suspect this is not the real cause of the problem. \n\nI also think there\u0027s alot more going on in Bala\u0027s scenario, I would like more details of all of the errors at work, and a general flow of what\u0027s going on in headless mode. For instance, what kinds of things are you doing? Creating stuff? Deleting stuff? Should the J2EEElementChangedListener be trying to modify stuff while you\u0027re working? Should the validators even be running?\n\nUntil I have feedback from Rob and Bala, I\u0027m not sure what else can be done to solve this problem.\n\n",
+    "We are only using j2ee ear import operation to import the ear in headless\nmode and after that no create or delete stuff.  we just generate deployed\ncode for ejbs under ejb project folders. So you could be in the right\npath that J2EEElementChangedListener coud be doing something it should not.",
+    "The J2EEElementChangedListener is being triggered in this case because an entry was removed from the Java build path for a project (and the listener attempts to remove any wb-resource mapping that may exist for this in the component file).  \n\nBala: does this match your understanding of what is happening in this context?\n\nChuck/John: the IVirtualComponent.create() usage could certainly be problematic but IVirtualComponent.create() should be doing a conditional create (a similar pattern of calling ComponentCore.createComponent() followed by IVirtualComponent.create() is used throughout our codebase); in VirtualComponent.create(), the following logic exists:\n\n...\nWorkbenchComponent component \u003d moduleCore.getComponent();\nif (component \u003d\u003d null)\n  component \u003d moduleCore.createWorkbenchModule(getProject().getName());\n...",
+    "Bala: is there a pure WTP repro scenario for this?",
+    "modified xml.core plugin manifest and made the\norg.eclipse.jem.util dependency non optional and it fixes the\nproblem. does it make sense?",
+    "I was wrong. it still failed after a while with this.\n[*Error] ejbModule/META-INF/ejb-jar.xml(58): Content is not allowed in trailing\nsection.\njava.lang.IllegalArgumentException: Attempted to beginRule: R/, does not match o\nuter scope rule: P/BulletinBoardEJB\n        at org.eclipse.core.runtime.Assert.isLegal(Assert.java:62)\n        at org.eclipse.core.internal.jobs.ThreadJob.illegalPush(ThreadJob.java:1\n16)\n        at org.eclipse.core.internal.jobs.ThreadJob.push(ThreadJob.java:225)\n        at org.eclipse.core.internal.jobs.ImplicitJobs.begin(ImplicitJobs.java:5\n8)\n        at org.eclipse.core.internal.jobs.JobManager.beginRule(JobManager.java:2\n19)\n        at org.eclipse.core.internal.resources.WorkManager.checkIn(WorkManager.j\nava:96)\n        at org.eclipse.core.internal.resources.Workspace.prepareOperation(Worksp\nace.java:1684)\n        at org.eclipse.core.internal.resources.Project.touch(Project.java:1034)\n        at org.eclipse.jdt.internal.core.SetClasspathOperation.executeOperation(\nSetClasspathOperation.java:288)\n        at org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperati\non.java:720)\n        at org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737\n)\n        at org.eclipse.jdt.internal.core.JavaModelOperation.runOperation(JavaMod\nelOperation.java:784)\n        at org.eclipse.jdt.internal.core.JavaProject.setRawClasspath(JavaProject\n.java:3016)\n        at org.eclipse.jdt.internal.core.JavaProject.setRawClasspath(JavaProject\n.java:3032)\n        at org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspath\nUpdater.addToClasspath(J2EEComponentClasspathUpdater.java:258)\n        at org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspath\nUpdater.addContainerToModuleIfNecessary(J2EEComponentClasspathUpdater.java:227)\n        at org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspath\nUpdater.access$1(J2EEComponentClasspathUpdater.java:221)\n        at org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspath\nUpdater$1.run(J2EEComponentClasspathUpdater.java:176)\n        at org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspath\nUpdater.updateModule(J2EEComponentClasspathUpdater.java:203)\n        at org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspath\nUpdater.queueUpdateModule(J2EEComponentClasspathUpdater.java:141)\n        at org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspath\nUpdater.queueUpdate(J2EEComponentClasspathUpdater.java:128)\n        at org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspath\nUpdater.editModelChanged(J2EEComponentClasspathUpdater.java:116)\n        at org.eclipse.wst.common.componentcore.internal.GlobalComponentChangeNo\ntifier.notifyListeners(GlobalComponentChangeNotifier.java:83)\n        at org.eclipse.wst.common.componentcore.internal.GlobalComponentChangeNo\ntifier.editModelChanged(GlobalComponentChangeNotifier.java:43)\n        at org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.no\ntifyListeners(EditModel.java:305)\n        at org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.pr\nimSave(EditModel.java:1274)\n        at org.eclipse.wst.common.internal.emfworkbench.integration.EditModel$1.\nrun(EditModel.java:393)\n        at org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737\n)\n        at org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.ru\nnSaveOperation(EditModel.java:483)\n        at org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.sa\nve(EditModel.java:396)\n        at org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.sa\nveIfNecessary(EditModel.java:419)\n        at org.eclipse.wst.common.componentcore.internal.StructureEdit.saveIfNec\nessary(StructureEdit.java:380)\n        at org.eclipse.wst.common.componentcore.internal.resources.VirtualCompon\nent.create(VirtualComponent.java:283)\n        at org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.ge\ntDestinationFolder(J2EEElementChangedListener.java:141)\n        at org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.ac\ncess$0(J2EEElementChangedListener.java:139)\n        at org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener$2.\nrunInWorkspace(J2EEElementChangedListener.java:123)\n        at org.eclipse.core.internal.resources.InternalWorkspaceJob.run(Internal\nWorkspaceJob.java:38)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\n*** ERROR ***: Thu Jun 08 13:08:26 EDT 2006    Problem loading extension not fou\nnd for key \"ValidateEditContext\".\n\n*** ERROR ***: Thu Jun 08 13:08:26 EDT 2006    org.eclipse.core.runtime.CoreExce\nption: Plug-in org.eclipse.wst.common.emfworkbench.integration was unable to loa\nd class org.eclipse.wst.common.internal.emfworkbench.validateedit.ValidateEditHe\nadlessContext.\n        at org.eclipse.core.internal.registry.osgi.RegistryStrategyOSGI.throwExc\neption(RegistryStrategyOSGI.java:165)\n        at org.eclipse.core.internal.registry.osgi.RegistryStrategyOSGI.createEx\necutableExtension(RegistryStrategyOSGI.java:149)\n        at org.eclipse.core.internal.registry.ExtensionRegistry.createExecutable\nExtension(ExtensionRegistry.java:759)\n        at org.eclipse.core.internal.registry.ConfigurationElement.createExecuta\nbleExtension(ConfigurationElement.java:243)\n        at org.eclipse.core.internal.registry.ConfigurationElementHandle.createE\nxecutableExtension(ConfigurationElementHandle.java:51)\n        at org.eclipse.jem.util.UIContextDetermination.createInstance(UIContextD\netermination.java:65)\n        at org.eclipse.wst.common.componentcore.internal.StructureEdit.validateE\ndit(StructureEdit.java:936)\n        at org.eclipse.wst.common.componentcore.internal.StructureEdit.saveIfNec\nessary(StructureEdit.java:378)\n        at org.eclipse.wst.common.componentcore.internal.resources.VirtualResour\nce.removeLink(VirtualResource.java:333)\n        at org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener$2.\nrunInWorkspace(J2EEElementChangedListener.java:123)\n        at org.eclipse.core.internal.resources.InternalWorkspaceJob.run(Internal\nWorkspaceJob.java:38)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n    org.eclipse.core.runtime.CoreException[1]: java.lang.ClassNotFoundException:\n org.eclipse.wst.common.internal.emfworkbench.validateedit.ValidateEditHeadlessC\nontext\n        at java.lang.Throwable.\u003cinit\u003e(Throwable.java:57)",
+    "Looks like the immediate cause for the rule mismatch is the fact that EditModel.runSaveOperation() is using the project as the scheduling rule and it is triggering a call to JavaProject.setRawClasspath() via J2EEComponentClasspathUpdater (the setRawClasspath() call starts a job with the workspace root as the rule).\n\nIf EditModel.runSaveOperation() were changed to use the the workspace root as the rule, J2EEElementChangedListener will need to be similarly modified (it also uses the project as the scheduling rule).\n\n",
+    "I don\u0027t really like the idea of changing the outer scope rule to be the world. \n\nBala -- can you give us a test case that works purely on WTP? If you\u0027re just importing ears, that should be sufficient. \n\nAs for the getDestinationFolder(), I\u0027m a bit concerned that it is creating the module in this case:\n\n\norg.eclipse.wst.common.componentcore.internal.StructureEdit.saveIfNec\nessary(StructureEdit.java:380)\nat org.eclipse.wst.common.componentcore.internal.resources.VirtualCompon\nent.create(VirtualComponent.java:283)\nat org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.ge\ntDestinationFolder(J2EEElementChangedListener.java:141)\nat org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.ac\ncess$0(J2EEElementChangedListener.java:139)\n\nSince the creation should be optional (in the create method), I\u0027m wondering if maybe the projectst that are imported aren\u0027t being configured properly by the operation. If you can give us a test case (perhaps something like a plugin setup to run headless and do roughly what it is you\u0027re trying to do), then I think we\u0027ll be able to debug this more.",
+    "we don\u0027t have standalone wtp only test case but we have\nscoped down the problem to this. The issue seems to be happening\nwith the jobs scheduled by the WTP layer. When the healess mode\napp fails and EclipseStarter.shutdown() is invoked the jobs scheduled\nby WTP layer are not shutting down and fails with various exceptions\non multiple cpu systems.",
+    "If the problem is that the Workbench is shutting down while Jobs are still running, and those Jobs assume the Workbench is running as normal, I\u0027m not sure what we could to provide a fix. It doesn\u0027t make sense to try to over-engineer the Jobs to constantly check if the Workbench is still running. Bala -- your efforts might be best served to fix whatever error is causing the workbench to crash and shutdown early. \n\nAs for the Scheduling Rule problem, that does seem like a bug that we need to resolve. I really don\u0027t like the idea of making the workspace root the rule, but if we have listeners that are responding and run with the workspace as the rule, it might be our only recourse at this stage. \n\nCould the listener spawn a Job with a different scheduling rule to update the classpath?\n",
+    "Regarding the scheduling rule issue: root scope is necessary for the classpath changes so I\u0027m fixing the issue in this context by changing the scope for the job launched by the J2EEElementChangedListener to the workspace root.",
+    "Rob -- If you choose to proceed this way, can you change (or confirm if it\u0027s already this way) that the actions which modify the workspace from the J2EEElementListener are run in a separately scheduled Job? So that if someone makes a change that is a result of a WorkspaceModifyOperation with a more narrow scope, you won\u0027t break them? ",
+    "yep, the J2EEElementChangedListener already schedules a separate job",
+    "\nWithout a programmatic unit test that demonstrates this problem in the headless environment, I am closing this defect. Some changes were made, so you should try this on a recent WTP build. You should also ensure that you are not causing the pre-emptive shutdown (or crash) of the workbench which leads to dangling WTP-layer jobs. ",
+    "Closing."
+  ],
+  "commentCreationDates": [
+    "2006-05-31T16:21:16+02:00",
+    "2006-05-31T17:06:33+02:00",
+    "2006-06-02T22:54:44+02:00",
+    "2006-06-08T17:11:48+02:00",
+    "2006-06-08T17:25:22+02:00",
+    "2006-06-08T17:33:41+02:00",
+    "2006-06-08T18:03:39+02:00",
+    "2006-06-08T18:12:08+02:00",
+    "2006-06-08T18:58:44+02:00",
+    "2006-06-08T19:16:24+02:00",
+    "2006-06-08T20:00:34+02:00",
+    "2006-06-09T15:21:11+02:00",
+    "2006-06-14T20:12:15+02:00",
+    "2006-07-10T21:28:38+02:00",
+    "2006-07-19T02:44:44+02:00",
+    "2006-07-19T14:14:29+02:00",
+    "2006-07-19T14:27:28+02:00",
+    "2006-07-28T15:51:37+02:00",
+    "2006-09-26T16:06:30+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.core.runtime.CoreException",
+      "message": "Plug-in org.eclipse.wst.xml.core was unable to load class org.eclipse.wst.common.internal.emfworkbench.validateedit.ValidateEditHeadlessContext.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.registry.osgi.RegistryStrategyOSGI.throwException",
+          "source": "RegistryStrategyOSGI.java:165"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.osgi.RegistryStrategyOSGI.createExecutableExtension",
+          "source": "RegistryStrategyOSGI.java:149"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ExtensionRegistry.createExecutableExtension",
+          "source": "ExtensionRegistry.java:759"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:243"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElementHandle.createExecutableExtension",
+          "source": "ConfigurationElementHandle.java:51"
+        },
+        {
+          "method": "org.eclipse.jem.util.UIContextDetermination.createInstance",
+          "source": "UIContextDetermination.java:65"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.validateEdit",
+          "source": "StructureEdit.java:936"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.saveIfNecessary",
+          "source": "StructureEdit.java:378"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualComponent.create",
+          "source": "VirtualComponent.java:283"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.getDestinationFolder",
+          "source": "J2EEElementChangedListener.java:141"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.access$0",
+          "source": "J2EEElementChangedListener.java:139"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener$2.runInWorkspace",
+          "source": "J2EEElementChangedListener.java:123"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.InternalWorkspaceJob.run",
+          "source": "InternalWorkspaceJob.java:38"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "144676",
+      "date": "2006-05-31T16:21:16+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ClassNotFoundException",
+      "message": "org.eclipse.wst.common.internal.emfworkbench.validateedit.ValidateEditHeadlessContext",
+      "elements": [
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java:57"
+        },
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java:81"
+        },
+        {
+          "method": "java.lang.ClassNotFoundException.\u003cinit\u003e",
+          "source": "ClassNotFoundException.java:80"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:407"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:352"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass",
+          "source": "DefaultClassLoader.java:83"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:561"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.loadClass",
+          "source": "BundleLoader.java:276"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.loadClass",
+          "source": "BundleHost.java:227"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.loadClass",
+          "source": "AbstractBundle.java:1245"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.osgi.RegistryStrategyOSGI.createExecutableExtension",
+          "source": "RegistryStrategyOSGI.java:147"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ExtensionRegistry.createExecutableExtension",
+          "source": "ExtensionRegistry.java:759"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:243"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElementHandle.createExecutableExtension",
+          "source": "ConfigurationElementHandle.java:51"
+        },
+        {
+          "method": "org.eclipse.jem.util.UIContextDetermination.createInstance",
+          "source": "UIContextDetermination.java:65"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.validateEdit",
+          "source": "StructureEdit.java:936"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.saveIfNecessary",
+          "source": "StructureEdit.java:378"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualComponent.create",
+          "source": "VirtualComponent.java:283"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.getDestinationFolder",
+          "source": "J2EEElementChangedListener.java:141"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.access$0",
+          "source": "J2EEElementChangedListener.java:139"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener$2.runInWorkspace",
+          "source": "J2EEElementChangedListener.java:123"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.InternalWorkspaceJob.run",
+          "source": "InternalWorkspaceJob.java:38"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "144676",
+      "date": "2006-05-31T16:21:16+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Attempted to beginRule: R/, does not match o uter scope rule: P/BulletinBoardEJB",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.Assert.isLegal",
+          "source": "Assert.java:62"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.illegalPush",
+          "source": "ThreadJob.java:1 16"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.push",
+          "source": "ThreadJob.java:225"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ImplicitJobs.begin",
+          "source": "ImplicitJobs.java:5 8"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobManager.beginRule",
+          "source": "JobManager.java:2 19"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.WorkManager.checkIn",
+          "source": "WorkManager.j ava:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.prepareOperation",
+          "source": "Worksp ace.java:1684"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Project.touch",
+          "source": "Project.java:1034"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SetClasspathOperation.executeOperation",
+          "source": " SetClasspathOperation.java:288"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.run",
+          "source": "JavaModelOperati on.java:720"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737 "
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.runOperation",
+          "source": "JavaMod elOperation.java:784"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.setRawClasspath",
+          "source": "JavaProject .java:3016"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.setRawClasspath",
+          "source": "JavaProject .java:3032"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspathUpdater.addToClasspath",
+          "source": "J2EEComponentClasspathUpdater.java:258"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspathUpdater.addContainerToModuleIfNecessary",
+          "source": "J2EEComponentClasspathUpdater.java:227"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspathUpdater.access$1",
+          "source": "J2EEComponentClasspathUpdater.java:221"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspathUpdater$1.run",
+          "source": "J2EEComponentClasspathUpdater.java:176"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspathUpdater.updateModule",
+          "source": "J2EEComponentClasspathUpdater.java:203"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspathUpdater.queueUpdateModule",
+          "source": "J2EEComponentClasspathUpdater.java:141"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspathUpdater.queueUpdate",
+          "source": "J2EEComponentClasspathUpdater.java:128"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.common.classpath.J2EEComponentClasspathUpdater.editModelChanged",
+          "source": "J2EEComponentClasspathUpdater.java:116"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.GlobalComponentChangeNotifier.notifyListeners",
+          "source": "GlobalComponentChangeNotifier.java:83"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.GlobalComponentChangeNotifier.editModelChanged",
+          "source": "GlobalComponentChangeNotifier.java:43"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.notifyListeners",
+          "source": "EditModel.java:305"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.primSave",
+          "source": "EditModel.java:1274"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel$1.run",
+          "source": "EditModel.java:393"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737 "
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.runSaveOperation",
+          "source": "EditModel.java:483"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.save",
+          "source": "EditModel.java:396"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.saveIfNecessary",
+          "source": "EditModel.java:419"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.StructureEdit.saveIfNecessary",
+          "source": "StructureEdit.java:380"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.resources.VirtualComponent.create",
+          "source": "VirtualComponent.java:283"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.getDestinationFolder",
+          "source": "J2EEElementChangedListener.java:141"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener.access$0",
+          "source": "J2EEElementChangedListener.java:139"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.refactor.listeners.J2EEElementChangedListener$2.runInWorkspace",
+          "source": "J2EEElementChangedListener.java:123"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.InternalWorkspaceJob.run",
+          "source": "Internal WorkspaceJob.java:38"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 9,
+      "bugId": "144676",
+      "date": "2006-06-08T19:16:24+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ClassNotFoundException",
+      "message": "org.eclipse.wst.common.internal.emfworkbench.validateedit.ValidateEditHeadlessC ontext",
+      "elements": [
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java:57"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 9,
+      "bugId": "144676",
+      "date": "2006-06-08T19:16:24+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "144676",
+  "bugId": "144676",
+  "date": "2006-05-31T16:21:16+02:00",
+  "product": "Web Tools",
+  "component": "jst.j2ee",
+  "severity": "normal"
+}

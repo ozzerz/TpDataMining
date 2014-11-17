@@ -1,0 +1,64 @@
+{
+  "comments": [
+    "After responding to a \"C++ Static analysis does not work\" message on eclipse.tptp by Dmitry Smirnov posted 08/02/2006, I decided to move from my 4.2.0.1 rules (10) to the 4.2.1 rules (43). Unfortunately, they didn\u0027t work. I upgraded my TPTP to the 200608041327 version to make sure it was in sync with the C++ rules, but still I got:\n!ENTRY org.eclipse.tptp.platform.analysis.core 4 4 2006-08-07 14:51:02.451\n!MESSAGE Provider failure: Code Review for C/C++\n!STACK 0\njava.lang.NullPointerException\n        at org.eclipse.tptp.platform.analysis.codereview.cpp.CodeReviewResource.\n\u003cinit\u003e(CodeReviewResource.java:50)\n        at org.eclipse.tptp.platform.analysis.codereview.cpp.CodeReviewProvider.\nanalyze(CodeReviewProvider.java:77)\n        at org.eclipse.tptp.platform.analysis.core.manager.AnalysisProviderManag\ner$1.run(AnalysisProviderManager.java:181)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)",
+    "This is not an issue with the C++ analysis, it\u0027s more like one of the finer differences between CDT and JDT.\n\nThis happens CodeReviewResource when you analyze a project that does not have the C++ nature (at least, that is the only way I have been able to reproduce it). In CDT, the CoreModel.create() method returns null, but in JDT, the JavaCore.createCompilationUnitFrom() method returns the compilation unit in both cases (and analysis proceeds as usual).\n\nIn testing with Java analysis on source code without the Java nature, I got more results than the same source code in a Java project! (That is, there was almost double the number of results, and they aren\u0027t just extra results, they were different) This is because without the Java nature, JDT cannot resolve bindings on some variables.\n\nSince the results from analysis is not always valid when the project does not have a nature associated with it, the solution is likely to avoid analyzing those projects at the provider level. This will make the Java analysis consistent with what we\u0027re forced to do for C++ analysis (since we can\u0027t get the translation unit in C++) and it will also prevent the NPE in CodeReviewResource mentioned here.\n\nThe solution for users, of course, is to create a project using the new project wizard and then do the analysis.",
+    "Created an attachment (id\u003d47557)\nUpdate to CodeReviewProviders to check for project nature\n\npatch is for the following 3 files:\n\norg.eclipse.tptp.platform.analysis.codereview.cpp.CodeReviewProvider\norg.eclipse.tptp.platform.analysis.codereview.java.CodeReviewProvider\norg.eclipse.tptp.platform.analysis.core.AnalysisUtil\n\n\nFor some reason, the java CodeReviewProvider had a copy of the getFilteredResources() method from AnalysisUtil. Since the methods are identical, I changed it to reference AnalysisUtil the way the C++ CodeReviewProvider did.\n\nI also added a parameter: String natureNeeded\n\nThis is the nature ID from the project description. If you pass null to this parameter, then it will behave as previously (analyzing any project). If the parameter is set as I have it now, then it will only analyze projects with the given nature. (Java for java analysis, C++ for C++ Analysis)\n\nIf analysis is done on a project with no nature, there is no results in zero seconds.",
+    "fyi, I also get Null Pointer Exceptions when running Java analysis on projects with no nature.\n\nWith the patch I submitted, there are no exceptions, and you can run both java/c++ analysis on a workspace with both types of projects which results in C++ results on C++ projects and Java results from Java projects.\n\nIf you like the changes Steve, you could commit this.",
+    "Created an attachment (id\u003d47564)\nCodeReviewProvider_ProjectNature2.txt\n\nupdate: minor change, just remembered I didn\u0027t need local variable, in java changing local reference (not the object) will be ok ;)\n",
+    "If the state of the code you submitted requires a project to have a \"nature\",\nthen I heartily disagree... We have a lot of mixed code (Java and \u0027native\u0027) on\nthe data collection side, and I\u0027d hate to have projects of a given nature just\nto analyze the code. If, on the other hand, you\u0027re passing in the null so as to\nnot require a nature, I\u0027m all for it! and thanks for the fix.",
+    "Now that I know how to work around this, I\u0027m lowering the severity.",
+    "Created an attachment (id\u003d48031)\nCodeReviewProvider_ProjectNature3.txt\n\nNow using IProject.hasNature(String) in AnalysisUtil instead of checking each nature one at at time.",
+    "Applied patch to support retrieving file resources by nature.",
+    "Fixed in the 4.2.1 stream",
+    "closed"
+  ],
+  "commentCreationDates": [
+    "2006-08-07T23:58:39+02:00",
+    "2006-08-08T16:08:26+02:00",
+    "2006-08-08T20:57:47+02:00",
+    "2006-08-08T21:08:32+02:00",
+    "2006-08-08T22:05:12+02:00",
+    "2006-08-08T22:08:09+02:00",
+    "2006-08-14T18:13:47+02:00",
+    "2006-08-16T18:12:44+02:00",
+    "2006-08-21T20:59:39+02:00",
+    "2006-08-23T20:30:01+02:00",
+    "2006-11-21T15:06:43+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.tptp.platform.analysis.codereview.cpp.CodeReviewResource.\u003cinit\u003e",
+          "source": "CodeReviewResource.java:50"
+        },
+        {
+          "method": "org.eclipse.tptp.platform.analysis.codereview.cpp.CodeReviewProvider.analyze",
+          "source": "CodeReviewProvider.java:77"
+        },
+        {
+          "method": "org.eclipse.tptp.platform.analysis.core.manager.AnalysisProviderManager$1.run",
+          "source": "AnalysisProviderManager.java:181"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "153020",
+      "date": "2006-08-07T23:58:39+02:00",
+      "product": "TPTP Static Analysis",
+      "component": "Platform.Analysis",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "153020",
+  "bugId": "153020",
+  "date": "2006-08-07T23:58:39+02:00",
+  "product": "TPTP Static Analysis",
+  "component": "Platform.Analysis",
+  "severity": "normal"
+}

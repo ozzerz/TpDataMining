@@ -1,0 +1,185 @@
+{
+  "comments": [
+    "I20040921-2000-gtk\n\nWhen importing a type, I go this:\n\norg.eclipse.swt.SWTException: Invalid thread access\n        at org.eclipse.swt.SWT.error(SWT.java:2691)\n        at org.eclipse.swt.SWT.error(SWT.java:2616)\n        at org.eclipse.swt.SWT.error(SWT.java:2587)\n        at org.eclipse.swt.widgets.Widget.error(Widget.java:379)\n        at org.eclipse.swt.widgets.Widget.checkWidget(Widget.java:316)\n        at org.eclipse.swt.widgets.Control.internal_new_GC(Control.java:1993)\n        at org.eclipse.swt.graphics.GC.\u003cinit\u003e(GC.java:115)\n        at org.eclipse.swt.graphics.GC.\u003cinit\u003e(GC.java:82)\n        at org.eclipse.jface.dialogs.Dialog.shortenText(Dialog.java:290)\n        at org.eclipse.jface.dialogs.ProgressMonitorDialog$ProgressMonitor.subTa\nsk(ProgressMonitorDialog.java:216)\n        at org.eclipse.ui.internal.progress.ProgressMonitorJobsDialog$3.subTask(\nProgressMonitorJobsDialog.java:402)\n        at org.eclipse.core.runtime.ProgressMonitorWrapper.subTask(ProgressMonit\norWrapper.java:156)\n        at org.eclipse.core.runtime.SubProgressMonitor.subTask(SubProgressMonito\nr.java:166)\n        at org.eclipse.core.runtime.ProgressMonitorWrapper.subTask(ProgressMonit\norWrapper.java:156)\n        at org.eclipse.core.runtime.SubProgressMonitor.subTask(SubProgressMonito\nr.java:166)\n        at org.eclipse.core.runtime.ProgressMonitorWrapper.subTask(ProgressMonit\norWrapper.java:156)\n        at org.eclipse.core.runtime.SubProgressMonitor.subTask(SubProgressMonito\nr.java:166)\n        at org.eclipse.jdt.internal.corext.util.AllTypesCache$DelegatedProgressM\nonitor.subTask(AllTypesCache.java:101)\n        at org.eclipse.core.runtime.ProgressMonitorWrapper.subTask(ProgressMonit\norWrapper.java:156)\n        at org.eclipse.core.runtime.SubProgressMonitor.subTask(SubProgressMonito\nr.java:166)\n        at org.eclipse.core.runtime.ProgressMonitorWrapper.subTask(ProgressMonit\norWrapper.java:156)\n        at org.eclipse.core.runtime.SubProgressMonitor.subTask(SubProgressMonito\nr.java:166)\n        at org.eclipse.core.runtime.SubProgressMonitor.done(SubProgressMonitor.j\nava:133)\n        at org.eclipse.jdt.internal.core.search.PatternSearchJob.execute(Pattern\nSearchJob.java:75)\n        at org.eclipse.jdt.internal.core.search.processing.JobManager.performCon\ncurrentJob(JobManager.java:260)\n        at org.eclipse.jdt.core.search.SearchEngine.searchAllTypeNames(SearchEng\nine.java:870)\n        at org.eclipse.jdt.internal.corext.util.AllTypesCache.search(AllTypesCac\nhe.java:539)\n        at org.eclipse.jdt.internal.corext.util.AllTypesCache$TypeCacher.doSearc\nhTypes(AllTypesCache.java:204)\n        at org.eclipse.jdt.internal.corext.util.AllTypesCache$TypeCacher.run(All\nTypesCache.java:169)",
+    "just happened again with I20040923-0800.\n\nI am using IBM J9SE VM (build 2.2, J2RE 1.4.2 IBM J9 2.2 Linux x86-32\nj9xia32142-20040916 (JIT enabled)",
+    "and also with \nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.2_05-b04)",
+    "Move to JDT/UI",
+    "Andre, do you have an idea what\u0027s going on here?",
+    "The progressMonitor passed into AllTypesCache.getAllTypes(...) seems to be one which cannot be used \nfrom a non-UI thread.\nWe didn\u0027t changed anything here since 3.0 (may be even 2.1).\nSo most likely the problem is in the ProgressMonitorJobsDialog.",
+    "Moving to Platform/UI for comments.",
+    "Could you give steps for this please? I need to determine where you get this \ndialog so that I can see what is happening with the updates - your analysis \nlooks correct I just needs to know how to get there. ",
+    "I saw it \u003efour times in a row and had to kill eclipse after it. While eclipse\nwas still rebuilding, I tried to import (Ctrl+Shift+M) a type in java source\nwhich would (sometimes) cause the \"UI blocked by background activity\" dialog to\nshow.",
+    "Thanks Tom - I\u0027ll try and replicate.\n\nLooking through the Search code it also appears that Search is holding onto a \nmonitor and reusing it (the fDelegatedProgressMonitor). I\u0027ll need to see where \nyou set this up it follow it.",
+    "The dialog is fine - you should see it (the build has a lock on the workspace)\nand it is not the one showing up in your trace. It looks like an old progress \nmonitor is being reused here.",
+    "The problem is that our text shortening algorithm is not Thread safe this is \nnot a Search issue.",
+    "I was was right the first time. ProgressMonitorDialog is not Thread safe - the \nonly Thread safe way to get one is with a UIJob.\n\nThis issue is with the JDT UI use of Search. AllTypesCache search uses \nfDelegatedProgressMonitor which was set from a progress monitor generated from \na runInUI call - as a result it will not be Thread safe.\n\nIf you cache a monitor from runInUI you need to be sure that it is also \naccessed from the UI. Those from a UserJob will be Thread safe.",
+    "We are not caching the ProgressMonitor.\nAllTypesCache.getAllTypes(PM) passes the PM to another thread and waits until that thread has \nfinished. After this the thread no longer uses the PM and getAllTypes returns.\n\nSo the problem boils down to the question whether a PM can be passed into some method that \npotentially uses it via a different thread. If the answer is yes, then every PM (with UI) must support to be \ncalled from a non-UI thread.\nIf the answer is no, then we must wrap the PM into a delegating PM.\nHowever, this seems to be wrong too, because we cannot know whether the PM touches the UI at all.\nAnd wrapping a NullProgressMonitor this way wouldn\u0027t make a lot of sense.",
+    "The problem is that you are using the runInUI API to get the progress monitor \nso the progress monitor you get is not wrapped for asynchronous updates as it \nis optimized for the UI Thread.\n\nThe answer is that PM generated outside of the UI Thread can be used anywhere -\n one generated in it must be used in it - this is a limitation of the runInUI \nAPI which is meant only as a way to migrate quickly. If you use a user job \nthis would not be an issue.",
+    "Martin, please have a look at AddImportOnSelectionAction.",
+    "Not a obvious rule that certain progress monitors are only allowed to be written\nfrom the display thread. It couldn\u0027t find this documented. It definitly\ncomplicates the whole thing. You can\u0027t see from a progress monitor instance if\nit is a UI one. Tod, any chance of being less restrictive here?\n\n\nI looked at our other usages of the AllTypeCache and practically all accesses\nare with monitors received with \u0027runInUI\u0027.\n\nCould change to a polling model in the AllTypeCache.",
+    "If you use a user job we have Thread safety as I do all of the updates in an \nasyncExec. \n\nAnything that interacts with the UI needs to run in the UI Thread - this is a \nhard and fast SWT rule.",
+    "From our standpoint we are interacting with a progress monitor, not directly \nwith the UI.",
+    "Fixed.",
+    "start verifying"
+  ],
+  "commentCreationDates": [
+    "2004-09-23T18:17:28+02:00",
+    "2004-09-23T18:57:34+02:00",
+    "2004-09-23T19:06:14+02:00",
+    "2004-09-23T19:41:27+02:00",
+    "2004-09-24T09:52:12+02:00",
+    "2004-09-24T10:22:57+02:00",
+    "2004-09-24T10:25:39+02:00",
+    "2004-09-24T15:19:17+02:00",
+    "2004-09-24T15:22:39+02:00",
+    "2004-09-24T15:24:53+02:00",
+    "2004-09-24T15:34:40+02:00",
+    "2004-09-24T15:59:24+02:00",
+    "2004-09-24T16:31:50+02:00",
+    "2004-09-25T18:09:09+02:00",
+    "2004-09-27T14:14:45+02:00",
+    "2004-09-27T16:21:58+02:00",
+    "2004-10-07T16:49:42+02:00",
+    "2004-10-07T16:53:03+02:00",
+    "2004-10-07T17:10:15+02:00",
+    "2004-11-01T18:21:32+01:00",
+    "2004-11-05T11:20:09+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Invalid thread access",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2691"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2616"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2587"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:379"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java:316"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.internal_new_GC",
+          "source": "Control.java:1993"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.GC.\u003cinit\u003e",
+          "source": "GC.java:115"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.GC.\u003cinit\u003e",
+          "source": "GC.java:82"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.Dialog.shortenText",
+          "source": "Dialog.java:290"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.ProgressMonitorDialog$ProgressMonitor.subTask",
+          "source": "ProgressMonitorDialog.java:216"
+        },
+        {
+          "method": "org.eclipse.ui.internal.progress.ProgressMonitorJobsDialog$3.subTask",
+          "source": " ProgressMonitorJobsDialog.java:402"
+        },
+        {
+          "method": "org.eclipse.core.runtime.ProgressMonitorWrapper.subTask",
+          "source": "ProgressMonit orWrapper.java:156"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SubProgressMonitor.subTask",
+          "source": "SubProgressMonito r.java:166"
+        },
+        {
+          "method": "org.eclipse.core.runtime.ProgressMonitorWrapper.subTask",
+          "source": "ProgressMonit orWrapper.java:156"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SubProgressMonitor.subTask",
+          "source": "SubProgressMonito r.java:166"
+        },
+        {
+          "method": "org.eclipse.core.runtime.ProgressMonitorWrapper.subTask",
+          "source": "ProgressMonit orWrapper.java:156"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SubProgressMonitor.subTask",
+          "source": "SubProgressMonito r.java:166"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.util.AllTypesCache$DelegatedProgressMonitor.subTask",
+          "source": "AllTypesCache.java:101"
+        },
+        {
+          "method": "org.eclipse.core.runtime.ProgressMonitorWrapper.subTask",
+          "source": "ProgressMonit orWrapper.java:156"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SubProgressMonitor.subTask",
+          "source": "SubProgressMonito r.java:166"
+        },
+        {
+          "method": "org.eclipse.core.runtime.ProgressMonitorWrapper.subTask",
+          "source": "ProgressMonit orWrapper.java:156"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SubProgressMonitor.subTask",
+          "source": "SubProgressMonito r.java:166"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SubProgressMonitor.done",
+          "source": "SubProgressMonitor.j ava:133"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.PatternSearchJob.execute",
+          "source": "Pattern SearchJob.java:75"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.processing.JobManager.performConcurrentJob",
+          "source": "JobManager.java:260"
+        },
+        {
+          "method": "org.eclipse.jdt.core.search.SearchEngine.searchAllTypeNames",
+          "source": "SearchEng ine.java:870"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.util.AllTypesCache.search",
+          "source": "AllTypesCac he.java:539"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.util.AllTypesCache$TypeCacher.doSearchTypes",
+          "source": "AllTypesCache.java:204"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.util.AllTypesCache$TypeCacher.run",
+          "source": "All TypesCache.java:169"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "74801",
+      "date": "2004-09-23T18:17:28+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "74801",
+  "bugId": "74801",
+  "date": "2004-09-23T18:17:28+02:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "major"
+}

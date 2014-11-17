@@ -1,0 +1,57 @@
+{
+  "comments": [
+    "F3 build.\nPerforming restore of saved configuration (D tests), I have not pressed Restore \nbutton in the prveiew view, but righ-clicked the saved configuraion and pressed \nrestore from the workbench menu. I confirmed the dialog that I want to \nrestart.  Instead of restarting, VM exitted, with the stack written to the \nconsole.  There was nothing interesting in the log.\n\nI believe you should check for widget disposed inside the runnable, before line \n924, instead of or in addition to the check on line 920.\n\n\n% ./eclipse -vm /usr/java131/bin/java\norg.eclipse.swt.SWTException: Widget is disposed\n        at org.eclipse.swt.SWT.error(SWT.java(Compiled Code))\n        at org.eclipse.swt.widgets.Widget.error(Widget.java(Compiled Code))\n        at org.eclipse.swt.widgets.Widget.error(Widget.java(Compiled Code))\n        at org.eclipse.swt.widgets.Control.getDisplay(Control.java(Compiled Code\n))\n        at org.eclipse.swt.widgets.Widget.checkWidget(Widget.java(Compiled Code)\n)\n        at org.eclipse.swt.widgets.Widget.checkWidget(Widget.java(Compiled Code)\n)\n        at org.eclipse.swt.widgets.Tree.setSelection(Tree.java:1511)\n        at org.eclipse.jface.viewers.TreeViewer.setSelection(TreeViewer.java:207\n)\n        at org.eclipse.jface.viewers.AbstractTreeViewer.setSelectionToWidget(Abs\ntractTreeViewer.java:1135)\n        at org.eclipse.jface.viewers.StructuredViewer.setSelectionToWidget(Struc\nturedViewer.java:937)\n        at org.eclipse.jface.viewers.StructuredViewer.preservingSelection(Struct\nuredViewer.java:695)\n        at org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.j\nava:746)\n        at org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.j\nava:708)\n        at org.eclipse.update.internal.ui.views.ConfigurationView$9.run(Configur\nationView.java:924)\n        at org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.ja\nva(Compiled Code))\n        at org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.ja\nva(Compiled Code))\n        at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java(Compiled\n Code))\n        at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java(Compiled\n Code))\n        at org.eclipse.swt.widgets.Display.release(Display.java:1530)\n        at org.eclipse.swt.graphics.Device.dispose(Device.java:147)\n        at org.eclipse.ui.internal.Workbench.run(Workbench.java:1165)\n        at org.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoa\nder.java:739)\n        at org.eclipse.core.boot.BootLoader.run(BootLoader.java:462)\n        at java.lang.reflect.Method.invoke(Native Method)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:248)\n        at org.eclipse.core.launcher.Main.run(Main.java:697)\n        at org.eclipse.core.launcher.Main.main(Main.java:530)",
+    "F4 candidate",
+    "Does this/can this happen on other motif platforms? Is there an underlying AIX \nissue which might need to be fixed?",
+    "I have seen the problem only on AIX, but looking at the update code it clearly \nhas a bug that can affect all the platform.  The occurence of error depends on \nwhen asynchExec will get executed, so it migh differ from test to test / from \nmachine to machine.\n\norg.eclipse.update.internal.ui.views.ConfigurationView has a method\n\tprivate void asyncRefresh() {\n\t\tControl control \u003d viewer.getControl();\n\t\tif (control.isDisposed())\n\t\t\treturn;\n\t\tcontrol.getDisplay().asyncExec(new Runnable() {\n\t\t\tpublic void run() {\n\t\t\t\tviewer.refresh();\n\t\t\t}\n\t\t});\n\t}\n\nthat clearly has a problem when you consider that it is not determnistic when \nthe runnable gets executed.  The runnable does not check for disposed viewer.\n\nInserting another if (control.isDisposed()) inside runnable should fix it \nwithout any potential for a regression bug.\n",
+    "Will you not also be able to fail between here:\n\n\t\tif (control.isDisposed())\n\t\t\treturn;\nand here:\n\t\tcontrol.getDisplay().asyncExec(new Runnable() {\n\nif the control becomes disposed in between (since getDisplay() works by getting \nparent which I assume would barf)?",
+    "Good catch - this looks like another place the code can fail.  The probability \nof exception there is much smaller, but still \u003e 0.\nDejan, Display.getDefault() or caching the Display on the viewer with a check \nfor null should fix it.  I think this can be treated as the same bug, and fixed \nfor F4.",
+    "The fix:\n\n\tprivate void asyncRefresh() {\n\t\tDisplay display \u003d SWTUtil.getStandardDisplay();\n\t\tif (viewer.getControl().isDisposed())\n\t\t\treturn;\n\t\tdisplay.asyncExec(new Runnable() {\n\t\t\tpublic void run() {\n\t\t\t\tif (!viewer.getControl().isDisposed())\n\t\t\t\t\tviewer.refresh();\n\t\t\t}\n\t\t});\n\t}"
+  ],
+  "commentCreationDates": [
+    "2002-06-13T19:43:07+02:00",
+    "2002-06-13T22:57:28+02:00",
+    "2002-06-14T20:39:24+02:00",
+    "2002-06-14T20:57:48+02:00",
+    "2002-06-14T22:57:05+02:00",
+    "2002-06-15T05:02:40+02:00",
+    "2002-06-19T06:09:34+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Widget is disposed",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.getDisplay",
+          "source": "Control.java(Compiled Code )"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "20240",
+      "date": "2002-06-13T19:43:07+02:00",
+      "product": "Platform",
+      "component": "Update",
+      "severity": "major"
+    }
+  ],
+  "groupId": "20240",
+  "bugId": "20240",
+  "date": "2002-06-13T19:43:07+02:00",
+  "product": "Platform",
+  "component": "Update",
+  "severity": "major"
+}

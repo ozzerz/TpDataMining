@@ -1,0 +1,371 @@
+{
+  "comments": [
+    "My work setup is I have an authenticated HTTP proxy, such that when I run an eclipse update, I am required to fill in a username / password form.\n\nHowever, even after logging into the proxy to do an update, I cannot connect to the JIRA repository to associate tasks with issues. Each time I get a 407 \"Proxy Authentication Error\" ?",
+    "Try setting the proxy settings as described here, and let me know if that resolves it: http://wiki.eclipse.org/index.php/Mylar_FAQ#Network_and_proxy_server_troubleshooting",
+    "(In reply to comment #1)\n\u003e Try setting the proxy settings as described here, and let me know if that\n\u003e resolves it:\n\u003e http://wiki.eclipse.org/index.php/Mylar_FAQ#Network_and_proxy_server_troubleshooting\n\u003e \n\nMy proxy settings are configured there. However, there is nowhere in that section to put my proxy username / password. Eclipse update sites normally prompt for this information when required, but the JIRA connector just fails with a 407 error.",
+    "Brock: any words of wisdom regarding Proxy servers and the way that JIRA core services uses them?",
+    "it support proxies, but not authenticated proxies.  The change should be quite simple, but i wouldn\u0027t have any way to test it.",
+    "(In reply to comment #4)\n\u003e it support proxies, but not authenticated proxies.  The change should be quite\n\u003e simple, but i wouldn\u0027t have any way to test it.\n\u003e \n\nIf you can make the change, I would be happy to test it at my end of things. Please feel free to E-mail me on this matter. \n\nRegards,\nBen",
+    "Brock: if you are able to make this change let me know and I\u0027ll put up a dev build for Ben.",
+    "*** Bug 162650 has been marked as a duplicate of this bug. ***",
+    "Brock: any news on this?  \n\nRob: what\u0027s our current strategy on the generic connector support for authenticated proxies?  Are we just punting on it for now since Eclipse does not support it?  I recall testing this way back and the authentication dialog would come up.  Is this popup something that we will have lost due to basing everything on httpclient?  If so that may mean that we have to add a place to fill the credentials ourselves, since waiting for getting this in Eclipse 3.3 could take too long.",
+    "no, I got an email from Ben this morning saying that the patch i tried didn\u0027t work.  I will have to try again later with debugging options or something.  The fix looked something like this:\n\nif (System.getProperty(\"http.proxyHost\") !\u003d null) {\n\tCredentials creds;\n\tString proxyUser \u003d System.getProperty(\"http.proxyUser\");\n\tString proxyPass \u003d System.getProperty(\"http.proxyPassword\");\n\tif (proxyUser !\u003d null \u0026\u0026 proxyPass !\u003d null) {\n\t\tint domainSplit \u003d proxyUser.indexOf(\u0027\\\\\u0027);\n\t\tString domain \u003d null;\n\t\t\n\t\tif (domainSplit !\u003d -1) {\n\t\t\tproxyUser \u003d proxyUser.substring(0, domainSplit);\n\t\t\tdomain \u003d proxyUser.substring(domainSplit + 1);\n\t\t\tcreds \u003d new NTCredentials(proxyUser, proxyPass, hostname, domain);\n\t\t} else {\n\t\t\tcreds \u003d new UsernamePasswordCredentials(proxyUser, proxyPass);\n\t\t\t\t}\n\t\tclient.getState().setProxyCredentials(AuthScope.ANY, creds);\n\t}\n}",
+    "I have some existing HttpClient code going through the auth proxy, and instead of \"AuthScope.ANY\", I used:\n\n\tnew AuthScope(PROXY_HOST, PROXY_PORT, AuthScope.ANY_REALM)\n\nWhere you\u0027ll have to get the values of \"PROXY_HOST\" and \"PROXY_PORT\".  I don\u0027t know whether this is a critical element, but I know my code works.\n\nIt might also be useful to install Wireshark (or equivalent tool) to watch the packets. You could monitor the exchange with Bugzilla through the auth proxy to see what the packets should look like.\n",
+    "If this is happening during validation, then the error is coming from Axis, not the custom HTTP code (which the patch was for).\n\nBen, how are you specifying the proxy host and username?  Have you tried starting eclipse with -vmargs -Dhttp.proxyHost\u003d\u003chostname\u003e -Dhttp.proxyPort\u003d\u003cport\u003e -Dhttp.proxyPassword\u003d\u003cpassword\u003e -Dhttp.proxyUser\u003d\u003cuser\u003e\n\nyou can also verify that the environment variables are correctly set by looking in Help|About then pressing \"Configuration Details\"",
+    "Note that most people would expect to set the proxy details in Preferences, in \"Internet\"-\u003e\"Proxy Settings\". If those settings don\u0027t set the system variables that are being referenced, then the code should be referencing those settings values.",
+    "(In reply to comment #11)\n\u003e \n\u003e Ben, how are you specifying the proxy host and username?  Have you tried\n\u003e starting eclipse with -vmargs -Dhttp.proxyHost\u003d\u003chostname\u003e\n\u003e -Dhttp.proxyPort\u003d\u003cport\u003e -Dhttp.proxyPassword\u003d\u003cpassword\u003e -Dhttp.proxyUser\u003d\u003cuser\u003e\n\u003e \n\u003e you can also verify that the environment variables are correctly set by looking\n\u003e in Help|About then pressing \"Configuration Details\"\n\u003e \n\nI was previously only running with \"-Dhttp.proxyPassword\u003d\u003cpassword\u003e -Dhttp.proxyUser\u003d\u003cuser\u003e\" parameters, which gave me a (407) proxy authentication needed error.\n\nAdding the -vmargs swtich stopped me from getting this error. But instead I got an \"internal error\" which looking into my eclipse logs gave me this :\n\n!SESSION 2006-11-08 13:08:47.293 -----------------------------------------------\neclipse.buildId\u003dM20060629-1905\njava.version\u003d1.5.0_08\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_GB\nCommand-line arguments:  -os win32 -ws win32 -arch x86\n\n!ENTRY org.eclipse.core.jobs 4 2 2006-11-08 12:59:16.203\n!MESSAGE An internal error occurred during: \"Adding task: \"TASK-01\"...\".\n!STACK 0\njava.lang.NullPointerException\n\tat org.tigris.jira.internal.core.service.web.rss.RSSFeedProcessorCallback.isXMLOrRSS(RSSFeedProcessorCallback.java:156)\n\tat org.tigris.jira.internal.core.service.web.rss.RSSFeedProcessorCallback.execute(RSSFeedProcessorCallback.java:61)\n\tat org.tigris.jira.internal.core.service.web.JiraWebSession.doInSession(JiraWebSession.java:91)\n\tat org.tigris.jira.internal.core.service.web.rss.RSSJiraFilterService.quickSearch(RSSJiraFilterService.java:93)\n\tat org.tigris.jira.internal.core.service.soap.SoapJiraService.getIssue(SoapJiraService.java:170)\n\tat org.tigris.jira.core.service.CachedRpcJiraServer.getIssue(CachedRpcJiraServer.java:439)\n\tat org.eclipse.mylar.internal.jira.JiraRepositoryConnector.createTaskFromExistingKey(JiraRepositoryConnector.java:79)\n\tat org.eclipse.mylar.internal.tasks.ui.wizards.CommonAddExistingTaskWizard$AddExistingTaskJob.run(CommonAddExistingTaskWizard.java:76)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\n\nAs a sidenote, in my Configuration Details panel I have the following:\n\neclipse.vmargs\u003d-Dhttp.proxyUser\u003dusername\n-Dhttp.proxyPassword\u003dpassword\n...\nhttp.proxyHost\u003dproxyhost\nhttp.proxyPassword\u003dpassword\nhttp.proxyPort\u003d8080\nhttp.proxySet\u003dtrue\nhttp.proxyUser\u003dusername\nhttp.proxyUserName\u003dusername\nhttps.nonProxyHosts\u003dlocalhost\nhttps.proxyHost\u003dproxyhost\nhttps.proxyPassword\u003dpassword\nhttps.proxyPort\u003d8080\nhttps.proxySet\u003dtrue\nhttps.proxyUserName\u003dusername\n\nI believe the http.proxyUser comes from what I have set in the command line, and the http.proxyUserName comes from the workspace properties menu.",
+    "Brock, do I understand correctly that passing the credentials gathered from the system properties didn\u0027t work? What about David\u0027s suggestion related to specifying the host/port, any luck there?",
+    "(In reply to comment #14)\n\u003e Brock, do I understand correctly that passing the credentials gathered from the\n\u003e system properties didn\u0027t work? What about David\u0027s suggestion related to\n\u003e specifying the host/port, any luck there?\n\u003e \n\nno, it is working correctly.  To pass VM options to eclipse you have to specify them after a -vmargs parameter (for the eclipse.exe launcher only).  The problem now is that the server isn\u0027t returning a content type for one of the pages.  We use this to determine if the server returned the correct page.  I can fix the null pointer (by assuming that the page is *not* text/xml), but it will probably not fix the underlying issue.\n\nBen, what container is your Jira running in?  It might help to know what version of Jira you are using.  It is possible that something has changed in the latest versions.\n\nWould it be possible for you to obtain a wire trace of the responses being recieved from the server?  If not, i can create a test program for you.",
+    "If you have to specify the proxy args on the command line, what is the point of the \"Internet\"-\u003e\"Proxy Settings\" page in the Preferences, where you set the exact same properties?\n\nNote that it\u0027s possible that we\u0027re seeing an issue with how the 407 protocol is handled between the client and server.  It might be necessary to turn on \"preemptive authentication\" in httpclient.  This would be the case if the initial request to the proxy includes request parameters that are not re-sent in the 407 challenge response.  Turning on preemptive auth makes it send the proxy auth data on the first request, instead of waiting for the challenge response. If anything, this might be a little more efficient, anyway.  If you determine this is necessary (or you want to try it), just use:\n\n   client.getParams().setAuthenticationPreemptive(true);",
+    "David, that preference page does setup the http.proxyUser and http.proxyPassword system properties (if you have webtools installed).  The \u0027standard\u0027 Install/Update preference page only allows you to setup the host and port.",
+    "Brock, I think either Update Manager or WTP installs proxy auth handler that asks for the proxy password.",
+    "(In reply to comment #15)\n\u003e \n\u003e Ben, what container is your Jira running in?  It might help to know what\n\u003e version of Jira you are using.  It is possible that something has changed in\n\u003e the latest versions.\n\u003e \n\u003e Would it be possible for you to obtain a wire trace of the responses being\n\u003e recieved from the server?  If not, i can create a test program for you.\n\u003e \n\nI am using Enterprise JIRA Version: 3.6.3-#159 (or so it says on the bottom of the main screen). I went to the JIRA_URL/rpc/soap/jirasoapservice-v2?wsdl page and got some XML in response, so I assume RPC services are running.\n\nI wouldn\u0027t be able to run a wire trace program where I am, as I enjoy the warm fuzzy feeling of employment and wouldn\u0027t like to change that in the near future ! Yeah, work are a little strict on the packet sniffing apps policy. But if there is a test program, then I am happy to try that.\n\nComment #18 makes a good point, certainly for a consistent UI perspective if nothing else, that the update manager in eclipse presents a popup window for http proxy logins. As this is a standard eclipse install feature, from my naive position I would imagine leveraging that would be an excellent way of implementing this feature.",
+    "Created an attachment (id\u003d53705)\nTest program\n\nBen, could you please run this program and add the results to this issue?  The headers are the most important part, but you may be able to use the HTML section to help diagnose the problem.\n\nYou will have the fix up the URL to match your system.  set the searchString to be the issue key you were looking for and os_username and os_password to be your normal Jira username and password.\n\nDon\u0027t forget to setup your proxy by running with the -D options",
+    "With some embarrassment I have realised that my access to the JIRA server is not going through the authenticated proxy as I had expected, but is actually an internal server. Sorry - seems like my failure was not a proxy authentication problem after all.\n\nThanks to Brocks program I was able to spot the actual problem - our JIRA is setup behind an SSO system, so my attempt to go the the JIRA box is intercepted and replaced with a location.replace javascript call, sending a browser to the SSO login page. \n\nOnce logged in, a cookie is set allowing further access without interception. I have a suspicision that this might make using the RPC tools somewhat trickier, as I\u0027m not sure if I can automate the SSO without using the web interface.\n\nSo apologies again, I don\u0027t actually have the authenticated proxy between me and the server. Not sure if it\u0027s worth closing the bug, or leave it open for anyone who does actually encounter this situation.\n\n(In reply to comment #20)\n\u003e Created an attachment (id\u003d53705) [edit]\n\u003e Test program\n\u003e \n\u003e Ben, could you please run this program and add the results to this issue?  The\n\u003e headers are the most important part, but you may be able to use the HTML\n\u003e section to help diagnose the problem.\n\u003e \n\u003e You will have the fix up the URL to match your system.  set the searchString to\n\u003e be the issue key you were looking for and os_username and os_password to be\n\u003e your normal Jira username and password.\n\u003e \n\u003e Don\u0027t forget to setup your proxy by running with the -D options\n\u003e \n\n",
+    "I am completely willing to be a test subject for this, as I definitely have an auth proxy going out, but I\u0027ll probably need help setting up my testbed.  If you only want Wireshark traces from the existing code, or from test versions of the plugin, that\u0027s easy for me to do.",
+    "David, the fix for this should be in JIRA Core Services 0.9.3 which will install when you update to dev build 0.9.0.v20061124-0730 which (uploading now and available in 15-30 min).  You will need to set your proxy settings on the Task Repositories page.  \n\nWe do not have access to an authenticated proxy so we have *not* verified this yet.  David, if you or anyone else having this problem could verify that would be great.\n\n\thttp://www.eclipse.org/mylar/dl.php\n\nWhen doing so feel free to update the instructions on:\n\n\thttp://wiki.eclipse.org/index.php/Mylar_FAQ#JIRA_Connector_troubleshooting",
+    "I\u0027m certainly willing to do this, but I\u0027ll need instructions.  I don\u0027t know how to install a dev build, or where to get it from (I saw what looked like a link for it on the Mylar project site, but it seemed to go to the FAQ instead).  I assume I\u0027ll need to do with this my 3.3M3 installation?\n\nNote that I\u0027m currently seeing another issue with connecting to the task repositories.  I\u0027m adding this comment in Firefox because I\u0027m unable to synch my tasks in Eclipse.  I\u0027ve tried it both with and without the proxy (turning on or off my VPN).  I get different exceptions in each case.  With the VPN off (and the \"enable proxy\" flag in \"Internet\" turned off), it seems to still think it needs to use the proxy, but it fails to find my proxy host.  With the VPN on (and proxy enabled), it gets \"javax.net.ssl.SSLException: Unrecognized SSL message, plaintext connection?\".",
+    "Update site for the dev build is listed on download page at http://www.eclipse.org/mylar/dl.php\nI think it will work on Eclipse 3.2 with some exceptions. Anyways, worth to try and you can report issues. :-)",
+    "To reiterate, I can\u0027t see where on the page given by this link to actually download the dev build.  In the box labeled \"Developer Builds\", the line labeled \"Eclipse 3.3M3\" has a link, but that only goes to the FAQ page.",
+    "(In reply to comment #26)\n\u003e To reiterate, I can\u0027t see where on the page given by this link to actually\n\u003e download the dev build.  In the box labeled \"Developer Builds\", the line\n\u003e labeled \"Eclipse 3.3M3\" has a link, but that only goes to the FAQ page.\n\nDon\u0027t tell me you install this stuff manually. :-)\n\nThat page has a link:\n---\nDeveloper Builds\n    * Eclipse 3.3M3: download.eclipse.org/technology/mylar/update-site/dev\n...\n----\n\nSo, you should use this url (Mik, it is really confusing not to have http:// there, and you may want to add a word or two about using update manager, non-dev update site has nice picture) in Eclipse update manager. Help -\u003e Find and Install...\n",
+    "Sorry, I still don\u0027t get it.  I tried going to:\n\n  http://download.eclipse.org/technology/mylar/update-site/dev\n\nBut it says \"No web page found here\".",
+    "(In reply to comment #28)\n\u003e Sorry, I still don\u0027t get it.  I tried going to:\n\u003e   http://download.eclipse.org/technology/mylar/update-site/dev\n\u003e But it says \"No web page found here\".\n\nIn Eclipse, open menu Help / Software Updstes... / Find and Install...\nCreate new update site with above url, select it and run update manager.\n",
+    "Ok, so should I install everything available at that update manager, or just the 2 entries in \"Features\" (task list and focused UI) and the 3 entries in \"Integration\" (Bugzilla, JIRA, and Trac)?  What about the \"Jira Core Services 0.9.3\" in the \"Tigris.org dependencies\" section?  I also noticed that the detailed revision number is slightly different than what Mik referred to.  Instead of \"0.9.0.v20061124-0730\", it\u0027s \"0.9.0.v20061124-1230\".  Should I care?",
+    "(In reply to comment #30)\n\u003e Ok, so should I install everything available at that update manager, or just\n\u003e the 2 entries in \"Features\" (task list and focused UI) and the 3 entries in\n\u003e \"Integration\" (Bugzilla, JIRA, and Trac)?  What about the \"Jira Core Services\n\u003e 0.9.3\" in the \"Tigris.org dependencies\" section?  \n\nIf you only interested with jira integration you\u0027ll need task list, jira and jira core services. Bugzilla could be useful for submitting and monitoring bugs here. Trac is up to you and Focused UI is the feature that does Mylar\u0027s magic about filtering out uninteresting stuff.\n\n\u003e I also noticed that the\n\u003e detailed revision number is slightly different than what Mik referred to. \n\u003e Instead of \"0.9.0.v20061124-0730\", it\u0027s \"0.9.0.v20061124-1230\".  Should I care?\n\nMik just cut another (better) build while you\u0027ve been struggling with installing the previous one. :-)",
+    "Testing of this might be complicated by another issue that I haven\u0027t mentioned.\n\nThe way our firewall works, if I make a plain DNS request for \"bugs.eclipse.org\" (by storing a repository for that host), it will only work if I\u0027m NOT on the network (with my VPN off, for instance). I have to turn off my VPN when I\u0027m adding a new external update site.  However, after I add the update site or the task repository, it can communicate with it when my VPN is turned on.  I\u0027m not sure what\u0027s all going on here.\n\nIn Mylar 0.9, I was able to create both the Eclipse.org (Bugzilla) and Spring (JIRA) task repositories with the VPN off, and then after turning on the VPN, I was able to verify the Eclipse.org one, and get the 407 (proxy auth required) error for the Spring one.\n\nIn this dev release, I was able to verify the Eclipse.org repo the same as in the 0.9 release.  In the JIRA connector, I get an error, but not the error I got before.  Instead of giving me a 407 error, it gives me a very useful \"Unable to connect to server. Please check the URL.\".  Nothing appears in the log when this message appears.  (I have \"-debug\" on the command line.)\n\nI even tried verifying the settings with my VPN turned off.  When I verify in this state, it gives me an error dialog with the entire exact contents of \"proxy.wamu.net\", which is the name of my proxy server.  I then tried disabling the proxy settings in Preferences and trying again, but it gives me the exact same error dialog.\n\nPlease advise.",
+    "Fyi I have updated the instructions on using the Update Manager, and added a link to our documentation on downloading/installing in this way.\n\nHave you followed the steps in?  \n\thttp://wiki.eclipse.org/index.php/Mylar_FAQ#JIRA_Connector_troubleshooting\nand\nhttp://wiki.eclipse.org/index.php/Mylar_FAQ#Network_and_proxy_server_troubleshooting\n\nEugene, correct me if I\u0027m wrong bug the JIRA Connector is still relying on the -D method of setting the proxy, right?",
+    "Yes, as far as I can tell, I\u0027ve followed those steps.\n\nI\u0027ve now tried changing the eclipse command line to add all the relevant \"http*\" definitions (it ended up being so long that I had to create a separate batch file for it, instead of just setting the command line in the shortcut).\n\nUnfortunately, I now get the exact error message I got before this fix, which was \"(407)Proxy Authentication Required\".",
+    "(In reply to comment #34)\n\u003e I\u0027ve now tried changing the eclipse command line to add all the relevant\n\u003e \"http*\" definitions (it ended up being so long that I had to create a separate\n\u003e batch file for it, instead of just setting the command line in the shortcut).\n\nI\u0027d use eclipse.ini (sitting in the same folder as eclipse.exe (on windows). Mine has the following:\n\n----\n-vm\nC:\\jdk1.5.0_08\\bin\\java.exe\n-vmargs\n-Xverify:none\n-Xms90m\n-Xmx300m\n-XX:MaxPermSize\u003d85m\n-XX:MaxNewSize\u003d40m\n-----\n\nSo, you could add -Dhttp* stuff in there and then verify from Eclipse - Help -\u003e About -\u003e Configuration Details. That these properties are set. then make sure you don\u0027t enabled proxy in Install/Update preferences (I think it may overwrite these system properties)... I\u0027ll see if I can install some dummy proxy here to reproduce something.",
+    "That\u0027s good to know.  At least it allows me to run it from the shortcut.\n\nWhen I verify the JIRA repo settings, it gives me an error dialog just saying \"(407)Proxy Authentication Required\".  I ran it through Wireshark (protocol analyzer).  With this, I saw the following HTTP header line:\n\nPOST http://opensource.atlassian.com/rpc/soap/jirasoapservice-v2 HTTP/1.1\\r\\n\n\nAs expected, there is no proxy-authorization header.",
+    "*** Bug 166468 has been marked as a duplicate of this bug. ***",
+    "Eugene: any news on this?",
+    "I\u0027ve tried to find simple proxy that I can install locally, but without luck so far.",
+    " (In reply to comment #36)\n\u003e That\u0027s good to know.  At least it allows me to run it from the shortcut.\n\u003e When I verify the JIRA repo settings, it gives me an error dialog just saying \"(407)Proxy Authentication Required\".  \n\u003e I ran it through Wireshark (protocol analyzer).  With this, I saw the following HTTP header line:\n\u003e POST http://opensource.atlassian.com/rpc/soap/jirasoapservice-v2 HTTP/1.1\\r\\n\n\u003e As expected, there is no proxy-authorization header.\n\nFor some reason it is requested two times. First time without auth and go trough on the second time. \n\nI installed squid with basic auth and Jira access is working using following system properties:\n\n-Dahttp.proxyHost\u003d\u003cproxy host\u003e\n-Dahttp.proxyPort\u003d\u003cproxy port\u003e\n-Dahttp.proxyUser\u003d\u003cproxy name\u003e\n-Dahttp.proxyPassword\u003d\u003cproxy password\u003e\n\nNote that first two properties are also set by settings in Preferences -\u003e Install/Updates. So, latter will overwrite anything you specify in -D properties (including eclipse.ini). You can see that in Help -\u003e About -\u003e Configuration Details.\n\nHowever there are bad news. Neither Bugzilla, Trac or Web connector are working (either with or without these system properties).\n\nMore over, current Bugzilla and Trac preferences dialogs does not allow to finish configuration if I check \"Use install/update settings\". But validation fail anyways with error \"No bugzilla server found at url\" and I don\u0027t see any requests in the squid log.",
+    "I\u0027m not certain exactly what you mean when you say it\u0027s requested two times. You might be referring to what you would see with the normal behavior of the 407 error code.  With that, you might see two requests going across.  This is why it\u0027s good to set the \"preemptive authentication\" flag in HTTPClient.  This causes the proxy auth to be sent on the FIRST request, instead of waiting for the 407 response and sending it on the second request.\n\nThe \"No bugzilla server found at url\" error is exactly what I see.\n\nIt would be worthwhile to run a protocol sniffer (Wireshark) to watch the behavior.",
+    "(In reply to comment #41)\n\u003e I\u0027m not certain exactly what you mean when you say it\u0027s requested two times.\n\nAll I see that squid got two requests. 407 then 200.\n\n\u003e The \"No bugzilla server found at url\" error is exactly what I see.\n\u003e It would be worthwhile to run a protocol sniffer (Wireshark) to watch the\n\u003e behavior.\n\nThere is not much we can do about JIRA, but Bugzilla client is clearly not working with proxies now. Well, I\u0027ve been testing with the trunk version.",
+    "Yes, we do appear to have a major proxy bug with Bugzilla and Trac.  I\u0027ve bumped the priority of bug 166540 and it\u0027s the first thing we\u0027ll investigate on Monday.  However, since JIRA is using the -D mechanism for proxies and its own httpclient, is this bug really dependent?",
+    "(In reply to comment #42)\n\u003e (In reply to comment #41)\n\u003e \u003e I\u0027m not certain exactly what you mean when you say it\u0027s requested two times.\n\u003e \n\u003e All I see that squid got two requests. 407 then 200.\n\nOk, then that\u0027s exactly what I would expect.  If the connection was done with \"preemptive authentication\", you wouldn\u0027t have seen the 407.\n",
+    " (In reply to comment #44)\n\u003e Ok, then that\u0027s exactly what I would expect.  If the connection was done with \n\u003e \"preemptive authentication\", you wouldn\u0027t have seen the 407.\n\nDavid, does that matter? I was able to connect to JIRA trough authenticated proxy, squid in my case.\n",
+    "(In reply to comment #45)\n\u003e  (In reply to comment #44)\n\u003e \u003e Ok, then that\u0027s exactly what I would expect.  If the connection was done with \n\u003e \u003e \"preemptive authentication\", you wouldn\u0027t have seen the 407.\n\u003e \n\u003e David, does that matter? I was able to connect to JIRA trough authenticated\n\u003e proxy, squid in my case.\n\u003e \n\nI don\u0027t know if it truly matters in this case.  I do know that in a case I was working on in my own code, I saw that HTTPClient didn\u0027t handle the 407 protocol perfectly.  I was sending some other headers along with the proxy auth, and I saw that it only sent all of the additional headers on the FIRST request (which received the 407), and not on the second request, which ended up being the request that was actually used.  As a result, the downstream code failed, as it was missing some required headers.  When I turned on preemptive authentication, the problem went away.  From what I can see, it doesn\u0027t seem like that\u0027s what\u0027s happening here.  There\u0027s no question, however, that using preemptive auth is more efficient, as it results in only a single request.",
+    "David, I understand. However this would be an improvement that JIRA core services can implement in the future and you can fill an enhancement request in JIRA services issue tracker at http://developer.atlassian.com/jira/\n\nAnyways, as far as I can tell, with correct settings JIRA is working trough authenticated proxy (at least with squid setup I have here). I also fixed mistake on the wiki to reflect the correct system property for proxy user name. http://wiki.eclipse.org/index.php/Mylar_FAQ#JIRA_Connector_troubleshooting\n\nClosing this issue as fixed now. Let\u0027s discuss other issues in new bugs.\n\n",
+    "(In reply to comment #47)\n\u003e David, I understand. However this would be an improvement that JIRA core\n\u003e services can implement in the future and you can fill an enhancement request in\n\u003e JIRA services issue tracker at http://developer.atlassian.com/jira/\n\u003e \n\u003e Anyways, as far as I can tell, with correct settings JIRA is working trough\n\u003e authenticated proxy (at least with squid setup I have here). I also fixed\n\u003e mistake on the wiki to reflect the correct system property for proxy user name.\n\u003e http://wiki.eclipse.org/index.php/Mylar_FAQ#JIRA_Connector_troubleshooting\n\u003e \n\u003e Closing this issue as fixed now. Let\u0027s discuss other issues in new bugs.\n\u003e \n\nI\u0027m confused.  You\u0027re marking this issue as resolved.  If I\u0027m understanding this correctly, you didn\u0027t change anything, right?  You don\u0027t mark a bug as resolved just because you can\u0027t repeat it.  With 0.9.1, I cannot use the JIRA connector through my proxy.  This bug is certainly not fixed.",
+    "(In reply to comment #48)\n\u003e I\u0027m confused.  You\u0027re marking this issue as resolved.  If I\u0027m understanding\n\u003e this correctly, you didn\u0027t change anything, right?  \n\nI didn\u0027t. But since issue was opened at the end of September Brock made several changes to JIRA core services. So, since middle of November Mylar is using an updated version and I just confirmed in my tests that basic functionality is working, hence closing bug since original issue is resolved.\n\n\u003e You don\u0027t mark a bug as\n\u003e resolved just because you can\u0027t repeat it.  With 0.9.1, I cannot use the JIRA\n\u003e connector through my proxy.  This bug is certainly not fixed.\n\nI understand that you still have issues there and already suggested to hunt your personal ghosts separately. :-)\nLet\u0027s get all information about your environment in a new issue. So, any information you can provide about type of your proxy, version of jira, used auth schemes, etc, would help us to identify what cause this in your case.",
+    "I would like to leave this bug open until we are sure that David\u0027s case is abnormal, and if so it should be documented in the following since others might encounter it.  Either way we need to clearly communicate any limitations of proxy support for JIRA.\n\nhttp://wiki.eclipse.org/index.php/Mylar_FAQ#JIRA_Connector_troubleshooting\n\nEugene: I guess we need a test JIRA server behind a proxy on mylar.eclipse.org?",
+    "(In reply to comment #50)\n\u003e Eugene: I guess we need a test JIRA server behind a proxy on mylar.eclipse.org?\n\nSomething like that. You also need to make sure that your client can\u0027t connect directly to that jira server. \n\nWhen I was testing locally, I disabled connection on my router, so I am quite confident that basic setup is working. \n\nNote that there is an issue with digester auth in httpclient Mylar is using right now, and I won\u0027t be surprised if other types of authentication does not work either.",
+    "If it matters, the JIRA repo I\u0027m trying to use is at \u003chttp://opensource.atlassian.com\u003e.\n\nI\u0027ve said it before, but I\u0027ll say it again. It might be useful if someone could help me get my Eclipse environment set up so I can step through the code myself.  I have a LiveMeeting subscription, so I should be able to share my desktop with someone else.  I also have a conference line, so we should be able to talk on the phone while I\u0027m stepping through this.  Someone just has to step up and decide this is worth trying.",
+    "Note that http://opensource.atlassian.com is a portal site. Which particular JIRA instance you are connecting to?\n\nI\u0027ve been testing with http://developer.atlassian.com/jira that has slightly newer version of JIRA then most of the sites from the opensource portal. That could be a reason why it didn\u0027t work for you.",
+    "David: the instructions to get your workspace set up only take a few steps: http://wiki.eclipse.org/index.php/Mylar_Contributor_Reference#Workspace_setup\n\nIt would be great if you could try and help isolate this problem.",
+    "Yes, I know about the contributor reference.  I went through much of that, but it doesn\u0027t quite work for me.  I\u0027ll have to review again what didn\u0027t work.  I know I was unable to install the \"projects-jira.psf\" file, but I don\u0027t remember what happened.  I\u0027ll reply again with more information.\n\nThe other annoyance with this is that this problem is not the only situation where Eclipse doesn\u0027t work with the auth proxy.  While on the proxy, I\u0027m unable to sync with source repositories, and I have some trouble with the Update Manager.  I think it can check for new revisions, but not new features.",
+    "(In reply to comment #53)\n\u003e Note that http://opensource.atlassian.com is a portal site. Which particular\n\u003e JIRA instance you are connecting to?\n\u003e \n\u003e I\u0027ve been testing with http://developer.atlassian.com/jira that has slightly\n\u003e newer version of JIRA then most of the sites from the opensource portal. That\n\u003e could be a reason why it didn\u0027t work for you.\n\u003e \n\nI just tried setting up a repo at that URL, and I get the same 407 error that I get with the other JIRA repo.",
+    "When I try to import the projects-jira.psf file, I get the following exception.  I\u0027ll check for updates to the subclipse plugin.  I\u0027m running JDK 1.5.0_09.\n\n!ENTRY org.eclipse.ui 4 4 2006-12-03 09:59:50.897\n!MESSAGE Unhandled event loop exception\n\n!ENTRY org.eclipse.ui 4 0 2006-12-03 09:59:50.897\n!MESSAGE Name index 0 in LocalVariableTable has bad constant type in class file org/tigris/subversion/subclipse/core/resources/RemoteResource\n!STACK 0\njava.lang.ClassFormatError: Name index 0 in LocalVariableTable has bad constant type in class file org/tigris/subversion/subclipse/core/resources/RemoteResource\n\tat java.lang.ClassLoader.defineClass1(Native Method)\n\tat java.lang.ClassLoader.defineClass(ClassLoader.java:620)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.defineClass(DefaultClassLoader.java:161)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.defineClass(ClasspathManager.java:499)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findClassImpl(ClasspathManager.java:469)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClassImpl(ClasspathManager.java:428)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClass(ClasspathManager.java:411)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.findLocalClass(DefaultClassLoader.java:189)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass(BundleLoader.java:334)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:386)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:347)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass(DefaultClassLoader.java:83)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:251)\n\tat java.lang.ClassLoader.loadClassInternal(ClassLoader.java:319)\n\tat java.lang.ClassLoader.defineClass1(Native Method)\n\tat java.lang.ClassLoader.defineClass(ClassLoader.java:620)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.defineClass(DefaultClassLoader.java:161)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.defineClass(ClasspathManager.java:499)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findClassImpl(ClasspathManager.java:469)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClassImpl(ClasspathManager.java:428)\n\tat org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClass(ClasspathManager.java:411)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.findLocalClass(DefaultClassLoader.java:189)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass(BundleLoader.java:334)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:386)\n\tat org.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java:347)\n\tat org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass(DefaultClassLoader.java:83)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:251)\n\tat java.lang.ClassLoader.loadClassInternal(ClassLoader.java:319)\n\tat org.tigris.subversion.subclipse.core.repo.SVNRepositoryLocation.\u003cinit\u003e(SVNRepositoryLocation.java:102)\n\tat org.tigris.subversion.subclipse.core.repo.SVNRepositoryLocation.fromString(SVNRepositoryLocation.java:465)\n\tat org.tigris.subversion.subclipse.core.repo.SVNRepositoryLocation.fromString(SVNRepositoryLocation.java:434)\n\tat org.tigris.subversion.subclipse.core.SVNProjectSetCapability$LoadInfo.\u003cinit\u003e(SVNProjectSetCapability.java:207)\n\tat org.tigris.subversion.subclipse.core.SVNProjectSetCapability.asProjects(SVNProjectSetCapability.java:137)\n\tat org.tigris.subversion.subclipse.core.SVNProjectSetCapability.addToWorkspace(SVNProjectSetCapability.java:105)\n\tat org.eclipse.team.internal.ui.ProjectSetImporter.importProjectSet(ProjectSetImporter.java:68)\n\tat org.eclipse.team.internal.ui.wizards.ProjectSetImportWizard$1.execute(ProjectSetImportWizard.java:50)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation$1.run(WorkspaceModifyOperation.java:101)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1742)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:113)\n\tat org.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)\n",
+    "Just checkout projects from svn at:\n\nhttp://jira-dashboard.tigris.org/svn/jira-dashboard/trunk/org.tigris.jira.core\nhttp://jira-dashboard.tigris.org/svn/jira-dashboard/trunk/org.tigris.jira.core.soap",
+    "(In reply to comment #58)\n\u003e Just checkout projects from svn at:\n\u003e \n\u003e http://jira-dashboard.tigris.org/svn/jira-dashboard/trunk/org.tigris.jira.core\n\u003e http://jira-dashboard.tigris.org/svn/jira-dashboard/trunk/org.tigris.jira.core.soap\n\u003e \n\nNo difference.  Exactly the same exception.",
+    "Damn it! Use the command line svn client or something. :-)\nLast Subclipse is available from here http://subclipse.tigris.org/callisto.html\nThere is also Subversive plugin at http://polarion.org/",
+    "Ok, I gave up on Subclipse and installed the Subversive plugin (along with the required \"ProjectSet\" plugin).  I think I was able to get all of the JIRA code, although it\u0027s hard to tell.  There were lots of choices along the way.\n\nWhen I view all the collected plugin projects in my 3.3m3 workspace, I see a red X on /org.tigris.jira.core.mock and /org.tigris.jira.ui.  I have a feeling those are both for test classes, so I\u0027m not going to worry about those at this point.\n\nIn order to run this, I tried creating an Eclipse Application launch config, where in the \"Plug-ins\" portion of the launch config, I set \"Choose plug-ins and fragments to launch from the list\", and I selected everything in my workspace.\n\nWhen I run this, it fails to create the Task Repositories view on a CNF Exception for org.eclipse.mylar.internal.tasks.ui.views.TaskRepositoriesView.  This is in the /org.eclipse.mylar.tasks.ui plugin project, which I had selected in the plugin dependencies, so I\u0027m not certain why it can\u0027t find it.\n\nI tried following the instructions in the contributor reference, but I don\u0027t seem to see anything there that describes how to run it.\n\n",
+    "I am starting to have feeling that this part of the conversation should be happening in Mylar dev mailing list mylar-dev@eclipse.org\n\nYou can subscribe at https://dev.eclipse.org/mailman/listinfo/mylar-dev",
+    "Not sure what there is left to do here without the JIRA Core Services move.  Eugene, if you have further suggestions please post, otherwise posponing further changes until after 1.0.\n\nEugene: if you could do a quick check to ensure the FAQ is still right given the most recent changes that would be great: http://wiki.eclipse.org/index.php/Mylar_FAQ#JIRA_Connector_troubleshooting ",
+    "(In reply to comment #63)\nI don\u0027t think we have anything left here. Further work ill require changes in jira core services.\n\nThe only item left on the agenda, how can we make David to disappear, since only he can see issues with auth proxies (not only for jira)... I have some connections though. :-)",
+    "Well, since I\u0027m pretty sure that we do not want to make David disappear since his feedback is valuable I\u0027m marking complete :)\n\nDavid: if you do have any clear steps to reproduce failures please reopen.  Proxy configurations are notoriously tricky both on our end and on the network end.\n\nEugene: please confirm whether the instructions in the FAQ sufficient.",
+    "(In reply to comment #65)\n\u003e Eugene: please confirm whether the instructions in the FAQ sufficient.\n\nThey worked for me, but I made those corrections in that FAQ few days ago.",
+    "Great, thanks."
+  ],
+  "commentCreationDates": [
+    "2006-09-29T18:30:23+02:00",
+    "2006-09-29T19:42:26+02:00",
+    "2006-10-02T11:49:53+02:00",
+    "2006-10-05T17:37:52+02:00",
+    "2006-10-05T22:34:41+02:00",
+    "2006-10-20T10:29:44+02:00",
+    "2006-10-20T17:25:56+02:00",
+    "2006-11-06T18:39:06+01:00",
+    "2006-11-06T18:41:06+01:00",
+    "2006-11-06T20:38:02+01:00",
+    "2006-11-06T20:54:19+01:00",
+    "2006-11-06T22:24:44+01:00",
+    "2006-11-06T22:33:09+01:00",
+    "2006-11-08T13:54:44+01:00",
+    "2006-11-08T22:04:46+01:00",
+    "2006-11-08T22:25:08+01:00",
+    "2006-11-08T22:36:43+01:00",
+    "2006-11-08T22:52:19+01:00",
+    "2006-11-09T06:40:49+01:00",
+    "2006-11-09T11:14:10+01:00",
+    "2006-11-12T06:01:29+01:00",
+    "2006-11-14T10:45:24+01:00",
+    "2006-11-14T20:55:10+01:00",
+    "2006-11-24T16:31:22+01:00",
+    "2006-11-24T18:27:59+01:00",
+    "2006-11-24T18:44:16+01:00",
+    "2006-11-24T19:26:24+01:00",
+    "2006-11-24T19:52:47+01:00",
+    "2006-11-24T22:58:27+01:00",
+    "2006-11-24T23:00:54+01:00",
+    "2006-11-24T23:24:48+01:00",
+    "2006-11-24T23:39:17+01:00",
+    "2006-11-25T00:54:52+01:00",
+    "2006-11-25T01:22:57+01:00",
+    "2006-11-25T01:50:54+01:00",
+    "2006-11-25T02:12:28+01:00",
+    "2006-11-25T04:51:58+01:00",
+    "2006-12-02T01:07:52+01:00",
+    "2006-12-02T01:18:22+01:00",
+    "2006-12-02T02:26:14+01:00",
+    "2006-12-02T05:29:28+01:00",
+    "2006-12-02T07:25:45+01:00",
+    "2006-12-02T07:31:01+01:00",
+    "2006-12-02T13:24:56+01:00",
+    "2006-12-02T17:50:28+01:00",
+    "2006-12-02T17:58:39+01:00",
+    "2006-12-02T18:33:11+01:00",
+    "2006-12-02T19:43:36+01:00",
+    "2006-12-03T01:09:42+01:00",
+    "2006-12-03T01:18:00+01:00",
+    "2006-12-03T03:04:12+01:00",
+    "2006-12-03T03:10:59+01:00",
+    "2006-12-03T03:52:38+01:00",
+    "2006-12-03T04:09:05+01:00",
+    "2006-12-03T05:27:31+01:00",
+    "2006-12-03T17:40:15+01:00",
+    "2006-12-03T17:50:44+01:00",
+    "2006-12-03T18:09:26+01:00",
+    "2006-12-03T21:48:29+01:00",
+    "2006-12-03T23:04:39+01:00",
+    "2006-12-03T23:52:13+01:00",
+    "2006-12-04T02:52:37+01:00",
+    "2006-12-04T03:01:15+01:00",
+    "2006-12-07T00:18:54+01:00",
+    "2006-12-07T00:37:50+01:00",
+    "2006-12-07T00:52:29+01:00",
+    "2006-12-07T01:09:06+01:00",
+    "2006-12-07T01:29:47+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.tigris.jira.internal.core.service.web.rss.RSSFeedProcessorCallback.isXMLOrRSS",
+          "source": "RSSFeedProcessorCallback.java:156"
+        },
+        {
+          "method": "org.tigris.jira.internal.core.service.web.rss.RSSFeedProcessorCallback.execute",
+          "source": "RSSFeedProcessorCallback.java:61"
+        },
+        {
+          "method": "org.tigris.jira.internal.core.service.web.JiraWebSession.doInSession",
+          "source": "JiraWebSession.java:91"
+        },
+        {
+          "method": "org.tigris.jira.internal.core.service.web.rss.RSSJiraFilterService.quickSearch",
+          "source": "RSSJiraFilterService.java:93"
+        },
+        {
+          "method": "org.tigris.jira.internal.core.service.soap.SoapJiraService.getIssue",
+          "source": "SoapJiraService.java:170"
+        },
+        {
+          "method": "org.tigris.jira.core.service.CachedRpcJiraServer.getIssue",
+          "source": "CachedRpcJiraServer.java:439"
+        },
+        {
+          "method": "org.eclipse.mylar.internal.jira.JiraRepositoryConnector.createTaskFromExistingKey",
+          "source": "JiraRepositoryConnector.java:79"
+        },
+        {
+          "method": "org.eclipse.mylar.internal.tasks.ui.wizards.CommonAddExistingTaskWizard$AddExistingTaskJob.run",
+          "source": "CommonAddExistingTaskWizard.java:76"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 13,
+      "bugId": "159313",
+      "date": "2006-11-08T13:54:44+01:00",
+      "product": "Mylyn",
+      "component": "Jira",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ClassFormatError",
+      "message": "Name index 0 in LocalVariableTable has bad constant type in class file org/tigris/subversion/subclipse/core/resources/RemoteResource",
+      "elements": [
+        {
+          "method": "java.lang.ClassLoader.defineClass1",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.ClassLoader.defineClass",
+          "source": "ClassLoader.java:620"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.defineClass",
+          "source": "DefaultClassLoader.java:161"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.defineClass",
+          "source": "ClasspathManager.java:499"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findClassImpl",
+          "source": "ClasspathManager.java:469"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClassImpl",
+          "source": "ClasspathManager.java:428"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClass",
+          "source": "ClasspathManager.java:411"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.findLocalClass",
+          "source": "DefaultClassLoader.java:189"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+          "source": "BundleLoader.java:334"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:386"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:347"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass",
+          "source": "DefaultClassLoader.java:83"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:251"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClassInternal",
+          "source": "ClassLoader.java:319"
+        },
+        {
+          "method": "java.lang.ClassLoader.defineClass1",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.ClassLoader.defineClass",
+          "source": "ClassLoader.java:620"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.defineClass",
+          "source": "DefaultClassLoader.java:161"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.defineClass",
+          "source": "ClasspathManager.java:499"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findClassImpl",
+          "source": "ClasspathManager.java:469"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClassImpl",
+          "source": "ClasspathManager.java:428"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.loader.ClasspathManager.findLocalClass",
+          "source": "ClasspathManager.java:411"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.findLocalClass",
+          "source": "DefaultClassLoader.java:189"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+          "source": "BundleLoader.java:334"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:386"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java:347"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader.loadClass",
+          "source": "DefaultClassLoader.java:83"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:251"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClassInternal",
+          "source": "ClassLoader.java:319"
+        },
+        {
+          "method": "org.tigris.subversion.subclipse.core.repo.SVNRepositoryLocation.\u003cinit\u003e",
+          "source": "SVNRepositoryLocation.java:102"
+        },
+        {
+          "method": "org.tigris.subversion.subclipse.core.repo.SVNRepositoryLocation.fromString",
+          "source": "SVNRepositoryLocation.java:465"
+        },
+        {
+          "method": "org.tigris.subversion.subclipse.core.repo.SVNRepositoryLocation.fromString",
+          "source": "SVNRepositoryLocation.java:434"
+        },
+        {
+          "method": "org.tigris.subversion.subclipse.core.SVNProjectSetCapability$LoadInfo.\u003cinit\u003e",
+          "source": "SVNProjectSetCapability.java:207"
+        },
+        {
+          "method": "org.tigris.subversion.subclipse.core.SVNProjectSetCapability.asProjects",
+          "source": "SVNProjectSetCapability.java:137"
+        },
+        {
+          "method": "org.tigris.subversion.subclipse.core.SVNProjectSetCapability.addToWorkspace",
+          "source": "SVNProjectSetCapability.java:105"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.ProjectSetImporter.importProjectSet",
+          "source": "ProjectSetImporter.java:68"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.wizards.ProjectSetImportWizard$1.execute",
+          "source": "ProjectSetImportWizard.java:50"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation$1.run",
+          "source": "WorkspaceModifyOperation.java:101"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1742"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:113"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:113"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 57,
+      "bugId": "159313",
+      "date": "2006-12-03T18:09:26+01:00",
+      "product": "Mylyn",
+      "component": "Jira",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "159313",
+  "bugId": "159313",
+  "date": "2006-09-29T18:30:23+02:00",
+  "product": "Mylyn",
+  "component": "Jira",
+  "severity": "normal"
+}

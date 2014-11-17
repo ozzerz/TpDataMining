@@ -1,0 +1,96 @@
+{
+  "comments": [
+    "I have a very strange situation - which is probably exposing a bug in the JVM.  But SWT is what triggers the bug - so maybe you can find a workaround.  I know better than to try to get sun to fix a jvm bug in less than, say, an infinite number or years.\n\nThe short version:\n\nIf I run this code:\n\nimport java.util.zip.Deflater;\nimport org.eclipse.swt.widgets.Display;\n\npublic class Bug \n{\n\tpublic static void main(String[] args) \n        {\n            Display display \u003d new Display();\n    \t    Deflater compressor \u003d new Deflater();\n\t}\n}\n\nThe JVM will die with this error:\nException in thread \"main\" java.lang.InternalError\n\tat java.util.zip.Deflater.init(Native Method)\n\tat java.util.zip.Deflater.\u003cinit\u003e(Deflater.java:117)\n\tat java.util.zip.Deflater.\u003cinit\u003e(Deflater.java:134)\n\tat bug.Bug.main(Bug.java:13)\n\n\nDetails:\n\njava -version\njava version \"1.5.0_10\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.5.0_10-b03)\nJava HotSpot(TM) 64-Bit Server VM (build 1.5.0_10-b03, mixed mode)\n\nThe system is a 64 bit opteron - running Fedora Core 5.\n\nuname -a\nLinux bmidev2 2.6.18-1.2239.fc5 #1 SMP Fri Nov 10 12:51:06 EST 2006 x86_64 x86_64 x86_64 GNU/Linux\n\nThe SWT version I am using is 3232.  \n\nOdd facts about this bug:\nIf I do not create a \"Display\" object - the Deflater call works fine.\n\nIf I run the code using suns 32 bit JVM (and the 32 bit SWT library)  I cannot reproduce the bug.\n\nIf I run the code using IBM\u0027s 64 bit JVM, the Deflater call works fine.\n\nIf I run this code on a different (but very similar) machine which is running Fedora Core 6 - this call works fine.\n\nAny suggestions would be welcome.",
+    "Interesting.  Creating a Display initializes GTK, opens an X connection, initialized locale stuff etc.  I have no idea what the code for Deflater does and have never seen the code.  I am assuming it makes native calls that might not expect X and GTK to be initialized?\n\nWhat happens if you create the Display after the Deflater and then try and use it.  Does it work?",
+    "I\u0027m marking this as WONTFIX because it looks like a bug in the JVM that we CANTFIX.  This doesn\u0027t mean that we have to stop the discussion, it just means that their is no bug for SWT to fix.",
+    "This works:\n\nDeflater compressor \u003d new Deflater();\nDisplay display \u003d new Display();\n\nand this works:\n\nDeflater compressor \u003d new Deflater();\nDisplay display \u003d new Display();\nDeflater compressor2 \u003d new Deflater();\n\nIt hadn\u0027t occurred to me to try that.  I think that will suffice as a workaround - I\u0027ll just put a call in to the compressor before I start up the display.\n\nWhat a bizarre error.\n\nThanks, \n\nDan",
+    "Sigh - well, sometimes the workaround works.  \n\nBut in the code I actually wanted it to fix - it results in:\n\n#\n# An unexpected error has been detected by HotSpot Virtual Machine:\n#\n#  SIGSEGV (0xb) at pc\u003d0x000000384dd05727, pid\u003d30084, tid\u003d1093032256\n#\n# Java VM: Java HotSpot(TM) 64-Bit Server VM (1.5.0_10-b03 mixed mode)\n# Problematic frame:\n# C  [libz.so.1+0x5727]  deflateParams+0x87\n#\n\nOh, the fun.\n\nI\u0027m going to go open up a corresponding bug report with Sun, not that it will do me any good.",
+    "Could it be that you are somehow mixing 32-bit SWT with a 64-bit Java VM?",
+    "I\u0027ve double checked to ensure that everything is using 64 bit code.\n\nI\u0027ve filed a bug with Sun, including the seg fault stack.  \n\nIf / when they decided to acknowledge it as a bug, I\u0027ll follow up here with the bug number.\n\n",
+    "Ok, hope for the best.",
+    "(In reply to comment #7)\n\u003e Ok, hope for the best.\n\n1) What is the result if you add \"-showversion -Xcheck:jni\" to the run flags?\n\n2) WHere do I download \"org.eclipse.swt.widgets.Display\" so I can try to\nreproduce this from your posted test case?\n\nNeed a bit more information to hopefully narrow this down quickly ... thanks-\n\n  Tim Bell  tim.bell@sun.com   Serviceability Group\n  Sun Microsystems, Inc.       Java SE Engineering",
+    "Question 1)\n\nWith the following options:\n\n-Djava.library.path\u003dswt/ -showversion -Xcheck:jni\n\njava version \"1.5.0_10\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.5.0_10-b03)\nJava HotSpot(TM) 64-Bit Server VM (build 1.5.0_10-b03, mixed mode)\n\nException in thread \"main\" java.lang.InternalError\n\tat java.util.zip.Deflater.init(Native Method)\n\tat java.util.zip.Deflater.\u003cinit\u003e(Deflater.java:117)\n\tat java.util.zip.Deflater.\u003cinit\u003e(Deflater.java:134)\n\tat bug.Bug.main(Bug.java:13)\n\n\n\n\nQuestion 2)\nYou can download SWT (for linux 64 bit) here:\nhttp://www.eclipse.org/downloads/download.php?file\u003d/eclipse/downloads/drops/R-3.2.1-200609210945/swt-3.2.1-gtk-linux-x86_64.zip\n\nThis is a slightly newer version than what I used when I posted the bug, (now 3235) but I have confirmed that the bug occurs with this version as well.\n\nThanks, \n\nDan\n\n",
+    "Dan, dumb question:  Did we ensure that the problem isn\u0027t somehow magically fixed using the latest SWT from HEAD?  Please try it.\n\nHi Tim!  Hope we can resolve this.  I believe you should also be testing against the latest SWT.  You can run with SWT from CVS and see exactly what the code is doing by following these instructions: \n\nhttp://www.eclipse.org/swt/cvs.php\n\nSince there is no custom C code, you will be able to see exactly which GTK calls we are making, where and when.",
+    "Darn, I forgot that their is a problem running 64-bit from HEAD ... crap.",
+    "*** Bug 171688 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2007-01-03T22:57:26+01:00",
+    "2007-01-10T01:32:08+01:00",
+    "2007-01-10T01:33:20+01:00",
+    "2007-01-10T20:41:55+01:00",
+    "2007-01-10T20:52:27+01:00",
+    "2007-01-10T22:16:45+01:00",
+    "2007-01-10T22:26:08+01:00",
+    "2007-01-10T22:34:09+01:00",
+    "2007-01-17T03:31:20+01:00",
+    "2007-01-17T15:05:49+01:00",
+    "2007-01-17T15:35:59+01:00",
+    "2007-01-17T15:37:07+01:00",
+    "2007-01-30T14:01:04+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.InternalError",
+      "elements": [
+        {
+          "method": "java.util.zip.Deflater.init",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.util.zip.Deflater.\u003cinit\u003e",
+          "source": "Deflater.java:117"
+        },
+        {
+          "method": "java.util.zip.Deflater.\u003cinit\u003e",
+          "source": "Deflater.java:134"
+        },
+        {
+          "method": "bug.Bug.main",
+          "source": "Bug.java:13"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "169484",
+      "date": "2007-01-03T22:57:26+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.InternalError",
+      "elements": [
+        {
+          "method": "java.util.zip.Deflater.init",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.util.zip.Deflater.\u003cinit\u003e",
+          "source": "Deflater.java:117"
+        },
+        {
+          "method": "java.util.zip.Deflater.\u003cinit\u003e",
+          "source": "Deflater.java:134"
+        },
+        {
+          "method": "bug.Bug.main",
+          "source": "Bug.java:13"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 9,
+      "bugId": "169484",
+      "date": "2007-01-17T15:05:49+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "169484",
+  "bugId": "169484",
+  "date": "2007-01-03T22:57:26+01:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

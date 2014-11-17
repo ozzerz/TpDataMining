@@ -1,0 +1,261 @@
+{
+  "comments": [
+    "I generated the build.xml for org.eclipse.core.tools and found that it \ncontained the classpath (below) for use in compiling coretools.jar.  I have put \nin line breaks and annotations to simplify things here.\n\nThere are several things to notice:\n1) every project has a bin dir entry.  I only have about 4 source projects in \nmy workspace.  We should consider only adding these where required.  In any \ncase, the bin entries should occur with (and before) the corresponding .jar \nentries if they both exist.  This better matches what happens at runtime.\n\n2) the order of the entries is wrong.  There does not appear to be any rhyme \nnor reason to the order (likely output from a hashed data structure).  the \nentries should be in an order which corresponds to the order in the plugin.xml \nrequires statements.  Again, this matches the execution environment.\n\n3) additional jars included in the plugin itself (e.g., tools.jar here) should \nbe at the beginning of the path.\n\n../org.eclipse.ui.views/bin;\n../org.eclipse.core.runtime/bin;\n../org.eclipse.core.runtime/runtime.jar;\n../org.eclipse.ui.workbench/workbench.jar;\n../org.eclipse.core.resources/resources.jar;\n../org.eclipse.ui.win32/ui.jar;\n../org.eclipse.core.boot/bin;\n../org.eclipse.swt/ws/${ws}/swt.jar;\n../org.eclipse.text/text.jar;\n../org.eclipse.jface/bin;\n../org.eclipse.ui.views/views.jar;\n../org.eclipse.ui.workbench.texteditor/bin;\n../org.eclipse.ui.editors/bin;\n../org.eclipse.core.resources.win32/resources.jar;\n../org.eclipse.ui.workbench/bin;\n../org.eclipse.jface/jface.jar;\n../org.eclipse.ui.editors/editors.jar;\n../org.eclipse.ui/bin;\n../org.eclipse.ui/ui.jar;\n../org.eclipse.swt.win32/ws/${ws}/swt.jar;\n../org.eclipse.core.resources.spysupport/spysupport.jar;\n../org.eclipse.core.resources/bin;\n../org.eclipse.swt/bin;\n../org.eclipse.text/bin;\n../org.eclipse.ui.win32/workbenchwin32.jar;\n../org.eclipse.jface.text/bin;\n../org.eclipse.core.boot/boot.jar;\n../org.eclipse.ui.workbench.texteditor/texteditor.jar;\ntools.jar;\n../org.eclipse.core.resources.spysupport/resources.jar;\n../org.eclipse.jface.text/jfacetext.jar",
+    "More notes\n\n4) There is an entry\n../org.eclipse.core.resources.spysupport/spysupport.jar;\nbut no corresponding bin entry.  It turns out that this was the one case where \nI really did want a bin entry as I was working on that fragment as well so had \nit as class files not a jar.\n\n5)fragment entries must occur with (but AFTER) the corresponding plugin.  \nAgain, this mimics the execution classpath.  In the example here, resources/bin \noccurs after the spysupport.jar entry. \n\n\nFinally, I believe that this code worked at one point so it may be possible to \ntrack down the old code and reinstate it.  Perhaps in the 1.0 timeframe?\n\n",
+    "Should investigate re-using the code in Runtime which calculates the classpath \nfor the plug-ins.",
+    "PluginDescriptor.getPluginClassLoaderPath\n",
+    "This problem was also causing the eclipse build to fail.\nI fixed it in this case, but haven\u0027t tested yet with the PDE.\n\nThe solution does not use the code proposed by DJ because\nit needed adaptation, whereas the fix was straightforward.",
+    "The code computing the classpath (AbstractBuildScriptGenerator::getClasspath)\nhas been updated to reflect the requirements, and the way classpath should be \ncomputed. The code returns a classpath much closer to the one got at runtime.",
+    "It appears that the compile path is still wrong. Below is the path for \norg.eclipse.pde.build.  Several things to note:\n\n1) xerces comes after runtime and ant.core both of which require it.\n2) jdt comes before resources (jdt requires resources)\n3) strangely, the update core jar is setup to come from a different place \naltogether.  This location exists but that jar is just data and will be deleted \nlater.  it should not be discovered (note that all the jars have copies in that \nsame directory and they are not coming from this strange place)\n\n../org.eclipse.core.boot/boot.jar;\n../org.eclipse.core.runtime/runtime.jar;\n../org.apache.ant/ant.jar;\n../org.eclipse.ant.core/antsupport.jar;\n../org.apache.xerces/xmlParserAPIs.jar;\n../org.apache.xerces/xercesImpl.jar;\n../org.eclipse.jdt.core/jdtcore.jar;\n../org.eclipse.core.resources/resources.jar;\n../org.eclipse.releng.builder/plugins/org.eclipse.update.core_2.1.0/updatecore.j\nar\"\u003e\n",
+    "More information.\n\n- There are several issues in getClassPath() with the ordering of when entries \nare added.  The code is marked up with TO DO comments.  It should work for now \nbut needs more attention.\n\n- Utils.findFiles is too eager.  It looks infinitely deep and finds \nplugins/features that are not in standard places. This could be good but the \nfiles could well be old/temporary and conflicting.  For example, this behaviour \nis the cause of the random update.core plugin being found.  I worked around \nthis by deleting the offending files but the findFiles method should be tamed \nwith a depth parameter.",
+    "Created an attachment (id\u003d3309)\nPatch fixing the classpath problem\n\nThis patch also contains a fix to modify the order in which the plugins get\ncompiled by a feature",
+    "*** Bug 29102 has been marked as a duplicate of this bug. ***",
+    "Created an attachment (id\u003d3330)\nPatch for the class AbstractBuildScriptGenerator\n\nCan not be used without the patch classpath-IXMLConstants",
+    "Created an attachment (id\u003d3331)\nPatch for IXMLConstants\n",
+    "(From update of attachment 3309)\nobsolete\n",
+    "(From update of attachment 3330)\nobsolete\n",
+    "(From update of attachment 3331)\nobsolete\n",
+    "This is still incorrect. Note the following about the classpath generated for\nthe org.eclipse.core.resources plugin.xml:\n- the resources.jar is missing\n- the fragments are missing (I have 4 fragments in my workspace)\n\n../org.eclipse.core.boot/bin\n../org.eclipse.core.boot/boot.jar\n../org.eclipse.core.boot.nl1/bin\n../org.eclipse.core.boot.nl1/nl1.jar\nlib/ant.jar\nlib/antsupport.jar\n../org.eclipse.core.runtime/bin\n../org.eclipse.core.runtime/runtime.jar\n../org.eclipse.core.runtime.nl1/bin\n../org.eclipse.core.runtime.nl1/nl1.jar\n../org.apache.xerces/bin\n../org.apache.xerces/xmlParserAPIs.jar\n../org.apache.xerces/xercesImpl.jar\n",
+    "I haven\u0027t fully checked the order but it seems correct according to the famous \nPSP motto (Parent Self Prerequisite).\n\nThe resources.jar must not appear into the list because it is the plugin for \nwhich the classpath in being computed.\n\nI don\u0027t see the reason why we should have the resource fragments jars into the \nclasspath since we ARE compiling resources!!!\nThe only reason I can think of is: \"because this is the way it is done in the \nclassloader\", and this is incorrect in the case of the classpath (if it does \nnot lead to errors, it is conceptually wrong).\n\nIt is wrong because fragments are supposed to provide addition to a plugin, \nand the plugin (to which the fragments get contributed) must not know about \nthem in advance. Moreover fragments may or not be present at runtime based on \nvarious conditions.\nSo, for example, putting the fragments jars of the resource plugin onto the \nclasspath for the compilation of the plugin resource would allow the resource \nplugin to refer to code which is only available into one of its fragment.\n\n\nExtra note:\nThe tools.jar entry found in the core tools plugin classpath is wrong and is \ndue to the inclusion of a plugin and its fragments. It must be fixed.",
+    "As of N20030212 build, the build.xml generated for org.eclipse.help.tests plug-\nin is still wrong and does not contain entry\n  ../org.eclipse.help.ui.win32/bin\nfor the org.eclipse.help.ui.win32 fragment, but it correctly contains\n  ../org.eclipse.help.ui.win32/helpworkbenchwin32.jar\n\nTherefore I need to patch the build.xml or have an entry\n  jars.extra.classpath\u003d../org.eclipse.help.ui.win32/bin in the build.properties \nto be able to compile the test plug-in in my workspace.",
+    "This is normal since the code has not been released yet",
+    "Created an attachment (id\u003d3470)\nYet another patch\n",
+    "Comment #16 is generally accurate with the following clarifications:\n- resources.jar is not included because it is the *jar* for which the classpath \nis being computed.  Other jars in the plugin should be included.  \n\n- The tools.jar in the core tools plugin is a jar does not come from a \nfragment.  It is a jar that is supplied by a third party and is not compiled by \nthe build.  It should be included in the path as appropriate.\n\n- Fragments for a plugin should NOT be included on the classpath for jars \ndefined in *that* plugin.\n\n- Fragments for a plugin should be included on the classpath for jars from \nother fragments for *that* plugin.  This allows people to have collections of \ncooperating fragments.  They of course all need to be present at compile time \nand errors will likely occur at runtime if fragments are missing but that is a \nconfiguration/install issue.\n\n- Fragments for prerequisite plugins should be included on the classpath for \njars in a plugin.  This allows a feature to supply plugin A (which requires \nplugin B) and a fragment for plugin B which adds more function and is used by \nA.  Again, this may cause runtime errors if the fragment is not present but \nthat is a configuration/install issue.",
+    "Gadzooks!!  I did not mean to make this into an enhancement.  It is still \ncritical.  Changing it back...\n",
+    "The last patch provided (2003-02-13 11:02) implements the described behavior.\n",
+    "This is the classpath for the org.eclipse.core.spysupport fragment. Is this \ncorrect? I find the resources.win32/linux entries curious.\n\n../org.eclipse.core.boot/bin;\n../org.eclipse.core.boot/boot.jar;\n../org.eclipse.core.boot.nl1/bin;\n../org.eclipse.core.boot.nl1/nl1.jar;\n../org.eclipse.core.resources/bin;\n../org.eclipse.core.resources/resources.jar;\n../org.eclipse.core.resources.win32/resources.jar;\n../org.eclipse.core.resources.linux/resources.jar;\n../org.eclipse.core.resources.nl1/bin;\n../org.eclipse.core.resources.nl1/nl1.jar;\n../org.apache.xerces/bin;\n../org.apache.xerces/xmlParserAPIs.jar;\n../org.apache.xerces/xercesImpl.jar;\n../org.eclipse.core.runtime/bin;\n../org.eclipse.core.runtime/runtime.jar;\n../org.eclipse.core.runtime.nl1/bin;\n../org.eclipse.core.runtime.nl1/nl1.jar\n",
+    "This entry and the resources.win32 entry are incorrect but do not cause problem \nsince the jars does not exists. The way things work right now it would be \ndifficult to get rid of them.\n\nThe presence of these two entries is due to the code that handle the SWT case.\n\nTo be precise:\n-When a fragment does not declare a runtime library, it is assumed that it \nhowever provides a library which name is declared into the plugin (format \nusually the library name is generic for example $ws$).  So a classpath entry \nconcatenating the plugin library to the fragment is added.\n\nFor example the plugin swt declares $ws$/swt.jar as a library, and the \nswt.win32 fragment does not explicitly declares a library but provides swt.jar.\nSo we get an entry saying : swt.win32/$ws$/swt.jar\nwhich is required since indeed the swt plugin does not actually provide a jar.\n\nTo fix the problem there are several possibilities:\n  - Having a flag in a build.properties or the plugin.xml of the plugin saying \nthat the library are provided by the fragments (for example swt would set this \nflag)\n  - Having a flag in a build.properties or in the fragment.xml of the fragment \nsaying that the library do NOT provide libraries\n  - Fix SWT fragments to declare their libraries into the fragment",
+    "the linux stuff looks strange but I think its ok.  You have those fragments \ninstalled and there is no way to tell that it is linux only etc.  \n\nWhat I find curious that the runtime is after xerces.  Runtime should be the \nfirst thing after all of the bits for the plugin jar being built.\n\n",
+    "It is not strange, it\u0027s PSP!!!\n\nThe resource plugin has xerces into its prerequisite",
+    "yes but runtime is ALWAYS the first prerequisite.\n",
+    "Created an attachment (id\u003d3507)\nPatch for the runtime inclusion pb\n\nThe code has been cleaned up.",
+    "Released to HEAD.",
+    "*** Bug 31084 has been marked as a duplicate of this bug. ***",
+    "In case some true compiler errors are reported, is the user provided with the \nactual compile log ?",
+    "The user get a message like \"Some problem occurs, see the log files\".\nThis file which is hidden in a temp.folder in the plugin contains the \ncompilation for the log.\n\nIn the new stream, I don\u0027t know where the log file will be since PDE UI is \ntrying to generate everything outside of the workspace.",
+    "Pascal,\nJust to let you know, I\u0027m using the latest code in HEAD and there is still a \nbug in the classpath that you generate.\nTry the following:\n1. Import JDT Core, all its required plug-ins, org.eclipse.core.boot, and \norg.apache.ant into your workspace *with* linking.\n2. Check out JDT core from CVS and overwrite the binary JDT core project you \nimported in step 1.\n3. right-click on org.eclipse.jdt.core/plugin.xml and \u0027Create an Ant build \nfile\u0027.\n4. Open the build.xml file and examine the classpath used to compile \njdtCompilerAdapter.jar.  You will see that it contains all the entries seem \ncorrect, except for \"../org.apache.ant/ant.jar\".  This library path does NOT \nexist, because we imported with linking, ie. instead, you should reference the \nactual physical path as you do with the other libraries in the classpath.\nSo building JDT core if org.apache.ant has been importing with linking fails, \nwhen ant.jar is not found.\n5. If you re-import org.apache.ant into your workspace *without* linking, the \nbuild completes without error, since now \"../org.apache.ant/ant.jar\" is \nactually physically there.\n",
+    "As Wassim\u0027s example shows it (see comment #33), this problem only occurs for \nplugins that are \"linked\".\n\nTo be more precise it only occurs for linked plugins that are explicitly \nreferenced in the extra classpath entry of the build.properties. In this value, \nthe user specify a relative path to a plugin which we simply use as is.\n\nIn the JDT case, jars.extra.classpath\u003d../org.apache.ant/ant.jar, and we simply \ncopy this value. \n\nCurrently the only solution would be not to use links ;-)\n\nAn appropriate solution requires a change in the jars.extra.classpath so that \npeople can say that the jar they refers to is in a plugin.\n\nFor example the previous entry would look like\n  jar.extra.classpath\u003d${PLUGIN:org.apache.ant}/ant.jar\n\nPLUGIN could also be FRAGMENT.\n\nDJ, Jeff, what do you think of that?\n\n\n\n",
+    "Wouldn\u0027t want to invent new syntax.  Perhaps just use the platform URLs.  The \nuser would spec \"platform:/plugin/org.apache.ant/ant.jar\" (not sure I have the \nsyntax correct but you get the idea).  There may well be issues with resolving \nthat URL correctly because it uses the registry but this is PDE and it has its \nown registry to represent the target install.",
+    "As you said, platform:/plugin URLs refers to the plugins at runtime.\nSo using this kind of URL is not correct, and if I process it by myself\nit can then lead to  misunderstanding of URLs from the user point of view.\n\nThen I decided to use \n\tplatform:/resouce URLs which works fine in the case of the workspace \nand are more correct, since we simply want to refers to a file in the workspace.\n\nHowever I think these URLs will probably not work in case of the pde-build in \nbatch mode since\nthe plugins that are compiled are not put into the workspace (I\u0027m correct here\nabout this assumption?)\n\nSo do we really want to use URLs?",
+    "resource URLs do not help as there is no requirement for the jars to be in the \nworkspace (or for there to be a workspace at all).  \n\nThe plugin URL is not confusing (at least to me :-). In the build.properties \nthe user is saying that they want the jar from some plugin.  That statement is \nevaluated in the context of the plugins being built.  \n\nAs for whether or not you need a URL, it is not a requirement but it is a \nsyntax that we already have.  It would be better to reuse that rather than \nintroduce another one which carries the same information.  You can choose to \nparse it yourself the same way you would have to parse any other syntax.\n",
+    "Created an attachment (id\u003d3547)\nFix for the pb noted in comment #33\n\nThis patch provides support for URL in extra.classpath entries.\nAll URLs are accepted but : platform:/resource ones since the scripts\ncan be run outside of a workspace. An exception is indicated.\n\nThe syntax for other platform\u0027s URLs is strict and must always starts with\nplatform:/plugin/ or platform:/fragment/ and be followed by the plugin id, then\nthe rest is free.\nNote that the semantic of these urls, is slightly different from the regular\none in the sense that they will return the url of the plugin you are building\nagainst, and not the one you are running against. But this is not confusing ;-)\n\n\nExtra note: the patch has been made from AbstractBuildScriptGenerator.java",
+    "Released.",
+    "There is a new problem with classpath computation using latest ode.build code \nin HEAD:\n1. Check out JDT core from cvs.\n2. right-click on org.eclipse.jdt.core/plugin.xml -\u003e Create Ant build file\n3. You will get a MalformedURL exception and the following stack:\n\njava.net.MalformedURLException: no protocol: ../org.apache.ant/ant.jar\nat java.net.URL.\u003cinit\u003e(Unknown Source)\nat java.net.URL.\u003cinit\u003e(Unknown Source)\nat java.net.URL.\u003cinit\u003e(Unknown Source)\nat org.eclipse.pde.internal.build.AbstractBuildScriptGenerator.computeExtraPath\n(AbstractBuildScriptGenerator.java:242)\nat org.eclipse.pde.internal.build.AbstractBuildScriptGenerator.addSelf\n(AbstractBuildScriptGenerator.java:191)\nat org.eclipse.pde.internal.build.AbstractBuildScriptGenerator.getClasspath\n(AbstractBuildScriptGenerator.java:124)\nat \norg.eclipse.pde.internal.build.AbstractBuildScriptGenerator.generateBuildJarsTar\nget(AbstractBuildScriptGenerator.java:553)\nat org.eclipse.pde.internal.build.ModelBuildScriptGenerator.generateBuildScript\n(ModelBuildScriptGenerator.java:80)\nat org.eclipse.pde.internal.build.ModelBuildScriptGenerator.generate\n(ModelBuildScriptGenerator.java:61)\nat org.eclipse.pde.internal.ui.feature.BuildPluginAction.makeScripts\n(BuildPluginAction.java:210)\nat org.eclipse.pde.internal.ui.feature.BuildPluginAction.doBuildPlugin\n(BuildPluginAction.java:139)\nat org.eclipse.pde.internal.ui.feature.BuildPluginAction.access$0\n(BuildPluginAction.java:130)\nat org.eclipse.pde.internal.ui.feature.BuildPluginAction$2.run\n(BuildPluginAction.java:53)\nat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1588)\nat org.eclipse.pde.internal.ui.feature.BuildPluginAction$1.run\n(BuildPluginAction.java:60)\nat org.eclipse.jface.operation.ModalContext.runInCurrentThread\n(ModalContext.java:296)\nat org.eclipse.jface.operation.ModalContext.run(ModalContext.java:246)\nat org.eclipse.jface.dialogs.ProgressMonitorDialog.run\n(ProgressMonitorDialog.java:351)\nat org.eclipse.pde.internal.ui.feature.BuildPluginAction.run\n(BuildPluginAction.java:70)\nat org.eclipse.ui.internal.PluginAction.runWithEvent(PluginAction.java:250)\nat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection\n(ActionContributionItem.java:450)\nat org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent\n(ActionContributionItem.java:398)\nat org.eclipse.jface.action.ActionContributionItem.access$0\n(ActionContributionItem.java:392)\nat org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent\n(ActionContributionItem.java:72)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:77)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:836)\nat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1692)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1410)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1288)\nat org.eclipse.ui.internal.Workbench.run(Workbench.java:1271)\nat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:845)\nat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\nat java.lang.reflect.Method.invoke(Native Method)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:247)\nat org.eclipse.core.launcher.Main.run(Main.java:703)\nat org.eclipse.core.launcher.Main.main(Main.java:539)\n",
+    "Created an attachment (id\u003d3578)\nTemporary fix until 2.2 starts\n\nThis is normal, because ../org.apache.ant/ant.jar is not a valid URL.\n\nIf you look at the comment #38, you will notice that the format of\njar.extra.classpath has changed and that only URLs are valid.\n\nFor the sake of simplicity and backward compatibility I put back the support\nfor the old format, however the old format will produce a bogus classpath.",
+    "Released.",
+    "pde.build should accept both files and urls on the extra jars line.  It is easy \nto detect the difference.  Take an entry, try to make a URL.  If it works you \nhave a URL.  If it doesn\u0027t, assume it is a file.  The ability to have files at \nthis point is effectively API and cannot be changed.\n\nIt is true that in Wassim\u0027s case he has to use a URL because he is wanting to \nhandle links.\n\nNote that bailing on with this kind of error is less than optimal.  In this \ncase it would be better to either fail with a nicer message or log a warning \nthat an entry is being ignored and keep on going.",
+    "*** Bug 29073 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2002-11-26T02:28:35+01:00",
+    "2002-11-26T02:36:29+01:00",
+    "2002-11-28T23:10:43+01:00",
+    "2002-12-09T21:36:32+01:00",
+    "2002-12-10T14:37:17+01:00",
+    "2002-12-20T20:56:11+01:00",
+    "2003-01-27T06:26:58+01:00",
+    "2003-01-27T07:53:39+01:00",
+    "2003-02-05T23:00:08+01:00",
+    "2003-02-05T23:27:12+01:00",
+    "2003-02-06T19:27:46+01:00",
+    "2003-02-06T19:28:16+01:00",
+    "2003-02-12T19:47:46+01:00",
+    "2003-02-12T19:48:10+01:00",
+    "2003-02-12T19:48:39+01:00",
+    "2003-02-12T21:35:55+01:00",
+    "2003-02-13T03:17:25+01:00",
+    "2003-02-13T04:09:32+01:00",
+    "2003-02-13T14:42:48+01:00",
+    "2003-02-13T16:02:10+01:00",
+    "2003-02-13T16:14:51+01:00",
+    "2003-02-13T16:54:39+01:00",
+    "2003-02-13T17:00:02+01:00",
+    "2003-02-14T15:59:56+01:00",
+    "2003-02-14T16:31:47+01:00",
+    "2003-02-14T16:57:46+01:00",
+    "2003-02-14T17:03:30+01:00",
+    "2003-02-14T18:33:22+01:00",
+    "2003-02-14T19:59:43+01:00",
+    "2003-02-15T03:14:55+01:00",
+    "2003-02-15T03:18:23+01:00",
+    "2003-02-17T10:35:32+01:00",
+    "2003-02-17T13:51:48+01:00",
+    "2003-02-17T18:08:39+01:00",
+    "2003-02-17T19:25:12+01:00",
+    "2003-02-17T20:26:46+01:00",
+    "2003-02-18T00:06:26+01:00",
+    "2003-02-18T02:20:08+01:00",
+    "2003-02-18T15:07:31+01:00",
+    "2003-02-18T16:40:03+01:00",
+    "2003-02-19T18:03:00+01:00",
+    "2003-02-19T20:28:00+01:00",
+    "2003-02-19T20:56:34+01:00",
+    "2003-02-19T21:00:42+01:00",
+    "2003-02-19T21:05:30+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.net.MalformedURLException",
+      "message": "no protocol: ../org.apache.ant/ant.jar",
+      "elements": [
+        {
+          "method": "java.net.URL.\u003cinit\u003e",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.net.URL.\u003cinit\u003e",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.net.URL.\u003cinit\u003e",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.pde.internal.build.AbstractBuildScriptGenerator.computeExtraPath",
+          "source": "AbstractBuildScriptGenerator.java:242"
+        },
+        {
+          "method": "org.eclipse.pde.internal.build.AbstractBuildScriptGenerator.addSelf",
+          "source": "AbstractBuildScriptGenerator.java:191"
+        },
+        {
+          "method": "org.eclipse.pde.internal.build.AbstractBuildScriptGenerator.getClasspath",
+          "source": "AbstractBuildScriptGenerator.java:124"
+        },
+        {
+          "method": "org.eclipse.pde.internal.build.AbstractBuildScriptGenerator.generateBuildJarsTarget",
+          "source": "AbstractBuildScriptGenerator.java:553"
+        },
+        {
+          "method": "org.eclipse.pde.internal.build.ModelBuildScriptGenerator.generateBuildScript",
+          "source": "ModelBuildScriptGenerator.java:80"
+        },
+        {
+          "method": "org.eclipse.pde.internal.build.ModelBuildScriptGenerator.generate",
+          "source": "ModelBuildScriptGenerator.java:61"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.feature.BuildPluginAction.makeScripts",
+          "source": "BuildPluginAction.java:210"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.feature.BuildPluginAction.doBuildPlugin",
+          "source": "BuildPluginAction.java:139"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.feature.BuildPluginAction.access$0",
+          "source": "BuildPluginAction.java:130"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.feature.BuildPluginAction$2.run",
+          "source": "BuildPluginAction.java:53"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1588"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.feature.BuildPluginAction$1.run",
+          "source": "BuildPluginAction.java:60"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.runInCurrentThread",
+          "source": "ModalContext.java:296"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.run",
+          "source": "ModalContext.java:246"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.ProgressMonitorDialog.run",
+          "source": "ProgressMonitorDialog.java:351"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.feature.BuildPluginAction.run",
+          "source": "BuildPluginAction.java:70"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PluginAction.runWithEvent",
+          "source": "PluginAction.java:250"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:450"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent",
+          "source": "ActionContributionItem.java:398"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$0",
+          "source": "ActionContributionItem.java:392"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent",
+          "source": "ActionContributionItem.java:72"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:77"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:836"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:1692"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1410"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1288"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1271"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:845"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:247"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:703"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:539"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 40,
+      "bugId": "27136",
+      "date": "2003-02-19T18:03:00+01:00",
+      "product": "PDE",
+      "component": "Build",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "27136",
+  "bugId": "27136",
+  "date": "2002-11-26T02:28:35+01:00",
+  "product": "PDE",
+  "component": "Build",
+  "severity": "critical"
+}

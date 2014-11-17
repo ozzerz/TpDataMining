@@ -1,0 +1,79 @@
+{
+  "comments": [
+    "Driver: M9\nPlatfrom: Windows2003 Japanese, RHEL 3.0, SLES9 beta5 ja_JP locale\n\nsteps\n1-- make errors by removing some plug-in file\n2--open Error View to see the error\n\nDate is displayed \"5 25, 2004\". I think it\u0027s better to display \"May 25, 2004\" \nor locale based date format. I know it\u0027s logger\u0027s behavior, please route the \nright component.",
+    "Created an attachment (id\u003d11120)\nscreen shot\n",
+    "The error log is from PDE (I think)",
+    "Logs are written by Core.",
+    "here is an extract from a random log file on my machine.  Looks good to me.  No \nidea what the error log does with this.  Moving back to PDE\n\n!SESSION May 25, 2004 21:57:17.501 ---------------------------------------------\neclipse.buildId\u003dI200405210800\njava.fullversion\u003dJ2RE 1.4.2 IBM J9 2.2 x86-32 build 20040519_2314 (JIT enabled -\n dev_level20040518_1800)\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\n!ENTRY org.eclipse.core.runtime 4 2 May 25, 2004 21:57:17.501\n!MESSAGE Problems occurred when invoking code from plug-\nin: \"org.eclipse.core.runtime\".\n!STACK 0\njava.lang.AbstractMethodError: org/eclipse/jdt/core/IJavaElement.getElementType\n()I\n\tat org.eclipse.jdt.internal.core.JavaModelCache.getInfo\n(JavaModelCache.java:67)\n\t",
+    "Jeff, \nwe expect the format to be in \t\t\nDateFormat formatter \u003d new SimpleDateFormat(\"MMM dd, yyyy HH:mm:ss.SS\");\n\nAt some point, I recall seeing Core printing dates differently:\n1. in above format, if the log in question is the metadata log.\n2. in a different format, if the log is one of the config area logs.\n\nCan you or Rafael assure me that you always print the date in the above format?\n\n",
+    "we do\n\n\tDateFormat formatter \u003d new SimpleDateFormat(\"MMM dd, yyyy \nHH:mm:ss.SS\"); //$NON-NLS-1$\n\treturn formatter.format(new Date());\n\nto get the string for the log.  There is only one log object.  It writes in the \nconfiguration area until told about the instance area then the config contents \n(if any) are copied over and future entries written there.\n",
+    "So we do the same, as I expected since when I wrote the log reader, I actually \nlooked at the old Core logger code \u003cg\u003e.\n\nSo we\u0027re doing all we can.  The difference in different languages is then \nattributed to the VM on different locales. ",
+    "I think that the customized date format is introducing this problem.\n\"MMM dd, yyyy\" is odd format for CJK countries. If we ask the VM\u0027s locale date \nformat, we should call DateFormat with MEDIUM style.\nIf we have to use customized date format, I think that \"YYYY-MM-dd\" is better.\n\n\n\n ",
+    "PDE complies with whatever format Core chooses.  Moving back to Core to \naddress or close.",
+    "I\u0027m not sure I understand.  The original bug was that May was not coming out as \nMay but 5.  Is this actually the problem in the log file?  That is, does \nthe .log file have entries that read 5 25, 2004?\n\nIf we change to YYYY-MM-dd, are you saying that this will change the output to \n2004-May-25?\n\nI suspect that we don\u0027t actually care what the format is as long as the \ninformation is there.  The PDE log reader (and potentially others) will be \naffected by any change.  Given this, the NL team should spec exactly what \nformat they want and PDE should agree.  The core can change the log formatting \nwhen we understand what to change it to.\n\n",
+    "Following is .log on my Japanese Windows.\n\n!ENTRY org.eclipse.ui 4 4 5 25, 2004 20:05:45.00\n!MESSAGE Unhandled event loop exception\n!ENTRY org.eclipse.ui 4 0 5 25, 2004 20:05:45.00\n!MESSAGE Failed to execute runnable (java.util.NoSuchElementException)\n!STACK 0 \n\nAs far as I looked at other UI\u0027s date format, DateFormat.LONG seems to be used \nfor date. It can be seen at Last modified field of Info page for properties of \nproject, and date field at Debug view and Console view. The DateFormat.LONG \nproperly displays locale sensitive date and using this is the ideal resolution, \ni think.\n\nif we have to use the customized format with SimpleDateFormat, I will discuss \nit with the NL related folks to dertermine acceptable date format.\n ",
+    "Just to be clear (and DJ correct if I am wrong), we don\u0027t actually care what \nthe format is as long as it is reasonably human readable and the other function \n(e.g., pde\u0027s log viewer) continue to work.  So I don\u0027t think there is a real \nneed for a \"customize\" format.  Feel free to supply a patch with exactly what \nwould satisfy your requirements.",
+    "Who am I to argue with a doctor? :-)\n",
+    "Since we generally don\u0027t translate error messages in the log file, and they are\njust a tool for programmers to diagnose problems, I don\u0027t see a reason to print\na locale-sensitive date here. Other information such as error severity and\nstatus are also printed in a form that is not readable for end users.",
+    "For some reason someone decided to print out nice dates and now that appears to \nbe causing difficulties.  I\u0027m agreeing with you and as long as the timestamp \ninformation is in there and reasonably understandable by humans don\u0027t really \ncare what form it takes.",
+    "Agreed. \n\nActually (as John says) one could argue that nothing in the log file should be\ntranslated because this file isn\u0027t commonly presented to the user and when\npeople send us English-only speaking developers copies of their log file, then\nwe won\u0027t understand what is in it.",
+    "Once NL fragment is installed, some error messages are translated and written \nto .log.\nEven the data format, DBCS month is printed on Korean, S-Chinese and T-Chinese \non the current impelementation.\nPlease take account of this situation. ",
+    "*** Bug 75597 has been marked as a duplicate of this bug. ***",
+    "Hello, IMHO the formatter in the log should be fixed! It might be right that \nthe datetime in log file is good as long as it\u0027s readable. But the wrong \nformats are really odd and we consider them as G11N enablement failure. If \nit\u0027s not intended to be formatted based on Locale (formatter \u003d \nDateFormat.getInstance(....)), ISO8601 is strongly recommended. \n(http://www.w3.org/TR/NOTE-datetime-970915.html). Otherwise Masayuki Fuse\u0027s \nsuggestion to use \"yyyy-MM-dd\" is acceptable since it\u0027s still ISO8601 \ncompliant.\n\nThe difference between \"MMM dd, yyyy HH:mm:ss.SS\" and \"yyyy-MM-dd\" is more \nthan MEDIUM format vs. SHORT format; the former uses LONG month name which \nwill be localized when writing to log file, while the latter uses only digits \nin month. So \"May 25, 2004\" will become \"2004-05-24\" which would avoid \nintroducing confusion for any locale. Not only CJK, but also from other \nlanguages, users won\u0027t be happy if the format is hardcoded but month names are \ntranslated. For example, a German user sees \"Mai 24, 2004\" s/he would think \nit\u0027s incorrect.\n\nAlso, the log file may expose to user directly thru the Error log view;-)\n\nThank you for your attention and consideration.",
+    "Re-opening.",
+    "I\u0027ll change EclipseLog#getDate to return dates in the format:\n  yyyy-MM-dd HH:mm:ss.SS\nsince this won\u0027t be translated and we still get all the information that we want\nfrom it.",
+    "Changed formatting. Date now looks like this:\n    2004-10-15 16:04:54.526\n\nReleased to HEAD.\n\nCurrently we still use the DateFormat class to do our formatting but eventually\nwe will probably write our own method to do this to reduce our dependancy on\nthis class.",
+    "Verified in 3.1 M6. Thanks."
+  ],
+  "commentCreationDates": [
+    "2004-05-26T09:42:24+02:00",
+    "2004-05-26T09:43:58+02:00",
+    "2004-06-09T17:10:57+02:00",
+    "2004-06-09T18:13:45+02:00",
+    "2004-06-10T20:57:00+02:00",
+    "2004-06-10T21:06:22+02:00",
+    "2004-06-10T22:28:48+02:00",
+    "2004-06-10T22:33:20+02:00",
+    "2004-06-14T08:06:24+02:00",
+    "2004-06-14T08:16:19+02:00",
+    "2004-06-14T15:35:07+02:00",
+    "2004-06-15T10:02:15+02:00",
+    "2004-06-15T16:43:23+02:00",
+    "2004-06-15T16:44:28+02:00",
+    "2004-06-15T21:49:51+02:00",
+    "2004-06-15T23:54:02+02:00",
+    "2004-06-16T16:57:43+02:00",
+    "2004-06-16T18:23:06+02:00",
+    "2004-10-06T22:10:25+02:00",
+    "2004-10-12T19:29:19+02:00",
+    "2004-10-15T22:10:48+02:00",
+    "2004-10-15T22:13:49+02:00",
+    "2004-10-15T22:31:39+02:00",
+    "2005-04-06T12:38:30+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.AbstractMethodError",
+      "message": "org/eclipse/jdt/core/IJavaElement.getElementType ()I",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelCache.getInfo",
+          "source": "JavaModelCache.java:67"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "64045",
+      "date": "2004-06-10T20:57:00+02:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "64045",
+  "bugId": "64045",
+  "date": "2004-05-26T09:42:24+02:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "normal"
+}

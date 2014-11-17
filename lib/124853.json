@@ -1,0 +1,148 @@
+{
+  "comments": [
+    "I belive that the Eclipse compiler is generating wrong code. This problem does not happen if I complie the sample program using the javac command line tool.\n\npublic class Test {\n\n\tpublic static void main(String[] args) {\n\t\tSystem.err.println( cenario() );\n\t}\n\tprivate static int cenario() {\n\t\ttry{\n\t\t\tint i \u003d 1;\n\t\t\tSystem.err.println( \"i: \" + i );\n\t\t\treturn i;\n\t\t}catch(Exception e) {\n\t\t\tSystem.err.println( \"catch\" );\n\t\t\treturn 2;\n\t\t}finally {\n\t\t\tSystem.err.println( \"finally\" );\n\t\t\ttry{\n\t\t\t\tthrowRuntime();\n\t\t\t}finally {\n\t\t\t\tclean();\n\t\t\t}\n\t\t}\n\t}\n\tprivate static void throwRuntime() {\n\t\tthrow new RuntimeException( \"error\" );\n\t}\n\tprivate static void clean() {\n\t\tSystem.err.println( \"clean\" );\n\t}\n}\n\nI would expect a result like this:\n\ni: 1\nfinally\nclean\nException in thread \"main\" java.lang.RuntimeException: error\n        at Test.throwRuntime(Test.java:61)\n        at Test.cenario(Test.java:53)\n        at Test.main(Test.java:17)\n\nBut running when I compile with the Eclipse:\n\ni: 1\nfinally\nclean\ncatch\nfinally\nclean\nfinally\nclean\nException in thread \"main\" java.lang.RuntimeException: error\n\tat Test.throwRuntime(Test.java:61)\n\tat Test.cenario(Test.java:53)\n\tat Test.main(Test.java:17)\n\nI\u0027m using Java 5.0 compatibility. I tested in eclipse 3.1 M4 and 3.1.1 (200509290840)",
+    "I will investigate.\nWe might have wrong values for the exception handlers.",
+    "Reproduced with latest.\nWe must close the exception handlers before the inlining of the subroutines. Otherwise the range of the exception handlers is covering the inlined subroutines and this explains why we reentered inside the finally.\nWe have to put in place exception handlers with multiple starts/ends.\nIf you have a code like:\npublic class X {\n\n        public static void main(String[] args) {\n                System.err.println( cenario() );\n        }\n        private static int cenario() {\n                try{\n                        int i \u003d 1;\n                        System.err.println( \"i: \" + i );\n                        if (i \u003e 5) {\n                        \treturn i;\n                        }\n                        return -i;\n                } catch(Exception e) {\n                        System.err.println( \"catch\" );\n                        return 2;\n                } finally {\n                        System.err.println( \"finally\" );\n                        try{\n                                throwRuntime();\n                        }finally {\n                                clean();\n                        }\n                }\n        }\n        private static void throwRuntime() {\n                throw new RuntimeException( \"error\" );\n        }\n        private static void clean() {\n                System.err.println( \"clean\" );\n        }\n}\n\nThe two returns (return i; and return -1;) must lead to two exception table entries. In order to achieve this, we must have multiple starts/ends for the exception handlers.",
+    "Reproduced with latest.\nWe must close the exception handlers before the inlining of the subroutines. Otherwise the range of the exception handlers is covering the inlined subroutines and this explains why we reentered inside the finally.\nWe have to put in place exception handlers with multiple starts/ends.\nIf you have a code like:\npublic class X {\n\n        public static void main(String[] args) {\n                System.err.println( cenario() );\n        }\n        private static int cenario() {\n                try{\n                        int i \u003d 1;\n                        System.err.println( \"i: \" + i );\n                        if (i \u003e 5) {\n                        \treturn i;\n                        }\n                        return -i;\n                } catch(Exception e) {\n                        System.err.println( \"catch\" );\n                        return 2;\n                } finally {\n                        System.err.println( \"finally\" );\n                        try{\n                                throwRuntime();\n                        }finally {\n                                clean();\n                        }\n                }\n        }\n        private static void throwRuntime() {\n                throw new RuntimeException( \"error\" );\n        }\n        private static void clean() {\n                System.err.println( \"clean\" );\n        }\n}\n\nThe two returns (return i; and return -i;) must lead to two exception table entries. In order to achieve this, we must have multiple starts/ends for the exception handlers.",
+    "Philippe, we need to implement the same mecanism for catch blocks that we already have for subroutines.\nInside a return statement or a branch statement we need a way to retrieve the enclosing catch blocks.\nWhen we do the reenter subroutines, we should also manage the exception handlers related to the catch blocks that could be targetted from these statements.\nNote that this only happens in the inlining mode.",
+    "In adition , trying to help, I did this test in JBuilder 8.0.140.0 and it\u0027s reported the same error from Eclipse.\n\npackage Test;\n\n/**\n * \u003cp\u003eTitle: Test\u003c/p\u003e\n * \u003cp\u003eDescription: \u003c/p\u003e\n * \u003cp\u003eCopyright: Copyright (c) 2006\u003c/p\u003e\n * \u003cp\u003eCompany: \u003c/p\u003e\n * @author Marcelo Bagik\n * @version 1.0\n */\n\n\npublic class Test {\n\n        public static void main(String[] args) {\n                System.err.println( cenario() );\n        }\n        private static int cenario() {\n                try{\n                        int i \u003d 1;\n                        System.err.println( \"i: \" + i );\n                        return i;\n                }catch(Exception e) {\n                        System.err.println( \"catch\" );\n                        return 2;\n                }finally {\n                        System.err.println( \"finally\" );\n                        try{\n                                throwRuntime();\n                        }finally {\n                                clean();\n                        }\n                }\n        }\n        private static void throwRuntime() {\n                throw new RuntimeException( \"error\" );\n        }\n        private static void clean() {\n                System.err.println( \"clean\" );\n        }\n}\n\n\ni: 1\nfinally\nclean\njava.lang.RuntimeException: error\n\tat jrange.Test.throwRuntime(Test.java:36)\n\tat jrange.Test.cenario(Test.java:29)\n\tat jrange.Test.main(Test.java:16)\nException in thread \"main\" \n\n\n",
+    "The same error occurs in NetBeans 5.0 Beta2 - Build200511141730 too.\n\ninit:\ndeps-jar:\ncompile-single:\nrun-single:\ni: 1\nfinally\nclean\nException in thread \"main\" java.lang.RuntimeException: error\n        at jogomania.Test.throwRuntime(Test.java:40)\n        at jogomania.Test.cenario(Test.java:33)\n        at jogomania.Test.main(Test.java:20)\nJava Result: 1\nBUILD SUCCESSFUL (total time: 3 seconds)\n\n",
+    "This problem only occurs when inlining finally blocks (mandated when using 5.0 compliance) or using -inlineJSR option.\n\nIf using compliance 1.4, there would be no issue. \nInvestigating a fix.",
+    "Added TryStatementTest#test034-037.\n\nImplemented multi-range support directly on exception labels, which removed need to use multiple labels for exiting/reentering exception handlers (any exception handler). Now any exception label can be exited, reentered. \nAlso rearchitected the label hierarchy. Exception labels are now more lightweight (no need to support branching, forward refs, inlining, be added to codestream labels): did split Label into abstract Label and BranchLabel subclass.\n\nFixed. ",
+    "Created an attachment (id\u003d33850)\nPatch for org.eclipse.jdt.core\n\n",
+    "Created an attachment (id\u003d33851)\nPatch for compiler tests\n\n",
+    "No plan to backport to 3.1.x since the patch is quite involving.",
+    "Created an attachment (id\u003d33855)\nR3.1.x version of org.eclipse.jdt.core patch\n\n",
+    "Created an attachment (id\u003d33856)\nR3.1.x version of patch for compiler tests\n\n",
+    "May backport, depending on testing outcome. Prepared and attached 3.1.x version of the fix, still quite involving.",
+    "Backported to 3.1.x (\u003e 3.1.2)",
+    "Verified for 3.2 M5 using build I20060215-0010"
+  ],
+  "commentCreationDates": [
+    "2006-01-23T13:42:50+01:00",
+    "2006-01-23T14:38:03+01:00",
+    "2006-01-23T15:51:59+01:00",
+    "2006-01-23T15:53:15+01:00",
+    "2006-01-23T17:30:22+01:00",
+    "2006-01-24T14:02:45+01:00",
+    "2006-01-26T11:59:10+01:00",
+    "2006-01-27T17:13:46+01:00",
+    "2006-01-31T11:09:34+01:00",
+    "2006-01-31T11:13:30+01:00",
+    "2006-01-31T11:13:59+01:00",
+    "2006-01-31T11:14:27+01:00",
+    "2006-01-31T12:33:40+01:00",
+    "2006-01-31T12:34:13+01:00",
+    "2006-01-31T12:34:57+01:00",
+    "2006-01-31T21:03:28+01:00",
+    "2006-02-15T12:37:47+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "message": "error",
+      "elements": [
+        {
+          "method": "Test.throwRuntime",
+          "source": "Test.java:61"
+        },
+        {
+          "method": "Test.cenario",
+          "source": "Test.java:53"
+        },
+        {
+          "method": "Test.main",
+          "source": "Test.java:17"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "124853",
+      "date": "2006-01-23T13:42:50+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "message": "error",
+      "elements": [
+        {
+          "method": "Test.throwRuntime",
+          "source": "Test.java:61"
+        },
+        {
+          "method": "Test.cenario",
+          "source": "Test.java:53"
+        },
+        {
+          "method": "Test.main",
+          "source": "Test.java:17"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "124853",
+      "date": "2006-01-23T13:42:50+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "message": "error",
+      "elements": [
+        {
+          "method": "jrange.Test.throwRuntime",
+          "source": "Test.java:36"
+        },
+        {
+          "method": "jrange.Test.cenario",
+          "source": "Test.java:29"
+        },
+        {
+          "method": "jrange.Test.main",
+          "source": "Test.java:16"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 5,
+      "bugId": "124853",
+      "date": "2006-01-24T14:02:45+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "message": "error",
+      "elements": [
+        {
+          "method": "jogomania.Test.throwRuntime",
+          "source": "Test.java:40"
+        },
+        {
+          "method": "jogomania.Test.cenario",
+          "source": "Test.java:33"
+        },
+        {
+          "method": "jogomania.Test.main",
+          "source": "Test.java:20"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 6,
+      "bugId": "124853",
+      "date": "2006-01-26T11:59:10+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "124853",
+  "bugId": "124853",
+  "date": "2006-01-23T13:42:50+01:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "critical"
+}

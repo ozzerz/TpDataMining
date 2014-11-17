@@ -1,0 +1,263 @@
+{
+  "comments": [
+    "In the method SocketAttachConnector.connect(....) a virtual machine is created \nby \nVirtualMachine vm \u003d connector.attach(map);\nThis obviously connects to the remote debug process. If the subsequent call to \ndebugTarget\u003d JDIDebugModel.newDebugTarget(launch, vm, vmLabel, null, \nallowTerminate, true);\nfails (eg. by a time-out), the connection to the remote VM is not terminated \nleaving the debug port of the remote VM blocked. Since there is no means to get \nthe associated VirtualMachine object I can cannot do this in my \nLaunchConfigurationDelegate. Either there should be a method getVm(): \nVirtualMachine in the IVMConnector interface or you catch all Throwables and \nrelease the connection on catching the error (eventually in method abort()).\n\nCheers\nRichard",
+    "*** Bug 66332 has been marked as a duplicate of this bug. ***",
+    "*** Bug 66334 has been marked as a duplicate of this bug. ***",
+    "Do you have an example of how/where the contsructor of the target fails? The \nconstuctor iteself does not throw an exception, and all creation/init of the \ntarget catches/handles exceptions (from what I see).",
+    "Deferred - but still want example of how this fails/or patch that demonstrates \nthe fix you are looking for.",
+    "Created an attachment (id\u003d12005)\nProposed SocketAttachingConnector changes\n",
+    "The stack trace looks like this (from e-mail). We are not catching a timeout \nexception in VirtualMachine.allClasses(), which is used in the pattern \nbreakpoint installation code.\n\njava.lang.reflect.InvocationTargetException\nat org.eclipse.jface.operation.ModalContext.run(ModalContext.java:283)\nat org.eclipse.jface.dialogs.ProgressMonitorDialog.run\n(ProgressMonitorDialog.java:357)\nat org.eclipse.debug.ui.DebugUITools.launch(DebugUITools.java:494)\nat org.eclipse.debug.ui.actions.AbstractLaunchToolbarAction.run\n(AbstractLaunchToolbarAction.java:69)\nat org.eclipse.ui.internal.PluginAction.runWithEvent(PluginAction.java:251)\nat org.eclipse.ui.internal.WWinPluginAction.runWithEvent\n(WWinPluginAction.java:207)\nat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection\n(ActionContributionItem.java:456)\nat org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent\n(ActionContributionItem.java:403)\nat org.eclipse.jface.action.ActionContributionItem.access$0\n(ActionContributionItem.java:397)\nat org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent\n(ActionContributionItem.java:72)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:81)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:840)\nat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2022)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1729)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1402)\nat org.eclipse.ui.internal.Workbench.run(Workbench.java:1385)\nat com.tssap.util.startup.WBLauncher.run(WBLauncher.java:79)\nat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:858)\nat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\nat java.lang.reflect.Method.invoke(Method.java:324)\nat com.sap.ide.eclipse.startup.Main.basicRun(Main.java:291)\nat com.sap.ide.eclipse.startup.Main.run(Main.java:791)\nat com.sap.ide.eclipse.startup.Main.main(Main.java:604)\nCaused by: org.eclipse.jdi.TimeoutException\nat org.eclipse.jdi.internal.connect.PacketReceiveManager.getReply\n(PacketReceiveManager.java:149)\nat org.eclipse.jdi.internal.connect.PacketReceiveManager.getReply\n(PacketReceiveManager.java:158)\nat org.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:173)\nat org.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:229)\nat org.eclipse.jdi.internal.VirtualMachineImpl.allClasses\n(VirtualMachineImpl.java:327)\nat \norg.eclipse.jdt.internal.debug.core.breakpoints.JavaPatternBreakpoint.addToTarg\net(JavaPatternBreakpoint.java:96)\nat org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.breakpointAdded\n(JDIDebugTarget.java:1007)\nat \norg.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.initializeBreakpoints\n(JDIDebugTarget.java:413)\nat org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.initialize\n(JDIDebugTarget.java:365)\nat org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.\u003cinit\u003e\n(JDIDebugTarget.java:246)\nat org.eclipse.jdt.debug.core.JDIDebugModel$1.run(JDIDebugModel.java:145)\nat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1595)\nat org.eclipse.jdt.debug.core.JDIDebugModel.newDebugTarget\n(JDIDebugModel.java:149)\nat org.eclipse.jdt.debug.core.JDIDebugModel.newDebugTarget\n(JDIDebugModel.java:109)\nat org.eclipse.jdt.internal.launching.SocketAttachConnector.connect\n(SocketAttachConnector.java:133)\nat com.sap.ide.eclipse.rdebug.RDebugLaunchConfigurationDelegate.launch\n(RDebugLaunchConfigurationDelegate.java:119)\nat org.eclipse.debug.internal.core.LaunchConfiguration.launch\n(LaunchConfiguration.java:156)\nat org.eclipse.debug.internal.ui.DebugUIPlugin.buildAndLaunch\n(DebugUIPlugin.java:676)\nat org.eclipse.debug.ui.DebugUITools.buildAndLaunch(DebugUITools.java:538)\nat org.eclipse.debug.ui.DebugUITools$2.run(DebugUITools.java:487)\nat org.eclipse.jface.operation.ModalContext$ModalContextThread.run\n(ModalContext.java:101)",
+    "Propose to catch timeout exception on breakpoint installation code.",
+    "I subclassed org.eclipse.jdt.internal.launching.SocketAttachConnector catching \nthe RuntimeException as I described. This works fine for me so far leaving only \na problem when subsequently adding/removing breakpoints. Since JDIDebugTarget \nis registered as breakpointlistener prior to the Exception the instance, \nalthough not being instantiated correctly, seems to remain registered as \nlistener. It is therefore called when a new breakpoint is added/removed causing \na VMDisconnectedException (if I terminate the VM by vm.dispose). Therefore I \nthink it might be necessary to deregister the (failed) JDIDebugTarget if the \nconstructor fails.\n\nRegards\nRichard",
+    "Created an attachment (id\u003d12216)\nDemo for class registered a listener where constructor fails\n\nDemonstrates that a class can be registered as a listener in its constructor\nalthough the constructor fails after the registration. Calls from the registree\nare possible as well access to class members, although the class does not exist\nin a logical manner.",
+    "Created an attachment (id\u003d12257)\npatch\n\nThis patch catches any JDI/communication exceptions and wraps them in a\nCoreException, which is handled. Any unexpected exceptions are re-thrown to\navoid hiding programming errors.",
+    "Luc, please approve the patch.",
+    "Ping Philippe for RC3 approval.",
+    "(Philippe, do you approve for RC3?)",
+    "Darin, we should apply the same change on JavaStratumLineBreakpoint, no ?",
+    "(Yes)",
+    "The patch solve the problem.",
+    "+1 to fix for RC3.",
+    "Changes in JavaStratumBreakpoint, JavaPatternBreakpoint, and addition of NLS \nmessage in JDIDebugBreakpointMessages.",
+    "Please verify, Kevin.",
+    "oops."
+  ],
+  "commentCreationDates": [
+    "2004-06-09T17:41:39+02:00",
+    "2004-06-09T17:47:38+02:00",
+    "2004-06-09T17:48:01+02:00",
+    "2004-06-09T18:11:01+02:00",
+    "2004-06-11T16:05:30+02:00",
+    "2004-06-14T08:50:56+02:00",
+    "2004-06-14T15:50:08+02:00",
+    "2004-06-15T16:26:31+02:00",
+    "2004-06-15T17:45:42+02:00",
+    "2004-06-16T09:00:16+02:00",
+    "2004-06-16T17:16:00+02:00",
+    "2004-06-16T17:16:42+02:00",
+    "2004-06-16T17:17:08+02:00",
+    "2004-06-16T18:54:39+02:00",
+    "2004-06-16T19:04:33+02:00",
+    "2004-06-16T19:29:22+02:00",
+    "2004-06-16T20:33:11+02:00",
+    "2004-06-16T21:25:15+02:00",
+    "2004-06-16T21:33:40+02:00",
+    "2004-06-16T21:33:55+02:00",
+    "2004-06-16T23:25:31+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.reflect.InvocationTargetException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.run",
+          "source": "ModalContext.java:283"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.ProgressMonitorDialog.run",
+          "source": "ProgressMonitorDialog.java:357"
+        },
+        {
+          "method": "org.eclipse.debug.ui.DebugUITools.launch",
+          "source": "DebugUITools.java:494"
+        },
+        {
+          "method": "org.eclipse.debug.ui.actions.AbstractLaunchToolbarAction.run",
+          "source": "AbstractLaunchToolbarAction.java:69"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PluginAction.runWithEvent",
+          "source": "PluginAction.java:251"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WWinPluginAction.runWithEvent",
+          "source": "WWinPluginAction.java:207"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:456"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent",
+          "source": "ActionContributionItem.java:403"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$0",
+          "source": "ActionContributionItem.java:397"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent",
+          "source": "ActionContributionItem.java:72"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:81"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:840"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2022"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1729"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1402"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1385"
+        },
+        {
+          "method": "com.tssap.util.startup.WBLauncher.run",
+          "source": "WBLauncher.java:79"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:858"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "com.sap.ide.eclipse.startup.Main.basicRun",
+          "source": "Main.java:291"
+        },
+        {
+          "method": "com.sap.ide.eclipse.startup.Main.run",
+          "source": "Main.java:791"
+        },
+        {
+          "method": "com.sap.ide.eclipse.startup.Main.main",
+          "source": "Main.java:604"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "org.eclipse.jdi.TimeoutException",
+        "elements": [
+          {
+            "method": "org.eclipse.jdi.internal.connect.PacketReceiveManager.getReply",
+            "source": "PacketReceiveManager.java:149"
+          },
+          {
+            "method": "org.eclipse.jdi.internal.connect.PacketReceiveManager.getReply",
+            "source": "PacketReceiveManager.java:158"
+          },
+          {
+            "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+            "source": "MirrorImpl.java:173"
+          },
+          {
+            "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+            "source": "MirrorImpl.java:229"
+          },
+          {
+            "method": "org.eclipse.jdi.internal.VirtualMachineImpl.allClasses",
+            "source": "VirtualMachineImpl.java:327"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.debug.core.breakpoints.JavaPatternBreakpoint.addToTarget",
+            "source": "JavaPatternBreakpoint.java:96"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.breakpointAdded",
+            "source": "JDIDebugTarget.java:1007"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.initializeBreakpoints",
+            "source": "JDIDebugTarget.java:413"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.initialize",
+            "source": "JDIDebugTarget.java:365"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.\u003cinit\u003e",
+            "source": "JDIDebugTarget.java:246"
+          },
+          {
+            "method": "org.eclipse.jdt.debug.core.JDIDebugModel$1.run",
+            "source": "JDIDebugModel.java:145"
+          },
+          {
+            "method": "org.eclipse.core.internal.resources.Workspace.run",
+            "source": "Workspace.java:1595"
+          },
+          {
+            "method": "org.eclipse.jdt.debug.core.JDIDebugModel.newDebugTarget",
+            "source": "JDIDebugModel.java:149"
+          },
+          {
+            "method": "org.eclipse.jdt.debug.core.JDIDebugModel.newDebugTarget",
+            "source": "JDIDebugModel.java:109"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.launching.SocketAttachConnector.connect",
+            "source": "SocketAttachConnector.java:133"
+          },
+          {
+            "method": "com.sap.ide.eclipse.rdebug.RDebugLaunchConfigurationDelegate.launch",
+            "source": "RDebugLaunchConfigurationDelegate.java:119"
+          },
+          {
+            "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+            "source": "LaunchConfiguration.java:156"
+          },
+          {
+            "method": "org.eclipse.debug.internal.ui.DebugUIPlugin.buildAndLaunch",
+            "source": "DebugUIPlugin.java:676"
+          },
+          {
+            "method": "org.eclipse.debug.ui.DebugUITools.buildAndLaunch",
+            "source": "DebugUITools.java:538"
+          },
+          {
+            "method": "org.eclipse.debug.ui.DebugUITools$2.run",
+            "source": "DebugUITools.java:487"
+          },
+          {
+            "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+            "source": "ModalContext.java:101"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 6,
+      "bugId": "66330",
+      "date": "2004-06-14T15:50:08+02:00",
+      "product": "Platform",
+      "component": "Debug",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "66330",
+  "bugId": "66330",
+  "date": "2004-06-09T17:41:39+02:00",
+  "product": "Platform",
+  "component": "Debug",
+  "severity": "critical"
+}

@@ -1,0 +1,199 @@
+{
+  "comments": [
+    "SWT Win32 I20040406: \n\nUsing SWT.Virtual.  I added a println to Table.java:\n\n\twhile (index \u003c\u003d end) {\n\t\t\tignoreSelect \u003d true;\n\t\t\tint code \u003d OS.SendMessage (handle, \nOS.LVM_DELETEITEM, start, 0);\n\t\t\tignoreSelect \u003d false;\n\t\t\tif (code \u003d\u003d 0) break;\n      System.out.println(\"len: \" + items.length + \" ind: \" + index);\n\t\t\tif (items [index] !\u003d null) items \n[index].releaseResources ();\n\t\t\tindex++;\n\t\t}\n\nAnd occasionally I get:\n\n\"len: 20 ind: 20\";  so, index is out of bounds. I receive:\n\njava.lang.ArrayIndexOutOfBoundsException: 20\n\tat org.eclipse.swt.widgets.Table.remove(Table.java:1669)\n\tat org.eclipse.jface.viewers.TableViewer.internalRefresh\n(TableViewer.java:482)\n\tat org.eclipse.jface.viewers.TableViewer.internalRefresh\n(TableViewer.java:436)\n\tat org.eclipse.jface.viewers.StructuredViewer$7.run\n(StructuredViewer.java:873)\n\tat org.eclipse.jface.viewers.StructuredViewer.preservingSelection\n(StructuredViewer.java:813)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh\n(StructuredViewer.java:871)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh\n(StructuredViewer.java:833)\n\tat org.eclipse.jface.viewers.StructuredViewer.update\n(StructuredViewer.java:1304)\n\tat org.eclipse.jface.viewers.StructuredViewer.update\n(StructuredViewer.java:1205)",
+    "If you have a reproducable case, in eclipse or stand-alone, it would be very \nhelpful.  SN to investigate.\n",
+    "How could you be using SWT.VIRTUAL and TableViewer?  It thought that JFace \ndidn\u0027t support SWT.VIRTUAL yet.",
+    "The constructor for a TableViewer is:\n\npublic TableViewer(Composite parent, int style) {\n\tthis(new Table(parent, style));\n}\n\nSo, you just put SWT.VIRTUAL in the style and you get a VIRTUAL table. It is \nnoticably faster for large tables (20,000 items).\n\n\n\n\n\n",
+    "Interesting.  What part is faster?  Are you just setting the SWT.VIRTUAL bit \nand that is all?\n\nAbout the original bug.  CAn you give me more to work with?  How often does \nthe problem happen?  Does it go away when you don\u0027t use SWT.VIRTUAL?  The only \nway I could see an index being out of range would be if LVM_DELETEITEM ran \nsome application code (perhaps from SWT.Paint) and this code changed the size \nof the array.  CAn you print out the size of the array before and after?",
+    "Is faster with it set SWT.VIRTUAL but I haven\u0027t studied exactly in what ways \n(removal/addition/etc).\n\nBut I have now turned SWT.VIRTUAL off and still get the error but it is harder \nto reproduce (but, it does happen in the same way).\n\nI have altered the code as follows.  It is a WM_PAINT message that gets in the \nway.\n\nLRESULT WM_PAINT (int wParam, int lParam) {\n\t/* Resize the item array to match the item count */\n\tint count \u003d OS.SendMessage (handle, OS.LVM_GETITEMCOUNT, 0, 0);\n\tif (items.length \u003e 4 \u0026\u0026 items.length - count \u003e 3) {\n\t\tTableItem [] newItems \u003d new TableItem [(count + 3) / 4 * 4];\n\t\tSystem.arraycopy (items, 0, newItems, 0, count);\n\t\titems \u003d newItems;\n    System.out.println(\"WM_PAINT items len: \" + items.length);\n\t}\n\tif (fixScrollWidth) setScrollWidth (null, true);\n\treturn super.WM_PAINT (wParam, lParam);\n}\n\npublic void remove (int start, int end) {\n\tcheckWidget ();\n\tif (start \u003e end) return;\n\tint count \u003d OS.SendMessage (handle, OS.LVM_GETITEMCOUNT, 0, 0);\n\tif (!(0 \u003c\u003d start \u0026\u0026 start \u003c\u003d end \u0026\u0026 end \u003c count)) {\n\t\terror (SWT.ERROR_INVALID_RANGE);\n\t}\n\tif (start \u003d\u003d 0 \u0026\u0026 end \u003d\u003d count - 1) {\n\t\tremoveAll ();\n\t} else {\n\t\tint index \u003d start;\n    System.out.println(\"END: \" + end);\n\t\twhile (index \u003c\u003d end) {\n\t\t\tignoreSelect \u003d true;\n\t\t\tint code \u003d OS.SendMessage (handle, \nOS.LVM_DELETEITEM, start, 0);\n\t\t\tignoreSelect \u003d false;\n\t\t\tif (code \u003d\u003d 0) break;\n      System.out.println(\"len: \" + items.length + \" ind: \" + index);\n\t\t\tif (items [index] !\u003d null) items \n[index].releaseResources ();\n\t\t\tindex++;\n\t\t}\n\t\tSystem.arraycopy (items, index, items, start, count - index);\n\t\tfor (int i\u003dcount-(index-start); i\u003ccount; i++) items [i] \u003d \nnull;\n\t\tif (index \u003c\u003d end) error (SWT.ERROR_ITEM_NOT_REMOVED);\n\t}\n}\n\n\nResults:\n\ntry #1\nEND: 32\nlen: 36 ind: 21\nlen: 36 ind: 22\nlen: 36 ind: 23\nlen: 36 ind: 24\nWM_PAINT items len: 28\nlen: 28 ind: 25\nlen: 28 ind: 26\nlen: 28 ind: 27\nlen: 28 ind: 28\n\ntry #2:\nWM_PAINT items len: 36\nEND: 32\nlen: 36 ind: 29\nlen: 36 ind: 30\nlen: 36 ind: 31\nlen: 36 ind: 32\nWM_PAINT items len: 32\nEND: 28\norg.eclipse.swt.SWTException: Failed to execute runnable \n(java.lang.ArrayIndexOutOfBoundsException: 28)\nWM_PAINT items len: 28\nlen: 28 ind: 27\nlen: 28 ind: 28\n\nAnd the exception pops up..\n\nI previously filed it as the following bug; I guess it is similar/related if \nnot the same, but the table.java code has changed a lot recently.\n\nhttps://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d51869\n\n\n\n",
+    "If you haven\u0027t studied the ways, how do you know it\u0027s faster?  \u003cg\u003e\n\nI can\u0027t seem to make the problem happen, although I can see from your stack \ntrace that it is happening to you.  Here is the code I am using:\n\nimport org.eclipse.swt.*;\nimport org.eclipse.swt.graphics.*;\nimport org.eclipse.swt.widgets.*;\nimport org.eclipse.swt.layout.*;\n\npublic class PR_58073 {\n\npublic static void main (String [] args) {\n\tDisplay display \u003d new Display ();\n\tImage image \u003d new Image (display, 16, 16);\n\tShell shell \u003d new Shell (display);\n\tshell.setLayout (new RowLayout ());\n\tfinal Table table \u003d new Table (shell, SWT.BORDER);\n\tfor (int i\u003d0; i\u003c36; i++) {\n\t\tTableItem item \u003d new TableItem (table, 0);\n\t\titem.setText (0, \"Item \" + i);\n\t\titem.setImage (0, image);\n\t}\n\ttable.setLayoutData (new RowData (200, 200));\n\tButton b \u003d new Button (shell, SWT.PUSH);\n\tb.setText (\"Remove\");\n\tb.addListener (SWT.Selection, new Listener () {\n\t\tpublic void handleEvent (Event event) {\n\t\t\tSystem.out.println (\"START\");\n\t\t\ttable.remove (2, 32);\n\t\t\tSystem.out.println (\"END\");\n\t\t}\n\t});\n\tshell.pack ();\n\tshell.open ();\n\twhile (!shell.isDisposed ()) {\n\t   if (!display.readAndDispatch ()) display.sleep ();\n\t}\n\timage.dispose ();\n\tdisplay.dispose ();\n}\n\n}\n\nCan you try to make this snippet fail on your system?  Thanks. ",
+    "You will need to hack Table.WM_PAINT with a print.  All you need to do is show \nthat a WM_PAINT can happen between between \"BEGIN\" and \"END\" (which is what is \nhappening to you in the stack trace).  That would help lots.",
+    "This snippet is hard to work with, since I get the following:\n\nlen: 36 ind: 30\nlen: 36 ind: 31\nlen: 36 ind: 32\nEND\nWM_PAINT items len: 8\nSTART\njava.lang.IllegalArgumentException: Index out of bounds\n\tat org.eclipse.swt.SWT.error(SWT.java:2611)\n\tat org.eclipse.swt.SWT.error(SWT.java:2555)\n\tat org.eclipse.swt.widgets.Widget.error(Widget.java:354)\n\tat org.eclipse.swt.widgets.Table.remove(Table.java:1657)\n\tat WTable$1.handleEvent(WTable.java:31)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:769)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents\n(Display.java:2592)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2270)\n\tat WTable.main(WTable.java:38)\nException in thread \"main\" \n\n\nThe WMPaint isn\u0027t inbetween \"START\" and \"END\" since I can\u0027t get that far with \nit, but it is obviously in the remove loop (while index \u003c\u003d end) in the \nprevious examples.\n",
+    "Fixed \u003e 20040413\n\nI took the code out of WM_PAINT just to be on the safe side.  It wasn\u0027t making \nthings much faster for a small number of items.  For a large number of items, \nyou should always be calling setRedraw() and/or using SWT.VIRTUAL.",
+    "Thanks, I haven\u0027t crashed so far since updating Table.java.\n\nMaybe bug #51869 can be closed as well since that code is now gone from \nWM_PAINT.\n",
+    "*** Bug 51869 has been marked as a duplicate of this bug. ***",
+    "Can you run the snippet again, putting a print in WM_PAINT and commenting the \ncode that tried to shrink the array?  When I run the snippet, I always see:\n\nSTART\nEND\nWM_PAINT\n\nI never see:\n\nSTART\nWM_PAINT\nEND\n\nThe later would indicate the problem you are seeing.  I am running XP with the \nmanifest file.  I tried without the manifest and it still failed.  The code \nthat I removed makes addding table items to a table that is not yet visible \nVERY slow if you don\u0027t use setRedraw() so I\u0027d like to put a version of it \nback.  If I do, I need to make sure I don\u0027t break you so we still need a \nsnippet.",
+    "I have been running my app for a while now and I get the error again.\n\nwhile (index \u003c\u003d end) {\n    TableItem item \u003d items [index];   \u003c- on this line\n\norg.eclipse.swt.SWTException: Failed to execute runnable \n(java.lang.ArrayIndexOutOfBoundsException: 20)\n\n(The # seems to be \u002720\u0027 a lot.. maybe just coincidence..)\n\nI added println:\n  System.out.println(\"index: \" + index + \" end: \" + end);\n  while (index \u003c\u003d end) {\n  System.out.println(\"len: \" + items.length + \"index: \" + index);\n    TableItem item \u003d items [index];\n\nresult:\nindex: 17 end: 21\nlen: 24 index: 17\nlen: 24 index: 18\nlen: 20 index: 19\nlen: 20 index: 20\n\nSo the length is being shrunk in the middle of the loop.\n\nYour snippet only runs once and seems to run fine.  It is a rare bug and I \nwish I could figure out how to provide a reliable snippet.  I will try to \ntrack down where the index.lenth is being adjusted.\n\nI use XP and a skinned interface with manifest if that matters.\n\n\n\n",
+    "I\u0027ve looked into this a little more and I can reproduce something similar\nby adding a control listener to the table, and setRedraw() on/off in \nthe \"controlResized(ControlEvent e)\" method while removing a bunch of items \nfrom a table (your snippet). The Table.java-\u003esetRedraw() method also resizes \nthe TableItem[] items just like a WM_PAINT did in the middle of that remove \nloop and will have out of bounds problems.  If this somehow isn\u0027t valid to \nturn on/off redraw in controlResized I\u0027ll have to try something else...\n\n\n\n",
+    "Created an attachment (id\u003d9458)\nSample class.\n\nSometimes this\njava.lang.ArrayIndexOutOfBoundsException: 27\n\tat org.eclipse.swt.widgets.Table.remove(Table.java:1661)\n\nSometimes: (if shell.getBounds is \u003e the table size)\njava.lang.ArrayIndexOutOfBoundsException\n\tat java.lang.System.arraycopy(Native Method)\n\tat org.eclipse.swt.widgets.Table.remove(Table.java:1669)",
+    "Reopen, since it is still a problem.\n",
+    "Thanks Rutger.  I know what is happening.  When an item is removed, during if \nthe scroll bar is hidden in the table, an resize event is issued.  If your \nresize handler calls setRedraw(), it will resize the array causing an \nexception for items that have yet to be deleted.",
+    "Rutger, I have put the shrinking code back into WM_PAINT (to put back the \nperformance improvement) and put in temporary code to avoid the problem.  \nUnfortunately, we are back to me being unable to reproduce your original \nproblem (I was able to make it happen when the code was in setRedraw()).\n\nCan you verify that the problem no longer happens for you and/or provide a \nsnippet that shows it?  I won\u0027t mark this bug report fixed until then.  Get \nthe code from tonights build.  Thanks.",
+    "Any news on this?  I\u0027d love to close this PR but can\u0027t because you are the \nonly one that can recreate the original WM_PAINT() bug (not the setRedraw() \nversion).",
+    "Hi, you are welcome to close it.  I\u0027ve been using your latest Table.java but \nhave not been able to recreate the problem yet.  ",
+    "Fixed \u003e 20040422",
+    "*** Bug 60871 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2004-04-10T18:06:28+02:00",
+    "2004-04-12T16:46:16+02:00",
+    "2004-04-12T17:49:42+02:00",
+    "2004-04-12T18:06:08+02:00",
+    "2004-04-12T20:04:01+02:00",
+    "2004-04-12T20:54:52+02:00",
+    "2004-04-13T18:16:55+02:00",
+    "2004-04-13T18:18:34+02:00",
+    "2004-04-13T20:41:07+02:00",
+    "2004-04-13T20:48:38+02:00",
+    "2004-04-13T22:11:57+02:00",
+    "2004-04-13T22:27:28+02:00",
+    "2004-04-13T22:31:27+02:00",
+    "2004-04-13T22:47:37+02:00",
+    "2004-04-13T23:48:47+02:00",
+    "2004-04-14T00:19:40+02:00",
+    "2004-04-15T16:57:40+02:00",
+    "2004-04-15T23:31:19+02:00",
+    "2004-04-20T21:47:28+02:00",
+    "2004-04-22T00:54:28+02:00",
+    "2004-04-22T18:19:29+02:00",
+    "2004-04-22T22:04:19+02:00",
+    "2004-05-04T17:00:54+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "message": "20",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.widgets.Table.remove",
+          "source": "Table.java:1669"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TableViewer.internalRefresh",
+          "source": "TableViewer.java:482"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TableViewer.internalRefresh",
+          "source": "TableViewer.java:436"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$7.run",
+          "source": "StructuredViewer.java:873"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.preservingSelection",
+          "source": "StructuredViewer.java:813"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java:871"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java:833"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.update",
+          "source": "StructuredViewer.java:1304"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.update",
+          "source": "StructuredViewer.java:1205"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "58073",
+      "date": "2004-04-10T18:06:28+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Index out of bounds",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2611"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2555"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:354"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Table.remove",
+          "source": "Table.java:1657"
+        },
+        {
+          "method": "WTable$1.handleEvent",
+          "source": "WTable.java:31"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:769"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2592"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2270"
+        },
+        {
+          "method": "WTable.main",
+          "source": "WTable.java:38"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 8,
+      "bugId": "58073",
+      "date": "2004-04-13T20:41:07+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "message": "27",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.widgets.Table.remove",
+          "source": "Table.java:1661"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 15,
+      "bugId": "58073",
+      "date": "2004-04-14T00:19:40+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "elements": [
+        {
+          "method": "java.lang.System.arraycopy",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Table.remove",
+          "source": "Table.java:1669"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 15,
+      "bugId": "58073",
+      "date": "2004-04-14T00:19:40+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "58073",
+  "bugId": "58073",
+  "date": "2004-04-10T18:06:28+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

@@ -1,0 +1,149 @@
+{
+  "comments": [
+    "in RC1\n- start with an empoty workspace\n- target the RCP SDK\n- go through the new Plugin wizard and make an RCP Hellow world plugin called \nTest (I unchecked the creation of a Plugin class but don\u0027t think that matters)\n- when the plugin is created, launch it from the Overview page in the plugin \neditor\n- it runs fine\n- open the launch configuration and look at the list of plugins selected \n- notice that update.configurator is not checked even though it is in the \ntarget.\n- bummer.  It should be.\n- ok, check it off and launch again\n- the launch fails as the Test plugin could not be installed and thus the \napplication is not found.  The log contains \n\n\n!ENTRY org.eclipse.update.configurator 2005-05-29 12:39:25.636\n!MESSAGE Could not install bundle ../../book/workspace/test/   \nc:\\target\\eclipse\\..\\..\\book\\workspace\\test\n\n!ENTRY org.eclipse.osgi 2005-05-29 12:39:25.767\n!MESSAGE Application error\n!STACK 1\njava.lang.RuntimeException: Application \"test.application\" could not be found \nin the registry. The applications available are: \u003cNONE\u003e.\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:216)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:375)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:162)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:334)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:278)\n\tat org.eclipse.core.launcher.Main.run(Main.java:973)\n\tat org.eclipse.core.launcher.Main.main(Main.java:948)",
+    "This definitely has to be resolved for RC2.  Taking the liberty of upping the \npriority.",
+    "\u003enotice that update.configurator is not checked even though it is in the \n\u003etarget.\n\u003e- bummer.  It should be.\n\nNot really.  People have always requested for PDE to launch with the minimal \nset of plugins required to launch their application.  \nIn this case, update.configurator is not on the required list of your plugin.  \nTherefore, it would be \"gratuitous\" to add it.  So this will stay as-is.\n\n\nAs for the error you got after adding update to the list, I will investigate, \nbut we have seen cases before where PDE is generating the right files but the \nruntime is unhappy when the same launch config switches from non-update to \nupdate (and vice versa), but I thought Tom already fixed that.",
+    "I was able to reproduce the error.  I verified that the config.ini generated \nby PDE has the correct content referencing runtime@2 and update.configurator@3 \non the ill-fated launch.\n\nSo this is either Runtime or Update.\n\nSince we have seen a similar issue with Runtime before, I will arbitrarily \nmove to that component.",
+    "Tom/Pascal, please look into this to see if it is Runtime or update.\n\nWassim, I understand the minimal launch approach and appreciate it.  However, \nin this case, I have a product configuration and explicilty listed \nupdate.configurator in the confguration.  Very few people will ever spec a \ndependency on that plugin as it is only \"needed\" if the higher level Update \nfunction is required.\nPlease reconsider your notion of \"minimal\" to include, \"is update.configurator \nin the ultimate target\".  I recall this to be the metric we had proposed \noriginally anyway.",
+    "I am going to move the defect back to PDE/UI.  The platform.xml does not look \nright.  Need to investigate.",
+    "Jeff, what is the absolute path to your workpace where the problem occurs?",
+    "I am going to move to Update.  PDE is programmatically generating the correct \ncontent and yet the platform.xml, particularly the site URLs, are wrong in the \nfile on disk.\n\nAs for whether \u0027minimal\u0027 should include update or not, \u0027Add Required plugins\u0027 \nwhich is ubiquitous in PDE never implied that \"if update.configurator is in \nthe target, add it\".  We don\u0027t want to go there either.  I believe the story \nin \u003e\u003d 3.0 is that nothing is for free.  \n\nThe only liberty PDE takes is when generating the config.ini.  If \nupdate.configurator is in the selected list, put it in charge of discovering \nthe bundles.  Otherwise, enumerate all the bundles in the config.ini.  Is \nthere a bug here wrt PDE synchronizing the product file and the launch \nconfig?  If so, please open a separate defect and we\u0027ll address.\n ",
+    "For me, the problem occurs only if the workspace for the host Eclipse in under \nthe host Eclipse installation, eg. \u003ceclipse_installation\u003e/workspace.",
+    "My workspace is definitely not anywhere near my IDE install.  never never \nnever.  The path is something like d:\\book\\chapter7.  the IDE I\u0027m running is \nd:\\rc1\\eclipse.  Note that this happens in a mess of workspaces, not just one.\n\nI just did an experiment where I started with an empty/new workspace.  using \nthe new Hello world RCP wizard I created a plugin.  Then I launched it from \nthe Testing seciton in the plugin editor.  The config.ini lists out all the \nplugins.  This is good as update.configurator is not in the target.\n\nI then created a product from the launch config and launched it using the link \nin the Testing section of the product editor.  The generated config.ini has \nall required plugins listed on the osgi.bundles list.  This is good.  Still no \nupdate.configurator involved.\n\nI then used the Configuration page of the product editor and added \nupdate.configurator to the list of plugins.  saved, synchronized and launched \nagain.  This time the generated config.ini has only runtime and \nupdate.configurator on the osgi.bundles list, as expected but the application \ndoes not run as update fails to install my Test pluign.  The generated \nplatform.xml includes \n\u003csite url\u003d\"file:../../book/\" enabled\u003d\"true\" updateable\u003d\"true\" policy\u003d\"USER-\nINCLUDE\" list\u003d\"workspace/test/\"\u003e\n\u003c/site\u003e\n\nThis may be the cause of the problem.  I believe there were some recent \nchanges to update to make more of its information relative.  Note that my \nworkspace is acatully in d:\\book\\workspace and my IDE is in d:\\rc1\\eclipse and \nmy target is c:\\target\\eclipse.\n\nThe error message I get is \n!MESSAGE Could not install bundle ../../book/workspace/test/   \nc:\\target\\eclipse\\..\\..\\book\\workspace\\test\n\nNote the path is c:\\target\\eclipse.  It looks like the ..\\ path is being \ncomputed relative to the wrong location since the workspace is very clearly on \nD not C.\n\n*** in any event, I carry on, optimistic that my sample app will in fact work \nif only I can run ti.  I decide to export it using the link in the product \neditor.  The resultant *generated* config.ini lists ALL the plugins rather \nthan just runtime and update.configurator.  \n\nSummary:  The same style of config.ini generated for launching should be \ngenerated for building.\n\nso this really is too bugs.  I can split if you like.",
+    "*** Bug 97138 has been marked as a duplicate of this bug. ***",
+    "*** Bug 97132 has been marked as a duplicate of this bug. ***",
+    "Any application other than the default (org.eclipse.ui.ide.workbench) fails to \nrun if update.configurator is involved.",
+    "This problem warrants asking for an RC1 rebuild.",
+    "Branko, the recent fix for bug 94746 may have caused this problem. We need to \nget to the bottom of this.\n\n\n",
+    "Dorian, we need your help here because this is a super-sensitive area of the \nUpdate code.",
+    "In response to question in dupped bug 97132 comment #4, yes,\norg.eclipse.update.configurator \nis among those (by default) I\u0027m launching with. \nIf I uncheck it, I get different error messages, but \nno joy ... doubt you meant that as a work around, but \nif you\u0027d like, I could attach log from that attempt. \n\n",
+    "thanks David.  No I didn\u0027t mean that as a workaround.  You need \nupdate.configurator for Junit plugin tests.",
+    "BTW, I agree with comment #3, RC1 should be re-done.  \n\nI\u0027d go so far to recommend it be pulled from download site, \nand a good test case added to cover these basic usage scenerios :)\n",
+    "opps, typo ... I meant comment #13\n",
+    "As the patch submitter, I will be looking into this as well.",
+    "Let\u0027s not worry about RC1 just yet.  We need to get in order for the Tues test \npass.  Whatever we use for that can be labelled RC1a or some such so people \nknow what \"the good thing\" is.",
+    "I am not sure Jeff\u0027s problem has the same cause, but the problem with having the\nworkspace as a directory immediately under the install is caused by bug 97165,\nwhich went apparently unnoticed until the fix to bug 94746 was released. ",
+    "Jeff\u0027s problem is unrelated to bug 97165. It is exactly what he has described in\ncomment 9: the relative URL written to the platform.xml takes the currently\nrunning install (dev) as reference while when when running against the target\nthe install URL will be the target.",
+    "Created an attachment (id\u003d21963)\npatch for org.eclipse.update.configurator\n\nThe attached patch prevents the configurator from transforming *site* URLs to\nrelative URLs if the configuration is transient.\n\nThis works around this issue and also bug 97165.",
+    "Created an attachment (id\u003d21966)\norg.eclipse.update.configurator jar built with patch from comment #24\n\nThe patch works for my reproduced problem.  For others to try it out - this is\nupdate configurator plug-in replacement.",
+    "Initial testing shows that this works for me.",
+    "It works for me, and also solves a related issue when you use .eclipsextension\nand links/.link files which makes sense to me.\n\n",
+    "Just to also confirm. I used the patched jar, and it solves my problems using RC1. ",
+    "Re: comment 7\n\nPhilippe, this issue should manifest only during development time (launching an\nEclipse from Eclipse). Was the problem you were seeing with external locations\nalso related to launching Eclipse from Eclipse? If not, that might warrant a new PR.",
+    "My mistake.\nI was confused with some other stuffs.\nThe links/eclipsextension stuffs works fine out of the box with an uptached RC1 :-)",
+    "Pls, have a look to bug 97390 i opened this morning. I think that somehow they\nare related.",
+    "*** Bug 97388 has been marked as a duplicate of this bug. ***",
+    "*** Bug 97390 has been marked as a duplicate of this bug. ***",
+    "You closed Bug 97390 as dup of this, but i wish to made you aware that i tested\nthe patch proposed in comment #25 and is not solving that problem.",
+    "Patched released into HEAD.",
+    "Code released few days ago, so closing.",
+    "*** Bug 98647 has been marked as a duplicate of this bug. ***",
+    "*** Bug 98849 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2005-05-29T18:43:39+02:00",
+    "2005-05-29T18:44:55+02:00",
+    "2005-05-29T22:36:03+02:00",
+    "2005-05-29T23:06:49+02:00",
+    "2005-05-29T23:24:47+02:00",
+    "2005-05-29T23:28:31+02:00",
+    "2005-05-29T23:29:40+02:00",
+    "2005-05-29T23:51:31+02:00",
+    "2005-05-30T02:20:13+02:00",
+    "2005-05-30T02:52:18+02:00",
+    "2005-05-30T04:43:14+02:00",
+    "2005-05-30T04:58:30+02:00",
+    "2005-05-30T05:00:46+02:00",
+    "2005-05-30T05:24:57+02:00",
+    "2005-05-30T05:57:35+02:00",
+    "2005-05-30T05:58:51+02:00",
+    "2005-05-30T06:00:34+02:00",
+    "2005-05-30T06:02:27+02:00",
+    "2005-05-30T06:05:22+02:00",
+    "2005-05-30T06:06:48+02:00",
+    "2005-05-30T06:09:08+02:00",
+    "2005-05-30T06:16:34+02:00",
+    "2005-05-30T09:14:34+02:00",
+    "2005-05-30T09:40:19+02:00",
+    "2005-05-30T17:05:23+02:00",
+    "2005-05-30T17:49:55+02:00",
+    "2005-05-30T17:56:19+02:00",
+    "2005-05-30T21:57:41+02:00",
+    "2005-05-30T22:11:24+02:00",
+    "2005-05-30T22:45:00+02:00",
+    "2005-05-30T23:00:00+02:00",
+    "2005-05-31T10:19:11+02:00",
+    "2005-05-31T14:51:28+02:00",
+    "2005-05-31T14:52:54+02:00",
+    "2005-05-31T15:51:20+02:00",
+    "2005-06-01T21:41:02+02:00",
+    "2005-06-03T23:11:27+02:00",
+    "2005-06-07T12:35:49+02:00",
+    "2005-06-08T00:10:53+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "message": "Application \"test.application\" could not be found  in the registry. The applications available are: \u003cNONE\u003e.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:216"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:375"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:162"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:334"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:278"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:973"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:948"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "97148",
+      "date": "2005-05-29T18:43:39+02:00",
+      "product": "Platform",
+      "component": "Update",
+      "severity": "blocker"
+    }
+  ],
+  "groupId": "97148",
+  "bugId": "97148",
+  "date": "2005-05-29T18:43:39+02:00",
+  "product": "Platform",
+  "component": "Update",
+  "severity": "blocker"
+}

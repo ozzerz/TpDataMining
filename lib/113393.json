@@ -1,0 +1,144 @@
+{
+  "comments": [
+    "Getting \"No root element exists since the schema provided has no global \nelements.\" when generating an XML file from an XML Schema.\n\nPlease reference the test cases in noRoot.zip attached to this bug.\n\nThe schema in svg+xhtml+svg.xsd redefines schema data in svg+xhtml.xsd. All \nfiles except xhtml+svg.xsd validate ok. Now, select svg+xhtml+svg.xsd, right \nclick on the mouse button, and select \"Generate \u003e XML file...\".  You will see \nthe \"New\" XML File  wizard.  Take the default name and select \"Next \u003e\". You \nwill immediately see the following red text at the top of the \"Select Root \nElement\" page: \"No root element exists since the schema provided has no global \nelements.\"  This is incorrect.  Redefines in XML schema documents are allowed \nand allowed to be chained together.",
+    "Created an attachment (id\u003d28618)\nzip file containing 4 schemas which demonstrate problem.\n",
+    "Kihup...please investigate.",
+    "Keith,\nAs discussed.\nI am re-assigning this defect to you.\nThanks.",
+    "This problem is still reproduceable on WTP 1.5 RC5.",
+    "I believe the XSD model is having a tough time with these schemas.  We need to investigate further to see if there schemas are indeed bad or if there\u0027s a problem in our XSD model.",
+    "I investigated the issue and it seems that it is caused by the interaction between the XSD model redefine resolution mechanism and our WST URIResolver. Our resolver is unexpectedly being fed a parent schema with a null schemaLocation - it is null because it hasn\u0027t been resolved yet. Our code assumes a non-null base location.\n\nThe following exception is printed to the console (I spotted it when opening the editor, and made it visible in the org.eclipse.wst.xsd.contentmodel.internal.XSDImpl#buildContentModel(String uri), as it was being silently eaten there):\n\njava.lang.NullPointerException\n\tat org.eclipse.wst.common.uriresolver.internal.ExtensibleURIResolver.normalize(ExtensibleURIResolver.java:134)\n\tat org.eclipse.wst.common.uriresolver.internal.ExtensibleURIResolver.resolve(ExtensibleURIResolver.java:77)\n\tat org.eclipse.wst.xsd.contentmodel.internal.util.XSDSchemaLocatorImpl.locateSchema(XSDSchemaLocatorImpl.java:35)\n\tat org.eclipse.xsd.impl.XSDSchemaDirectiveImpl.locateSchema(XSDSchemaDirectiveImpl.java:387)\n\tat org.eclipse.xsd.impl.XSDSchemaDirectiveImpl.resolve(XSDSchemaDirectiveImpl.java:327)\n\tat org.eclipse.xsd.impl.XSDRedefineImpl.patch(XSDRedefineImpl.java:263)\n\tat org.eclipse.xsd.impl.XSDSchemaImpl.incorporate(XSDSchemaImpl.java:3123)\n\tat org.eclipse.xsd.impl.XSDSchemaImpl.redefined(XSDSchemaImpl.java:3052)\n\tat org.eclipse.xsd.impl.XSDRedefineImpl.handleResolvedSchema(XSDRedefineImpl.java:298)\n\tat org.eclipse.xsd.impl.XSDSchemaDirectiveImpl.resolve(XSDSchemaDirectiveImpl.java:374)\n\tat org.eclipse.xsd.impl.XSDRedefineImpl.patch(XSDRedefineImpl.java:263)\n\tat org.eclipse.xsd.impl.XSDConcreteComponentImpl.patch(XSDConcreteComponentImpl.java(Compiled Code))\n\tat org.eclipse.xsd.impl.XSDSchemaImpl.patch(XSDSchemaImpl.java:1504)\n\tat org.eclipse.xsd.impl.XSDSchemaImpl.changeAttribute(XSDSchemaImpl.java:2329)\n\tat org.eclipse.xsd.impl.XSDConcreteComponentImpl.eNotify(XSDConcreteComponentImpl.java(Compiled Code))\n\tat org.eclipse.xsd.impl.XSDSchemaImpl.setSchemaLocation(XSDSchemaImpl.java:828)\n\tat org.eclipse.xsd.util.XSDResourceImpl.doLoad(XSDResourceImpl.java:743)\n\tat org.eclipse.xsd.util.XSDResourceImpl.doLoad(XSDResourceImpl.java:771)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.load(ResourceImpl.java:1089)\n\tat org.eclipse.wst.xsd.contentmodel.internal.XSDImpl.buildXSDModel(XSDImpl.java:210)\n\tat org.eclipse.wst.xsd.contentmodel.internal.XSDImpl.buildCMDocument(XSDImpl.java:169)\n\tat org.eclipse.wst.xsd.contentmodel.internal.CMDocumentFactoryXSD.createCMDocument(CMDocumentFactoryXSD.java:37)\n\tat org.eclipse.wst.xml.core.internal.contentmodel.ContentModelManager.createCMDocument(ContentModelManager.java:56)\n\tat org.eclipse.wst.xml.ui.internal.wizards.NewXMLGenerator.createCMDocument(NewXMLGenerator.java:82)\n\tat org.eclipse.wst.xml.ui.internal.wizards.NewXMLWizard.showDialog(NewXMLWizard.java:106)\n\nI had a conversation with Ed on redefines in general and this specific matter as well. \n\nHere\u0027s the gist of the redefine talk: in general redefine is very poorly defined and neither Xerces nor EMF implement it correctly for all the combinations that are possible. The spec is very unclear about the redefines\u0027 visibility. For XSD, it\u0027s impossible to actually change the schema being redefined, because it might be used also in a context where it\u0027s not redefined. So it\u0027s necessary to clone and then it\u0027s necessary to determine where that clone is visible. Apparently Xerces has bugs very similar to XSD\u0027s.\n\nWith regard to this specific scenario Ed suggested we can solve the problem at our end by doing xsdSchema.getContainer().getSchema() until we reach a schema with a non-null schema location - there should be at least one. Alternatively this could also be fixed at the XSD end in org.eclipse.xsd.impl.XSDSchemaDirectiveImpl#resolveSchemaLocation(XSDSchema xsdSchema, String namespace, String schemaLocation) by not calling the adapter until the loop is done or by checking if that adapter returns null and continue the loop.\n\nI have experimented with modifying our code to get the proper base location. We have at least two URI resolver adapters, one in the editor and one in the content model wrapper in the xsd.core plugin. Changing the first makes the lower level redefined content visible (read only) in the editor and fixing the second makes the redefined content (global elements) available in the wizard.\n\nGiven that there may be other places where we use a similar approach (I know of at least one more) providing a solution in the XSD model would avoid code duplication. On the other hand it may be safer to change only our code given that the XSD directive resolution code is shared by includes and imports and those seem to work just fine.",
+    "I have retested this with WTP 3.0 and 2.0 and it seems to work now. I traced back all 1.5.* maintenance releases and it seem the first one with the fix is WTP 1.5.1. Likely one of the fixes that went into WTP 1.5.1 or in the XSD 2.2.1 has indirectly corrected this issue.\n\nWe don\u0027t have a \"fixed indirectly\" resolution so I\u0027ll just mark as fixed.",
+    "Closing."
+  ],
+  "commentCreationDates": [
+    "2005-10-21T20:29:52+02:00",
+    "2005-10-21T20:31:58+02:00",
+    "2005-11-08T16:16:12+01:00",
+    "2006-04-04T18:01:06+02:00",
+    "2006-06-06T22:24:48+02:00",
+    "2006-06-07T22:13:32+02:00",
+    "2006-06-08T17:28:50+02:00",
+    "2007-09-14T22:25:25+02:00",
+    "2007-09-20T16:29:27+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.common.uriresolver.internal.ExtensibleURIResolver.normalize",
+          "source": "ExtensibleURIResolver.java:134"
+        },
+        {
+          "method": "org.eclipse.wst.common.uriresolver.internal.ExtensibleURIResolver.resolve",
+          "source": "ExtensibleURIResolver.java:77"
+        },
+        {
+          "method": "org.eclipse.wst.xsd.contentmodel.internal.util.XSDSchemaLocatorImpl.locateSchema",
+          "source": "XSDSchemaLocatorImpl.java:35"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDSchemaDirectiveImpl.locateSchema",
+          "source": "XSDSchemaDirectiveImpl.java:387"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDSchemaDirectiveImpl.resolve",
+          "source": "XSDSchemaDirectiveImpl.java:327"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDRedefineImpl.patch",
+          "source": "XSDRedefineImpl.java:263"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDSchemaImpl.incorporate",
+          "source": "XSDSchemaImpl.java:3123"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDSchemaImpl.redefined",
+          "source": "XSDSchemaImpl.java:3052"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDRedefineImpl.handleResolvedSchema",
+          "source": "XSDRedefineImpl.java:298"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDSchemaDirectiveImpl.resolve",
+          "source": "XSDSchemaDirectiveImpl.java:374"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDRedefineImpl.patch",
+          "source": "XSDRedefineImpl.java:263"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDConcreteComponentImpl.patch",
+          "source": "XSDConcreteComponentImpl.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDSchemaImpl.patch",
+          "source": "XSDSchemaImpl.java:1504"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDSchemaImpl.changeAttribute",
+          "source": "XSDSchemaImpl.java:2329"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDConcreteComponentImpl.eNotify",
+          "source": "XSDConcreteComponentImpl.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.xsd.impl.XSDSchemaImpl.setSchemaLocation",
+          "source": "XSDSchemaImpl.java:828"
+        },
+        {
+          "method": "org.eclipse.xsd.util.XSDResourceImpl.doLoad",
+          "source": "XSDResourceImpl.java:743"
+        },
+        {
+          "method": "org.eclipse.xsd.util.XSDResourceImpl.doLoad",
+          "source": "XSDResourceImpl.java:771"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.load",
+          "source": "ResourceImpl.java:1089"
+        },
+        {
+          "method": "org.eclipse.wst.xsd.contentmodel.internal.XSDImpl.buildXSDModel",
+          "source": "XSDImpl.java:210"
+        },
+        {
+          "method": "org.eclipse.wst.xsd.contentmodel.internal.XSDImpl.buildCMDocument",
+          "source": "XSDImpl.java:169"
+        },
+        {
+          "method": "org.eclipse.wst.xsd.contentmodel.internal.CMDocumentFactoryXSD.createCMDocument",
+          "source": "CMDocumentFactoryXSD.java:37"
+        },
+        {
+          "method": "org.eclipse.wst.xml.core.internal.contentmodel.ContentModelManager.createCMDocument",
+          "source": "ContentModelManager.java:56"
+        },
+        {
+          "method": "org.eclipse.wst.xml.ui.internal.wizards.NewXMLGenerator.createCMDocument",
+          "source": "NewXMLGenerator.java:82"
+        },
+        {
+          "method": "org.eclipse.wst.xml.ui.internal.wizards.NewXMLWizard.showDialog",
+          "source": "NewXMLWizard.java:106"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 6,
+      "bugId": "113393",
+      "date": "2006-06-08T17:28:50+02:00",
+      "product": "Web Tools",
+      "component": "wst.xsd",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "113393",
+  "bugId": "113393",
+  "date": "2005-10-21T20:29:52+02:00",
+  "product": "Web Tools",
+  "component": "wst.xsd",
+  "severity": "normal"
+}

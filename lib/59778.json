@@ -1,0 +1,118 @@
+{
+  "comments": [
+    "the exception below is caused by a non-imported type. adding a simple line\n\n  import java.io.Serializable;\n\nsolves the problem caused by\n\n  private Serializable\t\tHibernateEntityRenderingHelper.id;\n\nunfortunately i have no time for testcase, and i doubt it happend in simple \ncases.\n\n- 101\n\n\njava.lang.NullPointerException\n    at org.aspectj.ajdt.internal.compiler.ast.InterTypeMethodDeclaration.\nbuild(InterTypeMethodDeclaration.java:104)\n    at org.aspectj.ajdt.internal.compiler.ast.AspectDeclaration.\nbuildInterTypeAndPerClause(AspectDeclaration.java:753)\n    at org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.\nbuildInterTypeAndPerClause(AjLookupEnvironment.java:213)\n    at org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.\ncompleteTypeBindings(AjLookupEnvironment.java:94)\n    at org.eclipse.jdt.internal.compiler.Compiler.beginToCompile(Compiler.java:\n300)\n    at org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:314)\n    at org.aspectj.ajdt.internal.core.builder.AjBuildManager.\nperformCompilation(AjBuildManager.java:383)\n    at org.aspectj.ajdt.internal.core.builder.AjBuildManager.\ndoBuild(AjBuildManager.java:125)\n    at org.aspectj.ajdt.internal.core.builder.AjBuildManager.\nbatchBuild(AjBuildManager.java:70)\n    at org.aspectj.ajdt.ajc.AjdtCommand.doCommand(AjdtCommand.java:102)\n    at org.aspectj.ajdt.ajc.AjdtCommand.runCommand(AjdtCommand.java:53)\n    at org.aspectj.tools.ajc.Main.run(Main.java:231)\n    at org.aspectj.tools.ajc.Main.runMain(Main.java:168)\n    at org.aspectj.tools.ajc.Main.main(Main.java:81)",
+    "it\u0027s 1.2RC1\n",
+    "I have just fixed a bug vaguely related to this (bug 59440) to do with not \nimporting a type used in a constructor ITD.  This one is different but I am \nslightly confused, the ITD:\n\nprivate Serializable\t\tHibernateEntityRenderingHelper.id;\n\nis a field ITD, yet the NPE is in the InterTypeMethodDeclaration type.\n\nI\u0027ve tried to find a case as simple as the one I did in 59440 but I can\u0027t so \nfar - it doesn\u0027t seem to matter if the type of the ITD can\u0027t be found or the \ntype upon which we are ITDing can\u0027t be found - I still get a sensible error \nmessage about unresolved types.  I\u0027ve also tried binary weaving (including -\ng:none on the stuff going into the binary weave), but still I can\u0027t recreate \nthe problem.  is there any way you could attach the whole aspect to this bug?\n",
+    "Created an attachment (id\u003d9895)\nThis is the file in question, it has several Serializable references\n",
+    "thanks for appending more of the code.  I can see its a more complicated \nscenario than the one I had been playing with.  Here are the relevant ITD bits \nof code I\u0027ve been looking at from your sample:\n\npublic abstract aspect AbstractHibernateEntityRenderingHelperMixin extends \nAbstractHibernateRenderingHelperMixin\n{\npublic interface HibernateEntityRenderingHelper extends \nHibernateRenderingHelper {};\n\t\ndeclare parents:(AbstractHibernateEntityScreen ||\n                 AbstractHibernateTreeViewScreen)\n\t\timplements HibernateEntityRenderingHelper;\n\nprivate Serializable HibernateEntityRenderingHelper.id;\n\n...\n...\n  public void HibernateEntityRenderingHelper.setEntityById(Serializable id) {\n    this.id \u003d id;\n  }\n...\n}\n\nHowever, I\u0027ve tried creating a small example that mirrors what this class does \nand it just won\u0027t fail, without the Serializable import I get a sensible error \nmessage and not the NPE.  Here is my current experiment:\n\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n//import java.io.Serializable;\n\npublic abstract aspect Sample {\n\n  public interface If1 extends If2 {};\n\n  declare parents: ( A || B) implements If1;\n\n  private Serializable If1.id;\n\n  public void If1.setID(Serializable s) {\n    this.id \u003d s;\n  }\n\n}\n\ninterface If2 { }\n\nclass A { }\n\nclass B { }\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\nAll I can think of now is that there is some type not exposed to the weaver \nthat should be and it manifests as the NPE.\n\nCan I ask:\n- Are you doing a binary weave to apply this aspect to a system?\n- If you are, do you put all the components of the framework on inpath/injars \nor do you have some of them on the classpath?",
+    "\nthis is how i call ajc: (no binary weaving)\n\n\t\t\u003ciajc\n\t\t\tencoding\u003d\"UTF-8\"\n\t\t\tsource\u003d\"1.4\"\n\t\t\tdebug\u003d\"true\"\n\t\t\tdebuglevel\u003d\"lines,vars,source\"\n\t\t\tdestdir\u003d\"${build}/web-compiled\"\n\t\t\tincludes\u003d\"**/*.java,**/*.aj\" fork\u003d\"true\"\n\t\t\u003e\n\t\t\t\u003csourceroots\u003e\n\t\t\t\t\u003cpathelement location\u003d\"src/web/java\"/\u003e\n\t\t\t\u003c/sourceroots\u003e\n\n\t\t\t\u003caspectpath\u003e\n\t\t\t\t\u003cpathelement path\u003d\"../web-framework/build/web-framework.jar\"/\u003e\n\t\t\t\u003c/aspectpath\u003e\n\n\t\t\t\u003cclasspath refid\u003d\"web.build.classpath\"/\u003e\n\t\t\u003c/iajc\u003e\n\nthe web-framework depends on a few jars, but IIRC they are all on the classpath \nwhen compiling. also the web-framework is created from three injar\u0027ed files plus \nmy sources, and they all go into the web-framework.jar\n\ni will add some new attachments with the base classes in a few secs.\n\na note: in the inheritance of the aspect there\u0027s one called MutableContentMixin \nthat comes from the aspectpath\u0027ed web-framework.jar\n\nanother note: ajc has some problems with inner types + inheritance (at least i \nhad strange experiences). if an aspect extends another one that has an inner \ntype, then sometimes i had to explicitly import that inner type to overcome an \ninternal error. also i don\u0027t know the rules but if there are three inheriting \naspects involved the lower one can not be seen... or something like this.\n\nhope it helps!\n",
+    "Created an attachment (id\u003d9967)\na base class\n",
+    "Created an attachment (id\u003d9968)\nPOJORenderingHelperMixin.java\n",
+    "Created an attachment (id\u003d9969)\nComponentFactoryMixin.java\n",
+    "Created an attachment (id\u003d9971)\nMutableContentMixin.java\n",
+    "i\u0027m truck again with this bug... having some logging in ajc would help a lot! \nand i could help you with sending the debug level log file...\n",
+    "\na little additional info: now it happened because i did not have someting on the \nclasspath that was imported in the aspects. hope it helps.",
+    "Created an attachment (id\u003d10333)\nDebug version of InterTypeMethodDeclaration\n\nI reallllllly want to recreate this bug and see whats going on.  I just can\u0027t\nseem to manage it.  So, I have attached a jar to this bug that includes a\npatched version of InterTypeMethodDeclaration that should print out what the\nvarious fields are set to at the point of the NPE.  Currently on the line where\nthe NPE is reported there could be several things that are NULL, it would be\nnice to confirm exactly which it is.\n\nPlease can you patch your aspectjtools.jar with the contents of this one?\nProbably something like this:\n1) Backup aspectjtools.jar in aspectj1.2\\lib\n2) Unzip this jar into aspectj1.2\\lib\n3) jar -uvf aspectjtools.jar org\n\nAnd then recreate the problem and paste the output into here?  I want to cut\n1.2 RC2 either tonight or tomorrow morning, and this is probably the last bug\nto resolve before doing that...\n\nThe alternative could be that you zip up your whole system and send it to me\n(privately) to reproduce locally - is that possible?   I\u0027m certainly willing to\ntry this approach.",
+    "Phew.  I\u0027ve had a separate discussion \u0027off-bugzilla\u0027 about this bug.  There \nwere some problems with ensuring the compiler being used was 1.2rc1, \neventually when we got the right compiler AJC then failed in a slightly \ndifferent way than the NPE.  After receiving all the code in the failing \nsystem, I have (miraculously!) created a minimal testcase.  The bug that needs \nfixing is actually a silent compiler failure.  Here are two files:\n\nB.java contains:\npublic abstract aspect B {\n  public void C.method(Serializable s) {\n  }\n}\nclass C {\n}\n\nD.java contains:\nclass D { }\n\nNow: \n\n\"ajc B.java D.java\" gives no messages back to the user but creates no class \nfiles.\n\n\"ajc D.java B.java\" gives:\nC:\\temp\\area\\B.java:2 error Serializable cannot be resolved \n  (or is not a valid type) for the argument s of the method method2c\npublic void C.method(Serializable s) {\n                     ^^^^^^^^^\n1 error\n\nThis is an error message missing from the first version of calling ajc that \ntells the user why he got no class files !\n\nHere is the classic comment in the source:\n\n// if binding is null, we failed to find a type used \n// in the method params, this error\n// has already been reported. \nthrow new AbortCompilation();\n\nCan you guess what is happening in this failing case ...\n\nThe aspect must be abstract for it to fail silently.  Now I have that minimal \ncase I can hopefully fix it.",
+    "Created an attachment (id\u003d10359)\nFix for silent compiler death\n\nThis jar includes one class file that you should apply to aspectjtools.jar,\nfollowing the same approach as documented earlier in the bug.  Hopefully it\nwill now report errors rather than silently failing.  Let me know if it\nworks...",
+    "The bug in the code is as follows.  During processing of class B.java, we \ncorrectly discover the error: \n\n\"Serializable cannot be resolved (or is not a valid type) ....\"\n\nIt is added as an error to the list of errors against the B.java compilation \nresult.  However, when we get to InterTypeMethodDeclaration.build() we go \nthrough this code:\n\nbinding \u003d classScope.referenceContext.binding.resolveTypesFor(binding);\nif (binding \u003d\u003d null) {\n  // if binding is null, we failed to find a type used in the method params, \nthis error\n  // has already been reported.\n  throw new AbortCompilation();\n}\n\nIt is true that the error about the missing parameter type has already been \nrecorded.  It hasn\u0027t been *output* to the console yet though, it has just been \nrecorded against the compilation result.  The AbortCompilation exception is \nthrown and we handle it in Compiler.handleInternalException (line 403).\n\nIn jumping from where the AbortCompilation() was thrown into \nhandleInternalException, we have skipped the \u0027acceptResult\u0027 processing which \nis how the errors against a compilation result are reported to the user.  \nBecause we have skipped it, the handleInternalException processing attempts to \nsort it out by calling it.  Unfortunately the AbortCompilation result was \nthrown without indicating the compilationresult that was being processed at \nthe time, this means we drive this piece of code in handleInternalException:\n\n// Exception may tell which compilation result it is related, and which \nproblem caused it\nCompilationResult result \u003d abortException.compilationResult;\nif ((result \u003d\u003d null) \u0026\u0026 (unit !\u003d null))\n  result \u003d unit.compilationResult; // current unit being processed ?\nif ((result \u003d\u003d null) \u0026\u0026 (unitsToProcess !\u003d null) \u0026\u0026 (totalUnits \u003e 0))\n  result \u003d unitsToProcess[totalUnits - 1].compilationResult;\n\nWithout a compilation result set in the AbortCompilation exception (and unit \nis null also in this case) - we \u0027have a guess\u0027 (!!!) at the compilationresult, \nand assume it is the last in the list to be processed.\n\nLater on down the handleInternalException code we then make this call:\n/* hand back the compilation result */\nif (!result.hasBeenAccepted) {\n  requestor.acceptResult(result.tagAsAccepted());\n}\n\nSo, what does that mean in our case?\n\nWe have two files, B and D.  An error is stored against B (the missing \nSerializable).  We throw an AbortCompilation exception without a result whilst \nprocessing B, so the exception processing code has a guess and picks D as the \ncompilation result (the last one in the list of those to be processed).  We \ncall acceptResult() for D\u0027s compilation result - which has no errors on it, \nand then we end compilation... without ever reporting the problem recorded \nagainst B !\n\nIf we compile the files the other way round ... then an error is stored \nagainst B, we throw an AbortCompilation exception without a result, it has a \nguess and by sheer fluke picks the right one as we passed them in as D, B.  We \ncall acceptResult and correctly report the error before abruptly finishing \ncompilation.\n\nThe fix?\n\nWhen we throw the AbortCompilation exception, we include the right information \nabout the compilationResult so that the exception processing code doesn\u0027t have \nto guess:\n\n  throw new AbortCompilation(compilationResult)\n\nAmazing how the whole bug report boiled down to a 1 line change - I like those \nkind of fixes ;)",
+    "Fix and testcase checked in.",
+    "fixed by Andy."
+  ],
+  "commentCreationDates": [
+    "2004-04-23T15:33:48+02:00",
+    "2004-04-23T15:34:48+02:00",
+    "2004-04-23T16:15:39+02:00",
+    "2004-04-23T16:33:16+02:00",
+    "2004-04-26T18:03:23+02:00",
+    "2004-04-26T18:38:24+02:00",
+    "2004-04-26T18:39:43+02:00",
+    "2004-04-26T18:40:27+02:00",
+    "2004-04-26T18:41:00+02:00",
+    "2004-04-26T18:41:56+02:00",
+    "2004-04-30T13:52:01+02:00",
+    "2004-04-30T13:55:11+02:00",
+    "2004-05-06T13:06:44+02:00",
+    "2004-05-06T17:15:03+02:00",
+    "2004-05-06T18:56:46+02:00",
+    "2004-05-07T09:58:34+02:00",
+    "2004-05-07T17:34:54+02:00",
+    "2004-05-13T11:18:00+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.ast.InterTypeMethodDeclaration.build",
+          "source": "InterTypeMethodDeclaration.java:104"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.ast.AspectDeclaration.buildInterTypeAndPerClause",
+          "source": "AspectDeclaration.java:753"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.buildInterTypeAndPerClause",
+          "source": "AjLookupEnvironment.java:213"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.completeTypeBindings",
+          "source": "AjLookupEnvironment.java:94"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.beginToCompile",
+          "source": "Compiler.java: 300"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:314"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:383"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:125"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:70"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.doCommand",
+          "source": "AjdtCommand.java:102"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.runCommand",
+          "source": "AjdtCommand.java:53"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.run",
+          "source": "Main.java:231"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.runMain",
+          "source": "Main.java:168"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.main",
+          "source": "Main.java:81"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "59778",
+      "date": "2004-04-23T15:33:48+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "59778",
+  "bugId": "59778",
+  "date": "2004-04-23T15:33:48+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

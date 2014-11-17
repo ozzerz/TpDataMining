@@ -1,0 +1,164 @@
+{
+  "comments": [
+    "I got this exception while debugging a test case. Apparently, HashMap#clone() is\nnot thread safe.\n\n!ENTRY org.eclipse.debug.core 4 120 2004-11-12 09:51:02.64\n!MESSAGE An exception occurred while dispatching debug events.\n!STACK 0\njava.util.ConcurrentModificationException\n        at java.util.HashMap$HashIterator.nextEntry(HashMap.java:787)\n        at java.util.HashMap$EntryIterator.next(HashMap.java:829)\n        at java.util.HashMap$EntryIterator.next(HashMap.java:827)\n        at java.util.HashMap.putAllForCreate(HashMap.java:427)\n        at java.util.HashMap.clone(HashMap.java:659)\n        at\norg.eclipse.jdt.internal.debug.ui.monitors.ThreadMonitorManager.handleSuspendResume(ThreadMonitorManager.java:113)\n        at\norg.eclipse.jdt.internal.debug.ui.monitors.ThreadMonitorManager.handleDebugEvents(ThreadMonitorManager.java:100)\n        at\norg.eclipse.debug.core.DebugPlugin$EventNotifier.run(DebugPlugin.java:965)\n        at\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:616)\n        at org.eclipse.core.runtime.Platform.run(Platform.java:747)\n        at\norg.eclipse.debug.core.DebugPlugin$EventNotifier.dispatch(DebugPlugin.java:997)\n        at\norg.eclipse.debug.core.DebugPlugin.fireDebugEventSet(DebugPlugin.java:345)\n        at\norg.eclipse.jdt.internal.debug.core.model.JDIDebugElement.fireEvent(JDIDebugElement.java:148)\n        at\norg.eclipse.jdt.internal.debug.core.model.JDIDebugElement.fireResumeEvent(JDIDebugElement.java:172)\n        at\norg.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.resume(JDIDebugTarget.java:1072)\n        at\norg.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.resume(JDIDebugTarget.java:1040)\n        at\norg.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.handleVMStart(JDIDebugTarget.java:335)\n        at\norg.eclipse.jdt.internal.debug.core.EventDispatcher.dispatch(EventDispatcher.java:149)\n        at\norg.eclipse.jdt.internal.debug.core.EventDispatcher.run(EventDispatcher.java:221)\n        at java.lang.Thread.run(Thread.java:595)",
+    "It was likely created by a simultaneous call to #handleSuspendResume() and\n#handleThreadTerminate(IJavaThread).\n\nI replace the use of #clone() by a toArray(). I also modified #clean(), it had\nthe same potential problem.\n\nChanges in ThreadMonitorManager.",
+    "Please verify, Darin S.",
+    "#toArray() doesn\u0027t seem to help either.\nLooks like we have to synchronize this code ... :(",
+    "*** Bug 78029 has been marked as a duplicate of this bug. ***",
+    "*** Bug 79393 has been marked as a duplicate of this bug. ***",
+    "When I run the test suite in debug mode with montor information showing, I get \nthese errors:\n\njava.util.ConcurrentModificationException\n\tat java.util.HashMap$HashIterator.nextEntry(HashMap.java:930)\n\tat java.util.HashMap$ValueIterator.next(HashMap.java:960)\n\tat java.util.AbstractCollection.toArray(AbstractCollection.java:139)\n\tat \norg.eclipse.jdt.internal.debug.ui.monitors.ThreadMonitorManager$DetectDeadlock.\nrun(ThreadMonitorManager.java:210)\n\tat org.eclipse.debug.core.DebugPlugin$AsynchJob.run\n(DebugPlugin.java:980)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:66)",
+    "Created an attachment (id\u003d17231)\nProtect the hashmaps\n\nThis patch should handle most if not all the cases.\nI am assuming getDefault() won\u0027t occur on two threads but I think thats one if\nnot the only hole left.\nIt might be easier to switch to a Hashtable which would remove all the\nsynchronization blocks around the remove() calls.  All the other calls would\nstill have to be synchronized since they have more than one call on the Map\nwhich must remain consistent.\n\nBTW, DebugPlugin.add/removeDebugEventListener isn\u0027t thread safe, but its not\nclear what occurs on multiple threads.",
+    "Good patch, thanks a lot Mickael.\n\nApplied patch, changes in ThreadMonitorManager.",
+    "Please verify, Kevin.",
+    "verified"
+  ],
+  "commentCreationDates": [
+    "2004-11-12T18:13:10+01:00",
+    "2004-11-12T18:25:44+01:00",
+    "2004-11-12T18:26:21+01:00",
+    "2004-11-12T19:54:42+01:00",
+    "2004-11-12T19:56:08+01:00",
+    "2004-11-24T16:06:23+01:00",
+    "2004-12-16T14:17:57+01:00",
+    "2005-01-18T04:36:05+01:00",
+    "2005-01-25T22:18:55+01:00",
+    "2005-01-25T22:19:48+01:00",
+    "2005-01-26T22:03:49+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.util.ConcurrentModificationException",
+      "elements": [
+        {
+          "method": "java.util.HashMap$HashIterator.nextEntry",
+          "source": "HashMap.java:787"
+        },
+        {
+          "method": "java.util.HashMap$EntryIterator.next",
+          "source": "HashMap.java:829"
+        },
+        {
+          "method": "java.util.HashMap$EntryIterator.next",
+          "source": "HashMap.java:827"
+        },
+        {
+          "method": "java.util.HashMap.putAllForCreate",
+          "source": "HashMap.java:427"
+        },
+        {
+          "method": "java.util.HashMap.clone",
+          "source": "HashMap.java:659"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.ui.monitors.ThreadMonitorManager.handleSuspendResume",
+          "source": "ThreadMonitorManager.java:113"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.ui.monitors.ThreadMonitorManager.handleDebugEvents",
+          "source": "ThreadMonitorManager.java:100"
+        },
+        {
+          "method": "org.eclipse.debug.core.DebugPlugin$EventNotifier.run",
+          "source": "DebugPlugin.java:965"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:616"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:747"
+        },
+        {
+          "method": "org.eclipse.debug.core.DebugPlugin$EventNotifier.dispatch",
+          "source": "DebugPlugin.java:997"
+        },
+        {
+          "method": "org.eclipse.debug.core.DebugPlugin.fireDebugEventSet",
+          "source": "DebugPlugin.java:345"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.fireEvent",
+          "source": "JDIDebugElement.java:148"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.fireResumeEvent",
+          "source": "JDIDebugElement.java:172"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.resume",
+          "source": "JDIDebugTarget.java:1072"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.resume",
+          "source": "JDIDebugTarget.java:1040"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.handleVMStart",
+          "source": "JDIDebugTarget.java:335"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.EventDispatcher.dispatch",
+          "source": "EventDispatcher.java:149"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.EventDispatcher.run",
+          "source": "EventDispatcher.java:221"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "78534",
+      "date": "2004-11-12T18:13:10+01:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.util.ConcurrentModificationException",
+      "elements": [
+        {
+          "method": "java.util.HashMap$HashIterator.nextEntry",
+          "source": "HashMap.java:930"
+        },
+        {
+          "method": "java.util.HashMap$ValueIterator.next",
+          "source": "HashMap.java:960"
+        },
+        {
+          "method": "java.util.AbstractCollection.toArray",
+          "source": "AbstractCollection.java:139"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.ui.monitors.ThreadMonitorManager$DetectDeadlock.run",
+          "source": "ThreadMonitorManager.java:210"
+        },
+        {
+          "method": "org.eclipse.debug.core.DebugPlugin$AsynchJob.run",
+          "source": "DebugPlugin.java:980"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:66"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 6,
+      "bugId": "78534",
+      "date": "2004-12-16T14:17:57+01:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "78534",
+  "bugId": "78534",
+  "date": "2004-11-12T18:13:10+01:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

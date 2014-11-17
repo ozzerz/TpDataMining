@@ -1,0 +1,182 @@
+{
+  "comments": [
+    "I experienced MissingResourceExceptions when using the Updater.\nI tracked down the problem to a bug in ICU that i reported in the\nICU jitterbug tool as\n   #5183  UResourceBundle.loadFromCache returns invalid results\nincluding a trivial fix.\n\nThe problem is hard to reproduce as it depends both on a SoftReference\n(holding the resource bundle cache) not being cleared and on hash\nvalues (which may depend on heap addresses), but the bug is obvious in \nthe ICU source code.\n\nI hope there will be an ICU version with this bug fixed in time for\nEclipse 3.2 as this problem makes the updater unusable with some VMs\n(depending on when the GC of the VM chooses to clear the SoftReference.\nHotspot seems to clear SoftReferences very early, so the problem is\nhidden there.)",
+    "Edwin, \nThe version of ICU4J in RC1a is 3.4.3.  There is a newer version in the RC2 builds (3.4.4.1).  I suspect the problem still exists in the later version as that code doesn\u0027t appear to have changed.  Can you confirm this?\n\nWhat is the version of the VM(s) you are using when this problem happens?  Can you provide steps to replicate?  How often are you seeing the problem - every time you try to update?  At what point during update does the problem happen?  Can you attach the entire stack trace to this bug?",
+    "Yes, I can confirm that the problem still exists in RC2.\n\nI\u0027ll try to answer all questions, though I\u0027d like to point out\nthat the bug is obvious by inspection of the source code.\n\n(All keys in the relevant HashMap are the same object, even if\nthey end up in different buckets because of differing hash value\n*at the time of insertion*. So if the user is unlucky, the\nSoftReference is still there, a existing hash bucket is hit -\u003e\ncorrupt value returned by loadFromHash.)\n\nThe VMs I am using are \n  CACAO SVN\n  JamVM 1.4.2\nboth with CVS HEAD of GNU Classpath.\n\n(I am one of the CACAO developers. If you\u0027d like to install CACAO\nsee http://c1.complang.tuwien.ac.at/cacaowiki/CacaoInstall . I\u0027d be\nhappy to provide help by email or on #cacao on irc.freenode.net)\n\nSteps to replicate:\n\n1) unpack a fresh Eclipse 3.2RC1a or RC2\n2) start, for example with\n    cacao -Xmx256M -jar startup.jar\n3) Help -\u003e Software Updates -\u003e Find and Install\n4) Choose Search for new features to install\n5) I usually add a remote site now:\n    http://subclipse.tigris.org/update_1.0.x\nIt\u0027s hard to tell if that makes the bug more frequent,\nbut I select as many update sites as possible.\n6) Finish\n\nNow the Update Manager progress bar is displayed,\nand usually the mirror dialog pops up. I just select\nthe first entry in the list and we\u0027re back with the\nprogress bar.\n\nOne of the following things happens at this point:\n   a) the operation completes without problems\n   b) there is a MissingResourceException\n   c) the program hangs (not always at the same point)\n   d) the program enters a non-terminating recursion and\n      gets a StackOverflowError\n      (This is due to a mutual recursion in the Calendar\n      and DateFormat classes of ICU that is triggered by\n      the MissingResourceException. Below I list the\n      methods involved.)\n\nWith Eclipse 3.2RC2 and JamVM there is about 90% chance\nfor a) and 10% chance for c). For CACAO it is c) most\nof the time. (Due to the nature of this bug these frequencies \nmay be very different on another machine.)\n\nFor some reason I did not see b) and d) with RC2.\n\nI append a stacktrace I got with JamVM and RC1a.\n\nCheers\n-Edwin\n\nmethods involved in the non-terminating mutual recursion (trace repeats):\n\n   at com.ibm.icu.text.DateFormat.getDateTimeInstance(DateFormat.java:767)\n   at com.ibm.icu.util.Calendar.formatHelper(Calendar.java:3087)\n   at com.ibm.icu.util.Calendar.getDateTimeFormat(Calendar.java:3020)\n   at com.ibm.icu.text.DateFormat.get(DateFormat.java:943)\n\nstacktrace from Eclipse 3.2RC1a on JamVM 1.4.2:\n\n!ENTRY org.eclipse.core.jobs 4 2 2006-05-03 18:52:20.607\n!MESSAGE An internal error occurred during: \"Update Manager\".\n!STACK 0\njava.lang.ExceptionInInitializerError\n   at org.eclipse.update.internal.core.UpdateCore.log(UpdateCore.java:170)\n   at org.eclipse.update.core.model.DefaultSiteParser.getMirrors(DefaultSiteParser.java:864)\n   at org.eclipse.update.core.model.DefaultSiteParser.processSite(DefaultSiteParser.java:514)\n   at org.eclipse.update.core.model.DefaultSiteParser.handleInitialState(DefaultSiteParser.java:396)\n   at org.eclipse.update.core.model.DefaultSiteParser.startElement(DefaultSiteParser.java:200)\n   at gnu.xml.stream.SAXParser.parse(SAXParser.java:442)\n   at javax.xml.parsers.SAXParser.parse(SAXParser.java:273)\n   at org.eclipse.update.core.model.DefaultSiteParser.parse(DefaultSiteParser.java:156)\n   at org.eclipse.update.core.model.SiteModelFactory.parseSite(SiteModelFactory.java:78)\n   at org.eclipse.update.internal.core.SiteURLFactory.createSite(SiteURLFactory.java:80)\n   at org.eclipse.update.internal.core.InternalSiteManager.createSite(InternalSiteManager.java:332)\n   at org.eclipse.update.internal.core.InternalSiteManager.createSite(InternalSiteManager.java:324)\n   at org.eclipse.update.internal.core.InternalSiteManager.createSite(InternalSiteManager.java:289)\n   at org.eclipse.update.internal.core.InternalSiteManager.attemptCreateSite(InternalSiteManager.java:220)\n   at org.eclipse.update.internal.core.InternalSiteManager.getSite(InternalSiteManager.java:161)\n   at org.eclipse.update.core.SiteManager.getSite(SiteManager.java:78)\n   at org.eclipse.update.search.UpdateSearchRequest.searchOneSite(UpdateSearchRequest.java:443)\n   at org.eclipse.update.search.UpdateSearchRequest.performSearch(UpdateSearchRequest.java:316)\n   at org.eclipse.update.ui.UpdateJob.runSearchForNew(UpdateJob.java:181)\n   at org.eclipse.update.ui.UpdateJob.run(UpdateJob.java:169)\n   at org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\nCaused by: java.util.MissingResourceException: Can\u0027t find resource for bundle com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable, key 2\n   at com.ibm.icu.impl.ICUResourceBundle.getWithFallback(ICUResourceBundle.java:655)\n   at com.ibm.icu.impl.CalendarData.get(CalendarData.java:51)\n   at com.ibm.icu.impl.CalendarData.getEras(CalendarData.java:117)\n   at com.ibm.icu.text.DateFormatSymbols.initializeData(DateFormatSymbols.java:805)\n   at com.ibm.icu.text.DateFormatSymbols.initializeData(DateFormatSymbols.java:789)\n   at com.ibm.icu.text.DateFormatSymbols.\u003cinit\u003e(DateFormatSymbols.java:173)\n   at com.ibm.icu.text.SimpleDateFormat.\u003cinit\u003e(SimpleDateFormat.java:334)\n   at com.ibm.icu.text.SimpleDateFormat.\u003cinit\u003e(SimpleDateFormat.java:310)\n   at com.ibm.icu.text.DateFormat.get(DateFormat.java:950)\n   at com.ibm.icu.text.DateFormat.getDateTimeInstance(DateFormat.java:751)\n   at org.eclipse.update.core.Utilities.\u003cclinit\u003e(Utilities.java:37)\n   at org.eclipse.update.internal.core.UpdateCore.log(UpdateCore.java:170)\n   ...20 more\n\n\n",
+    "Thanks.  Karice\u0027s concern is to gather enough information to show that the fix has to go into R2.  The bug is indeed obvious in the source and the fix has been made in the ICU4J project.  Before an updated ICU4J can go into Eclipse, though, it needs to be approved, since it\u0027s a late-breaking fix.",
+    "Branko?  Dejan?  Comments on whether or not this is a 3.2 kinda thing?  As I understand it, we would have to get the new version of ICU...  ",
+    "I did some more research because I wanted to find out\nwhy I could not get stacktraces with 3.2RC2, as I could\nwith 3.2RC1a.\n\nIt _seems_ that the use of the ICU library changed somewhat\nfrom RC1a to RC2. Below I attach the output of trace statements\ngathered with RC1a. The first four of them are printed during\nEclipse startup, the rest while the Updater runs.\n\nWith Eclipse 3.2RC2 there are only the four \"loadFromCache\" calls\nduring startup, and _none_ during the Updater.\n\nSo the problems I\u0027m seeing with 3.2RC2 might be unrelated to this.\n(As I mentioned in my previous reply I did not see the\nstacktrace or the infinite recursion with RC2. Only stopping\nor success.)\n\nThe question is whether RC2 just uses ICU less, or whether\nthe bundles would get requested at some later point, exposing\nthe bug.\n\nCheers\n-Edwin\n\n\ntrace of Eclipse 3.2RC1a:\n\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/coll/root.res}) --\u003e null\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/coll/en.res}) --\u003e null\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/coll/en_US.res}) --\u003e null\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/coll/en.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@bfc2f80\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/root.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@bfc2f80\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/zoneinfo.res}) --\u003e null\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/zoneinfo.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d8c2300\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/zoneinfo.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d8c2300\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e null\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en.res}) --\u003e null\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/CurrencyData.res}) --\u003e null\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/CurrencyData.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d734ec0\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/CurrencyData.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d734ec0\nloadFromCache(ResourceCacheKey @9ec9f60{com/ibm/icu/impl/data/icudt34b/en_US.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@d92bb40\n\nEclipse 3.2RC2:\n\nloadFromCache(ResourceCacheKey @9d82f00{com/ibm/icu/impl/data/icudt34b/coll/root.res}) --\u003e null\nloadFromCache(ResourceCacheKey @9d82f00{com/ibm/icu/impl/data/icudt34b/coll/en.res}) --\u003e null\nloadFromCache(ResourceCacheKey @9d82f00{com/ibm/icu/impl/data/icudt34b/coll/en_US.res}) --\u003e null\nloadFromCache(ResourceCacheKey @9d82f00{com/ibm/icu/impl/data/icudt34b/coll/en.res}) --\u003e com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable@bff2980\n",
+    "We don\u0027t have enough information right now to claim that we can fix this in 3.2 or if this has anything to do with Update itself.",
+    "Same issue with kaffe and gcj, replacing the icu with the one found on http://c1.complang.tuwien.ac.at/cacaowiki/EclipseIcuBug fixes it."
+  ],
+  "commentCreationDates": [
+    "2006-04-30T21:41:48+02:00",
+    "2006-05-03T16:55:44+02:00",
+    "2006-05-03T19:04:31+02:00",
+    "2006-05-03T19:16:30+02:00",
+    "2006-05-04T05:32:14+02:00",
+    "2006-05-04T12:21:08+02:00",
+    "2006-05-04T14:01:49+02:00",
+    "2006-07-16T19:37:39+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ExceptionInInitializerError",
+      "elements": [
+        {
+          "method": "org.eclipse.update.internal.core.UpdateCore.log",
+          "source": "UpdateCore.java:170"
+        },
+        {
+          "method": "org.eclipse.update.core.model.DefaultSiteParser.getMirrors",
+          "source": "DefaultSiteParser.java:864"
+        },
+        {
+          "method": "org.eclipse.update.core.model.DefaultSiteParser.processSite",
+          "source": "DefaultSiteParser.java:514"
+        },
+        {
+          "method": "org.eclipse.update.core.model.DefaultSiteParser.handleInitialState",
+          "source": "DefaultSiteParser.java:396"
+        },
+        {
+          "method": "org.eclipse.update.core.model.DefaultSiteParser.startElement",
+          "source": "DefaultSiteParser.java:200"
+        },
+        {
+          "method": "gnu.xml.stream.SAXParser.parse",
+          "source": "SAXParser.java:442"
+        },
+        {
+          "method": "javax.xml.parsers.SAXParser.parse",
+          "source": "SAXParser.java:273"
+        },
+        {
+          "method": "org.eclipse.update.core.model.DefaultSiteParser.parse",
+          "source": "DefaultSiteParser.java:156"
+        },
+        {
+          "method": "org.eclipse.update.core.model.SiteModelFactory.parseSite",
+          "source": "SiteModelFactory.java:78"
+        },
+        {
+          "method": "org.eclipse.update.internal.core.SiteURLFactory.createSite",
+          "source": "SiteURLFactory.java:80"
+        },
+        {
+          "method": "org.eclipse.update.internal.core.InternalSiteManager.createSite",
+          "source": "InternalSiteManager.java:332"
+        },
+        {
+          "method": "org.eclipse.update.internal.core.InternalSiteManager.createSite",
+          "source": "InternalSiteManager.java:324"
+        },
+        {
+          "method": "org.eclipse.update.internal.core.InternalSiteManager.createSite",
+          "source": "InternalSiteManager.java:289"
+        },
+        {
+          "method": "org.eclipse.update.internal.core.InternalSiteManager.attemptCreateSite",
+          "source": "InternalSiteManager.java:220"
+        },
+        {
+          "method": "org.eclipse.update.internal.core.InternalSiteManager.getSite",
+          "source": "InternalSiteManager.java:161"
+        },
+        {
+          "method": "org.eclipse.update.core.SiteManager.getSite",
+          "source": "SiteManager.java:78"
+        },
+        {
+          "method": "org.eclipse.update.search.UpdateSearchRequest.searchOneSite",
+          "source": "UpdateSearchRequest.java:443"
+        },
+        {
+          "method": "org.eclipse.update.search.UpdateSearchRequest.performSearch",
+          "source": "UpdateSearchRequest.java:316"
+        },
+        {
+          "method": "org.eclipse.update.ui.UpdateJob.runSearchForNew",
+          "source": "UpdateJob.java:181"
+        },
+        {
+          "method": "org.eclipse.update.ui.UpdateJob.run",
+          "source": "UpdateJob.java:169"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.util.MissingResourceException",
+        "message": "Can\u0027t find resource for bundle com.ibm.icu.impl.ICUResourceBundleImpl$ResourceTable, key 2",
+        "elements": [
+          {
+            "method": "com.ibm.icu.impl.ICUResourceBundle.getWithFallback",
+            "source": "ICUResourceBundle.java:655"
+          },
+          {
+            "method": "com.ibm.icu.impl.CalendarData.get",
+            "source": "CalendarData.java:51"
+          },
+          {
+            "method": "com.ibm.icu.impl.CalendarData.getEras",
+            "source": "CalendarData.java:117"
+          },
+          {
+            "method": "com.ibm.icu.text.DateFormatSymbols.initializeData",
+            "source": "DateFormatSymbols.java:805"
+          },
+          {
+            "method": "com.ibm.icu.text.DateFormatSymbols.initializeData",
+            "source": "DateFormatSymbols.java:789"
+          },
+          {
+            "method": "com.ibm.icu.text.DateFormatSymbols.\u003cinit\u003e",
+            "source": "DateFormatSymbols.java:173"
+          },
+          {
+            "method": "com.ibm.icu.text.SimpleDateFormat.\u003cinit\u003e",
+            "source": "SimpleDateFormat.java:334"
+          },
+          {
+            "method": "com.ibm.icu.text.SimpleDateFormat.\u003cinit\u003e",
+            "source": "SimpleDateFormat.java:310"
+          },
+          {
+            "method": "com.ibm.icu.text.DateFormat.get",
+            "source": "DateFormat.java:950"
+          },
+          {
+            "method": "com.ibm.icu.text.DateFormat.getDateTimeInstance",
+            "source": "DateFormat.java:751"
+          },
+          {
+            "method": "org.eclipse.update.core.Utilities.\u003cclinit\u003e",
+            "source": "Utilities.java:37"
+          },
+          {
+            "method": "org.eclipse.update.internal.core.UpdateCore.log",
+            "source": "UpdateCore.java:170"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "139457",
+      "date": "2006-05-03T19:04:31+02:00",
+      "product": "Platform",
+      "component": "Update",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "139457",
+  "bugId": "139457",
+  "date": "2006-04-30T21:41:48+02:00",
+  "product": "Platform",
+  "component": "Update",
+  "severity": "normal"
+}

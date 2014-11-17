@@ -1,0 +1,66 @@
+{
+  "comments": [
+    "\u003cp\u003e\nI get NPE when setting visibility of CCombo to false if this CCombo gets disposed by one of its listeners, that were called during visibility loss.\n\u003c/p\u003e\n\n\u003cp\u003e\nHere is the exception itself: \u003cbr\u003e\n\n\u003ccode\u003e\njava.lang.NullPointerException\n\tat org.eclipse.swt.custom.CCombo.setVisible(CCombo.java:1362)\n\tat org.eclipse.swt.bugs.CComboSetVisibleNPE1$2.mouseUp(CComboSetVisibleNPE1.java:48)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:137)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:928)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3377)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2997)\n\tat org.eclipse.swt.bugs.CComboSetVisibleNPE1.main(CComboSetVisibleNPE1.java:68)\n\u003c/code\u003e\n\u003c/p\u003e\n\n\u003cp\u003e\nAnd here is the reason, the setVisible method of CCombo:\u003cbr\u003e\n\n\u003ccode\u003e\npublic void setVisible (boolean visible) {\n\tsuper.setVisible(visible);\n\tif (!visible) popup.setVisible(false); // \u003c\u003c NPE here if disposed\n}\n\u003c/code\u003e\n\u003c/p\u003e\n\n\u003cp\u003e\nA simple snippet:\u003cbr\u003e\n\n\u003ccode\u003e\npackage org.eclipse.swt.bugs;\n\nimport java.io.PrintWriter;\nimport java.io.StringWriter;\n\nimport org.eclipse.swt.SWT;\nimport org.eclipse.swt.custom.CCombo;\nimport org.eclipse.swt.events.FocusAdapter;\nimport org.eclipse.swt.events.FocusEvent;\nimport org.eclipse.swt.events.MouseAdapter;\nimport org.eclipse.swt.events.MouseEvent;\nimport org.eclipse.swt.layout.GridData;\nimport org.eclipse.swt.layout.GridLayout;\nimport org.eclipse.swt.widgets.Display;\nimport org.eclipse.swt.widgets.Label;\nimport org.eclipse.swt.widgets.Shell;\n\n/*\n * Bug Snippet: NPE in CCombo.setVisible(false) if some of affected listeners has disposed it\n */\npublic class CComboSetVisibleNPE1 {\n\n    public static void main(String[] args) {\n        Display display \u003d new Display();\n        final Shell shell \u003d new Shell(display);\n        shell.setLayout(new GridLayout());\n        shell.setText(\"Demo for NPE in CCombo.setVisible(false)\");\n        \n        final CCombo combo \u003d new CCombo(shell, SWT.NONE);\n        combo.setLayoutData(new GridData(GridData.FILL_HORIZONTAL));\n        combo.setItems(new String[] {\"First\", \"Second\", \"Third\"});\n        \n        combo.addFocusListener(new FocusAdapter() {\n            public void focusLost(FocusEvent e) {\n                combo.dispose();\n            }\n        });\n        \n        final Label label \u003d new Label(shell, SWT.BORDER);\n        label.setText(\"Click Here to Hide CCombo and get NPE!\");\n        combo.setLayoutData(new GridData(GridData.FILL_BOTH));\n        \n        label.addMouseListener(new MouseAdapter() {\n            public void mouseUp(MouseEvent e) {\n                if (!combo.isDisposed()) {\n                    combo.setFocus();\n                    try {\n                        combo.setVisible(false);\n                    } catch (NullPointerException npe) {\n                        StringWriter stringWriter \u003d new StringWriter();\n                        PrintWriter printWriter \u003d new PrintWriter(stringWriter);\n                        npe.printStackTrace(printWriter);\n                        printWriter.close();\n                        label.setText(stringWriter.toString());\n                    }\n                    shell.pack();\n                }\n            }\n        });\n        \n        combo.select(0);\n        combo.setFocus();\n        \n        shell.pack();\n        shell.open();\n        while (!shell.isDisposed()) {\n            if (!display.readAndDispatch()) {\n                display.sleep();\n            }\n        }\n        display.dispose();\n    }\n    \n}\n\u003c/code\u003e\n\u003c/p\u003e\n\n\u003cp\u003e\nAs you can see, that it\u0027s all about the Label, which does not get any focus, so our combo does not get FocusLostEvent. If we use Button with SelectionListener instead, we should not get there. But that is not so easy! Due to \u003ca href\u003d\"https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d92230\"\u003eInconsistent Button focus events between platforms\u003c/a\u003e, buttons do not get focus on selection on MacOSX at all!\n\u003c/p\u003e\n\n\u003cp\u003e\nYou might think that this case is too artificial, so I post another snippet below. It is much closer to the real life. You may have a look at it in case of discussing severity issues. \n\n\u003ccode\u003e\npackage org.eclipse.swt.bugs;\n\nimport java.io.PrintWriter;\nimport java.io.StringWriter;\n\nimport org.eclipse.swt.SWT;\nimport org.eclipse.swt.custom.CCombo;\nimport org.eclipse.swt.custom.TableEditor;\nimport org.eclipse.swt.events.FocusAdapter;\nimport org.eclipse.swt.events.FocusEvent;\nimport org.eclipse.swt.events.MouseAdapter;\nimport org.eclipse.swt.events.MouseEvent;\nimport org.eclipse.swt.events.SelectionAdapter;\nimport org.eclipse.swt.events.SelectionEvent;\nimport org.eclipse.swt.graphics.Image;\nimport org.eclipse.swt.layout.FillLayout;\nimport org.eclipse.swt.layout.GridData;\nimport org.eclipse.swt.layout.GridLayout;\nimport org.eclipse.swt.widgets.Button;\nimport org.eclipse.swt.widgets.Control;\nimport org.eclipse.swt.widgets.Display;\nimport org.eclipse.swt.widgets.Group;\nimport org.eclipse.swt.widgets.Label;\nimport org.eclipse.swt.widgets.MessageBox;\nimport org.eclipse.swt.widgets.Shell;\nimport org.eclipse.swt.widgets.Table;\nimport org.eclipse.swt.widgets.TableItem;\n\n/*\n * Bug Snippet: NPE in CCombo.setVisible(false) if FocusLostListener disposed it \n */\npublic class CComboSetVisibleNPE2 {\n\n    public static void main(String[] args) {\n        Display display \u003d new Display();\n        Shell shell \u003d new Shell(display);\n        shell.setLayout(new FillLayout());\n        shell.setText(\"NPE in CCombo.setVisible(false)\");\n        \n        Group group \u003d new Group(shell, SWT.NONE);\n        group.setLayout(new GridLayout(2, false));\n        group.setText(\"Click the Info Icon to Add Custom Item\");\n        \n        final Table table \u003d new Table(group, SWT.NONE);\n        table.setLinesVisible(true);\n        \n        GridData layoutData \u003d new GridData(GridData.FILL_BOTH);\n        layoutData.minimumHeight \u003d 200;\n        table.setLayoutData(layoutData);\n        \n        TableItem item \u003d new TableItem(table, SWT.NONE);\n        item.setText(\"First Predefined Item\");\n        \n        final TableEditor editor \u003d new TableEditor(table);\n        editor.horizontalAlignment \u003d SWT.LEFT;\n        editor.grabHorizontal \u003d true;\n        \n        Image infoImage \u003d display.getSystemImage(SWT.ICON_INFORMATION);\n        Control button;\n        boolean isMac \u003d \"carbon\".equals(SWT.getPlatform());\n        if (isMac) {\n            Button control \u003d new Button(group, SWT.PUSH);\n            control.setImage(infoImage);\n            control.addSelectionListener(new SelectionAdapter() {\n                public void widgetSelected(SelectionEvent e) {\n                    addComboEditableItem(table, editor);\n                }\n            });\n            button \u003d control;\n        } else {\n            Label control \u003d new Label(group, SWT.NONE);\n            control.setImage(infoImage);\n            control.addMouseListener(new MouseAdapter() {\n                public void mouseDown(MouseEvent e) {\n                    addComboEditableItem(table, editor);\n                }\n            });\n            button \u003d control;\n        }\n        button.setToolTipText(\"Click here to Add Custom Item!\");\n        \n        shell.pack();\n        shell.open();\n        while (!shell.isDisposed()) {\n            if (!display.readAndDispatch()) {\n                display.sleep();\n            }\n        }\n        display.dispose();\n    }\n\n    private static void addComboEditableItem(final Table table, final TableEditor editor) {\n        Control oldCombo \u003d editor.getEditor();\n        if (oldCombo !\u003d null \u0026\u0026 !oldCombo.isDisposed()) {\n            // in case we already have an active editor, with setVisible(false) we \n            // want to force focusLost event to make CCombo save its text to an item\n            try {\n                oldCombo.setVisible(false);\n            } catch (NullPointerException npe) {\n                MessageBox message \u003d new MessageBox(table.getShell(), SWT.ICON_QUESTION | SWT.YES | SWT.NO);\n                message.setText(\"Do you want to catch this NPE?\");\n                StringWriter stringWriter \u003d new StringWriter();\n                PrintWriter printWriter \u003d new PrintWriter(stringWriter);\n                npe.printStackTrace(printWriter);\n                printWriter.close();\n                message.setMessage(stringWriter.toString());\n                int result \u003d message.open();\n                if (result \u003d\u003d SWT.NO) {\n                    throw npe;\n                }\n            }\n            oldCombo.dispose();\n            editor.setEditor(null, editor.getItem(), 0);\n        }\n\n        // XXX: we do not event get here if refused to catch NPE earlier (common way of coding) \n        \n        // and now we can create new item and activate an editor for it\n        final TableItem addedItem \u003d new TableItem(table, SWT.NONE, table.getItemCount());\n        \n        final CCombo newCombo \u003d new CCombo(table, SWT.NONE);\n        newCombo.setItems(new String[] {\"Combo Hint 1\", \"Combo Hint 2\", \"Combo Hint 3\"});\n        newCombo.select(newCombo.getItemCount()/2);\n        newCombo.addFocusListener(new FocusAdapter() {\n            public void focusLost(FocusEvent fe) {\n                String newValue \u003d newCombo.getText();\n                addedItem.setText(newValue);\n                newCombo.dispose();\n            }\n        });\n        \n        editor.setEditor(newCombo, addedItem, 0);\n        newCombo.setFocus();\n    }\n}\n\u003c/code\u003e\n\n\n\u003c/p\u003e",
+    "CAR, how about fixing this one?",
+    "Created an attachment (id\u003d49865)\nPatch\n\n",
+    "fixed, patch applied \u003e 0911\n"
+  ],
+  "commentCreationDates": [
+    "2006-08-25T15:52:17+02:00",
+    "2006-08-29T03:44:23+02:00",
+    "2006-09-11T20:47:51+02:00",
+    "2006-09-11T21:02:08+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.custom.CCombo.setVisible",
+          "source": "CCombo.java:1362"
+        },
+        {
+          "method": "org.eclipse.swt.bugs.CComboSetVisibleNPE1$2.mouseUp",
+          "source": "CComboSetVisibleNPE1.java:48"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:137"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:928"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3377"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2997"
+        },
+        {
+          "method": "org.eclipse.swt.bugs.CComboSetVisibleNPE1.main",
+          "source": "CComboSetVisibleNPE1.java:68"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "155224",
+      "date": "2006-08-25T15:52:17+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "155224",
+  "bugId": "155224",
+  "date": "2006-08-25T15:52:17+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

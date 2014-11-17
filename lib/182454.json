@@ -1,0 +1,68 @@
+{
+  "comments": [
+    "The SystemView\u0027s IElementComparer implementation can return the same hashcode for two different elements. The default implementation does return the elements adapters hashcode for elements where getAbsoluteName() returns null. However, the same element adapter can be re-used for multiple elements. That would lead to returning the same hashcode for multiple elements. At least I would call that behavior problematic. In any cases, if the hash code of the element cannot be calculated out of the absolute name, the hashcode from the element _itself_ should be returned and not the one from the element adapter. The typical pattern in Java is to override the hashcode calculation of the element itself. It\u0027s quite harder to calculate the hashcode of an element within a different (adapter) class, especially because the hashcode calculation method does not take any element.\n\nPlease note that the cases where this happens are rare, but problematic because of two reasons:\na) For ISV\u0027s being new to the RSE framework, the importance and real purpose of getAbsoluteName() is not obvious. It\u0027s possible that in early stages of an integration, that method is simply returning null. If the implementor now is running into for beginners very hard to track down issues with NPE\u0027s thrown by the SystemView\u0027s tree viewer, the chance that the ISV is giving up is very high.\nb) Finding problems if the SystemView\u0027s tree viewer fails to identify the tree item objects correctly, are difficult to track down. You need a deep knowlegde about the SystemView, JFace tree viewers in general and the purpose of the IElementComparer in particular. The implementation of that thing should be as bullet proof as ever possible. It is such central for the correct behavior of the SystemView, that willingly returning that same hashcode for multiple elements does not seem a good idea to me.",
+    "Created an attachment (id\u003d63833)\nPatch removing the return of the element adapters hashcode\n\nCommitters: Discussion is open.\n\nAttached patch\n- reformated the IElementComparer for better readablitly,\n- Added (commented out) tracing from tracking down problems in here\n- Removed the \"return indent.hashCode()\" in order to fallback to the elements own hashcode calculation method.",
+    "One manifestation of the problem can be NPE\u0027s like the following:\n\nCaused by: java.lang.NullPointerException\n\tat org.eclipse.jface.viewers.TreeViewer.getParentItem(TreeViewer.java:216)\n\tat org.eclipse.rse.internal.ui.view.SafeTreeViewer.getParentItem(SafeTreeViewer.java:159)\n\tat org.eclipse.rse.internal.ui.view.SystemView.refreshAll(SystemView.java:3123)\n\tat org.eclipse.rse.internal.ui.view.SystemView$ResourceChangedJob.runInUIThread(SystemView.java:1942)\n\tat org.eclipse.ui.progress.UIJob$1.run(UIJob.java:94)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\t... 56 more\n",
+    "I have not yet read the code, but something sounds odd. Hashcodes should, in general, not be identical for different items if it can be helped. That\u0027s just good practice and a fix is warranted in this case. But hashcodes are not guaranteed to be unique. If code is written to assume that two objects are identical if they have the same hash then that code is wrong.",
+    "Dave is right -- different elements may return the same hashCode although this leads to bad performance. The same element, however, may never return different hashCodes. From this perspective, the idea of the patch looks good since it may improve performance.\n\nThe really important point in this bug though is, that \n  ISystemViewElementAdapter.getAbsoluteName() must be clearly documented.\nThus, changed the bug summary accordingly.\n(old value: The SystemView\u0027s IElementComparer may return same hashcode for different model objects)\n\nThe SystemView makes so much use of getAbsoluteName() in such important places, that it is critical for extenders to properly implement the getAbsoluteName() API. Especially, it needs to be clarified whether getAbsoluteName() is allowed to return null or not. The code in the ElementComparer\u0027s equals() method seems to indicate that this is not allowed (NullPointerException is possible if 1st element returns null absolute name).\n\nThe whole story, purpose, meaning and constraints of getAbsoluteName() need to be clearly documented. Perhaps AbstractSystemViewElementAdapter.getAbsoluteName() needs to be removed to make it abstract and force extenders to implement it.\n\nThe changes made by the patch are hard to understand due to the beautification. \nThe SystemView\u0027s ElementComparer should probably be put into a separate file instead. The important change is just in one line. Under the assumption that getAbsoluteName() must not ever return null, the patch is even invalid.\n",
+    "Created an attachment (id\u003d63902)\nUpdated patch more clearly showing the critical point\n\nThis updated patch is reduced to the important line in order to more clearly show its intention.",
+    "Wrote up documentation in\n   IRemoteObjectIdentifier\n   IRemoteObjectResolver\nand made sure that all actual implementations of the methods either have no Javadoc at all or reference the original Javadoc from these two classes.\n\nWhile working on the documentation, I found a need to clearly specify what kinds of IDs should be considered reserved by RSE-internal objects such as filter references - created bug 183965 to track this issue.\n\nNote that API Docs forbid getAbsoluteName() to return null and also explains why. I do think, however, that returning null may be valid under the following preconditions:\n  1. drag\u0026drop, copy\u0026paste are not supported by the subsystem \n     for these elements\n  2. The elements never change, i.e. their hashCode() is always the same and\n     can be used to uniquely identify the element (together with equals()) -\n     this is important during refresh\nBecause I think it should basically work, I don\u0027t want to add assertions checking for null into the code right now. We might add testcases for this at some time since working without absolute names may improve performance. But for now, extenders returning null are on their own due to the API docs and will not get any support.\n\nCommitters please review my docs."
+  ],
+  "commentCreationDates": [
+    "2007-04-15T15:00:04+02:00",
+    "2007-04-15T15:06:16+02:00",
+    "2007-04-15T15:30:22+02:00",
+    "2007-04-16T15:29:34+02:00",
+    "2007-04-16T15:48:18+02:00",
+    "2007-04-16T15:54:01+02:00",
+    "2007-04-25T14:03:45+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.viewers.TreeViewer.getParentItem",
+          "source": "TreeViewer.java:216"
+        },
+        {
+          "method": "org.eclipse.rse.internal.ui.view.SafeTreeViewer.getParentItem",
+          "source": "SafeTreeViewer.java:159"
+        },
+        {
+          "method": "org.eclipse.rse.internal.ui.view.SystemView.refreshAll",
+          "source": "SystemView.java:3123"
+        },
+        {
+          "method": "org.eclipse.rse.internal.ui.view.SystemView$ResourceChangedJob.runInUIThread",
+          "source": "SystemView.java:1942"
+        },
+        {
+          "method": "org.eclipse.ui.progress.UIJob$1.run",
+          "source": "UIJob.java:94"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "182454",
+      "date": "2007-04-15T15:30:22+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "182454",
+  "bugId": "182454",
+  "date": "2007-04-15T15:00:04+02:00",
+  "product": "Target Management",
+  "component": "RSE",
+  "severity": "normal"
+}

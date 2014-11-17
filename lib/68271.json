@@ -1,0 +1,197 @@
+{
+  "comments": [
+    "3.0 RC3\n\nGot an error dialog and this in .log during Update command in Synchronize view:\n\n!ENTRY org.eclipse.core.runtime 4 2 Jun 22, 2004 21:40:57.713\n!MESSAGE Problems occurred when invoking code from plug-in:\n\"org.eclipse.core.runtime\".\n!STACK 0\norg.eclipse.swt.SWTException: Widget is disposed\n\tat org.eclipse.swt.SWT.error(SWT.java:2691)\n\tat org.eclipse.swt.SWT.error(SWT.java:2616)\n\tat org.eclipse.swt.SWT.error(SWT.java:2587)\n\tat org.eclipse.swt.widgets.Widget.error(Widget.java:381)\n\tat org.eclipse.swt.widgets.Widget.checkWidget(Widget.java:283)\n\tat org.eclipse.swt.widgets.TreeItem.setImage(TreeItem.java:710)\n\tat org.eclipse.jface.viewers.TreeViewer.doUpdateItem(TreeViewer.java:109)\n\tat\norg.eclipse.jface.viewers.AbstractTreeViewer$UpdateItemSafeRunnable.run(AbstractTreeViewer.java:83)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:615)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:758)\n\tat\norg.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(AbstractTreeViewer.java:464)\n\tat\norg.eclipse.jface.viewers.StructuredViewer$UpdateItemSafeRunnable.run(StructuredViewer.java:128)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:615)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:758)\n\tat\norg.eclipse.jface.viewers.StructuredViewer.updateItem(StructuredViewer.java:1369)\n\tat org.eclipse.jface.viewers.StructuredViewer.update(StructuredViewer.java:1353)\n\tat org.eclipse.jface.viewers.StructuredViewer.update(StructuredViewer.java:1281)\n\tat\norg.eclipse.team.internal.ui.synchronize.SynchronizeModelProvider$LabelUpdateJob.runInUIThread(SynchronizeModelProvider.java:93)\n\tat org.eclipse.ui.progress.UIJob$1.run(UIJob.java:92)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:106)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2709)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2401)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1375)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1346)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:252)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:96)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:335)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:272)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:128)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:186)\n\tat org.eclipse.core.launcher.Main.run(Main.java:647)\n\tat org.eclipse.core.launcher.Main.main(Main.java:631)",
+    "Why is this major? Were there any noticable side effects?",
+    "This is a known problem that we believe is caused by the Tree holding on to \nelements that have been removed from the view.",
+    "Set to major because I got an error dialog which did not exactly explain the\nhavoc i.e. hard to asses at that point whether there was damage or not.",
+    "There is a potential call to a disposed viewer here.\n\nLabelUpdateJob has the following code:\n\nif (canUpdateViewer()) {\n\tStructuredViewer tree \u003d getViewer();\n\ttree.update(updates, null);\n}\n\nIf the viewer is disposed between canUpdateViewer() and tree.update() you \ncould be talking to disposed widgets. As this code is run in an asyncExec you \ncan be affected by a context switch.\n\nhandleDispose(DisposeEvent event) is defined in ContentViewer. You would be \nbetter off to try and use this method to clear out the viewer reference.",
+    "This code is all happening in the main thread so the viewer cannot be disposed \nwhile this code is running. Moving back to UI.",
+    "I don\u0027t think thee is anything we can do here in the next 38 hours \u003cgrin\u003e but \nthe Team guys had some good ideas.\n\nWe are no longer causing the visual side effects of this but we should see how \nit is getting into this state.\n\nThe update safe runnable should\n-dump the element mapping\n- dump the tree mapping\n- do a clean up of disposed items afterwards so that this does not continue\n\nThis way we can perhaps figure out why this is happening.",
+    "\n\n*** This bug has been marked as a duplicate of 57093 ***"
+  ],
+  "commentCreationDates": [
+    "2004-06-23T09:21:38+02:00",
+    "2004-06-23T14:51:03+02:00",
+    "2004-06-23T14:52:52+02:00",
+    "2004-06-23T14:54:15+02:00",
+    "2004-06-23T15:38:41+02:00",
+    "2004-06-23T15:50:19+02:00",
+    "2004-06-23T15:55:37+02:00",
+    "2004-07-07T16:54:03+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Widget is disposed",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2691"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2616"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2587"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:381"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java:283"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TreeItem.setImage",
+          "source": "TreeItem.java:710"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TreeViewer.doUpdateItem",
+          "source": "TreeViewer.java:109"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer$UpdateItemSafeRunnable.run",
+          "source": "AbstractTreeViewer.java:83"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:615"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:758"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:464"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$UpdateItemSafeRunnable.run",
+          "source": "StructuredViewer.java:128"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:615"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:758"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.updateItem",
+          "source": "StructuredViewer.java:1369"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.update",
+          "source": "StructuredViewer.java:1353"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.update",
+          "source": "StructuredViewer.java:1281"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.synchronize.SynchronizeModelProvider$LabelUpdateJob.runInUIThread",
+          "source": "SynchronizeModelProvider.java:93"
+        },
+        {
+          "method": "org.eclipse.ui.progress.UIJob$1.run",
+          "source": "UIJob.java:92"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2709"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2401"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1375"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1346"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:252"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:335"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:272"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:128"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:186"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:647"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:631"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "68271",
+      "duplicateId": "57093",
+      "date": "2004-06-23T09:21:38+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "57093",
+  "bugId": "68271",
+  "duplicateId": "57093",
+  "date": "2004-06-23T09:21:38+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "major"
+}

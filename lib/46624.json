@@ -1,0 +1,222 @@
+{
+  "comments": [
+    "When I asked Eclipse to exit, I got a dialog saying \"error during startup. [sic] look in the log\". This \nis the stacktrace I got:\n\njava.lang.reflect.InvocationTargetException\n        at org.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:861)\n        at org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n        at java.lang.reflect.Method.invoke(Method.java:324)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:299)\n        at org.eclipse.core.launcher.Main.run(Main.java:767)\n        at org.eclipse.core.launcher.Main.main(Main.java:601)\nCaused by: java.lang.IllegalArgumentException: Argument not valid\n        at org.eclipse.swt.SWT.error(SWT.java:2524)\n        at org.eclipse.swt.SWT.error(SWT.java:2468)\n        at org.eclipse.swt.widgets.Widget.error(Widget.java:549)\n        at org.eclipse.swt.widgets.Decorations.setImage(Decorations.java:405)\n        at org.eclipse.jface.window.Window.configureShell(Window.java:268)\n        at org.eclipse.jface.dialogs.ProgressMonitorDialog.configureShell(ProgressMonitorDialog.java:\n297)\n        at org.eclipse.jface.window.Window.createShell(Window.java:350)\n        at org.eclipse.jface.window.Window.create(Window.java:301)\n        at org.eclipse.jface.dialogs.Dialog.create(Dialog.java:883)\n        at org.eclipse.jface.window.Window.open(Window.java:552)\n        at org.eclipse.jface.dialogs.ProgressMonitorDialog.open(ProgressMonitorDialog.java:523)\n        at org.eclipse.jface.dialogs.ProgressMonitorDialog.aboutToRun(ProgressMonitorDialog.java:\n444)\n        at org.eclipse.jface.dialogs.ProgressMonitorDialog.run(ProgressMonitorDialog.java:383)\n        at \norg.eclipse.ui.internal.ide.IDEWorkbenchAdviser.disconnectFromWorkspace(IDEWorkbenchAdviser.j\nava:620)\n        at org.eclipse.ui.internal.ide.IDEWorkbenchAdviser.postShutdown(IDEWorkbenchAdviser.java:\n272)\n        at org.eclipse.ui.internal.Workbench.shutdown(Workbench.java:1651)\n        at org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1382)\n        at org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:240)\n        at org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:139)\n        at org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:47)\n        at org.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:858)\n        ... 8 more",
+    "McQ said this was on the latest build (I20031113).\n\nMcQ, is this reproduceable on the Mac?\n\nJim, have there been any changes to the end lifecycle of a display during \nshutdown?\n",
+    "It appears that the window image (Window.getDefaultImage) had been disposed.\nI\u0027ve reported bug 46639 against the JDT Export JavaDoc wizard, and bug 46643  \nagainst the JDT New Element wizard which might have caused this.\n\nMcQ - do you recall getting a deprecation warning when creating a new Java \nelement?",
+    "Yes, the problem is reproducable. I\u0027m getting it whenever exiting Eclipse.",
+    "I saw no deprecation warnings, although if they were written to the log, I may have missed them.",
+    "Andre and McQ, were you using either of the wizards mentioned in the prereq \nbugs?  If you just bring up Eclipse and exit, do you still see the problem?",
+    "This seems to happen every time to me. If you want to try it, come find me.",
+    "*** Bug 46906 has been marked as a duplicate of this bug. ***",
+    "Still a problem in I200301119.\nThis is quite annoying since Eclipse quits without saving the workspace\nand has to rebuild on restart...\n\nI\u0027m using the attached patch as a workaround.",
+    "Created an attachment (id\u003d6850)\nworkaround\n",
+    "Created an attachment (id\u003d6852)\nworkaround (without bogus diff)\n",
+    "Patch applied.  Andre, the patch appears to have corrupt characters (extracted \nusing IE 6 on Win2000).\n",
+    "This only happens when exiting with Command+Q (or the menu equivalent), not \nwhen using the close button on the window.\nI couldn\u0027t see how this was being handled in the Carbon fragment.\nWill investigate how this is getting routed through SWT.  \nIf it disposes the display first, that would explain the problem.\n",
+    "Oops, the bogus characters were the Mac\u0027s resource fork. Sorry, I forgot to remove it.\n\nNick, yes it seems that the problem only occurs if the Quit menu item (or Command-Q) is \nused. However, I can reproduce the problem even if I don\u0027t have the carbon fragment \ninstalled, so I don\u0027t think that the problem is related to the carbon fragment.\n\nThe Quit menu (or Command-Q) is handled by SWT not by the fragment.",
+    "Ok, the problem is that in Display.close() (which is called by Command-Q \u0026 Co.)\n\npublic void close () {\n\tcheckDevice ();\n\tEvent event \u003d new Event ();\n\tsendEvent (SWT.Close, event);\n\tif (event.doit) dispose ();\n}\n\nthe display is disposed if the event isn\u0027t vetoed.\nIf I uncomment that line, I can quit Eclipse without problems and I get a progress dialog.\nI haven\u0027t debugged any further, but it seems that the close should be always vetoed in order to \navoid the disposal of the display here and delay it until it is safe to dispose it.",
+    "oops, I meant \"if I comment that line\" ",
+    "Figured it out (concurrently with Andre \u003cg\u003e).  The flow of control is:\n\nIn the UI thread:\n- while processing the event loop in Workbench.runEventLoop,\n- SWT gets the quit command from the OS and calls Display.close().\n  - Display.close() fires a Close event\n    - The Workbench has a Close handler which calls Workbench.close().\n    - Workbench.close() saves the workbench state, closes all windows, and sets \nrunEventLoop to false.\n    - It returns event.doit \u003d true.\n  - Display.close() disposes the display.\n    - Various disposeExecs release resources, including JFace\u0027s image registry.\n  - At this point, Window.getDefaultImage() is disposed, and so is the display.\n- It falls back to Workbench.runEventLoop, which realizes that runEventLoop is \nfalse and returns to Workbench.runUI().\n- Workbench.runUI() calls Workbench.shutDown()\n  - Workbench.shutDown() calls advisor.postShutdown()\n    - IDEWorkbenchAdvisor.postShutdown() opens a ProgressMonitorDialog to save \nthe workspace\n      - this is created using a null parent shell, so SWT recreates the Display \n(!!)\n      - but when it comes to set the image, Window.defaultImage has been \ndisposed\n\nThe main problem here is that we are continuing to do UI work after the display \nhas been disposed.  Due to Display.close(), it\u0027s possible to fall out of the \nevent loop with the display having been disposed.  \nNote that this can happen on Windows as well: Display.close() is called if you \nshut down Windows while Eclipse is still running.\n\nWe need some improved lifecycle to notify the advisor to do any interesting \nshutdown work while still in Workbench.busyClose().\nOne option would be to move the call to shutdown() to the end of busyClose().\n\nWill discuss this with Jeem.\n",
+    "Andre\u0027s suggestion is also a possibility: always veto the Close event.",
+    "Steve, what is the contract for Display.close()?  That is, what does the OS \nexpect when it gets called on OS shutdown or from a Mac Quit command?  \nDo we need to have completed all work by the time it returns?\nCurrently we\u0027re expecting to be able to do more work after it returns.\nAre there any time constraints, e.g. on shutdown, does the OS do any magic if \nit takes too long?\n",
+    "Steve, please see last comment.\n",
+    "Vetoing doesn\u0027t seem like a good idea.  First of all, it doesn\u0027t work on the \nMac (not sure it\u0027s possible, Andre?).\n\nThe intent is that you should never fall back to your event loop.  The Window \nSystem is exiting so their is nothing to fall back to.  The Display has been \ndisposed and all your windows are gone.\n\nThe time out behavior on Windows depends on the Windows version.  If you don\u0027t \nrespond quickly enough, XP offers the user a chance to kill your application.  \nOlder versions of Windows used to wait forever, causing the user to hit \nCtrl+Alt+Del and kill your application anyways.\n\nPlease move this PR to SWT or open a new one about \"inconsistent shut down\" \nbehavior.  Perhaps we need a judicious System.exit() here? (almost always the \nwrong choice but seems right in this case)",
+    "Filed bug 47039 against SWT for the inconsistent handling of Close on the Mac.\n\nI think we should move the call to Workbench.shutdown() from Workbench.runUI() \nto Workbench.busyClose(), just before we clear the runEventLoop flag.\n\nIn addition (unrelated to this PR), it has always irked me that the Saving \nWorkspace progress dialog comes up after all the windows have been closed.\nShould consider moving this to preShutdown.\n",
+    "The workaround went into M5.\nWill address this properly for M6.",
+    "We should probably retarget this for M8.\nI would be happy to try some of these approaches since I also develop on the\nMac. Please advise. Thanks, Chris",
+    "Yes, M8, sigh.",
+    "I20040317\n\nAfter my patch had been applied, the original problem did no longer occur but  occasionally? I saw\nthe message (from my patch) \"Window.configureShell: image disposed\" on the console.\n\nIn recent builds the message is no longer printed on the console.\nSince my workaround still exists in the source (including the message), I suspect that the problem has \nbeen fixed.\nAt least it workes for me.",
+    "Thanks for the update.\n\nI\u0027m leaving open for M9 because I still think that Workbench.shutdown() should\nbe done from withing Workbench.busyClose().  The result of busyClose() ends up\ngetting passed to the SWT.Close event\u0027s doit flag.  So we need to ensure that\nthe Workbench is fully cleaned up by the time this method returns.  All\nWorkbench.runUI should do is return after it falls out of the event loop.\n\nWe can\u0027t always veto the close, since this controls whether a system shutdown\nproceeds on Windows.  That is, if you do a system shutdown with unsaved changes\nin Eclipse, then it should proceed with the shutdown if you choose OK on the\nsave changes dialog, but cancel if you choose Cancel.\n\nSteve, can you clarify what a display\u0027s SWT.Close handler should do, and when it\nshould or should not veto?  Are the semantics the same on Mac as on Windows?  On\nMac it\u0027s called in response to Command+Q, not just system shutdown.  Can this be\nvetoed (e.g. Command+Q with unsaved changes, then cancel)?\n\n\n",
+    "Yes, Command-Q with unsaved changes can be vetoed (canceled) on Mac.",
+    "Andre and Silenio fixed the Mac to support veto however, veto is almost always \nthe wrong answer for Windows.  Windows XP harrasses you with a \"I\u0027m going to \nkill you if you don\u0027t respond\" kind of message. My vote is that you should \njust save the state and get away.\n\nAndre, what to Mac apps do?  I bet they prompt.\n\nThe contract for SWT.Close for Displays is similar to the one for Shell.  \nSomehow, the user has asked that the Display be disposed (or the close() \nmethod was called).  You can veto the request on platforms that allow it but \nthis is not recommended because the tends to piss off the user (ie. They can\u0027t \nclose your Shell, they can\u0027t exit the Window System or log out etc.)\n\n",
+    "Sorry, is the original walkback fixed or is there something that SWT needs to \ndo?",
+    "I think you\u0027ve clarified it.  You can veto an SWT.Close, either for Shell or a\nDisplay, but -only- if the user has explicitly canceled it, e.g. in the dialog\nprompting to save changes.\n\nNo action required from SWT.\n\n",
+    "If the change is not veto\u0027d, I am proposing to put in a \"System.exit(0)\"\" \nafter the display is disposed so that the application will never go back to \nthe event loop.  Once the display has been disposed, they can\u0027t do anything \nelse with SWT anyways.\n\nThe obvious problem here is that \"System.exit(0)\" is evil.  Really, the thread \nshould be terminated but this is not recomended in Java.  Any ideas?  One \nthing I could do is put in the \"System.exit(0)\" and give API to allow smart \napplications to turn it off (ie. Display.setExitOnClose() or some such thing).\n\nThoughts?",
+    "I think you should either leave it as is for now.  The workbench will veto if it\nhasn\u0027t closed itself down.  If it has closed itself down, it won\u0027t be processing\nevents anymore, and with the changes I made above it won\u0027t make any further\ncalls to SWT.\n\nIt\u0027s probably worth considering whether SWT should dispose the display at all\nhere though.  If the app doesn\u0027t explicitly handle Close and shut itself down,\nthen it won\u0027t expect to have the display closed on it.\n",
+    "The original problems here have been fixed (for M8).\nBug 56910 tracks the System.exit issue."
+  ],
+  "commentCreationDates": [
+    "2003-11-13T21:23:51+01:00",
+    "2003-11-13T21:32:37+01:00",
+    "2003-11-13T22:51:44+01:00",
+    "2003-11-14T09:52:29+01:00",
+    "2003-11-14T13:24:55+01:00",
+    "2003-11-15T15:41:33+01:00",
+    "2003-11-17T14:07:14+01:00",
+    "2003-11-19T08:38:38+01:00",
+    "2003-11-19T10:41:06+01:00",
+    "2003-11-19T10:43:20+01:00",
+    "2003-11-19T10:47:03+01:00",
+    "2003-11-19T16:39:03+01:00",
+    "2003-11-19T16:55:36+01:00",
+    "2003-11-19T17:24:54+01:00",
+    "2003-11-19T17:41:43+01:00",
+    "2003-11-19T17:48:50+01:00",
+    "2003-11-19T17:56:05+01:00",
+    "2003-11-19T17:57:28+01:00",
+    "2003-11-19T18:13:48+01:00",
+    "2003-11-19T18:14:03+01:00",
+    "2003-11-19T19:19:31+01:00",
+    "2003-11-19T21:16:55+01:00",
+    "2003-11-21T17:18:02+01:00",
+    "2004-02-13T01:09:48+01:00",
+    "2004-02-13T02:34:08+01:00",
+    "2004-03-18T17:21:13+01:00",
+    "2004-03-18T18:24:46+01:00",
+    "2004-03-18T18:35:44+01:00",
+    "2004-03-18T18:58:51+01:00",
+    "2004-03-18T19:00:33+01:00",
+    "2004-03-18T19:19:41+01:00",
+    "2004-03-23T16:51:05+01:00",
+    "2004-03-23T17:10:48+01:00",
+    "2004-05-05T03:36:49+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.reflect.InvocationTargetException",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:861"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:299"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:767"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:601"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.IllegalArgumentException",
+        "message": "Argument not valid",
+        "elements": [
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:2524"
+          },
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:2468"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Widget.error",
+            "source": "Widget.java:549"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Decorations.setImage",
+            "source": "Decorations.java:405"
+          },
+          {
+            "method": "org.eclipse.jface.window.Window.configureShell",
+            "source": "Window.java:268"
+          },
+          {
+            "method": "org.eclipse.jface.dialogs.ProgressMonitorDialog.configureShell",
+            "source": "ProgressMonitorDialog.java: 297"
+          },
+          {
+            "method": "org.eclipse.jface.window.Window.createShell",
+            "source": "Window.java:350"
+          },
+          {
+            "method": "org.eclipse.jface.window.Window.create",
+            "source": "Window.java:301"
+          },
+          {
+            "method": "org.eclipse.jface.dialogs.Dialog.create",
+            "source": "Dialog.java:883"
+          },
+          {
+            "method": "org.eclipse.jface.window.Window.open",
+            "source": "Window.java:552"
+          },
+          {
+            "method": "org.eclipse.jface.dialogs.ProgressMonitorDialog.open",
+            "source": "ProgressMonitorDialog.java:523"
+          },
+          {
+            "method": "org.eclipse.jface.dialogs.ProgressMonitorDialog.aboutToRun",
+            "source": "ProgressMonitorDialog.java: 444"
+          },
+          {
+            "method": "org.eclipse.jface.dialogs.ProgressMonitorDialog.run",
+            "source": "ProgressMonitorDialog.java:383"
+          },
+          {
+            "method": "org.eclipse.ui.internal.ide.IDEWorkbenchAdviser.disconnectFromWorkspace",
+            "source": "IDEWorkbenchAdviser.j ava:620"
+          },
+          {
+            "method": "org.eclipse.ui.internal.ide.IDEWorkbenchAdviser.postShutdown",
+            "source": "IDEWorkbenchAdviser.java: 272"
+          },
+          {
+            "method": "org.eclipse.ui.internal.Workbench.shutdown",
+            "source": "Workbench.java:1651"
+          },
+          {
+            "method": "org.eclipse.ui.internal.Workbench.runUI",
+            "source": "Workbench.java:1382"
+          },
+          {
+            "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+            "source": "Workbench.java:240"
+          },
+          {
+            "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+            "source": "PlatformUI.java:139"
+          },
+          {
+            "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+            "source": "IDEApplication.java:47"
+          },
+          {
+            "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+            "source": "InternalBootLoader.java:858"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "46624",
+      "date": "2003-11-13T21:23:51+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "46624",
+  "bugId": "46624",
+  "date": "2003-11-13T21:23:51+01:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "major"
+}

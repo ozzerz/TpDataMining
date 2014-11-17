@@ -1,0 +1,144 @@
+{
+  "comments": [
+    "I have played with the Job examples plugin: \n   http://dev.eclipse.org/viewcvs/index.cgi/~checkout~/platform-core-\nhome/downloads/examples/jobs/examples.zip \n\n(from http://dev.eclipse.org/viewcvs/index.cgi/~checkout~/platform-core-\nhome/plan_concurrency.html)\n\nWhen I start a grupu of 5 threads and I cancel the running thread, I get the \nfollowing exception (I am using Nightly Build: N20040502):\n\n\njava.util.ConcurrentModificationException\n\tat java.util.AbstractList$Itr.checkForComodification(Unknown Source)\n\tat java.util.AbstractList$Itr.next(Unknown Source)\n\tat org.eclipse.ui.internal.progress.GroupInfo.cancel\n(GroupInfo.java:205)\n\tat \norg.eclipse.ui.internal.progress.NewProgressViewer$JobItem.cancelOrRemove\n(NewProgressViewer.java:590)\n\tat org.eclipse.ui.internal.progress.NewProgressViewer$3.widgetSelected\n(NewProgressViewer.java:542)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent\n(TypedListener.java:89)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:796)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2592)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2270)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1353)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1324)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.java:240)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:140)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run\n(IDEApplication.java:90)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:283)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:242)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:119)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n\tat java.lang.reflect.Method.invoke(Unknown Source)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:269)\n\tat org.eclipse.core.launcher.Main.run(Main.java:700)\n\tat org.eclipse.core.launcher.Main.main(Main.java:684)",
+    "Created an attachment (id\u003d10202)\nEnhanced version of the jobs example plugin\n\nThe enhanced version of the org.eclipse.ui.jobs plugin. The follwoing features\nwhere added:\n- some fixes to make it run with the latest eclipse (Nightly Build: N20040502)\n- better labels for the jobs (explaining the parameters usen when started)\n- support for Job.setUser\n- removed some obsolete files",
+    "Here are the parameters (set in the gui) that cause the failure:\n- Duration: \"1 minute\"\n- Quantity: 5\n- check: \"Lock Workspace\"\n- check: \"Run in Group\"\n\nRun it and cancel the currently running job.\n\nSet the duration to 1 minute and you will see, that when you cancel one job, \n(out of 5) only 3 remain!?\n",
+    "Original summary: \"ConcurrentModificationException in org.eclipse.ui.examples.jobs\"",
+    "Looks like you just need to lock during the cancel.\n\nIndex: GroupInfo.java\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\nRCS file: /home/eclipse/org.eclipse.ui.workbench/Eclipse \nUI/org/eclipse/ui/internal/progress/GroupInfo.java,v\nretrieving revision 1.4\ndiff -u -r1.4 GroupInfo.java\n--- GroupInfo.java\t16 Feb 2004 16:48:01 -0000\t1.4\n+++ GroupInfo.java\t4 May 2004 17:22:19 -0000\n@@ -200,9 +200,11 @@\n \t * @see org.eclipse.ui.internal.progress.JobTreeElement#cancel()\n \t */\n \tpublic void cancel() {\n-\t\tIterator listIterator \u003d infos.iterator();\n-\t\twhile(listIterator.hasNext()){\n-\t\t\t((JobInfo) listIterator.next()).cancel();\n+\t\tsynchronized(lock) {\n+\t\t\tIterator listIterator \u003d infos.iterator();\n+\t\t\twhile(listIterator.hasNext()){\n+\t\t\t\t((JobInfo) listIterator.next()).cancel();\n+\t\t\t}\n \t\t}\n \t}\n \t\n",
+    "Yes, found the same.\nThis does not seem to be a problem of the NewProgressViewer.\nBack to Tod.",
+    "However, the patch does not solve the problem because elements are still being removed from the list \nwhile the Iterator is active. I suggest to copy the list into an array and iterate over it without using a \nlock.",
+    "I didn\u0027t account for a cancelled JobInfo to end up driving a done to remove \nitself.  Tested it this time to make sure.\n\nIndex: GroupInfo.java\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\nRCS file: /home/eclipse/org.eclipse.ui.workbench/Eclipse \nUI/org/eclipse/ui/internal/progress/GroupInfo.java,v\nretrieving revision 1.4\ndiff -u -r1.4 GroupInfo.java\n--- GroupInfo.java\t16 Feb 2004 16:48:01 -0000\t1.4\n+++ GroupInfo.java\t5 May 2004 14:28:27 -0000\n@@ -200,9 +200,9 @@\n \t * @see org.eclipse.ui.internal.progress.JobTreeElement#cancel()\n \t */\n \tpublic void cancel() {\n-\t\tIterator listIterator \u003d infos.iterator();\n-\t\twhile(listIterator.hasNext()){\n-\t\t\t((JobInfo) listIterator.next()).cancel();\n+\t\tObject[] jobInfos \u003d getChildren();\n+\t\tfor (int i \u003d 0; i \u003c jobInfos.length; i++) {\n+\t\t\t((JobInfo)jobInfos[i]).cancel();\n \t\t}\n \t}\n \t\n",
+    "Suggested patch released for build \u003e20040505\n\nCongratulation Michael Fraenkel - you are officially an Eclipse contributor \nnow (I have credited you in the class comment)."
+  ],
+  "commentCreationDates": [
+    "2004-05-02T18:06:45+02:00",
+    "2004-05-02T18:12:41+02:00",
+    "2004-05-02T18:19:20+02:00",
+    "2004-05-03T17:44:22+02:00",
+    "2004-05-04T19:33:58+02:00",
+    "2004-05-04T19:52:26+02:00",
+    "2004-05-04T20:03:24+02:00",
+    "2004-05-05T16:49:59+02:00",
+    "2004-05-05T17:18:40+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.util.ConcurrentModificationException",
+      "elements": [
+        {
+          "method": "java.util.AbstractList$Itr.checkForComodification",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.util.AbstractList$Itr.next",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.progress.GroupInfo.cancel",
+          "source": "GroupInfo.java:205"
+        },
+        {
+          "method": "org.eclipse.ui.internal.progress.NewProgressViewer$JobItem.cancelOrRemove",
+          "source": "NewProgressViewer.java:590"
+        },
+        {
+          "method": "org.eclipse.ui.internal.progress.NewProgressViewer$3.widgetSelected",
+          "source": "NewProgressViewer.java:542"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:89"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:796"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2592"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2270"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1353"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1324"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:240"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:140"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:90"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:283"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:242"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:119"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:269"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:700"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:684"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "60698",
+      "date": "2004-05-02T18:06:45+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "60698",
+  "bugId": "60698",
+  "date": "2004-05-02T18:06:45+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

@@ -1,0 +1,241 @@
+{
+  "comments": [
+    "I installed eclipse 3.0 M5 and it fails to load. \nThe M3 version works fine though.\n\nI\u0027m running Windows 2K on a Dell dimension optiplex gx260(school lab computer)\n\nThe logfile contains:\n\n!SESSION ----------------------------------------------------------------------\n!ENTRY org.eclipse.core.launcher 4 0 Nov 22, 2003 19:09:27.54\n!MESSAGE Exception launching the Eclipse Platform:\n!STACK\njava.lang.reflect.InvocationTargetException\n\tat\norg.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:861)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:299)\n\tat org.eclipse.core.launcher.Main.run(Main.java:767)\n\tat org.eclipse.core.launcher.Main.main(Main.java:601)\nCaused by: java.lang.NullPointerException\n\tat org.eclipse.ui.keys.KeyStroke.hashCode(KeyStroke.java:517)\n\tat java.util.HashMap.hash(HashMap.java:250)\n\tat java.util.HashMap.get(HashMap.java:301)\n\tat\norg.eclipse.ui.internal.commands.KeySequenceBindingNode.add(KeySequenceBindingNode.java:174)\n\tat\norg.eclipse.ui.internal.commands.KeySequenceBindingMachine.validateTree(KeySequenceBindingMachine.java:223)\n\tat\norg.eclipse.ui.internal.commands.KeySequenceBindingMachine.validateSolution(KeySequenceBindingMachine.java:202)\n\tat\norg.eclipse.ui.internal.commands.KeySequenceBindingMachine.getKeySequenceBindingsByCommandId(KeySequenceBindingMachine.java:72)\n\tat\norg.eclipse.ui.internal.commands.CommandManager.calculateKeySequenceBindings(CommandManager.java:270)\n\tat\norg.eclipse.ui.internal.commands.CommandManager.readRegistry(CommandManager.java:688)\n\tat org.eclipse.ui.internal.commands.CommandManager.\u003cinit\u003e(CommandManager.java:229)\n\tat org.eclipse.ui.internal.commands.CommandManager.\u003cinit\u003e(CommandManager.java:192)\n\tat\norg.eclipse.ui.commands.CommandManagerFactory.getCommandManager(CommandManagerFactory.java:41)\n\tat org.eclipse.ui.internal.Workbench.init(Workbench.java:736)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1358)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:237)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:139)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:47)\n\tat\norg.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:858)\n\t... 8 more",
+    "I assume you have an old environment that you are upgrading to 3.0M5?\n\nChris, are there issues converting an old workspace to M5?\n\n",
+    "Same just happened to me.\nI run Windows2000, but don\u0027t have administrator privileges.\n\nI tried a new installation, without converting any older workspaces.\n ",
+    "I have the same problem with WinNT. Either with a new or an old workspace. It\u0027s \nall the same. ",
+    "this is very strange. in the M5 build line 517 of KeyStroke is:\nhashCode \u003d hashCode * HASH_FACTOR + modifierKeys.hashCode();\n(to see this, import the workbench plugin as source from the M5 drop..)\n\nthe NullPointerException can only occur when dereferencing the private field \nmodifierKeys, which only is write-accessed once - in the first line of the \nKeyStroke constructor. this first line is guaranteed to return non-null. in \nfact, line 3 of the constructor would throw a NullPointerException if the \nfield was null.\n\nif the stack trace was not complete, and the NullPointerException occured \nfurther down, it would be inside the Set method of hashCode(), which, if you \nfollow through TreeSet, HashSet, and Collections.UnmodifableSortedSet, can not \noccur. (they all eventually get to java.util.AbstractSet.hashCode() which is \nsafe)\n\nif anyone has a different stack trace, or info on their VM, I would appreciate \nit added to this PR.\n\ni\u0027m going to pass this to doug to double-sanity-check this, otherwise should \nclose as \u0027worksforme\u0027\n",
+    "Could one of the three people seeing this bug please specify which VM they are \nusing (and version), as well as the specifications of the machine.  Thanks.\n\n\nChris: I don\u0027t think it is a good idea to close this bug, even if we don\u0027t \nknow what\u0027s wrong.  There are three separate people who have reported this \nproblem.\n\n\nIn an extremely unlikely case, I think it is possible for this error to occur \nif two separate threads were trying to access the key stroke at the same \ntime.  But, I think it would require a multi-processor machine, which the \nfirst person specifically says they don\u0027t have.  And, I didn\u0027t think this \nsection of code was multi-threaded.  However, if one thread constructed the \nkey stroke and another asked for that stroke\u0027s hash code, I believe it might \nbe possible that write re-ordering performed by the memory bus could cause a \nNullPointerException.\n\nSeems far-fetched, hunh?\n",
+    "i don\u0027t think that makes sense. KeyStroke has no super. Constructor finishes \nbefore initial reference is assigned to variable. (the \u0027x\u0027 in this expression:\nx \u003d KeyStroke.getInstance(..).\n\nanother thread cannot get access to this variable to call hashCode() until the \ninitial reference is available, after which point the field modifierKeys is \nnot mutable.\n\ni noticed some activity on eclipse-dev about incorrect debug information \nbetween source and class in M5. i think it possible that we have a case of \nthis.\n",
+    "I must confess that my knowledge of this is a bit shaky, but I\u0027m not entirely \nsure that you\u0027re right.  Of course, if this class isn\u0027t be accessed by \nmultiple threads, then re-ordering of memory access wouldn\u0027t make a difference.\n\nStuff to look at: \n\"http://java.sun.com/docs/books/jls/second_edition/html/memory.doc.html#30206\" \n\"http://gee.cs.oswego.edu/dl/cpj/jmm.html\"\n\"http://www.cs.umd.edu/~pugh/jmm.pdf\"\n\nBut, as I said, I don\u0027t really understand this topic all that well.",
+    "I\u0027m running WinNT 4.00.1381 on an IBM ThinkPad T21.\n\njava -version yields: \n\njava version \"1.4.0\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.0-b92)\nJava HotSpot(TM) Client VM (build 1.4.0-b92, mixed mode)\n\nI get the same stack trace, but added an java -verbose org....Main output as an \nattachment\n\nThanks for your effort ...",
+    "Created an attachment (id\u003d6988)\nOutput when run from commandline\n\noutput of: \n\njava -verbose -cp startup.jar org.eclipse.core.launcher.Main -os win32 -arch\nx86 \n\nHope this helps.\n",
+    "My VM is:\n\njava version \"1.4.0_01\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.0_01-b03)\nJava HotSpot(TM) Client VM (build 1.4.0_01-b03, mixed mode)\n\nSystem: Win 2000, 5.00.2195 SP2\nPentium 4, 2GHz, 1GB RAM\n",
+    "Out of an inspiration I just upgraded to 1.4.1_06 (1.4.2 needs more service \npacks) and now it works ... a miracle? I don\u0027t think so. ",
+    "i spent a fair bit more (too long) time on this problem today and i hate to \nsay this but i just don\u0027t believe the stack trace :). \n\nit seems that it can consistently happen on some vm\u0027s but not others? Volker, \nwould you consider upgrading your VM and see if your problem go away like \nOlav\u0027s did?\n\ni\u0027m going to close this as worksforme, please reopen if you have any more \ninformation.",
+    "On the FreeNode IRC channel, we\u0027ve got another person reporting this bug.  This\nis not a trivial problem.  I feel we should understand it better before closing.",
+    "I am the person on freenode who has this problem.  Here is the output of java\n-version:\n\njava version \"1.4.0\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.0-b92)\nJava HotSpot(TM) Client VM (build 1.4.0-b92, mixed mode)\n\n",
+    "OK I tried it with 1.4.0_03 and 1.4.1_01 (both sun).  I had the same error with\n1.4.0_03, and no problem at all with 1.4.1_01.  Hope this helps!",
+    "From \"http://java.sun.com/j2se/1.4.0/\", 1.4.0 has completed the end of life\nprocess, and is no longer supported by Sun.  This problem appears to only exist\non this virtual machine.  I think we\u0027re left having to say that this bug is\ninvalid.  Anyone seeing this behaviour should upgrade to a 1.4.1 runtime\nenvironment.",
+    "*** Bug 47979 has been marked as a duplicate of this bug. ***",
+    "*** Bug 48011 has been marked as a duplicate of this bug. ***",
+    "*** Bug 48025 has been marked as a duplicate of this bug. ***",
+    "Here is the java version, I am running.  MY OS is WINXP Home Edition.  I ran \nthe setup as new installation, not as an upgrade,  \nRegards\nHans\n\n\nC:\\Temp\u003ejava -version\njava version \"1.4.0_03\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.0_03-b04)\nJava HotSpot(TM) Client VM (build 1.4.0_03-b04, mixed mode)",
+    "*** Bug 48189 has been marked as a duplicate of this bug. ***",
+    "I understand that the bug would close, \nbut I feel something is still missing :\nto document this problem somewhere with the 3.0 build,\nso that end users have a clue as to what to do to get it right.\n",
+    "*** Bug 48643 has been marked as a duplicate of this bug. ***",
+    "jean-michel found this today. we confirmed that of the three vm\u0027s on his machine, we could start \nhis workspace with the 1.4.1_? or the 1.4.2_? VM, but not his default VM, which was 1.4.0_01.",
+    "*** Bug 49170 has been marked as a duplicate of this bug. ***",
+    "Sorry for the double submit of this bug. Didn\u0027t see this one.\nI\u0027m also having trouble starting the M5 and M3 works wells.\n\nI checked back on two collegues, who are running the M5 without trouble. \nThey both run a 1.4.1 JRE while I still have \n\njava version \"1.4.0_01\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.0_01-b03)\nJava HotSpot(TM) Client VM (build 1.4.0_01-b03, mixed mode)\n\nI\u0027m upgrading to 1.4.2 now, hoping to resolve the problem.\n",
+    "Problem solved!",
+    "*** Bug 49367 has been marked as a duplicate of this bug. ***",
+    "Removing myself, as I am tired of monitoring an invalid bug :)",
+    "*** Bug 49406 has been marked as a duplicate of this bug. ***",
+    "*** Bug 49499 has been marked as a duplicate of this bug. ***",
+    "*** Bug 49570 has been marked as a duplicate of this bug. ***",
+    "*** Bug 49586 has been marked as a duplicate of this bug. ***",
+    "removed me from cc",
+    "*** Bug 49608 has been marked as a duplicate of this bug. ***",
+    "*** Bug 49669 has been marked as a duplicate of this bug. ***",
+    "I\u0027m also off the list!\nHow about mentioning on the frontpage that one has to use a 1.4.2 JRE in order \nto run the new Eclipse properly? I think that might stop the endless reporting!",
+    "*** Bug 50186 has been marked as a duplicate of this bug. ***",
+    "*** Bug 50229 has been marked as a duplicate of this bug. ***",
+    "*** Bug 50211 has been marked as a duplicate of this bug. ***",
+    "*** Bug 50237 has been marked as a duplicate of this bug. ***",
+    "*** Bug 50314 has been marked as a duplicate of this bug. ***",
+    "*** Bug 50595 has been marked as a duplicate of this bug. ***",
+    "*** Bug 51274 has been marked as a duplicate of this bug. ***",
+    "*** Bug 51358 has been marked as a duplicate of this bug. ***",
+    "*** Bug 52080 has been marked as a duplicate of this bug. ***",
+    "*** Bug 54613 has been marked as a duplicate of this bug. ***",
+    "*** Bug 58034 has been marked as a duplicate of this bug. ***",
+    "*** Bug 63803 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2003-11-23T01:29:59+01:00",
+    "2003-11-24T16:10:55+01:00",
+    "2003-11-25T09:24:33+01:00",
+    "2003-11-26T15:36:08+01:00",
+    "2003-11-26T19:42:08+01:00",
+    "2003-11-26T20:17:06+01:00",
+    "2003-11-26T21:47:30+01:00",
+    "2003-11-26T22:27:01+01:00",
+    "2003-11-27T16:03:07+01:00",
+    "2003-11-27T16:05:53+01:00",
+    "2003-11-27T16:14:13+01:00",
+    "2003-11-27T16:35:26+01:00",
+    "2003-11-27T20:22:48+01:00",
+    "2003-11-28T16:15:25+01:00",
+    "2003-11-28T16:50:18+01:00",
+    "2003-11-28T16:55:34+01:00",
+    "2003-11-28T17:09:11+01:00",
+    "2003-12-03T16:26:38+01:00",
+    "2003-12-03T19:24:30+01:00",
+    "2003-12-03T20:08:11+01:00",
+    "2003-12-04T01:07:27+01:00",
+    "2003-12-05T22:05:48+01:00",
+    "2003-12-05T22:37:44+01:00",
+    "2003-12-12T16:23:56+01:00",
+    "2003-12-12T16:25:14+01:00",
+    "2003-12-19T17:59:52+01:00",
+    "2003-12-22T09:06:52+01:00",
+    "2003-12-22T10:00:45+01:00",
+    "2004-01-05T16:46:09+01:00",
+    "2004-01-05T16:56:10+01:00",
+    "2004-01-05T19:43:28+01:00",
+    "2004-01-05T19:43:49+01:00",
+    "2004-01-06T18:58:36+01:00",
+    "2004-01-06T20:21:58+01:00",
+    "2004-01-06T23:03:55+01:00",
+    "2004-01-07T17:16:06+01:00",
+    "2004-01-08T14:44:53+01:00",
+    "2004-01-09T08:03:10+01:00",
+    "2004-01-19T16:48:23+01:00",
+    "2004-01-19T19:04:07+01:00",
+    "2004-01-19T19:04:40+01:00",
+    "2004-01-20T14:20:45+01:00",
+    "2004-01-21T14:17:20+01:00",
+    "2004-01-26T15:14:35+01:00",
+    "2004-02-06T12:44:13+01:00",
+    "2004-02-09T13:53:05+01:00",
+    "2004-02-16T16:50:55+01:00",
+    "2004-03-12T14:32:35+01:00",
+    "2004-04-12T15:53:57+02:00",
+    "2004-05-25T22:37:07+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.reflect.InvocationTargetException",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:861"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:299"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:767"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:601"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.NullPointerException",
+        "elements": [
+          {
+            "method": "org.eclipse.ui.keys.KeyStroke.hashCode",
+            "source": "KeyStroke.java:517"
+          },
+          {
+            "method": "java.util.HashMap.hash",
+            "source": "HashMap.java:250"
+          },
+          {
+            "method": "java.util.HashMap.get",
+            "source": "HashMap.java:301"
+          },
+          {
+            "method": "org.eclipse.ui.internal.commands.KeySequenceBindingNode.add",
+            "source": "KeySequenceBindingNode.java:174"
+          },
+          {
+            "method": "org.eclipse.ui.internal.commands.KeySequenceBindingMachine.validateTree",
+            "source": "KeySequenceBindingMachine.java:223"
+          },
+          {
+            "method": "org.eclipse.ui.internal.commands.KeySequenceBindingMachine.validateSolution",
+            "source": "KeySequenceBindingMachine.java:202"
+          },
+          {
+            "method": "org.eclipse.ui.internal.commands.KeySequenceBindingMachine.getKeySequenceBindingsByCommandId",
+            "source": "KeySequenceBindingMachine.java:72"
+          },
+          {
+            "method": "org.eclipse.ui.internal.commands.CommandManager.calculateKeySequenceBindings",
+            "source": "CommandManager.java:270"
+          },
+          {
+            "method": "org.eclipse.ui.internal.commands.CommandManager.readRegistry",
+            "source": "CommandManager.java:688"
+          },
+          {
+            "method": "org.eclipse.ui.internal.commands.CommandManager.\u003cinit\u003e",
+            "source": "CommandManager.java:229"
+          },
+          {
+            "method": "org.eclipse.ui.internal.commands.CommandManager.\u003cinit\u003e",
+            "source": "CommandManager.java:192"
+          },
+          {
+            "method": "org.eclipse.ui.commands.CommandManagerFactory.getCommandManager",
+            "source": "CommandManagerFactory.java:41"
+          },
+          {
+            "method": "org.eclipse.ui.internal.Workbench.init",
+            "source": "Workbench.java:736"
+          },
+          {
+            "method": "org.eclipse.ui.internal.Workbench.runUI",
+            "source": "Workbench.java:1358"
+          },
+          {
+            "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+            "source": "Workbench.java:237"
+          },
+          {
+            "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+            "source": "PlatformUI.java:139"
+          },
+          {
+            "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+            "source": "IDEApplication.java:47"
+          },
+          {
+            "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+            "source": "InternalBootLoader.java:858"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "47296",
+      "date": "2003-11-23T01:29:59+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "47296",
+  "bugId": "47296",
+  "date": "2003-11-23T01:29:59+01:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "critical"
+}

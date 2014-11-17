@@ -1,0 +1,91 @@
+{
+  "comments": [
+    "Build ID: I20070625-1500\n\nSteps To Reproduce:\n1. make sure the \"Serializable class without serialVersionUID\" potential programming problem is set to \"warning\" or \"error\" in Eclipse (or project specific) preferences\n2. create a new class like this:\n\nimport java.io.Serializable;\n\npublic abstract class A implements Serializable\n{\n\n}\n\nEXPECTED BEHAVIOUR:\nEclipse should show a warning/error because A is serializable and does not define a serialVersionUID\n\nOBSERVED BEHAVIOUR:\nEclipse does not show any warning/error.\n\nMore information:\nThe absence of any error/warning might lead to a programming problem as soon as you are defining a hierarchy of serializable classes (where any of the ancestor is abstract) and you want to make any of the leaf classes safe (with respect to serialization) in the long-term.",
+    "I don\u0027t think it makes sense to add a serial version UID to a abstract class.\nIt can\u0027t be instantiated and therefore also not serializable. The concrete\nsubclasses however should have a serial version UID.\n\nMoving to jdt.core for the last word.",
+    "I would agree with Martin. Basically, serialVersionUID is not an inherited property. So adding one on the abstract class is not going to buy anything for subtypes. For itself, as it cannot be instantiated, what is the point of defining one ?\n\nAlso checked that subtypes are properly warned when missing serialVersionUID.\ne.g.\nimport java.io.Serializable;\nabstract class A implements Serializable {\n}\nclass X extends A {} // X should define a serialVersionUID\n\n\nMarking as INVALID.\nNo further action planned.",
+    "Added SerialVersionUIDTests#test007",
+    "I do not agree with this.\n\nOnce you deserialize a non-abstract serializable class that extends an abstract serializable class, the process of creating the instance of the deserialized object involves the initialization of the abstract class code, too.\n\nIf you have\n\nA abstract, serializable\nB non-abstract, serializable, extends A\n\nwhen you de-serialize an instance of B, the deserialization process checks not only B serialVersionUID, but A\u0027s one, too! If A\u0027s serialVersionUID is not defined and A.class has changed, the JRE throws an InvalidClassException when trying to deserialize an instance of B, even if B does have a fixed serialVersionUID!\n\nI recently encountered this exact problem and it was not easy to solve.",
+    "Btw we had this discussion before: bug 116733, bug 94352 and probably more",
+    "Try this.\n\nGiven the following classes:\n\n---\nimport java.io.Serializable;\n\npublic abstract class A implements Serializable\n{\n  public void a()\n  {\n    System.out.println(\"a\");\n  }\n}\n\npublic class B extends A\n{\n  private static final long serialVersionUID \u003d -4759527637665705469L;\n\n  public void b()\n  {\n    System.out.println(\"b\");\n  }\n}\n\nimport java.io.File;\nimport java.io.FileNotFoundException;\nimport java.io.FileOutputStream;\nimport java.io.IOException;\nimport java.io.ObjectOutputStream;\n\n\npublic class WriteTest\n{\n  public static void main(String[] args) throws FileNotFoundException, IOException\n  {\n    B b \u003d new B();\n    ObjectOutputStream out \u003d\n        new ObjectOutputStream(new FileOutputStream(new File(System\n            .getProperty(\"user.home\"), \"b.bin\")));\n    out.writeObject(b);\n    out.flush();\n    out.close();\n  }\n}\n\nimport java.io.File;\nimport java.io.FileInputStream;\nimport java.io.FileNotFoundException;\nimport java.io.IOException;\nimport java.io.ObjectInputStream;\n\n\npublic class ReadTest\n{\n  public static void main(String[] args) throws FileNotFoundException,\n      IOException, ClassNotFoundException\n  {\n    ObjectInputStream in \u003d\n        new ObjectInputStream(new FileInputStream(new File(System\n            .getProperty(\"user.home\"), \"b.bin\")));\n    final B b \u003d (B) in.readObject();\n    b.b();\n    in.close();\n  }\n}\n\n---\n\nRun WriteTest.\nThen run ReadTest: you should see \"b\" on the console.\nThen modify A so that it then is:\n\nimport java.io.Serializable;\n\npublic abstract class A implements Serializable\n{\n  public void a()\n  {\n    System.out.println(\"a\");\n  }\n  \n  public void aa()\n  {\n    System.out.println(\"aa\");\n  }\n}\n\nRun ReadTest again:\n\nException in thread \"main\" java.io.InvalidClassException: A; local class incompatible: stream classdesc serialVersionUID \u003d 3944066497804655483, local class serialVersionUID \u003d 7050343047014399967\n\tat java.io.ObjectStreamClass.initNonProxy(ObjectStreamClass.java:546)\n\tat java.io.ObjectInputStream.readNonProxyDesc(ObjectInputStream.java:1552)\n\tat java.io.ObjectInputStream.readClassDesc(ObjectInputStream.java:1466)\n\tat java.io.ObjectInputStream.readNonProxyDesc(ObjectInputStream.java:1552)\n\tat java.io.ObjectInputStream.readClassDesc(ObjectInputStream.java:1466)\n\tat java.io.ObjectInputStream.readOrdinaryObject(ObjectInputStream.java:1699)\n\tat java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1305)\n\tat java.io.ObjectInputStream.readObject(ObjectInputStream.java:348)\n\tat ReadTest.main(ReadTest.java:16)",
+    "Due to my comment #6, I think this bug is not invalid, so I\u0027m reopening it.",
+    "Created an attachment (id\u003d78311)\nProposed fix + updated regression tests\n\n",
+    "javac seems to have the same problem.\nSee http://bugs.sun.com/bugdatabase/view_bug.do?bug_id\u003d6356530",
+    "Re: comment 6\nI now believe you are right. Thanks for reopening the bug.\nOlivier - pls go ahead and fix it.",
+    "Created an attachment (id\u003d78341)\nProposed fix + updated regression tests (more tests)\n\nThis patch simply fixes more regression tests.",
+    "Released for 3.4M2.\nUpdated regression tests.",
+    "Verified for 3.4M2 using build I20070917-0010"
+  ],
+  "commentCreationDates": [
+    "2007-09-13T11:58:52+02:00",
+    "2007-09-13T12:39:49+02:00",
+    "2007-09-13T13:13:38+02:00",
+    "2007-09-13T13:22:21+02:00",
+    "2007-09-13T14:19:20+02:00",
+    "2007-09-13T14:34:39+02:00",
+    "2007-09-13T14:45:59+02:00",
+    "2007-09-13T15:43:15+02:00",
+    "2007-09-13T16:30:48+02:00",
+    "2007-09-13T16:34:24+02:00",
+    "2007-09-13T16:44:49+02:00",
+    "2007-09-13T18:50:49+02:00",
+    "2007-09-13T18:51:15+02:00",
+    "2007-09-18T10:47:39+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.InvalidClassException",
+      "message": "A; local class incompatible: stream classdesc serialVersionUID \u003d 3944066497804655483, local class serialVersionUID \u003d 7050343047014399967",
+      "elements": [
+        {
+          "method": "java.io.ObjectStreamClass.initNonProxy",
+          "source": "ObjectStreamClass.java:546"
+        },
+        {
+          "method": "java.io.ObjectInputStream.readNonProxyDesc",
+          "source": "ObjectInputStream.java:1552"
+        },
+        {
+          "method": "java.io.ObjectInputStream.readClassDesc",
+          "source": "ObjectInputStream.java:1466"
+        },
+        {
+          "method": "java.io.ObjectInputStream.readNonProxyDesc",
+          "source": "ObjectInputStream.java:1552"
+        },
+        {
+          "method": "java.io.ObjectInputStream.readClassDesc",
+          "source": "ObjectInputStream.java:1466"
+        },
+        {
+          "method": "java.io.ObjectInputStream.readOrdinaryObject",
+          "source": "ObjectInputStream.java:1699"
+        },
+        {
+          "method": "java.io.ObjectInputStream.readObject0",
+          "source": "ObjectInputStream.java:1305"
+        },
+        {
+          "method": "java.io.ObjectInputStream.readObject",
+          "source": "ObjectInputStream.java:348"
+        },
+        {
+          "method": "ReadTest.main",
+          "source": "ReadTest.java:16"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 6,
+      "bugId": "203241",
+      "date": "2007-09-13T14:45:59+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "203241",
+  "bugId": "203241",
+  "date": "2007-09-13T11:58:52+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

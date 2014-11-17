@@ -1,0 +1,61 @@
+{
+  "comments": [
+    "JSP examples are configured as follows:\n\nUsed the osgi.parentClassloader\u003dboot setting in the launch.ini file.\nThe org.eclipse.equinox.servlet.bridge.extensionbundle_3.2.0 has the following\nmanifest information. Removed the equinox.servlet.api bundle from the bundles.\n\nManifest-Version: 1.0\nBundle-ManifestVersion: 2\nBundle-Name: Servlet Bridge Extension Bundle\nBundle-SymbolicName: org.eclipse.equinox.servlet.bridge.extensionbundle\nFragment-Host: system.bundle; extension:\u003dframework\nBundle-Version: 3.2.0\nExport-Package: org.eclipse.equinox.servlet.bridge.launcher, \n javax.servlet; version\u003d2.4,\n javax.servlet.http; version\u003d2.4,\n javax.servlet.jsp; version\u003d2.0,\n javax.servlet.jsp.el; version\u003d2.0,\n javax.servlet.jsp.resources; version\u003d2.0,\n javax.servlet.jsp.tagext; version\u003d2.0,\n javax.servlet.resources; version\u003d2.4\n\nWhen the JSP exmples are accessed, the following error appears in WebLogic 9.2 environment.\n\njavax.xml.parsers.FactoryConfigurationError: Provider weblogic.xml.jaxp.RegistryDocumentBuilderFactory not found\n        at javax.xml.parsers.DocumentBuilderFactory.newInstance(DocumentBuilderFactory.java:104)\n        at org.apache.jasper.xmlparser.ParserUtils.parseXMLDocument(ParserUtils.java:88)\n        at org.apache.jasper.compiler.JspConfig.processWebDotXml(JspConfig.java:76)\n        at org.apache.jasper.compiler.JspConfig.init(JspConfig.java:197)\n        at org.apache.jasper.compiler.JspConfig.findJspProperty(JspConfig.java:249)\n        Truncated. see log file for complete stacktrace\n\nTo get around this problem, I have temporarily included xercesImpl.jar as part of the equiox jasper bundle.\n\nLooks like there is already an issue (88483) reported for the Equinox framework",
+    "Hi Krishna,\n\n[I updated the summary a little to help target this problem a bit more]\n\nJAXP as you\u0027ve discovered doesn\u0027t play particularly nicely in an OSGi environment without a bit of work. As noted in many other similar bug reports the JAXP parser discovery mechanism assumes visibility via the context classloader.\n\nI\u0027m interested in looking more deeply at this problem in 3.3 however as an immediate first step what I\u0027ll do is add a DynamicImport-Package: * to the Jasper bundle. This will give the JAXP lookup a chance to find the parser if its exported in the framework. (Note: There are probably better ways we can constrain what we look up here) \n\nFor the other half of bug I\u0027ll need your help as its weblogic specific. \nWe have to make the weblogic parser available in the framework, so need to use a framework extension bundle to expose it.\n\nEventually we should create and track the targetted framework extension bundles for each app server, but for time being you could just add the \"weblogic.xml.jaxp\" package to the exports in your org.eclipse.equinox.servlet.bridge.extensionbundle.\n\nLet me know if this works and lets you remove the xercesimpl.jar from the jasper bundle.\n",
+    "Krishna,\nAre you still having problems with this?",
+    "I\u0027ve validated that this environment works for the HEAD.\nOn BEA (and Oracle) the parser used does not come from the VM and instead is on the application or System class loader. The approach we want to take is to find the parser from the parent.\n\nIn this environment you need to ensure that the following properties are set in you launch.ini so that the parser can be found:\nosgi.parentClassloader\u003dapp\nosgi.contextClassLoaderParent\u003dapp\n\n",
+    "Is there a way that we can scope the parentage a bit more?  For example on these systems perhaps they need an additional bundle that uses the \"app\" buddy loading policy and exports the desired packages.  That way the rest of the universe does not get app put on their classpath (with all the attendant mess that that causes)",
+    "Jeff, in 3.3 the parantage is already scoped according to OSGi parent delegation (you only get java.* for free from your parent).  The only reason osgi.parentClassloader\u003dapp in this case is so that the framework fragments can have access to the packages to export.\n\nBuddies will not work because when delegating to another bundle to load a class we do *not* search its buddy policies.  Buddy policies are only for the local bundle, a bundle cannot export a package from one of its buddies.\n",
+    "Just re-read the comment chain and feel it\u0027s a bit misleading so want to clear a few things up.\n\nThe solution here does not use framework extension bundles to export the various XML parser classes. The parsers are being found through \"bundle.framework.compatibiltyBootDelegation\" which I believe is also the case for all current use of JAXP when retrieving the parser from boot.\n\nThe situation using \"app\" is not ideal as potentially other unwanted content could be leaked in however with boot delegation constrained the problem is not nearly as bad as it was in 3.2. A more precise solution might be to disable compatabilityBootDelegataion and instead open up regular boot delegation just for the needed parser classes -- perhaps we could automate this at runtime?\n\n"
+  ],
+  "commentCreationDates": [
+    "2006-08-23T21:15:56+02:00",
+    "2006-08-24T00:00:08+02:00",
+    "2007-01-11T18:31:13+01:00",
+    "2007-04-11T19:46:54+02:00",
+    "2007-04-14T14:07:32+02:00",
+    "2007-04-16T16:09:04+02:00",
+    "2007-04-17T05:48:27+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "javax.xml.parsers.FactoryConfigurationError",
+      "message": "Provider weblogic.xml.jaxp.RegistryDocumentBuilderFactory not found",
+      "elements": [
+        {
+          "method": "javax.xml.parsers.DocumentBuilderFactory.newInstance",
+          "source": "DocumentBuilderFactory.java:104"
+        },
+        {
+          "method": "org.apache.jasper.xmlparser.ParserUtils.parseXMLDocument",
+          "source": "ParserUtils.java:88"
+        },
+        {
+          "method": "org.apache.jasper.compiler.JspConfig.processWebDotXml",
+          "source": "JspConfig.java:76"
+        },
+        {
+          "method": "org.apache.jasper.compiler.JspConfig.init",
+          "source": "JspConfig.java:197"
+        },
+        {
+          "method": "org.apache.jasper.compiler.JspConfig.findJspProperty",
+          "source": "JspConfig.java:249"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "154916",
+      "date": "2006-08-23T21:15:56+02:00",
+      "product": "Equinox",
+      "component": "Bundles",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "154916",
+  "bugId": "154916",
+  "date": "2006-08-23T21:15:56+02:00",
+  "product": "Equinox",
+  "component": "Bundles",
+  "severity": "normal"
+}

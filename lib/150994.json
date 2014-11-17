@@ -1,0 +1,229 @@
+{
+  "comments": [
+    "In a large product with thousands of plugins and hundreds of features we are noticing that file handles are getting leaked.\n\nI am able to run one simple use case end-to-end with no problem. However, if I first do a Help -\u003e Software Updates -\u003e Manage Configuration after eclipse starts up the class loader will then fail to load one of the plugin JARs in the use case.\n\nI tried debugging the scenario and found that the class loader was throwing a ZipException with description (\"Too Many Files Open ...\"). I tried the whole use case again with an exception breakpoint on ZipException. I noticed the exact same sort of exception being thrown in the update site manager code before I even start my use case. A CoreException is thrown and logged but not all of the file handles are released because it interferes with the use case that follows.\n\nThis problem is blocking us because we have code that uses the update site API\u0027s to identify if a particular feature is installed. Whenever this code gets executed, it will cause other parts of the application to fail.",
+    "\nMcQ, you may know more about this issue than anybody available now...I\u0027m adding you to the CC list just as a \u0027heads up\u0027.\n\n",
+    "I\u0027m not sure what\u0027s going on here, but we\u0027ve seen similar issues before. Adding John and Pascal to widen the visibility.",
+    "All fundamental modeling scenarios in our products are blocked by this defect. Requesting to fix this in 3.2.1.\n",
+    "I can confirm that there is a significant leak when opening the \"Manage Configuration\" window. In fact, the window itself, and the view, tree viewer, and all other widgets within it are leaked. If I open/close this window ten times in a profiler, I see 70 classes with exactly ten extra instances, and another 30 or so with more than 10 leaked instances.  From looking at a few of the objects, the reference graphs mostly lead back to a static field on InternalSiteManager.  Here is an allocation trace of the \"ConfigurationView\" object, as a representative example:\n\nConfigurationView\n Object[]\n  listeners of org.eclipse.update.internal.core.ListenerList\n   listeners of org.eclipse.update.internal.core.LocalSite\n    static variable of org.eclipse.update.internal.core.InternalSiteManager\n\nHowever, this doesn\u0027t look like the cause of leaking file handles.",
+    "(In reply to comment #4)\n\u003e ConfigurationView\n\u003e  Object[]\n\u003e   listeners of org.eclipse.update.internal.core.ListenerList\n\u003e    listeners of org.eclipse.update.internal.core.LocalSite\n\u003e     static variable of org.eclipse.update.internal.core.InternalSiteManager\n\nIt smells like some part of the config view is not removing itself as a listener somewhere.",
+    "Since I\u0027m about to go on vacation, I can\u0027t track the progress on this. John/Dejan, you need to follow this far enough to at least find a real owner for it, and make sure that it gets fixed.\n\nNote that the original report is about _file_handles_. Other leaks may be related, but aren\u0027t the primary cause of the blockage.\n",
+    "I just found something very interesting. There is a private static list in JarContentReference called referenceList that contains every instance of JarContentReference ever constructed. Each instance holds on to a File object, which could be causing the file handle leak. The parent class, ContentReference, has no such static list and this list would only be used for JAR\u0027ed plugins, which is new since the last time that we released our product with the thousands of plugins in it.\n\nHere\u0027s the only method that actually reads the referenceList (it is private to this class so its the only one that could ever have access to the list):\n\n/**\n * Perform shutdown processing for jar archive handling.\n * This method is called when platform is shutting down.\n * It is not intended to be called at any other time under\n * normal circumstances. A side-effect of calling this method\n * is that all jars referenced by JarContentReferences are closed.\n * \n * @since 2.0\n*/\npublic static void shutdown() {\n\tfor (int i \u003d 0; i \u003c referenceList.size(); i++) {\n\t\tJarContentReference ref \u003d (JarContentReference) referenceList.get(i);\n\t\ttry {\n\t\t\tref.closeArchive(); // ensure we are not leaving open jars\n\t\t} catch (IOException e) {\n\t\t\t// we tried, nothing we can do ...\n\t\t}\n\t}\n}\n\nI see no factory methods that would allow reuse of the same JarContentReference objects so this referenceList will become larger every time someone tries to grab the local site and therefore, leak more file handles.",
+    "This has been confirmed as the source of the file handle leak.\n\nJava has implemented ZipFile to include a special close() method that will close all of the input streams that have been opened for entries in that zip file as well as releasing the primary file descriptor. The close method can be called as a result of a garbage collection(from finalize()) but update core is maintaining this static list, which prevents this process from occurring.\n\nI have tried hacking the update core code so that we close all of these JarContentReference objects\u0027 JarFiles after parsing the manifest and plugin.xml. This completely solves our problem and the manage configuration dialog actually shows some content. The patch will be attached shortly.\n\nI don\u0027t know why this static list is being kept. It must (have) serve(d) some useful purpose.",
+    "Created an attachment (id\u003d46510)\nA quick fix for the problem we are observing\n\nThis patch is far from complete but it illustrates how I was able to coerce the update manager to free up its OS file handles.",
+    "Chris, this seems to be a misuse of the API on your part.  If you are programmatically creating JarContentReference instances, and not later calling closeArchive(), then it will certainly leak a file.  If I open the \"Manage Configuration\" window and then close it again, I don\u0027t see a leak of JarFile instances because the JARs are later closed.  I see from browsing the update code that JarContentReference.shutdown() is used in various places to avoid these file leaks.  It is possible that this shutdown() method has an inappropriate name and should be specified as a general method that clients can use to clean up cached jar files when you are done with them. If you call JarContentReference.shutdown() in your use case at then end of any update work, it should avoid the leak.\n\nNote also that the update API, although it has been around for a few years, is really in an interim, embryonic form, and is not really battle-hardened and recommended for general consumption. It would be best if you could avoid using this API entirely.",
+    "John,\n\nI am not using the JarContentReference class at all on my side. I had fixed up the update site code in the provided patch so that it doesn\u0027t keep all of these references in that static map and calls close on each JarFile (ZipFile) to allow all of the OS file handles to get cleaned up. I am sure that there is some good reason for the static map and the shutdown() method but I know that removing these things fixes the problems that we are encountering.\n\nFor the purpose of testing this defect, I have removed any use of the update site manager public API\u0027s (SiteManager, ILocalSite, etc.), which my component is using. All that I am doing right now is opening the \"Manage Configuration\" dialog before executing my use case (simulating the effect of my code that looks for a particular feature that is installed using public API\u0027s) and class loaders start failing to load our plugin JAR\u0027s. At the very least the \"Manage Configuration\" dialog is not working properly because it doesn\u0027t show any of the hundreds of feature we have currently installed.\n\nIs there another way that I can discover an installed feature other than using the SiteManager API\u0027s? If there is a more stable API then I could migrate my code to use that instead.",
+    "I am changing this bugzilla from a blocker to just critical. \n\nWe no longer depend on the update site manager for our use case. However, the original defect still stands because someone could open up the \"Manager Configuration\" dialog and disrupt many of our use cases because of class loader excptions.",
+    "This needs more investigation. I wasn\u0027t able to find a file leak from repeatedly opening the Manager Configuration dialog.",
+    "I have dug into the JDK code a little bit to try to understand how file handles (descriptors) are consumed in Java. One way to consume file handles, is of course to construct a FileInputStream object. The constructor for this class actually constructs a FileDescriptor object. That file descriptor class appears to employ a simple reference counting scheme to keep track of all of the different streams that may have opened this file before allowing the OS to reclaim the file handle.\n\nThe JDK ZipFile class (update manager code uses a subclass called JarFile) makes no use of this FileDescriptor class. Instead, it has alot of native calls including this mysterious native close(long jzfile) method.\n\nIs it possible that way the native code for handling zips in java is confusing your file handles analyzer?",
+    "I believe Kit and I are seeing this same problem while in TVT for a large project.   There are many plugins and nl fragments loaded.  We only see this on Linux.  All we have to do is open the Manage Configuration dialog and we see loads of errors, not because the configuration is bad but because the SiteFileFactory.parsePackagedPlugins method can not open all the jars.  A ZipException with the message \"Too many open files...\" is thrown.  Note that this exception is NOT being logged.  It probably should be.\n\nAlso, note that we did not see this during TVT of a project roughly the same size as Callisto.  It appears a larger project built on top of most of Callisto is required to trigger the error.  Contact Kit for a testcase.\n",
+    "Kit, have you been contacted for the testcase?\n\nJohn, getting this one fixed is critical for any large products based on Eclipse that want to run on Linux.\n",
+    "No one contacted me for the testcase.",
+    "Branko, have you looked at this?",
+    "I am looking at the patch and it looks like it will introduce performance hit, and i am still not sure it is safe. Better way would be to limit the size of cache (to something that is less then default allowed number of file handlers per process, usually 1024) then to eliminate it completely. Also for Linux problem there is an easy work-around, and that would be to increase number of allowed file handlers per process (as far as I remember this works on all unixes too like Solaris, AIX.. but it\u0027s been almost 2 years since I worked with them so I am not 100% sure). This can be done as part of installation process.",
+    "*** Bug 151251 has been marked as a duplicate of this bug. ***",
+    "Is there any workaround for windows? \n\nThe problem was originally discovered on windows.",
+    "I do not know how to increase number of handlers on windows, but I will commit the patch today, so if you plan to be based on 3.2.1. This might be good enough.",
+    "committed.",
+    "Here is an update on the patch behaviour. I\u0027ve picked the bits from 08/24/2006 Eclipse nightly build. Running this on Linux RHD4.\n\nI\u0027m still getting problems with launching Eclipse that has big number of plugins. Our setup currently has approximately 2500 plugins and fragments. Here is the exception I\u0027m getting:\n\n!ENTRY system.bundle 4 0 2006-08-24 16:00:14.270\n!MESSAGE FrameworkEvent.ERROR\n!STACK 0\njava.util.zip.ZipException: Too many open files /home/eclipse/plugins/com.ibm.ccl.mapping.codegen.xslt.ui_1.0.0.v20060802.jar\n        at java.util.zip.ZipFile.open(Native Method)\n        at java.util.zip.ZipFile.\u003cinit\u003e(ZipFile.java:238)\n        at java.util.zip.ZipFile.\u003cinit\u003e(ZipFile.java:268)\n        at org.eclipse.osgi.framework.util.SecureAction.getZipFile(SecureAction.java:226)\n        at org.eclipse.osgi.baseadaptor.bundlefile.ZipBundleFile.basicOpen(ZipBundleFile.java:79)\n        at org.eclipse.osgi.baseadaptor.bundlefile.ZipBundleFile.getZipFile(ZipBundleFile.java:92)\n        at org.eclipse.osgi.baseadaptor.bundlefile.ZipBundleFile.checkedOpen(ZipBundleFile.java:65)\n        at org.eclipse.osgi.baseadaptor.bundlefile.ZipBundleFile.getEntry(ZipBundleFile.java:234)\n        at com.ibm.cds.CDSBundleFile.getEntry(CDSBundleFile.java:83)\n        at org.eclipse.osgi.baseadaptor.BaseData.getEntry(BaseData.java:93)\n        at org.eclipse.osgi.internal.baseadaptor.AdaptorUtil.loadManifestFrom(AdaptorUtil.java:189)\n        at org.eclipse.core.runtime.internal.adaptor.EclipseStorageHook.getGeneratedManifest(EclipseStorageHook.java:294)\n        at org.eclipse.core.runtime.internal.adaptor.EclipseStorageHook.createCachedManifest(EclipseStorageHook.java:290)\n        at org.eclipse.core.runtime.internal.adaptor.EclipseStorageHook.getManifest(EclipseStorageHook.java:395)\n        at org.eclipse.osgi.internal.baseadaptor.BaseStorage.loadManifest(BaseStorage.java:247)\n        at org.eclipse.osgi.internal.baseadaptor.BundleInstall.begin(BundleInstall.java:82)\n        at org.eclipse.osgi.framework.internal.core.Framework.installWorkerPrivileged(Framework.java:823)\n        at org.eclipse.osgi.framework.internal.core.Framework$2.run(Framework.java:739)\n        at java.security.AccessController.doPrivileged(AccessController.java:242)\n        at org.eclipse.osgi.framework.internal.core.Framework.installWorker(Framework.java:790)\n        at org.eclipse.osgi.framework.internal.core.Framework.installBundle(Framework.java:734)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl.installBundle(BundleContextImpl.java:221)\n        at org.eclipse.update.internal.configurator.ConfigurationActivator.installBundles(ConfigurationActivator.java:197)\n        at org.eclipse.update.internal.configurator.ConfigurationActivator.start(ConfigurationActivator.java:82)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run(BundleContextImpl.java:995)\n        at java.security.AccessController.doPrivileged(AccessController.java:242)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:989)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl.start(BundleContextImpl.java:970)\n        at org.eclipse.osgi.framework.internal.core.BundleHost.startWorker(BundleHost.java:317)\n        at org.eclipse.osgi.framework.internal.core.AbstractBundle.resume(AbstractBundle.java:329)\n        at org.eclipse.osgi.framework.internal.core.Framework.resumeBundle(Framework.java:1037)\n        at org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles(StartLevelManager.java:573)\n        at org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL(StartLevelManager.java:495)\n        at org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel(StartLevelManager.java:275)\n        at org.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent(StartLevelManager.java:455)\n        at org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent(EventManager.java:189)\n        at org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.run(EventManager.java:291)\n\n\nNote, that the plugin name that is mentioned in the first line of the exception is a random one. Which means that this is \u0027out of file handles\u0027 issue and not an issue with a specific plugin/fragment.\n\nIs there anything else that could be done to fix this problem on Linux?",
+    "Created an attachment (id\u003d83419)\n1089051361234\n\nmy carbide ui can not run",
+    "The content of attachment 83419 has been deleted by\n    Denis Roy \u003cdenis.roy@eclipse.org\u003e\nwho provided the following reason:\n\nGarbage. See bug 210560\n\nThe token used to delete this attachment was generated at 2007-11-21 13:10:37 -0400."
+  ],
+  "commentCreationDates": [
+    "2006-07-18T20:57:12+02:00",
+    "2006-07-18T21:17:22+02:00",
+    "2006-07-18T21:31:48+02:00",
+    "2006-07-18T22:06:46+02:00",
+    "2006-07-18T23:28:15+02:00",
+    "2006-07-19T03:25:49+02:00",
+    "2006-07-19T14:05:48+02:00",
+    "2006-07-19T14:37:03+02:00",
+    "2006-07-19T17:48:14+02:00",
+    "2006-07-19T17:49:42+02:00",
+    "2006-07-19T23:55:32+02:00",
+    "2006-07-20T15:05:55+02:00",
+    "2006-07-21T16:46:40+02:00",
+    "2006-07-21T22:07:32+02:00",
+    "2006-07-21T23:03:52+02:00",
+    "2006-07-27T18:06:56+02:00",
+    "2006-08-09T22:56:21+02:00",
+    "2006-08-09T23:00:08+02:00",
+    "2006-08-09T23:04:21+02:00",
+    "2006-08-11T16:39:56+02:00",
+    "2006-08-11T17:16:52+02:00",
+    "2006-08-22T21:01:37+02:00",
+    "2006-08-22T21:09:47+02:00",
+    "2006-08-22T21:58:11+02:00",
+    "2006-08-25T01:19:45+02:00",
+    "2007-11-21T11:47:38+01:00",
+    "2007-11-21T18:10:53+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.util.zip.ZipException",
+      "message": "Too many open files /home/eclipse/plugins/com.ibm.ccl.mapping.codegen.xslt.ui_1.0.0.v20060802.jar",
+      "elements": [
+        {
+          "method": "java.util.zip.ZipFile.open",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.util.zip.ZipFile.\u003cinit\u003e",
+          "source": "ZipFile.java:238"
+        },
+        {
+          "method": "java.util.zip.ZipFile.\u003cinit\u003e",
+          "source": "ZipFile.java:268"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.util.SecureAction.getZipFile",
+          "source": "SecureAction.java:226"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.bundlefile.ZipBundleFile.basicOpen",
+          "source": "ZipBundleFile.java:79"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.bundlefile.ZipBundleFile.getZipFile",
+          "source": "ZipBundleFile.java:92"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.bundlefile.ZipBundleFile.checkedOpen",
+          "source": "ZipBundleFile.java:65"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.bundlefile.ZipBundleFile.getEntry",
+          "source": "ZipBundleFile.java:234"
+        },
+        {
+          "method": "com.ibm.cds.CDSBundleFile.getEntry",
+          "source": "CDSBundleFile.java:83"
+        },
+        {
+          "method": "org.eclipse.osgi.baseadaptor.BaseData.getEntry",
+          "source": "BaseData.java:93"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.AdaptorUtil.loadManifestFrom",
+          "source": "AdaptorUtil.java:189"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseStorageHook.getGeneratedManifest",
+          "source": "EclipseStorageHook.java:294"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseStorageHook.createCachedManifest",
+          "source": "EclipseStorageHook.java:290"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseStorageHook.getManifest",
+          "source": "EclipseStorageHook.java:395"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.BaseStorage.loadManifest",
+          "source": "BaseStorage.java:247"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.baseadaptor.BundleInstall.begin",
+          "source": "BundleInstall.java:82"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.installWorkerPrivileged",
+          "source": "Framework.java:823"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework$2.run",
+          "source": "Framework.java:739"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "AccessController.java:242"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.installWorker",
+          "source": "Framework.java:790"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.installBundle",
+          "source": "Framework.java:734"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.installBundle",
+          "source": "BundleContextImpl.java:221"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.ConfigurationActivator.installBundles",
+          "source": "ConfigurationActivator.java:197"
+        },
+        {
+          "method": "org.eclipse.update.internal.configurator.ConfigurationActivator.start",
+          "source": "ConfigurationActivator.java:82"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run",
+          "source": "BundleContextImpl.java:995"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "AccessController.java:242"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:989"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "BundleContextImpl.java:970"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "BundleHost.java:317"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.resume",
+          "source": "AbstractBundle.java:329"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.resumeBundle",
+          "source": "Framework.java:1037"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles",
+          "source": "StartLevelManager.java:573"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL",
+          "source": "StartLevelManager.java:495"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel",
+          "source": "StartLevelManager.java:275"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent",
+          "source": "StartLevelManager.java:455"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent",
+          "source": "EventManager.java:189"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.run",
+          "source": "EventManager.java:291"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 24,
+      "bugId": "150994",
+      "date": "2006-08-25T01:19:45+02:00",
+      "product": "Platform",
+      "component": "Update",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "150994",
+  "bugId": "150994",
+  "date": "2006-07-18T20:57:12+02:00",
+  "product": "Platform",
+  "component": "Update",
+  "severity": "critical"
+}

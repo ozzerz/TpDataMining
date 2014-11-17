@@ -1,0 +1,237 @@
+{
+  "comments": [
+    "Just upgraded to the latest AJDT (Build: 20060405045058 with AspectJ 1.5.1). AJDT is crashing during compilation.\n\njava.lang.NullPointerException\nat org.aspectj.ajdt.internal.core.builder.AsmElementFormatter.setParameters(AsmElementFormatter.java:302)\nat org.aspectj.ajdt.internal.core.builder.AsmElementFormatter.genLabelAndKind(AsmElementFormatter.java:254)\nat org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.visit(AsmHierarchyBuilder.java:390)\nat org.aspectj.org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.traverse(MethodDeclaration.java:185)\nat org.aspectj.org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.traverse(TypeDeclaration.java:1250)\nat org.aspectj.org.eclipse.jdt.internal.compiler.ast.QualifiedAllocationExpression.traverse(QualifiedAllocationExpression.java:392)\nat org.aspectj.org.eclipse.jdt.internal.compiler.ast.MessageSend.traverse(MessageSend.java:467)\nat org.aspectj.org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration.traverse(ConstructorDeclaration.java:480)\nat org.aspectj.org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.traverse(TypeDeclaration.java:1195)\nat org.aspectj.org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.traverse(CompilationUnitDeclaration.java:339)\nat org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.internalBuild(AsmHierarchyBuilder.java:143)\nat org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.buildStructureForCompilationUnit(AsmHierarchyBuilder.java:85)\nat org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.finishedCompilationUnit(EclipseFactory.java:927)\nat org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterProcessing(AjCompilerAdapter.java:201)\nat org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspectj_ajdt_internal_compiler_CompilerAdapter$4$6b855184(CompilerAdapter.aj:90)\nat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.process(Compiler.java:528)\nat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:329)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation(AjBuildManager.java:862)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:242)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild(AjBuildManager.java:161)\nat org.aspectj.ajde.internal.CompilerAdapter.compile(CompilerAdapter.java:122)\nat org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run(AspectJBuildManager.java:191)\n\nNullPointerException thrown: null",
+    "Which version of eclipse are you using?",
+    "I am using 3.1.1",
+    "ramnivas - any chance of getting the source that leads to this problem? (private email?) so we can see what leads to this? (Or if you can narrow it down that would be even better?) - it happens when building the structure model for a method with some kind of strange parameter.",
+    "Passing over to AspectJ (and halting ajdt 1.3.1 release process!)",
+    "Don\u0027t know if the following is related -- tried the latest version of AJDT on \nanother developer\u0027s machine, who is using Eclipse 3.1.0 (the earlier crash is \non my machine with Eclipse 3.1.1). Other than that, there isn\u0027t much difference \nbetween project itself (some minor soruce changes, but nothing that could \naffect weaving)\n\njava.lang.ClassCastException\nat org.aspectj.weaver.ResolvedType.getAjMemberParameterizationMap(ResolvedType.java:2091)at org.aspectj.weaver.ResolvedType.getAjMemberParameterizationMap(ResolvedType.java:2091)\nat org.aspectj.weaver.ResolvedType.getDeclaredAdvice(ResolvedType.java:701)\nat org.aspectj.weaver.ResolvedType.getDeclaredShadowMungers(ResolvedType.java:736)\nat org.aspectj.weaver.ResolvedType.collectShadowMungers(ResolvedType.java:572)\nat org.aspectj.weaver.ResolvedType.collectCrosscuttingMembers(ResolvedType.java:501)\nat org.aspectj.weaver.CrosscuttingMembersSet.addOrReplaceAspect(CrosscuttingMembersSet.java:68)\nat org.aspectj.weaver.CrosscuttingMembersSet.addOrReplaceAspect(CrosscuttingMembersSet.java:57)\nat org.aspectj.weaver.bcel.BcelWeaver.addLibraryJarFile(BcelWeaver.java:210)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.initBcelWorld(AjBuildManager.java:673)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:221)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild(AjBuildManager.java:161)\nat org.aspectj.ajde.internal.CompilerAdapter.compile(CompilerAdapter.java:122)\nat org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run(AspectJBuildManager.java:191)\n\nClassCastException thrown: org.aspectj.weaver.MissingResolvedTypeWithKnownSignature",
+    "possibly related - if there is some type being referenced that cannot be resolved.  (I have another bug elsewhere similar to that second stack trace).\n\nAre you in any position to do a command line compilation and see if you get \"can\u0027t resolve type\" messages? (command line so that it avoids building the structure model and failing at that point)",
+    "Finally, I have a short program to reproduce the problem. Indeed, \nthe problem is missing types. Specifically, the crash occurs due to\nmissing classes that are refered by a jar specified in the aspectpath.\n\nThe problem is reproducable using command-line as well as AJDT (with AJDT\u0027s\nstack trace matching the one in comment #5). To reproduce, you will need \nspring-2.0m3 (although, I think any version will be okay).\n\nTest.java:\npackage test;\n\nimport org.springframework.beans.factory.annotation.Configurable;\n\n@Configurable(\"test\")\npublic class Main {\n}\n\nbuild.bat:\nset SPRING_HOME\u003dC:\\java\\spring\\spring-framework-2.0-m3\nset ASPECTJ_HOME\u003dC:\\java\\aspectj\\aspectj5\n\nset CLASSPATH\u003d%SPRING_HOME%\\dist\\modules\\spring-context.jar;%SPRING_HOME%\\dist\\modules\\spring-beans.jar;%ASPECTJ_HOME%\\lib\\aspectjrt.jar\n\nset ASPECTPATH\u003d%SPRING_HOME%\\dist\\aspects\\spring-aspects.jar\n\ncall ajc -source 5.0 -classpath %CLASSPATH% -aspectpath %ASPECTPATH% test\\*.java\n\n--\n\nIf you modify CLASSPATH to include all jars from %SPRING_HOME%\\dist\\modules,\nthe crash is gone.",
+    "thanks Ramnivas!\n\nthe missing type is TransactionAspectSupport which comes from the spring-dao.jar.\n\nDo you also see this fail with the other NPE exception in AJDT?  or do you just see this exception:\n\njava.lang.ClassCastException: org.aspectj.weaver.MissingResolvedTypeWithKnownSignature\n\tat org.aspectj.weaver.ResolvedType.getAjMemberParameterizationMap(ResolvedType.java:2096)\n\tat org.aspectj.weaver.ResolvedType.getAjMemberParameterizationMap(ResolvedType.java:2096)\n\tat org.aspectj.weaver.ResolvedType.getDeclaredAdvice(ResolvedType.java:701)",
+    "Ok, some fiddling, and now you get a more sensible:\n\n[warning] can\u0027t determine superclass of missing type org.springframework.transaction.interceptor.TransactionAspectSupport\nwhen batch building BuildConfig[null] #Files\u003d1\n [Xlint:cantFindType]\n\t\nRamnivas - would that be a reasonable warning for you to see in your situation? or would it confuse you? (I\u0027m trying to determine how \u0027deep\u0027 this problem is - if you saw that message would you go \u0027what the hell? I\u0027m not using transactions?\u0027)\n\nit occurs because of the aspects pulled in on the aspectpath.\n",
+    "(In reply to comment #8)\n\u003e Do you also see this fail with the other NPE exception in AJDT?  or do you just\n\u003e see this exception:\n\u003e \n\u003e java.lang.ClassCastException:\n\u003e org.aspectj.weaver.MissingResolvedTypeWithKnownSignature\n\u003e         at\n\nJust this exception. For some reason, I am unable to reproduce the NPE. \nI am hoping it was just another manifestation of this bug.",
+    "(In reply to comment #9)\n\u003e Ok, some fiddling, and now you get a more sensible:\n\u003e \n\u003e [warning] can\u0027t determine superclass of missing type\n\u003e org.springframework.transaction.interceptor.TransactionAspectSupport\n\u003e when batch building BuildConfig[null] #Files\u003d1\n\u003e  [Xlint:cantFindType]\n\u003e \n\u003e Ramnivas - would that be a reasonable warning for you to see in your situation?\n\u003e or would it confuse you? (I\u0027m trying to determine how \u0027deep\u0027 this problem is -\n\u003e if you saw that message would you go \u0027what the hell? I\u0027m not using\n\u003e transactions?\u0027)\n\u003e \n\u003e it occurs because of the aspects pulled in on the aspectpath.\n\u003e \n\nThis messages is a definite improvement, but not ideal. For a typical\nSpring application, it may not be a big deal and almost everyone will \nhave spring-dao.jar in their classpath. However, when more aspects will\nbe added to spring-aspects.jar, the problem may become acute.\n\nI am wondering if missing types can be treated in the same manners as \nbug# 77076.",
+    "Ramnivas, can you update to the latest AJDT and try the NPE scenario? it should have some fixes in that will help.",
+    "I just updated. Now I get a warning for \"can\u0027t determine superclass of missing type org.springframework.transaction.interceptor.TransactionAspectSupport\nwhen batch building...\". No NPE is seen (however, as I mentioned in comment #10,\nI couldn\u0027t reproduce the NPE even before this change). The good news is that the\nCCE is now gone!\n\nAlso, I misread your comment #9. For some reason I thought the issued message \nis an error. Upon re-reading, I realized that it is just an Xlint warning, \ntherefore this bug can be marked as fixed (IMO).\n\nThanks a lot for quickly fixing this bug.",
+    "fixed."
+  ],
+  "commentCreationDates": [
+    "2006-04-05T17:36:04+02:00",
+    "2006-04-05T17:40:25+02:00",
+    "2006-04-05T17:44:34+02:00",
+    "2006-04-05T18:17:57+02:00",
+    "2006-04-05T18:19:28+02:00",
+    "2006-04-05T20:36:28+02:00",
+    "2006-04-05T20:43:12+02:00",
+    "2006-04-05T23:25:59+02:00",
+    "2006-04-06T09:08:30+02:00",
+    "2006-04-06T09:48:19+02:00",
+    "2006-04-06T17:10:18+02:00",
+    "2006-04-06T17:27:23+02:00",
+    "2006-04-06T17:55:28+02:00",
+    "2006-04-06T19:54:05+02:00",
+    "2006-04-27T12:12:26+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmElementFormatter.setParameters",
+          "source": "AsmElementFormatter.java:302"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmElementFormatter.genLabelAndKind",
+          "source": "AsmElementFormatter.java:254"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.visit",
+          "source": "AsmHierarchyBuilder.java:390"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.traverse",
+          "source": "MethodDeclaration.java:185"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.traverse",
+          "source": "TypeDeclaration.java:1250"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.QualifiedAllocationExpression.traverse",
+          "source": "QualifiedAllocationExpression.java:392"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.MessageSend.traverse",
+          "source": "MessageSend.java:467"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration.traverse",
+          "source": "ConstructorDeclaration.java:480"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.traverse",
+          "source": "TypeDeclaration.java:1195"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.traverse",
+          "source": "CompilationUnitDeclaration.java:339"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.internalBuild",
+          "source": "AsmHierarchyBuilder.java:143"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.buildStructureForCompilationUnit",
+          "source": "AsmHierarchyBuilder.java:85"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.finishedCompilationUnit",
+          "source": "EclipseFactory.java:927"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterProcessing",
+          "source": "AjCompilerAdapter.java:201"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspectj_ajdt_internal_compiler_CompilerAdapter$4$6b855184",
+          "source": "CompilerAdapter.aj:90"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.process",
+          "source": "Compiler.java:528"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:329"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:862"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:242"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:161"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:122"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:191"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "135052",
+      "date": "2006-04-05T17:36:04+02:00",
+      "product": "AspectJ",
+      "component": "IDE",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getAjMemberParameterizationMap",
+          "source": "ResolvedType.java:2091"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getAjMemberParameterizationMap",
+          "source": "ResolvedType.java:2091"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getDeclaredAdvice",
+          "source": "ResolvedType.java:701"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getDeclaredShadowMungers",
+          "source": "ResolvedType.java:736"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.collectShadowMungers",
+          "source": "ResolvedType.java:572"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.collectCrosscuttingMembers",
+          "source": "ResolvedType.java:501"
+        },
+        {
+          "method": "org.aspectj.weaver.CrosscuttingMembersSet.addOrReplaceAspect",
+          "source": "CrosscuttingMembersSet.java:68"
+        },
+        {
+          "method": "org.aspectj.weaver.CrosscuttingMembersSet.addOrReplaceAspect",
+          "source": "CrosscuttingMembersSet.java:57"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.addLibraryJarFile",
+          "source": "BcelWeaver.java:210"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.initBcelWorld",
+          "source": "AjBuildManager.java:673"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:221"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:161"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:122"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:191"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 5,
+      "bugId": "135052",
+      "date": "2006-04-05T20:36:28+02:00",
+      "product": "AspectJ",
+      "component": "IDE",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.aspectj.weaver.MissingResolvedTypeWithKnownSignature",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getAjMemberParameterizationMap",
+          "source": "ResolvedType.java:2096"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getAjMemberParameterizationMap",
+          "source": "ResolvedType.java:2096"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getDeclaredAdvice",
+          "source": "ResolvedType.java:701"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 8,
+      "bugId": "135052",
+      "date": "2006-04-06T09:08:30+02:00",
+      "product": "AspectJ",
+      "component": "IDE",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "135052",
+  "bugId": "135052",
+  "date": "2006-04-05T17:36:04+02:00",
+  "product": "AspectJ",
+  "component": "IDE",
+  "severity": "normal"
+}

@@ -1,0 +1,106 @@
+{
+  "comments": [
+    "I am using 1.1beta4. \n\nHere is the simplest program to reproduce the bug:\n\npublic class Test {\n    public static void main(String[] args) {\n    }\n}\n\naspect MyAspect {\n    pointcut loggedOperations()\n        : execution(* *.*(..)) || execution(*.new(..));\n\n    before() : loggedOperations() {\n    }\n}\n\nF:\\aspectj\\bugs\\1.1\\b4\\init-error\u003eajc Test.java\n\nF:\\aspectj\\bugs\\1.1\\b4\\init-error\u003ejava Test\nException in thread \"main\" java.lang.ExceptionInInitializerError\n        at Test.main(Test.java)\nCaused by: org.aspectj.lang.NoAspectBoundException\n        at MyAspect.aspectOf(Test.java)\n        at MyAspect.\u003cinit\u003e(Test.java:6)\n        at MyAspect.ajc$clinit(Test.java)\n        at MyAspect.\u003cclinit\u003e(Test.java:6)\n        ... 1 more\n\nInterestingly, if I change the loggedOperations() pointcut to exclude \neither of the constituent pointcuts, the exception is not seen. i.e.\neither of the folllowing pointcut definition does not result in\nexception thrown:\npointcut loggedOperations() : execution(*.new(..));\n\npointcut loggedOperations() : execution(* *.*(..));",
+    "This is the correct behavior.  Your before advice applies to all constructors\nincluding the constructor for MyAspect itself.  This advice tries to run \nbefore the aspect has been instantiated and you get the \nappropriate \"NoAspectBoundException\".  The fix is to use the standard idiom of \n\u0026\u0026 !within(MyAspect) which is advisable whenever writing very generic join \npoints in an aspect.\n\nI\u0027ve cc\u0027d Erik Hilsdale on this reply in case he thinks that this merits \nadditional documentation.",
+    "Ok. !within() works. \n\nBut it still does not work in the following case. This was original \nproblem I faced, but in process of simplifying the test program \nended up removing !within() and the base aspect.\n\npublic class Test {\n    public static void main(String[] args) {\n    }\n}\n\nabstract aspect BaseAspect {\n    abstract pointcut loggedOperations();\n}\n\naspect MyAspect extends BaseAspect {\n    pointcut loggedOperations()\n        : (execution(* *.*(..)) || execution(*.new(..)))\n\t\u0026\u0026 !within(MyAspect);\n\n    before() : loggedOperations() {\n    }\n}\n\nF:\\aspectj\\bugs\\1.1\\b4\\init-error\u003eajc *.java\n\nF:\\aspectj\\bugs\\1.1\\b4\\init-error\u003ejava Test\nException in thread \"main\" java.lang.ExceptionInInitializerError\n        at Test.main(Test.java)\nCaused by: org.aspectj.lang.NoAspectBoundException\n        at MyAspect.aspectOf(Test.java)\n        at BaseAspect.\u003cinit\u003e(Test.java:6)\n        at MyAspect.\u003cinit\u003e(Test.java:10)\n        at MyAspect.ajc$clinit(Test.java)\n        at MyAspect.\u003cclinit\u003e(Test.java:10)\n        ... 1 more\n\nNote:\n1. The original program (without !within()) works fine in aspectj1.0.6.\n2. The modified program (with !within(MyAspect)) too works fine in aspectj1.0.6\n3. If I change !within(MyAspect) to !within(BaseAspect+) it works fine in \n   aspectj1.1. This is fine in the example case. But imagine if I inherit\n   BaseAspect itself from say RealBaseAspect. Then each aspect extending\n   BaseAspect will need to modify the loggedOperations() pointcut to change\n   !within(BaseAspect) to !within(RealBaseAspect).\n\nI guess the issue is the behavior change from 1.0 (which apparently\ndid not consider implict constrution of aspects as a join point).\n\nReopening this bug for consideration. Also reducing severity to \"Normal\" as\nI have a workaround. Perhaps the fix is to document the change in behavior.",
+    "See summary.",
+    "I went looking in the AspectJ 1.1 README as the obvious place to document this, \nbut found that the behaviour is already described there (see excerpt below). \nThis appears to cover exactly the case in this bug, so I am closing as \n\"WORKSFORME\" (seems the best of the available choices).\n\nRamnivas, please reopen if you feel the docs below need more clarification. \nThks.\n\n\nAspect Instantiation and Advice\n\nIn AspectJ 1.0.6, we made an effort to hide some complications with Aspect \ninstantiation from the user. In particular, the following code compiled and ran: \n\n      public class Client\n      {\n          public static void main(String[] args) {\n              Client c \u003d new Client();\n          }\n      }\n\n      aspect Watchcall {\n          pointcut myConstructor(): execution(new(..));\n\n          before(): myConstructor() {\n              System.err.println(\"Entering Constructor\");\n          }\n      }\n      \n\nBut there\u0027s a conceptual problem with this code: The before advice should run \nbefore the execution of all constructors in the system. It must run in the \ncontext of an instance of the Watchcall aspect. The only way to get such an \ninstance is to have Watchcall\u0027s default constructor execute. But before that \nexecutes, we need to run the before advice...\n\nAspectJ 1.0.6 hid this circularity through the ad-hoc mechanism of preventing an \naspect\u0027s advice from matching join points that were within the aspect\u0027s \ndefinition, and occurred before the aspect was initialized. But even in AspectJ \n1.0.6, this circularity could be exposed: \n\n      public class Client\n      {\n          public static int foo() { return 3; }\n          public static void main(String[] args) {\n              Client c \u003d new Client();\n          }\n      }\n\n      aspect Watchcall {\n          int i \u003d Client.foo();\n          pointcut myConstructor():\n              execution(new(..)) || execution(int foo());\n\n          before(): myConstructor() {\n              System.err.println(\"Entering Constructor\");\n          }\n      }\n      \n\nThis program would throw a NullPointerException when run, since Client.foo() was \ncalled before the Watchcall instance could be instantiated. \n\nIn AspectJ 1.1, we have decided that half-hiding the problem just leads to \ntrouble, and so we are no longer silently hiding some join points before aspect \ninitialization. However, we have provided a better exception than a \nNullPointerException for this case. In AspectJ 1.1, both of the above programs \nwill throw org.aspectj.lang.NoAspectBoundException."
+  ],
+  "commentCreationDates": [
+    "2003-03-07T05:09:56+01:00",
+    "2003-03-08T19:29:53+01:00",
+    "2003-03-08T20:00:00+01:00",
+    "2004-01-14T15:44:17+01:00",
+    "2004-03-19T21:35:00+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ExceptionInInitializerError",
+      "elements": [
+        {
+          "method": "Test.main",
+          "source": "Test.java"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "org.aspectj.lang.NoAspectBoundException",
+        "elements": [
+          {
+            "method": "MyAspect.aspectOf",
+            "source": "Test.java"
+          },
+          {
+            "method": "MyAspect.\u003cinit\u003e",
+            "source": "Test.java:6"
+          },
+          {
+            "method": "MyAspect.ajc$clinit",
+            "source": "Test.java"
+          },
+          {
+            "method": "MyAspect.\u003cclinit\u003e",
+            "source": "Test.java:6"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "34054",
+      "date": "2003-03-07T05:09:56+01:00",
+      "product": "AspectJ",
+      "component": "Docs",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ExceptionInInitializerError",
+      "elements": [
+        {
+          "method": "Test.main",
+          "source": "Test.java"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "org.aspectj.lang.NoAspectBoundException",
+        "elements": [
+          {
+            "method": "MyAspect.aspectOf",
+            "source": "Test.java"
+          },
+          {
+            "method": "BaseAspect.\u003cinit\u003e",
+            "source": "Test.java:6"
+          },
+          {
+            "method": "MyAspect.\u003cinit\u003e",
+            "source": "Test.java:10"
+          },
+          {
+            "method": "MyAspect.ajc$clinit",
+            "source": "Test.java"
+          },
+          {
+            "method": "MyAspect.\u003cclinit\u003e",
+            "source": "Test.java:10"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 1,
+      "commentIndex": 2,
+      "bugId": "34054",
+      "date": "2003-03-08T20:00:00+01:00",
+      "product": "AspectJ",
+      "component": "Docs",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "34054",
+  "bugId": "34054",
+  "date": "2003-03-07T05:09:56+01:00",
+  "product": "AspectJ",
+  "component": "Docs",
+  "severity": "normal"
+}

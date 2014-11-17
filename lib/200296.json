@@ -1,0 +1,58 @@
+{
+  "comments": [
+    "internalBind crashes on the line\nStringBuffer buffer \u003d new StringBuffer(bufLen);\n\ncaused by a negative bufLen.\n\n\n@Test\npublic void nls_crash_with_empty_params() {\n\tNLS.bind(\"\", 0);\n}\n\nStacktrace\njava.lang.NegativeArraySizeException\n\tat java.lang.AbstractStringBuilder.\u003cinit\u003e(AbstractStringBuilder.java:44)\n\tat java.lang.StringBuffer.\u003cinit\u003e(StringBuffer.java:92)\n\tat org.eclipse.osgi.util.NLS.internalBind(NLS.java:147)\n\tat org.eclipse.osgi.util.NLS.bind(NLS.java:85)",
+    "Note to anyone else that may look at this bug: you must compile the testcase against 1.5 to insert the conversion of int -\u003e Integer.  There is no NLS.bind(String, int) method.  The following is the same test on 1.4.\n\npublic void nls_crash_with_empty_params() {\n        NLS.bind(\"\", new Integer(0));\n}\n\nThe internalBind method has some strange code to calculate the bufLen that I do not understand:\n\n\tint bufLen \u003d length + (args.length * 5);\n\tif (argZero !\u003d null)\n\t\tbufLen +\u003d argZero.length() - 3;\n\tif (argOne !\u003d null)\n\t\tbufLen +\u003d argOne.length() - 3;\n\nI assume there is a -3 to remove the extra characters in the message length when it actually contains {#} for argument substitution.  In this case the message is an empty string so there will never be any substitution.\n\nPhillipp, can you explain the severity of \"major\"?  It seems like an invalid use of NLS if you call bind for a message that has no slots \"{#}\" for us to substitute arguments with.\n\nA simple fix would be to ensure bufLen is \u003e 0 when construction the StringBuffer.  Assigning to 3.4 M2 because this seems like an invalid use of NLS, but we should protect against it.",
+    "I think the code you mention is some kind of optimization, yes. \n\nWhy do I  think this is \"major\"? I would say the API should deal with invalid incoming parameters, and if possible, gracefully degrade. And since the contract of this method does not say anything about empty format strings one can assume that its save to pass empty or shorter than 3 chars strings in.\n\nWe use the NLS.bind with automatically generated text (for instance from a resource bundle), without any checking if it contains {#} or not.\n\nIt may be invalid use of NLS, but protection would be a good idea I think. Beside that, I am not sure how effective this buffer allocation optimization is in the first place.",
+    "Created an attachment (id\u003d76452)\npatch\n\nPossible fix.",
+    "DJ, please review and comment on your thoughts of including this in 3.3.1.",
+    "Patch looks good. Also seems like a good candidate for a simple regression test.\n\nI would say no to 3.3.1. Traditionally we only fix major stop-ship bugs in maintenance releases. I would liken this change to adding a null check for the value of a parm in API....important to add in the current development stream but not a change we would release to a maintenance branch. ",
+    "Fixed for 3.4 M2.  \n\nI also added a new test.  DJ, I could not find any existing NLS tests.  I added a new test org.eclipse.osgi.tests.util.NLSTestCase but it currently only has one simple test.  Do you know of any other NLS tests?",
+    "Hmm...don\u0027t think we have any yet."
+  ],
+  "commentCreationDates": [
+    "2007-08-17T05:50:47+02:00",
+    "2007-08-17T16:57:58+02:00",
+    "2007-08-17T18:45:30+02:00",
+    "2007-08-20T17:00:28+02:00",
+    "2007-08-20T17:05:23+02:00",
+    "2007-08-20T20:02:14+02:00",
+    "2007-08-20T21:26:41+02:00",
+    "2007-08-20T22:02:50+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NegativeArraySizeException",
+      "elements": [
+        {
+          "method": "java.lang.AbstractStringBuilder.\u003cinit\u003e",
+          "source": "AbstractStringBuilder.java:44"
+        },
+        {
+          "method": "java.lang.StringBuffer.\u003cinit\u003e",
+          "source": "StringBuffer.java:92"
+        },
+        {
+          "method": "org.eclipse.osgi.util.NLS.internalBind",
+          "source": "NLS.java:147"
+        },
+        {
+          "method": "org.eclipse.osgi.util.NLS.bind",
+          "source": "NLS.java:85"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "200296",
+      "date": "2007-08-17T05:50:47+02:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "major"
+    }
+  ],
+  "groupId": "200296",
+  "bugId": "200296",
+  "date": "2007-08-17T05:50:47+02:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "major"
+}

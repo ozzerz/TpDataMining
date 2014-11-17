@@ -1,0 +1,233 @@
+{
+  "comments": [
+    "Build id: 200407200010 (using lattest JDT plugin export from July 27th)\n\nI am creating an Enum declaration programatically and I set up its constants. \nHowever, even though I can see in the AST that the constants appear nice, \nafter the rewriter does its job, the code generated for Enum doesn\u0027t have any \nseparators between the enum constants. For example, if I create an enum with \nname MyEnum and constants i1, i2 and i3, the generated code will look like:\n\nenum MyEnum {i1i2i3}\n\nBelow you\u0027ll find the code I use to create and set up the constants in the \nenum:\n\nprivate void createEnumDeclaration(ASTRewrite rewrite) {\n        AST ast\u003d getInputAST();\n        EnumDeclaration enumD\u003d ast.newEnumDeclaration();\n      \n        // where fEnumName is a String\n        SimpleName enumName\u003d ast.newSimpleName(fEnumName);\n        enumD.setName(enumName);\n        List enumBody\u003d enumD.bodyDeclarations();\n\n        // where fFieldsToExtract is an array of SimpleNames\n        for (int i\u003d 0; i \u003c fFieldsToExtracts.length; i++) {\n            SimpleName name\u003d fFieldsToExtracts[i];\n            EnumConstantDeclaration constDecl\u003d ast.newEnumConstantDeclaration\n();\n            constDecl.setName(ast.newSimpleName(name.getIdentifier());\n            enumBody.add(constDecl);\n        }\n        if (!isExtractToSeparateCU()) {\n            ListRewrite declarations\u003d rewrite.getListRewrite(fInputTypeNode,\n                    TypeDeclaration.BODY_DECLARATIONS_PROPERTY);\n            declarations.insertFirst(enumD, null);\n        } else {\n            createNewEnumCU(enumD);\n        }\n    }",
+    "Instead of TypeDeclaration.BODY_DECLARATIONS_PROPERTY, should not you have\nEnumDeclaration.BODY_DECLARATIONS_PROPERTY?\n\nI also don\u0027t understand why the enumConstants are part of the body declarations.\nI don\u0027t see how it is possible to get the semicolon between the constants and\nthe body declarations.\n\nJim, any idea?",
+    "Olivier, The enum constant declarations are the first elements of \nEnumDeclaration.bodyDeclarations. See NaiveASTFlattener.visit(EnumDeclaration) \nfor an example of how to put the comma separators between enum constants and \nthe semicolon separating the enum constants from the rest of the body decls.",
+    "Olivier, \n\nreplacing TypeDeclaration.BODY_DECLARATION_PROPERTY with \nEnumDeclaration.BODY_DECLARATION_PROPERTY\n \nresults in the following exception (below is the stack trace):\n\njava.lang.IllegalArgumentException: TypeDeclaration has no property \nbodyDeclarations\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat \norg.eclipse.jdt.internal.core.dom.rewrite.RewriteEventStore.validateHasChildPro\nperty(RewriteEventStore.java:615)\n\tat org.eclipse.jdt.internal.core.dom.rewrite.RewriteEventStore.getEvent\n(RewriteEventStore.java:296)\n\tat \norg.eclipse.jdt.internal.core.dom.rewrite.RewriteEventStore.getListEvent\n(RewriteEventStore.java:325)\n\tat org.eclipse.jdt.core.dom.rewrite.ListRewrite.getEvent\n(ListRewrite.java:56)\n\tat org.eclipse.jdt.core.dom.rewrite.ListRewrite.internalInsertAt\n(ListRewrite.java:261)\n\tat org.eclipse.jdt.core.dom.rewrite.ListRewrite.insertFirst\n(ListRewrite.java:206)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.structure.ExtractEnumRefactoring.cr\neateEnumDeclaration(ExtractEnumRefactoring.java:379)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.structure.ExtractEnumRefactoring.cr\neateChange(ExtractEnumRefactoring.java:329)\n\tat org.eclipse.ltk.core.refactoring.CreateChangeOperation.run\n(CreateChangeOperation.java:117)\n\tat org.eclipse.ltk.core.refactoring.PerformChangeOperation.run\n(PerformChangeOperation.java:188)\n\tat org.eclipse.core.internal.resources.Workspace.run\n(Workspace.java:1673)\n\tat org.eclipse.core.internal.resources.Workspace.run\n(Workspace.java:1693)\n\tat \norg.eclipse.jdt.ui.tests.refactoring.RefactoringTest.performRefactoring\n(RefactoringTest.java:177)\n\tat \norg.eclipse.jdt.ui.tests.refactoring.RefactoringTest.performRefactoring\n(RefactoringTest.java:166)\n\tat org.eclipse.jdt.ui.tests.refactoring.ExtractEnumTest.canExtractEnum\n(ExtractEnumTest.java:66)\n\tat \norg.eclipse.jdt.ui.tests.refactoring.ExtractEnumTest.testSimpleSameCU\n(ExtractEnumTest.java:100)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:84)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:57)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:59)\n\tat java.lang.reflect.Method.invoke(Method.java:390)\n\tat junit.framework.TestCase.runTest(TestCase.java:154)\n\tat junit.framework.TestCase.runBare(TestCase.java:127)\n\tat junit.framework.TestResult$1.protect(TestResult.java:106)\n\tat junit.framework.TestResult.runProtected(TestResult.java:124)\n\tat junit.framework.TestResult.run(TestResult.java:109)\n\tat junit.framework.TestCase.run(TestCase.java:118)\n\tat junit.framework.TestSuite.runTest(TestSuite.java:208)\n\tat junit.framework.TestSuite.run(TestSuite.java:203)\n\tat junit.extensions.TestDecorator.basicRun(TestDecorator.java:22)\n\tat junit.extensions.TestSetup$1.protect(TestSetup.java:19)\n\tat junit.framework.TestResult.runProtected(TestResult.java:124)\n\tat junit.extensions.TestSetup.run(TestSetup.java:23)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests\n(RemoteTestRunner.java:421)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run\n(RemoteTestRunner.java:305)\n\tat org.eclipse.pde.internal.junit.runtime.RemotePluginTestRunner.main\n(RemotePluginTestRunner.java:30)\n\tat org.eclipse.pde.internal.junit.runtime.UITestApplication$1.run\n(UITestApplication.java:92)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages\n(Synchronizer.java:106)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2749)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2434)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1435)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1406)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.java:263)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:144)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run\n(IDEApplication.java:102)package p;\n",
+    "This seems to be a bug in the rewriter that doesn\u0027t handle the enum constant\ndeclarations specifically. It seems to consider all declarations as body\ndeclarations.",
+    "The bug was in the ast rewriter flattener code.\nI detected the same bug in the NaiveASTFlattener: The iteration over the enum\nbodyDeclarations did not update the \u0027prev\u0027 variable\nJeem, I added and released the missing statement as well in the NaiveASTFlattener\n\u003e 20040901",
+    "Verified in I200409240100."
+  ],
+  "commentCreationDates": [
+    "2004-07-28T12:07:37+02:00",
+    "2004-07-28T22:51:32+02:00",
+    "2004-07-28T23:03:29+02:00",
+    "2004-07-29T11:37:28+02:00",
+    "2004-08-03T19:15:58+02:00",
+    "2004-09-01T18:08:17+02:00",
+    "2004-09-23T14:07:48+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "TypeDeclaration has no property  bodyDeclarations",
+      "elements": [
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.dom.rewrite.RewriteEventStore.validateHasChildProperty",
+          "source": "RewriteEventStore.java:615"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.dom.rewrite.RewriteEventStore.getEvent",
+          "source": "RewriteEventStore.java:296"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.dom.rewrite.RewriteEventStore.getListEvent",
+          "source": "RewriteEventStore.java:325"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.rewrite.ListRewrite.getEvent",
+          "source": "ListRewrite.java:56"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.rewrite.ListRewrite.internalInsertAt",
+          "source": "ListRewrite.java:261"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.rewrite.ListRewrite.insertFirst",
+          "source": "ListRewrite.java:206"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.structure.ExtractEnumRefactoring.createEnumDeclaration",
+          "source": "ExtractEnumRefactoring.java:379"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.structure.ExtractEnumRefactoring.createChange",
+          "source": "ExtractEnumRefactoring.java:329"
+        },
+        {
+          "method": "org.eclipse.ltk.core.refactoring.CreateChangeOperation.run",
+          "source": "CreateChangeOperation.java:117"
+        },
+        {
+          "method": "org.eclipse.ltk.core.refactoring.PerformChangeOperation.run",
+          "source": "PerformChangeOperation.java:188"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1673"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1693"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.tests.refactoring.RefactoringTest.performRefactoring",
+          "source": "RefactoringTest.java:177"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.tests.refactoring.RefactoringTest.performRefactoring",
+          "source": "RefactoringTest.java:166"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.tests.refactoring.ExtractEnumTest.canExtractEnum",
+          "source": "ExtractEnumTest.java:66"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.tests.refactoring.ExtractEnumTest.testSimpleSameCU",
+          "source": "ExtractEnumTest.java:100"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:84"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:57"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:59"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:390"
+        },
+        {
+          "method": "junit.framework.TestCase.runTest",
+          "source": "TestCase.java:154"
+        },
+        {
+          "method": "junit.framework.TestCase.runBare",
+          "source": "TestCase.java:127"
+        },
+        {
+          "method": "junit.framework.TestResult$1.protect",
+          "source": "TestResult.java:106"
+        },
+        {
+          "method": "junit.framework.TestResult.runProtected",
+          "source": "TestResult.java:124"
+        },
+        {
+          "method": "junit.framework.TestResult.run",
+          "source": "TestResult.java:109"
+        },
+        {
+          "method": "junit.framework.TestCase.run",
+          "source": "TestCase.java:118"
+        },
+        {
+          "method": "junit.framework.TestSuite.runTest",
+          "source": "TestSuite.java:208"
+        },
+        {
+          "method": "junit.framework.TestSuite.run",
+          "source": "TestSuite.java:203"
+        },
+        {
+          "method": "junit.extensions.TestDecorator.basicRun",
+          "source": "TestDecorator.java:22"
+        },
+        {
+          "method": "junit.extensions.TestSetup$1.protect",
+          "source": "TestSetup.java:19"
+        },
+        {
+          "method": "junit.framework.TestResult.runProtected",
+          "source": "TestResult.java:124"
+        },
+        {
+          "method": "junit.extensions.TestSetup.run",
+          "source": "TestSetup.java:23"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests",
+          "source": "RemoteTestRunner.java:421"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run",
+          "source": "RemoteTestRunner.java:305"
+        },
+        {
+          "method": "org.eclipse.pde.internal.junit.runtime.RemotePluginTestRunner.main",
+          "source": "RemotePluginTestRunner.java:30"
+        },
+        {
+          "method": "org.eclipse.pde.internal.junit.runtime.UITestApplication$1.run",
+          "source": "UITestApplication.java:92"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2749"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2434"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1435"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1406"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:263"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:144"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:102"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 3,
+      "bugId": "70963",
+      "date": "2004-07-29T11:37:28+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "70963",
+  "bugId": "70963",
+  "date": "2004-07-28T12:07:37+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

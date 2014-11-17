@@ -1,0 +1,61 @@
+{
+  "comments": [
+    "Get NoSuchMethodError when accessing field declared in an aspect on interface. \nNot true for fields declared on classes.  Three test cases in \n\n  tests/bugs/fieldsOnInterfaces",
+    "Marking for investigation in 1.2",
+    "This bug highlights a hole in the test suite \u0026 a real bug.  The programs \nactually blow up when trying to execute because they attempted to introduce \nfields onto a type not exposed to the weaver, java.lang.Runnable.  Because \nRunnable was never changed, the field does not exist and the real woven code \ncan\u0027t access it.  \n\nThe user should have been informed at compile time that Runnable is not \naccessible to the weaver.  There is a lint warning for typeNotExposedToWeaver \n(which defaults to being on) but there is an error in the guard around the \ncode that puts out the lint warning.  In ResolvedTypeMunger.matches it says:\n\nif (onType.getWeaverState() !\u003d null) {\n\nWhen it should say:\n\nif (onType.getWeaverState() \u003d\u003d null) {\n\n(To me, this guard actually seems unnecessary considering it is surrounded by \na further guard that simply checks if the type is exposed to the weaver).\n\nAnyway, if we make that change then the lint warnings come out when the code \nis compiled.  Voila, we have 3 testcases for the lint warning where we \npreviously had none.",
+    "You\u0027re not suggesting that an xlint warning is a sufficient fix; this should be\nan error if the code provokes a runtime exception.  \n\nIf the interface must be in the control of ajc to implement ITD\u0027s, we need to\nstate that in the language docs.   In the past we\u0027ve stated that ajc requires\nand works for (only?) the top-level implementors of the interface.  (I think\nthere\u0027s a bug outstanding on documenting that in the limitations section, but\nJim\u0027s email on point is the template for that.)  Since requiring the interface\nitself would be a serious limitation (given the role of interfaces to bridge\nnamespaces), I\u0027d appreciate some strong confirmation that this limitation is\nnecessary for ajc.  It seems acceptable, though, since there\u0027s a workaround of\ndeclaring an empty interface extending the unavailable one; that workaround\nshould probably be in the language notes on point.\n\n(Also, where\u0027s the hole in the test suite?  That we don\u0027t have more coverage on\nITD on interfaces? Coverage for that particular xlint warning?)",
+    "I did originally fix this by putting out an error message - then I noticed \nthat there was already an Xlint warning in the code that was right next to \nwhere my error message was - so I removed my error and fixed the code to work \nso the lint message came out.  The hole in the test suite was apparently no-\none testing the xlint warning - I didn\u0027t search for a test, but changing the \nguard around the call to put out the message didn\u0027t affect whether all the \ntests passed.\n\nBut I agree I might have been hasty in fixing it in this way (the easy way) \nrather than looking at why we don\u0027t perform the ITD on the top level \nimplementors - I\u0027ll get Jims input on this.\n\n",
+    "After further examining the code, you are right Wes, there is a whole bunch of \nlogic to do with doing the ITD on the top level implementor (damn, theres a \nlot to learn about this codebase, sorry about my ignorance!).  I think this \nexplains why it is only a lint warning when the interface type is not exposed \nto the weaver. I\u0027ll carry on digging ...",
+    "I think I can see why this is happening.  We do successfully introduce the \nintertyped field to the top level implementor of the class (here is a snippet \ndecompiled):\n\npublic class StringFieldOnInterface\n    implements Runnable\n{\n...\n    public String ajc$interField$A$java_lang_Runnable$name;\n...\n}\n\nWe have then created some methods in the aspect to initialize it and access \nit, they look like this:\n\npublic class A\n{\n  A()  {  }\n\n  public static void ajc$interFieldInit$A$java_lang_Runnable$name(Runnable \najc$this_) {\n        ajc$this_.ajc$interFieldSet$A$java_lang_Runnable$name(\"a\");\n  }\n\n  public static String ajc$interFieldGetDispatch$A$java_lang_Runnable$name\n(Runnable runnable) {\n        return runnable.ajc$interFieldGet$A$java_lang_Runnable$name();\n  }\n\n    public static void ajc$interFieldSetDispatch$A$java_lang_Runnable$name\n(Runnable runnable, String s)\n    {\n        runnable.ajc$interFieldSet$A$java_lang_Runnable$name(s);\n    }\n...\n}\n\nThe signatures for these methods in the aspect take in parameters of type \nRunnable.  Of course, the field was added to the top level implementor, not to \nRunnable itself, so any of those calls above fail with the exception that Wes \nraised the bug for:\n\njava.lang.NoSuchMethodError: \njava.lang.Runnable.ajc$interFieldSet$A$java_lang_Runnable$name\n(Ljava/lang/String;)V\n\tat A.ajc$interFieldInit$A$java_lang_Runnable$name\n(StringFieldOnInterface.java:16)\n\tat StringFieldOnInterface.\u003cinit\u003e(StringFieldOnInterface.java:5)\n\nPossible solutions:\n- Compile time error.\n- Generate the aspect methods with the parameter type being that of the type \nupon which the ITD was actually munged.  (So the signatures in the aspect \nwould take StringFieldOnInterface instead of Runnable).  But what on earth \nwould we do if there are multiple top level implementors - add accessor \nmethods for *them all* ?  \n",
+    "ajc requires access to any types that are used in ITDs.  If you add a field\nto an interface type then the compiler must have access to that interface to\nimplement it correctly.  Even though the field itself will be placed on \nthe top-most implementors the interface is needed to place abstract getter and \nsetter methods to expose the field to any clients.\n\nIf this is a problem for you, the best workaround is something like this:\naspect A {\n    interface Helper {}\n    declare parents: Runnable+ \u0026\u0026 my.code..* implements Helper;\n    private int Helper.counter;\n}\n\nAndy\u0027s change from !\u003dnull to \u003d\u003dnull is exactly right and fixes a clear bug.  \nThis should be retained whatever else we decide to do.\n\nAfter doing a search for references, I find this warning is currently used in \nthe following ways.\n\n* for privileged access methods -- this case will produce a runtime \nMethodNotFoundError if the weaving doesn\u0027t happen at a later time\n* declare parents -- this one will sometimes just silently not affect those \ntypes; however, it also has the potential to generate a \nIncompatibleClassChangeError if, for example, one of these types is cast to\nits newly declared parent\n* ITDs matching a type that is not exposed to the weaver -- this will almost \nalways result in creating calls to methods that aren\u0027t implemented and \nproducing a MethodNotFoundError if the weaving doesn\u0027t happen at a later time.\n\nGoing through this list, I\u0027ve fairly convinced that we should modify the \ndefault behavior for typeNotExposedToWeaver to be error instead of warning and \nadd this to the changes for 1.2.  I can\u0027t come up with any good design of an \naspect library that would lead to this error message showing up.\n",
+    "Based on yesterdays discussion, I want to resolve this one as fixed - the \ncurrent behavior is that typeNotExposedToWeaver is warning.  I don\u0027t like the \nfact that it can lead to situations where the compiler generates code that \nwon\u0027t run (although the code is, of course, valid bytecode) but our new use-\ncase of load-time weaving seems to be more attractive with this set to warning.\n\nThe only reason I haven\u0027t closed it right now is that I wonder if there is \nsomething to include in the DOCS about this, as Wes eludes to in his comments.\n\nNow I have to look at 49657 which is a messier variant of this behavior raised \nby Ron.",
+    "moving to component docs",
+    "The implementation notes already say:\n\nInter-type declarations such as declare parents also have restrictions based on \ncontrol of the code. If the bytecode for the target of an inter-type declaration \nis not available, then the inter-type declaration is not made on that target.\n\nThis seems to cover the case discussed in this bug, so I haven\u0027t added any\nadditional docs in this pass. Suggest we close unless anyone thinks we need\nto add any additional text??",
+    "I added the following to implementation.xml:\n\nWhen declaring members on interfaces, the implementation must\ncontrol both the interface and the top-level implementors of \nthat interface (the classes that implement the interface but\ndo not have a superclass that implements the interface).\nYou may weave these separately, but be aware that you will get\nruntime exceptions if you run the affected top-level classes\nwithout the interface as produced by the same ajc implementation.\nFinally, note that one cannot define static fields or methods \non interfaces.\n\n(And sorry, one last restatement): I\u0027d rather we\u0027d left this xlint message as an\nerror.  It\u0027s more rare to build aspect libraries and the people are more\nsophisticated than the common case/developer playing with adding methods to\nRunnable.  The more sophisticate/rare cases can bear the burden of change the\nsetting better.  But I suppose this will teach developers to heed warnings!",
+    "resolved finally by Wes as per his last append."
+  ],
+  "commentCreationDates": [
+    "2004-02-15T19:18:34+01:00",
+    "2004-02-19T14:59:06+01:00",
+    "2004-02-26T13:48:40+01:00",
+    "2004-02-26T18:34:15+01:00",
+    "2004-02-27T08:19:35+01:00",
+    "2004-02-27T09:05:01+01:00",
+    "2004-02-27T10:52:01+01:00",
+    "2004-03-04T19:28:24+01:00",
+    "2004-03-19T10:04:23+01:00",
+    "2004-03-19T15:26:54+01:00",
+    "2004-04-02T15:30:32+02:00",
+    "2004-04-02T21:42:58+02:00",
+    "2004-05-13T11:03:21+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoSuchMethodError",
+      "message": "java.lang.Runnable.ajc$interFieldSet$A$java_lang_Runnable$name (Ljava/lang/String;)V",
+      "elements": [
+        {
+          "method": "A.ajc$interFieldInit$A$java_lang_Runnable$name",
+          "source": "StringFieldOnInterface.java:16"
+        },
+        {
+          "method": "StringFieldOnInterface.\u003cinit\u003e",
+          "source": "StringFieldOnInterface.java:5"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 6,
+      "bugId": "52107",
+      "date": "2004-02-27T10:52:01+01:00",
+      "product": "AspectJ",
+      "component": "Docs",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "52107",
+  "bugId": "52107",
+  "date": "2004-02-15T19:18:34+01:00",
+  "product": "AspectJ",
+  "component": "Docs",
+  "severity": "normal"
+}

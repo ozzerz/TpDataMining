@@ -1,0 +1,142 @@
+{
+  "comments": [
+    "On SWT 3212, the dispose state flag is not getting set soon enough for TableItem while the Table is virtual.  TableItem.destroyWidget() calls Table.destroyItem() before TableItem.releaseHandle(), which sends an OS message to delete the item.  In some cases, the OS will call Table back immediately, requesting view data for a new table row.  SetData will be triggered, and that almost-removed TableItem will still return that it\u0027s not disposed.  Calling a method on it will result in an error, since parts of the object have indeed been destoyed.\n\nHere\u0027s a snippet which shows the problem:\n\npublic static void main(String[] args) {\n  System.out.println(\"SWT Version: \" + SWT.getVersion());\n  Display display \u003d new Display();\n\n  final Shell shell \u003d new Shell(display);\n  shell.setLayout(new FillLayout());\n\n  final Table table \u003d new Table(shell, SWT.BORDER | SWT.VIRTUAL);\n  table.addListener(SWT.SetData, new Listener() {\n    public void handleEvent(Event event) {\n      try {\n        final TableItem item \u003d (TableItem) event.item;\n        System.err.println(\"SetData for row \" + table.indexOf(item));\n        item.setText(\"Row\");\n\n        TableItem firstItem \u003d table.getItem(0);\n        if (!firstItem.isDisposed()) {\n          System.err.println(\"Row #0 says it\u0027s not disposed\");\n          firstItem.setData(\"Key4\", \"4\");\n        }\n      } catch (Exception e) {\n        e.printStackTrace();\n      }\n    }\n  });\n\n  for (int i \u003d 0; i \u003c 2; i++) {\n    TableItem tableItem \u003d new TableItem(table, SWT.NONE);\n    tableItem.setData(\"Key1\", \"1\");\n  }\n\n  \n  shell.setSize(400, shell.getMinimumSize().y + table.getItemHeight());\n  shell.open();\n  \n  TableItem item \u003d table.getItem(0);\n  System.err.println(\"About to Dispose Row 0..\");\n  item.dispose();\n\n  while (!shell.isDisposed()) {\n    if (!display.readAndDispatch())\n      display.sleep();\n  }\n  display.dispose();\n}\n\nThe output of this snippet is:\nSWT Version: 3212\nSetData for row 0\nRow #0 says it\u0027s not disposed\nAbout to Dispose Row 0..\nSetData for row 1\nRow #0 says it\u0027s not disposed\njava.lang.NullPointerException\n  at org.eclipse.swt.widgets.Widget.setData(Widget.java:1023)\n  at Test$1.handleEvent(Test.java:43)\n  at org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n  at org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:896)\n  at org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:920)\n  at org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:905)\n  at org.eclipse.swt.widgets.Table.checkData(Table.java:341)\n  at org.eclipse.swt.widgets.Table.wmNotifyChild(Table.java:4165)\n  at org.eclipse.swt.widgets.Control.WM_NOTIFY(Control.java:3689)\n  at org.eclipse.swt.widgets.Composite.WM_NOTIFY(Composite.java:1090)\n  at org.eclipse.swt.widgets.Control.windowProc(Control.java:3194)\n  at org.eclipse.swt.widgets.Decorations.windowProc(Decorations.java:1538)\n  at org.eclipse.swt.widgets.Display.windowProc(Display.java:3908)\n  at org.eclipse.swt.internal.win32.OS.CallWindowProcW(Native Method)\n  at org.eclipse.swt.internal.win32.OS.CallWindowProc(OS.java:1627)\n  at org.eclipse.swt.widgets.Table.callWindowProc(Table.java:256)\n  at org.eclipse.swt.widgets.Table.callWindowProc(Table.java:180)\n  at org.eclipse.swt.widgets.Control.windowProc(Control.java:3229)\n  at org.eclipse.swt.widgets.Table.windowProc(Table.java:3633)\n  at org.eclipse.swt.widgets.Display.windowProc(Display.java:3908)\n  at org.eclipse.swt.internal.win32.OS.SendMessageW(Native Method)\n  at org.eclipse.swt.internal.win32.OS.SendMessage(OS.java:2285)\n  at org.eclipse.swt.widgets.Table.destroyItem(Table.java:1314)\n  at org.eclipse.swt.widgets.TableItem.destroyWidget(TableItem.java:137)\n  at org.eclipse.swt.widgets.Widget.release(Widget.java:730)\n  at org.eclipse.swt.widgets.Widget.dispose(Widget.java:400)\n  at Test.main(Test.java:62)",
+    "The problem is that the item cannot be marked as disposed until \"item.dispose()\" returns.  However, during the dispose, the table is asked to redraw, the virtual callback is triggered and the application code asks for the item (\"table.getItem(0)\" inside SWT.SetData and gets the item that is in the process of being disposed.\n\nReordering the code in TableItem.destroyWidget() to save away the fields that are needed to dispose the widget in the operating system (in this case the parent), fixes the problem:\n\nvoid destroyWidget () {\n\tTable parent \u003d this.parent;\n\treleaseHandle ();\n\tparent.destroyItem (this);\n}\n",
+    "Need to investigate this pattern for every Item subclass on every platform.  For example, saving away the parent won\u0027t work on GTK because \"item.handle\" is needed in Table.destroyItem().",
+    "Fixed \u003e 20060106"
+  ],
+  "commentCreationDates": [
+    "2005-12-05T06:01:59+01:00",
+    "2005-12-06T20:40:11+01:00",
+    "2005-12-06T20:42:03+01:00",
+    "2006-01-06T17:22:21+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.widgets.Widget.setData",
+          "source": "Widget.java:1023"
+        },
+        {
+          "method": "Test$1.handleEvent",
+          "source": "Test.java:43"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:896"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:920"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:905"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Table.checkData",
+          "source": "Table.java:341"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Table.wmNotifyChild",
+          "source": "Table.java:4165"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_NOTIFY",
+          "source": "Control.java:3689"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.WM_NOTIFY",
+          "source": "Composite.java:1090"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3194"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Decorations.windowProc",
+          "source": "Decorations.java:1538"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:3908"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.CallWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.CallWindowProc",
+          "source": "OS.java:1627"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Table.callWindowProc",
+          "source": "Table.java:256"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Table.callWindowProc",
+          "source": "Table.java:180"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3229"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Table.windowProc",
+          "source": "Table.java:3633"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:3908"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.SendMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.SendMessage",
+          "source": "OS.java:2285"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Table.destroyItem",
+          "source": "Table.java:1314"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TableItem.destroyWidget",
+          "source": "TableItem.java:137"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:730"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.dispose",
+          "source": "Widget.java:400"
+        },
+        {
+          "method": "Test.main",
+          "source": "Test.java:62"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "119207",
+      "date": "2005-12-05T06:01:59+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "119207",
+  "bugId": "119207",
+  "date": "2005-12-05T06:01:59+01:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

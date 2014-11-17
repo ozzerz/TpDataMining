@@ -1,0 +1,307 @@
+{
+  "comments": [
+    "The following stack trace occurs when using the 5.3.0.3 nVidia driver for the\nQuadro NVS with the windows colour depth set to 32-bit.\n\norg.eclipse.swt.SWTError: No more handles\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat org.eclipse.swt.SWTError.\u003cinit\u003e(SWTError.java:82)\n\tat org.eclipse.swt.SWTError.\u003cinit\u003e(SWTError.java:71)\n\tat org.eclipse.swt.SWT.error(SWT.java:2358)\n\tat org.eclipse.swt.SWT.error(SWT.java:2262)\n\tat org.eclipse.swt.graphics.Image.init(Image.java:1445)\n\tat org.eclipse.swt.graphics.Image.\u003cinit\u003e(Image.java:161)\n\tat org.eclipse.draw2d.internal.ImageInfo.\u003cinit\u003e(ImageInfo.java:69)\n\tat org.eclipse.draw2d.internal.ImageInfo.\u003cinit\u003e(ImageInfo.java:58)\n\tat org.eclipse.draw2d.internal.ImageCache.checkout(ImageCache.java:102)\n\tat\norg.eclipse.draw2d.BufferedGraphicsSource.getGraphics(BufferedGraphicsSource.java:54)\n\tat\norg.eclipse.draw2d.DeferredUpdateManager.getGraphics(DeferredUpdateManager.java:108)\n\tat\norg.eclipse.draw2d.DeferredUpdateManager.repairDamage(DeferredUpdateManager.java:192)\n\nThe error does not occure when the colour depth is set to 16-bit or when an\nolder driver (2.7.0.0) is used with 32-bit colour depth.\n\nThis is occuring on other card/driver combinations as well.\n\nRecommend that there be some sort of list of tested hardware and drivers for\nSWT. Or if it can be found that this is an SWT bug that it be fixed.\n\nAdditional Information available if requested.",
+    "I have an instance where this same problem occurs using an ATI Radeon card\n(driver version unknown at this moment) using a 32-bit colour depth only.  I\nhave been told that this problem should be reproduceable using the GEF logic\nexample and the \"faulty\" display drivers (although this has yet to be proven).\n\nThe Operating System is not running out of handles as the exception states, as I\nhave information showing that only around 500 handles are in use before and\nafter this problem occurs (based on the Microsoft Windows Task Manager)\nNote: According to Microsoft the maximum handles a process can have on NT/2000\nis 10000 (http://support.microsoft.com/default.aspx?kbid\u003d326591).",
+    "I don\u0027t see there is anything we can do here.  What image is being created?  \nCan you attach it and/or open it in IE in the same machine?",
+    "Simple modifications done to the SWT Image class for debugging purposes where\nthe SWT no more handles exception is thrown:\n\nif (handle \u003d\u003d 0) {\n\tFile outputFile \u003d null;\n\tFileWriter fileWriter \u003d null;\n\ttry {\n\t\toutputFile \u003d new File(\"C:\\\\SWTNoMoreHandlesDebugInfoForIBM.txt\");\n\t\tif (outputFile.exists()) {\n\t\t\toutputFile.delete();\n\t\t}\n\t\tfileWriter \u003d new FileWriter(outputFile);\n\t\tPrintWriter filePrintWriter \u003d new PrintWriter(fileWriter);\n\t\tfilePrintWriter.println(\"hDC: \" + hDC);\n\t\tfilePrintWriter.println(\"width: \" + width);\n\t\tfilePrintWriter.println(\"height: \" + height);\n\t\tfilePrintWriter.println(\"last error: \" + OS.GetLastError());\n\t}\n\tcatch (IOException ioEx) {\n\t\tSystem.err.println(\"ioEx: \" + ioEx); // shouldn\u0027t happen ;)\n\t}\n\tfinally {\n\t\ttry {\n\t\t\tfileWriter.close();\n\t\t}\n\t\tcatch (IOException ioEx) {\n\t\t\tioEx.printStackTrace();\n\t\t\tSystem.err.println(\"ioEx: \" + ioEx); // shouldn\u0027t happen \n\t\t}\n\t}\n\tSWT.error(SWT.ERROR_NO_HANDLES);\n}\n\nproduced the file containing this information:\n\nhDC: 352389911\nwidth: 2048\nheight: 1024\nlast error: 0\n\nAccording to the Microsoft documentation\n(http://msdn.microsoft.com/library/en-us/debug/base/system_error_codes__0-499_.asp?frame\u003dtrue),\nerror code 0 means sucess.  So even though CreateCompatibleBitmap() failed, the\nerror code indicates that it was successful which is rather odd.",
+    "This is becoming a more urgent issue.",
+    "This problem has become critical.",
+    "From the original stack trace it looks like the call to CreateCompatibleBitmap \nis failed and returned null. If you go to the msdn library \n(msdn.microsoft.com) and search for \"CreateCompatibleBitmap\" you will find the \ndocumentationt that applies to this specific call.\n\nIf the failure is repeatable with a specfic version of the driver but it goes \naway when you install a different version of the driver you need to persue \nthis with the provider of the graphics driver. However, you need to be certain \nthat the problem is really resolved with a driver change. It may just be more \ndifficult to recreate the problem as this failure (no more handles) may mean \nthat there is a resource leak and this call just happened to fail. \n\nIf you are able to rule out a defect in the grahics driver the next steps \nwould be to find the specific code that causes the failure (ie. is it the same \nimage every time that fails) or  if you are unable to isolate a specific test \ncase you need to look for resource leaks - this is something that the SLEAK \ntool from SWT can help you find but it is not an SWT defect. \n\n",
+    "What is the size of the Image which you are trying to create?\nHow big is your diagram?\nHave you copied any classes from an older version of GEF?",
+    "OK, I just read the comment that says the Image in question is 2048x1024 \n(2MB).  This is not much bigger than the potential size of the Editor \n(1600x1200 is common monotor resolution for developers).\n\nGEF is double-buffered, and for performance reasons we can\u0027t allocate a 2MB \nimage during every paint, so we have a cache for this purpose.",
+    "Based on my understanding of the SWT code that is failing, I agree that this is\nhighly unlikely a SWT defect.  I have read over the CreateCompatibleBitmap() API\nand it states that it will return NULL if a failure occurred (which is what is\nhappening) and that GetLastError will provided extended information - yet the\ncall GetLastError() returns 0 (see my previous post) which I find rather odd. \nAnyway, from SWT\u0027s point of view (Line 1444 in Eclipse v2.1.2), the handle is 0\ntherefore at 1445 the \u0027no more handles\u0027 error is thrown.\n\nWith William\u0027s specific case above, the problem was resolved by dropping back to\nan older version of the nVIDIA drivers.  Based on this I would agree that there\nis a really good chance it\u0027s a defect with the video card drivers and that\nshould be pursued;  However, with my particular case I have video cards coming\nfrom two different companies (ATI and nVIDIA) and changing the drivers does not\nresolve the problem.  The only thing we have found is that lowering the colour\ndepth from 32-bit to 16-bit helps but does not resolve the problem completely\n(and this is not a good work-around).  I will try the SLEAK application out to\nsee if this helps to provide helpful information as to what is causing this\nproblem but I was also wondering if there are any additional tools that can be\nused to determine why the CreateCompatibleBitmap() invocation is returning NULL?\n What tools were used while developing SWT to help debug any Win API calls?\n\nand yes the size of the image is 2048x1024x32 (32-bit) which is exactly 8MB\ncorrect? and there has been no modifications that I know of to any of the GEF\nclasses.  It should be using plain Eclipse v2.1.2.",
+    "From the conference call that IBM WSAD support had with you earlier this week,\nyou stated that you would create a simple C program that should be able to\nrecreate the SWT no more handles crash.  I have posted the information you\nrequested in comment #3, so I was wondering if you would be able to provide this\napplication now?  This would allow us to quickly determine if it is a problem\ncaused by SWT (or GEF) or if it is a problem with the Operating System or video\ncard drivers.  Thank you!",
+    "In any case, the SWT code should be modified so that in case of returned handle\nbeing null from CreateCompatibleBitmap(), a proper error code returned by\nGetLastError() should be returned further by SWT instead of the misleading \"No\nmore handles\" hard coded return code.\n(If the returned handle is null, and yet GetLastError() returns no error, that\nis another story that we might need to pursue as an inconsistency with Microsoft\nsupport.)",
+    "Can this bug be reproduced without WSAD? Can you take just Eclipse version \n2.1.x, GEF version 2.1.x, and the GEF examples, and reproduce this problem on \nthe machine(s) with the bogus video cards?\n\nIn the meantime, we will provide a hacked draw2d jar which will slightly change \nthe behavior of ImageCache.checkout(). This is only a workaround, not a \nsolution. Pratik will attach a small JAR with instructions on how to apply it.",
+    "Created an attachment (id\u003d8855)\nImageCache Workaround\n\nThis jar has the same class files as the 2.1.2/2.1.3 release, except for the\nupdated ImageCache class.  I\u0027ve changed it so that it doesn\u0027t try to create an\nimage too big than what is required.  \n\nReplace the draw2d.jar file in org.eclipse.draw2d_2.1.2 plug-in with this one.",
+    "Has anybody tried this workaround successfully?",
+    "This looks related to 56621.",
+    "Will this patch work with the draw2d included with Eclipse v2.1.1? or just 2.1.2\nand 2.1.3?",
+    "The JAR *is* draw2d 2.1.2 with the change.\nYou can extract just the ImageCache.class from the jar and add it to your \nexisting JAR.  Or just use it as is.  2.1.2 is backwards binary compatible.",
+    "This patch resolved the problem reported, Thank you!",
+    "Here is the summary:\n\n1) We can\u0027t determine before hand the operating system limits\n2) Windows has can both run out of handles and out of memory\n3) We can\u0027t throw different exceptions on different platforms\n4) We can\u0027t change the API\n\nSo, the only way to work around the problem that we know is to do something \nlike the following:\n\nint width \u003d 4000;\nint height \u003d 8000;\nImage image \u003d null;\ntry {\n   image \u003d new Image(display, width, height);\n} catch (SWTError e) {\n   image \u003d new Image(display, 1, 1);\n   System.out.println(\"good\");\n}\n\nThis code will \"work\" on every platform.  If the image was too big, they \ncreating a smaller image will work.  If you are really out of handles, then it \nwill fail and the failure is the same that you would have gotten from the \noriginal call (which you can\u0027t recover from anyways). We know cathing SWTError\nis bad, but we cannot change the API.\n\nWe also changed the string that the exception prints to be better on Windows \n(prints the error code).",
+    "Created an attachment (id\u003d9341)\nImproved ImageCache Workaround\n\nHere\u0027s a new, safer patch.  It leaves the codepath unchanged for clients that\nwere not having any such problems.  It does a better job of handling boundary\ncases, and is along the lines of what Silenio Quarti said above.\n\nCan somebody try this on a machine that was having the problem and verify that\nit works properly?",
+    "A question.  Has anyone found a case where switching to 16-bit color depth did \nnot avoid the problem?",
+    "This patch is to be applied the same way as the previous one.  Replace the \ndraw2d.jar in your org.eclipse.draw2d folder with the one provided.\n\nThis patch has also been included in GEF\u0027s latest maintenance build: M20040408\nhttp://download.eclipse.org/tools/gef/downloads/drops/M-M20040408-200404081331/\n\nWylie, can you verify that this works for you as well?",
+    "Randy -\u003e I do not have a reproducible testcase as I am passing this information\nalong from a WSAD user that can consistently reproduce the problem on his\nmachine; however, this person did say that when he tried using 16bit colour this\nproblem can occur although it was extremely rare.\n\nPratik -\u003e I have sent the updated draw2d.jar to the WSAD user reporting this\nproblem and I will let you know what he says about it when he responds.  Thank you!",
+    "I just received confirmation that the latest draw2d.jar file (attachment in\ncomment #20) does not resolve this problem - the SWT no more handles exceptions\nstill occur.",
+    "If you are still running with the modified SWT Image class, then your test is \nnot valid.  We are waiting for the SWT Exception to occur, and only then are we \nexecuting a workaround which is similar to the preivously one which worked.  In \nfact, this workaround is even more conservative and should be creating a \nsmaller image than before.",
+    "How often does this happen now?  This was not an actual \"no more handles\" \nerror, right?  Troy, I\u0027ll leave it upto you to decide whether or not it\u0027s \nappropriate to go back to ebay to have these questions answered.\n\nDid anybody else who was having this problem try this patch?\n\nLike Randy said, this workaround is more conservative than the previous one, so \nI am not sure what is causing it to fail, if the first one did the job.  We\u0027ve \nrun a few test scenarios that simulate this problem to check our code, and it\u0027s \nworking fine for us.  We\u0027ve also checked to see if our workaround introduced a \nresource leak somewhere (thus resulting in a valid \"no more handles\" error), \nbut weren\u0027t able to find one.\n\nThis workaround propogates the \"no more handles\" error when the requested image \nis larger than what the OS/platform can handle (so was the case with the \nprevious workaround; plus, it grew the originally requested size by upto 127 \npixels in both directions), or when there is an actual \"no more handles\" \nerror.  This is no worse than the previous workaround.  So, I think one of the \nfollowing has to be true:\n1) The previous workaround didn\u0027t solve the problem completely -- If that is \ntrue, I don\u0027t think we can do much else to accomodate this problem without \nmaking any large-scale changes.\n2) The user didn\u0027t apply the new patch properly, or something else has changed \ncompared to the previous configuration (i.e., where the previous workaround \nworked).\n3) I have gone crazy.",
+    "Randy -\u003e The original swt.jar shipped with WSAD v5.1.0 (Eclipse v2.1.1) was used\nwhen this problem was recreated.  I will attach the .log file for you to see the\nproblem that is occuring is still the same one.\n\nPratik -\u003e This happens at the same point and frequency for the WSAD users as it\noriginally did when this problem was reported.",
+    "Created an attachment (id\u003d9454)\nLog file showing \u0027no more handles\u0027 problem using latest draw2d.jar\n",
+    "According to the line number in your .log file (ImageCache 99), that \ncorresponds the initial workaround we provided, and not the most recent. This \nmeans our initial workaround is failing, not the new one (although it may fail \ntoo, but hopefully less frequently).\n\nFor the most recent workaround, line 99 is \"return result\", which could not be \ncalling the constructor to ImageInfo().  Feel free to try again, this time with \nthe April 8th version of 2.1.3.1. But given your more recent failure it doesn\u0027t \nsound promising.",
+    "I\u0027ve had this problem since Nov 5, 2003.  I\u0027m just getting more involved\nso when I saw this bug, I thought I\u0027d contribute (hopefully :-).\n\nIn short, I believe the problem is with the VIDEO driver and the way that\ncertain applications use the driver.  Once those applications (Netscape 4.7\nin my case), \"use the driver\" in that way, the driver is hosed up and\nall applications suffer (until that application is closed).\n\nIMHO, the bug is environment OS, display and \"the way the code is written\"\nrelated.  I\u0027ve seen MANY other normal windows APPS have the SAME (ok, similar\nproblems).\n\nI\u0027m using an NVIDIA GeForce4 Ti 4200 graphics card and running dual-monitor\nat 3200x1200 @ 16 bit color.  I started with 32 bit color and switch to 16\nbit color to see if there was a difference (no difference between 16 \u0026 32 bit\ncolor and the \"No more handles\" error, at least in my case).\n\nI\u0027ve included an \"old\" and \"new\" stack trace, they are identical.\n\nHere are some other \"Observations\" I made with other programs giving\nstrange errors (related to the No more handles).\n\n\n*** 2004-01-30 10:12am O: Netscape 4.7 email frame title becomes distorted\nKWS: Video display bug?, Log anomoly\n\nMessage Filters no longer display\n\n*** AO: Closed Netscape mail to see if the problem goes away\nYes, the problem did go away.  So it looks like Netscape 4.7\nis causing the problem.\n\nOr more likely something changed underneath Netscape 4.7 to\ncause the problem.\n\nBoth Eclipse and Outlook start up without complaining about low system\nresources.\n\n*** 2004-01-30 10:15am O: Microsoft Outlook gives error\nUnable to open your default e-mail folders.  Out of memory or system\nresources.  Close some windows or programs and try again.\n\n*** 2004-04-10 9:55am O: Back from rebooting, Logged on, and Ran eclipse first\nto see if it happens only with eclipse.  Eclipse ran my application ok 1 time.\n\n*** 2004-04-11 1:00pm O: After running several other applications and then\nre-trying to run Eclipse, I see the \"No more handles\" error.\n\nHere\u0027 is an \"OLD stack trace\" (from .log):\n!SESSION Nov 05, 2003 21:47:07.222 ---------------------------------------------\njava.version\u003d1.4.1_02\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments: -os win32 -ws win32 -arch x86 -install \nfile:D:/P/eclipse/\n!ENTRY org.eclipse.ui 4 4 Nov 05, 2003 21:47:07.238\n!MESSAGE Unable to restore editor - createElement returned null for input \nelement factory: org.eclipse.ui.part.FileEditorInputFactory\n!SESSION Nov 28, 2003 20:50:20.871 ---------------------------------------------\njava.version\u003d1.4.1_02\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments: -os win32 -ws win32 -arch x86 -install \nfile:D:/P/eclipse/\n!ENTRY org.eclipse.ui 4 4 Nov 28, 2003 20:50:20.871\n!MESSAGE Unhandled exception caught in event loop.\n!ENTRY org.eclipse.ui 4 0 Nov 28, 2003 20:50:20.871\n!MESSAGE No more handles\n!STACK 0\norg.eclipse.swt.SWTError: No more handles\n\tat org.eclipse.swt.SWT.error(SWT.java:2358)\n\tat org.eclipse.swt.SWT.error(SWT.java:2262)\n\tat org.eclipse.swt.graphics.Image.init(Image.java:1445)\n\tat org.eclipse.swt.graphics.Image.\u003cinit\u003e(Image.java:161)\n\tat org.eclipse.swt.custom.StyledText.performPaint(StyledText.java:5904)\n\tat org.eclipse.swt.custom.StyledText.handlePaint(StyledText.java:5288)\n\tat org.eclipse.swt.custom.StyledText$13.handleEvent\n(StyledText.java:4988)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:81)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:840)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:865)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:849)\n\tat org.eclipse.swt.widgets.Composite.WM_PAINT(Composite.java:730)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2817)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2361)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessageW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessage(OS.java:1303)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1543)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1402)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1385)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:858)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:291)\n\tat org.eclipse.core.launcher.Main.run(Main.java:747)\n\tat org.eclipse.core.launcher.Main.main(Main.java:583)\n\nAnd here is a \"new trace\":\n!ENTRY org.eclipse.jdt.core 4 969 Apr 20, 2004 23:37:06.742\n!MESSAGE KnockKnockServer.java [in comms.udp [in [project root] [in \nJavaSamples]]] does not exist.\n!SESSION Apr 21, 2004 20:17:24.836 ---------------------------------------------\njava.version\u003d1.4.2_01\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments: -os win32 -ws win32 -arch x86 -install \nfile:D:/P/eclipse/\n!ENTRY org.eclipse.ui 4 4 Apr 21, 2004 20:17:24.836\n!MESSAGE Unhandled exception caught in event loop.\n!ENTRY org.eclipse.ui 4 0 Apr 21, 2004 20:17:24.836\n!MESSAGE No more handles\n!STACK 0\norg.eclipse.swt.SWTError: No more handles\n\tat org.eclipse.swt.SWT.error(SWT.java:2358)\n\u003c\u003c\u003c REST IS SNIPPED BECAUSE IT IS THE SAME AS THE ABOVE STACK TRACE\u003e\u003e\u003e\n\nSorry to be so long winded (on my first post) but I\u0027m hoping these other\ndata points may be of use when trying to troubleshoot.\n\nBest regards,\nPatrick Steranka\n",
+    "This problem does not occur in GEF 3.0 because we handle failures (no more \nhandles) regardless of how they are caused.\n\nAccording to Windows 95 API, Silenio said that the spec allows for images up to \n16MB.  There is no specific info for Windows NT, but it should be more \nrestrictive.  The images in these test cases are 8MB or smaller.",
+    "(In reply to comment #31)\n\u003e This problem does not occur in GEF 3.0 because we handle failures (no more \n\u003e handles) regardless of how they are caused.\n\u003e \n\u003e According to Windows 95 API, Silenio said that the spec allows for images up to \n\u003e 16MB.  There is no specific info for Windows NT, but it should be more \n\u003e restrictive.  The images in these test cases are 8MB or smaller.\n\nWe are using GEF 3.0.1 on our project and experience this bug, even for a\nrelatively small number of low-quality, low-res images. We don\u0027t have an\nopportunity to dispose of any images (user needs to interact with graph). \nAlso, we experience this problem on Win2k as well as WinXP (all machines with 1\nGB of memory). Any ideas? ",
+    "Please provide a stack trace. The original stack trace should be impossible to \nsee now because we catch the exception. It must be something else. If so, open \na different bug or inspect your own code for resource leaks.",
+    "Created an attachment (id\u003d23431)\nNo more handles error encountered stack trace\n",
+    "That looks a legitimate NO_MORE_HANDLES error.  Do you have an infinite \npainting loop?  Instead of creating a new image in your paintFigure() method, \ncreate and cache one beforehand.  If you\u0027re creating new Images each time when \npainting, and not disposing them (as you mention in comment 32), that \nobviously would be a problem.\n\nIn any case, this is not related to this bug report.",
+    "(In reply to comment #35)\n\u003e That looks a legitimate NO_MORE_HANDLES error.  Do you have an infinite \n\u003e painting loop?  Instead of creating a new image in your paintFigure() method, \n\u003e create and cache one beforehand.  If you\u0027re creating new Images each time when \n\u003e painting, and not disposing them (as you mention in comment 32), that \n\u003e obviously would be a problem.\n\u003e \n\u003e In any case, this is not related to this bug report.\n\nI\u0027m pretty sure that we don\u0027t have anything like an infinite painting loop. We\ncan reproduce the bug without causing a single additional application-level\npainting (our app). Also, I have done some profiling and there is nothing\nexceptional going on with the heap (looks very well-behaved) or otherwise. Will\nhave to try image caching and will open a new bug report for this. Thanks for\nyour help...",
+    "The problem most likely is in your own code.  You should download SLEAK and \nenable graphics tracing in the PDE launcher.",
+    "(In reply to comment #37)\n\u003e The problem most likely is in your own code.  You should download SLEAK and \n\u003e enable graphics tracing in the PDE launcher.\n\nThank you for suggesting to use S-Leak!!! Were able to identify leaks and now\ntreat most SWT objects the code generates as singletons (where possible), which\ndoes the trick. Conventional profiling would have taken much longer.",
+    "getting this error on IBM RAD V6.0.1.  With NVIDIA Quadro2Ex Display Adapter on Win2k.  When error occurs screen goes berserk and I have to close something without being able to see what I\u0027m closing before I get control of the display.",
+    "(In reply to comment #39)\n\u003e getting this error on IBM RAD V6.0.1.  With NVIDIA Quadro2Ex Display Adapter on\n\u003e Win2k.  When error occurs screen goes berserk and I have to close something\n\u003e without being able to see what I\u0027m closing before I get control of the display.\n\nYour entire OS is affected? It sounds like the OS has run out of handles. You may have a *real* resource leak somewhere, which is a different cause for the error message than the cause discussed here."
+  ],
+  "commentCreationDates": [
+    "2004-03-03T16:37:57+01:00",
+    "2004-03-03T16:55:46+01:00",
+    "2004-03-03T20:13:52+01:00",
+    "2004-03-16T17:44:50+01:00",
+    "2004-03-18T19:30:34+01:00",
+    "2004-03-19T17:40:54+01:00",
+    "2004-03-19T18:46:55+01:00",
+    "2004-03-19T20:05:24+01:00",
+    "2004-03-19T20:19:22+01:00",
+    "2004-03-19T20:40:17+01:00",
+    "2004-03-24T15:52:36+01:00",
+    "2004-03-24T17:41:11+01:00",
+    "2004-03-24T22:17:37+01:00",
+    "2004-03-24T23:03:15+01:00",
+    "2004-03-29T22:01:10+02:00",
+    "2004-03-29T23:52:38+02:00",
+    "2004-03-30T20:11:15+02:00",
+    "2004-03-30T22:07:07+02:00",
+    "2004-04-01T15:18:41+02:00",
+    "2004-04-08T20:58:09+02:00",
+    "2004-04-08T21:40:53+02:00",
+    "2004-04-08T21:54:30+02:00",
+    "2004-04-08T21:59:00+02:00",
+    "2004-04-08T22:11:21+02:00",
+    "2004-04-09T18:40:37+02:00",
+    "2004-04-09T21:17:05+02:00",
+    "2004-04-09T22:35:26+02:00",
+    "2004-04-13T22:50:29+02:00",
+    "2004-04-13T22:52:19+02:00",
+    "2004-04-13T23:27:22+02:00",
+    "2004-04-29T15:55:55+02:00",
+    "2004-05-02T02:06:53+02:00",
+    "2005-06-13T11:07:53+02:00",
+    "2005-06-13T15:45:05+02:00",
+    "2005-06-17T12:39:54+02:00",
+    "2005-06-17T18:26:39+02:00",
+    "2005-06-20T10:58:18+02:00",
+    "2005-06-20T16:47:23+02:00",
+    "2005-06-22T11:52:22+02:00",
+    "2006-09-08T00:55:27+02:00",
+    "2006-09-08T16:48:55+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "No more handles",
+      "elements": [
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "org.eclipse.swt.SWTError.\u003cinit\u003e",
+          "source": "SWTError.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.SWTError.\u003cinit\u003e",
+          "source": "SWTError.java:71"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2358"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2262"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.init",
+          "source": "Image.java:1445"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.\u003cinit\u003e",
+          "source": "Image.java:161"
+        },
+        {
+          "method": "org.eclipse.draw2d.internal.ImageInfo.\u003cinit\u003e",
+          "source": "ImageInfo.java:69"
+        },
+        {
+          "method": "org.eclipse.draw2d.internal.ImageInfo.\u003cinit\u003e",
+          "source": "ImageInfo.java:58"
+        },
+        {
+          "method": "org.eclipse.draw2d.internal.ImageCache.checkout",
+          "source": "ImageCache.java:102"
+        },
+        {
+          "method": "org.eclipse.draw2d.BufferedGraphicsSource.getGraphics",
+          "source": "BufferedGraphicsSource.java:54"
+        },
+        {
+          "method": "org.eclipse.draw2d.DeferredUpdateManager.getGraphics",
+          "source": "DeferredUpdateManager.java:108"
+        },
+        {
+          "method": "org.eclipse.draw2d.DeferredUpdateManager.repairDamage",
+          "source": "DeferredUpdateManager.java:192"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "53632",
+      "date": "2004-03-03T16:37:57+01:00",
+      "product": "GEF",
+      "component": "draw2d",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "No more handles",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2358"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2262"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.init",
+          "source": "Image.java:1445"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.\u003cinit\u003e",
+          "source": "Image.java:161"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.performPaint",
+          "source": "StyledText.java:5904"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText.handlePaint",
+          "source": "StyledText.java:5288"
+        },
+        {
+          "method": "org.eclipse.swt.custom.StyledText$13.handleEvent",
+          "source": "StyledText.java:4988"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:81"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:840"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:865"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:849"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.WM_PAINT",
+          "source": "Composite.java:730"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2817"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2361"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessage",
+          "source": "OS.java:1303"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1543"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1402"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1385"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:858"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:291"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:747"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:583"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 30,
+      "bugId": "53632",
+      "date": "2004-04-29T15:55:55+02:00",
+      "product": "GEF",
+      "component": "draw2d",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "No more handles",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2358"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 30,
+      "bugId": "53632",
+      "date": "2004-04-29T15:55:55+02:00",
+      "product": "GEF",
+      "component": "draw2d",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "53632",
+  "bugId": "53632",
+  "date": "2004-03-03T16:37:57+01:00",
+  "product": "GEF",
+  "component": "draw2d",
+  "severity": "critical"
+}

@@ -1,0 +1,105 @@
+{
+  "comments": [
+    "We have a J2EE deployer that thorws an CoreException with a MultiStatus.  In the MultiStatus, it can contain Error, Warning, Info Status objects and not all of them contain an Exception in it (IStatus.getException() returns null).  In J2EEDeployOperation.addErrorStatus, it always assumes that every IStatus within a MultiStatus contains an Exception.  This eventually causes a NPE when this method is called recursively.  I don\u0027t think this is mandate in the API documentation.  As a workaround, we can add an Exception to each of our IStatus in the MultiStatus, which becomes a bit inconvenient because we need to loop through the MultiStatus and instantiate each of the IStatus inside.\n\n\nprivate void addErrorStatus(IStatus exceptionStatus, String DeployerName, Throwable ex) {\n  Throwable mainCause \u003d null;\n  if (exceptionStatus instanceof MultiStatus) {\n    IStatus[] stati \u003d ((MultiStatus) exceptionStatus).getChildren();\n    for (int i \u003d 0; 1 \u003c stati.length; i++) {\n      addErrorStatus(stati[i], DeployerName, stati[i].getException());\n                                             ^^^^^^^^^^^^^^^^^^^^^^^\n    }\n  }\n  mainCause \u003d (ex.getCause() !\u003d null) ? ex.getCause() : ex;\n               ^^^^^^^^^^^^^\n  ...\n\n\nThis is the stack trace:\n*** ERROR ***: Wed Feb 07 12:04:31 EST 2007    java.lang.NullPointerException\n    \tat org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.addErrorStatus(J2EEDeployOperation.java:172)\n    \tat org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.addErrorStatus(J2EEDeployOperation.java:169)\n    \tat org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.deploy(J2EEDeployOperation.java:140)\n    \tat org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.execute(J2EEDeployOperation.java:102)\n    \tat org.eclipse.jst.j2ee.internal.actions.J2EEDeployAction$1.run(J2EEDeployAction.java:67)\n    \tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)",
+    "I also found that at line 168, the for loop condition has a typo in it:\n\nline 168:  for (int i \u003d 0; 1 \u003c stati.length; i++) {\n                           ^^^^^^^^^^^^^^^^\n\nI think it should be \"i \u003c stati.length\" but not \"1 \u003c stati.length\", this results in Array index out of range:\n\n*** ERROR ***: Wed Feb 07 13:59:50 EST 2007    java.lang.ArrayIndexOutOfBoundsException: Array index out of range: 3\n    \tat org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.addErrorStatus(J2EEDeployOperation.java:169)\n    \tat org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.deploy(J2EEDeployOperation.java:140)\n    \tat org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.execute(J2EEDeployOperation.java:102)\n    \tat org.eclipse.jst.j2ee.internal.actions.J2EEDeployAction$1.run(J2EEDeployAction.java:67)\n    \tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n",
+    "Janelle can you take a look?",
+    "I fixed the incorrect loop variable in...\nline 168:  for (int i \u003d 0; 1 \u003c stati.length; i++) {\n\nI checked the exception to ensure that it is not null before getting the cause...\nmainCause \u003d (ex !\u003d null \u0026\u0026 ex.getCause() !\u003d null) ? ex.getCause() : ex;\n\nPatch attached.",
+    "Created an attachment (id\u003d63430)\nfix for this bug\n\n",
+    "I approve - simple Null check",
+    "+1 \nAnything for Janelle (welcome to wtp  :) \nI especially like the \n1 --\u003e i\npart of the fix :) \n",
+    "+1",
+    "dropping to build",
+    "Thanks Janelle, verified in WTP 1.5.4.",
+    "Closing as verified."
+  ],
+  "commentCreationDates": [
+    "2007-02-07T17:19:56+01:00",
+    "2007-02-07T19:00:45+01:00",
+    "2007-03-16T17:53:48+01:00",
+    "2007-04-10T22:26:15+02:00",
+    "2007-04-10T22:27:25+02:00",
+    "2007-04-10T22:45:35+02:00",
+    "2007-04-11T00:02:38+02:00",
+    "2007-04-11T18:39:15+02:00",
+    "2007-04-13T20:19:14+02:00",
+    "2007-04-26T17:53:23+02:00",
+    "2007-05-02T16:53:18+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.addErrorStatus",
+          "source": "J2EEDeployOperation.java:172"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.addErrorStatus",
+          "source": "J2EEDeployOperation.java:169"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.deploy",
+          "source": "J2EEDeployOperation.java:140"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.execute",
+          "source": "J2EEDeployOperation.java:102"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.actions.J2EEDeployAction$1.run",
+          "source": "J2EEDeployAction.java:67"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "173303",
+      "date": "2007-02-07T17:19:56+01:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "message": "Array index out of range: 3",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.addErrorStatus",
+          "source": "J2EEDeployOperation.java:169"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.deploy",
+          "source": "J2EEDeployOperation.java:140"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.deploy.J2EEDeployOperation.execute",
+          "source": "J2EEDeployOperation.java:102"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.actions.J2EEDeployAction$1.run",
+          "source": "J2EEDeployAction.java:67"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 1,
+      "bugId": "173303",
+      "date": "2007-02-07T19:00:45+01:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "173303",
+  "bugId": "173303",
+  "date": "2007-02-07T17:19:56+01:00",
+  "product": "Web Tools",
+  "component": "jst.j2ee",
+  "severity": "normal"
+}

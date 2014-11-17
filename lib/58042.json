@@ -1,0 +1,134 @@
+{
+  "comments": [
+    "build I20040407\n\nWhile playing around with the browser example under debug, I saw the following\nin the console.  Not sure exactly what gesture caused it, but I wasn\u0027t doing\nanything fancy.  Just opening and closing views.\n\nLooks like the currentListener is not getting properly nulled out.\n\n\n!SESSION Apr 09, 2004 15:09:29.925 ---------------------------------------------\njava.version\u003d1.4.2_01\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments: -application org.eclipse.ui.examples.rcp.browser.app\n-application org.eclipse.ui.examples.rcp.browser.app -url d:\\web\\eclipsecon home.htm\n!ENTRY org.eclipse.ui 4 4 Apr 09, 2004 15:09:29.935\n!MESSAGE Unhandled event loop exception\n!ENTRY org.eclipse.ui 4 0 Apr 09, 2004 15:09:29.935\n!MESSAGE java.lang.NullPointerException\n!STACK 0\njava.lang.NullPointerException\n\tat\norg.eclipse.ui.internal.presentations.BasicStackPresentation$10.handleEvent(BasicStackPresentation.java:254)\n\tat\norg.eclipse.ui.presentations.PresentationUtil.handleMouseMove(PresentationUtil.java:79)\n\tat org.eclipse.ui.presentations.PresentationUtil.access$1(PresentationUtil.java:74)\n\tat\norg.eclipse.ui.presentations.PresentationUtil$2.handleEvent(PresentationUtil.java:50)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:769)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2584)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2262)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1436)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1407)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:244)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:140)\n\tat org.eclipse.ui.examples.rcp.browser.BrowserApp.run(BrowserApp.java:54)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:279)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:241)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:117)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:267)\n\tat org.eclipse.core.launcher.Main.run(Main.java:692)\n\tat org.eclipse.core.launcher.Main.main(Main.java:676)",
+    "When running the target, I had the latest loaded from HEAD, including your\nlatest DnD changes.\n\nJust tried to reproduce the problem now, but was unable to.\n",
+    "BasicStackPresentation.java:254 is:\n\tif ((tabFolder.getStyle() \u0026 SWT.TOP) !\u003d 0) {\n\nso tabFolder must be null.  But this can only occur if the presentation has been\ndisposed.  Which is why I think PresentationUtil.currentListener is not getting\nproperly cleared.\n\n",
+    "I got it as well. Add CC\u0027",
+    "*** Bug 57658 has been marked as a duplicate of this bug. ***",
+    "I got it too in I20040413 just closing a Java editor.",
+    "Finally! I figured out how to replicate this one.\n\n1. Arrange one view above another (with no other views stacked on top of the top\nview).\n2. Hold the mouse down on top of the close \"x\" icon. Hold it for several seconds\n(long enough to trigger a drag).\n3. Let go.\n\nThe top view will be closed, and the bottom view will move into exactly the same\nplace.The bottom view\u0027s move listener picks up the next mouse movement and\ntriggers a drag, but since the mousedown occurred on the top view it gets the\nnotification (even though it has been disposed).\n\nClicking and holding on the close icon for the last pane in a stack will also\ncause problems for fastviews and editors.\n\nI\u0027ve added two checks to prevent this:\n1. When a drag listener is removed, any partially-triggered drags for that\nlistener are cancelled.\n2. If the widget changes for any of the events involved in triggering a drag,\nall previous events are discarded.\n",
+    "*** Bug 59312 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2004-04-09T21:25:42+02:00",
+    "2004-04-09T21:32:23+02:00",
+    "2004-04-09T21:34:24+02:00",
+    "2004-04-13T17:36:29+02:00",
+    "2004-04-15T00:27:36+02:00",
+    "2004-04-17T01:35:06+02:00",
+    "2004-04-21T04:56:34+02:00",
+    "2004-04-22T00:13:13+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.presentations.BasicStackPresentation$10.handleEvent",
+          "source": "BasicStackPresentation.java:254"
+        },
+        {
+          "method": "org.eclipse.ui.presentations.PresentationUtil.handleMouseMove",
+          "source": "PresentationUtil.java:79"
+        },
+        {
+          "method": "org.eclipse.ui.presentations.PresentationUtil.access$1",
+          "source": "PresentationUtil.java:74"
+        },
+        {
+          "method": "org.eclipse.ui.presentations.PresentationUtil$2.handleEvent",
+          "source": "PresentationUtil.java:50"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:769"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2584"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2262"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1436"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1407"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:244"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:140"
+        },
+        {
+          "method": "org.eclipse.ui.examples.rcp.browser.BrowserApp.run",
+          "source": "BrowserApp.java:54"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:279"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:241"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:117"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:267"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:692"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:676"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "58042",
+      "date": "2004-04-09T21:25:42+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "58042",
+  "bugId": "58042",
+  "date": "2004-04-09T21:25:42+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "critical"
+}

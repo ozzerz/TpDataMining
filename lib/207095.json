@@ -1,0 +1,70 @@
+{
+  "comments": [
+    "I have a plugin that calls FileServiceSubSystem.getRemoteFileObject on a linux system. When the system is not connected, this code throws an NPE:\n\njava.lang.NullPointerException\n\tat org.eclipse.rse.services.dstore.AbstractDStoreService.getMinerElement(AbstractDStoreService.java:75)\n\tat org.eclipse.rse.services.dstore.AbstractDStoreService.getMinerElement(AbstractDStoreService.java:68)\n\tat org.eclipse.rse.internal.services.dstore.files.DStoreFileService.getElementFor(DStoreFileService.java:1297)\n\tat org.eclipse.rse.internal.services.dstore.files.DStoreFileService.getFile(DStoreFileService.java:767)\n\tat org.eclipse.rse.internal.services.dstore.files.DStoreFileService.getUserHome(DStoreFileService.java:889)\n\tat org.eclipse.rse.subsystems.files.core.servicesubsystem.FileServiceSubSystem.getUserHome(FileServiceSubSystem.java:264)\n\tat org.eclipse.rse.subsystems.files.core.servicesubsystem.FileServiceSubSystem.getRemoteFileObject(FileServiceSubSystem.java:187)\n\nI expect RSE to try and connect (i.e. the password dialog should come up) and if I press Cancel then this call should return null (or something appropriate) instead of throwing an NPE.",
+    "Throwing an NPE is certainly the wrong thing, but I\u0027d be very careful with an implicit connect during getRemoteFileObject().\n\nThe risk with implicit connect is that when a user manually disconnects a connection, some client code still wants a file object reference after disconnect so the system would immediately reconnect.\n\nCurrently, API Docs of IRemoteFileSubSystem#getRemoteFileObject() don\u0027t tell whether it does an implicit connect or not. The docs just say that it can be a long-running operation, and that it may throw a SystemMessageException.\n\nBecause of these API docs, and we don\u0027t want to change API if we don\u0027t have to, I think we should never return null, but throw a SystemMessageException if anything goes wrong. We might want to introduce a special subclass of SystemMessageException to handle the \"not connected\" case. API Docs should be extended to explain what happens if the subsystem is not connected.\n\nThis would be a great candidate for a Unit Test, such that we can verify all our subsystems (ssh, ftp, dstore) show the same behavior on a disconnected system.\n\nDave - what do you think?",
+    "(In reply to comment #1)\n\u003e ...\n\u003e The risk with implicit connect is that when a user manually disconnects a\n\u003e connection, some client code still wants a file object reference after\n\u003e disconnect so the system would immediately reconnect.\n\u003e \n\nFor the older IBM RSE, we did do the implicit connect whenever a subsystem query API was called and we were not connected.  IBM products were able to make the assumption that such calls could be made without having to worry about the connected state.  The subsystem method we used is still around - checkIsConnected().  As far as the client code referencing a file object after disconnect, we didn\u0027t have a problem - only when the user tried to do some kind of query with the referenced object did we implicitly reconnect.\n\n\n\u003e I think we should never return null, but throw a SystemMessageException if\n\u003e anything goes wrong. We might want to introduce a special subclass of\n\u003e SystemMessageException to handle the \"not connected\" case. API Docs should be\n\u003e extended to explain what happens if the subsystem is not connected.\n\u003e \n\nIf we do decide to put the implicit connect back, then we\u0027re unlikely to run into the case of having to return null or throw the system message exception.\n\nPersonally, I\u0027m in favour of bringing back implicit connect for getRemoteFileObject() calls (and possibly others) since it\u0027s intuitive, convenient and historical for IBM products.\n\n\n",
+    "Created an attachment (id\u003d81062)\npatch for implicit connect and dealing with NPEs in dstore file service\n\nI\u0027ve attached a patch that deals with NPEs in the dstore file service layer and also does implicit connect in FileServiceSubSystem.getRemoteFileObject() if required.",
+    "Ok, if it\u0027s always been like that (implicit connect) then we better fix it rather than changing it all.\n\nI\u0027d love to see JUnit tests for the implicit connect, such that we can verify that all FileService implementations show the same behavior.",
+    "I\u0027ve committed the code to cvs.  I ended up changing checkIsConnected() to take a progress monitor since, by the way it is used, we should be running the connect in the same job as the caller operation.  \n\nI\u0027ve also added a test case, FileSubsystemConsistencyTestCase, for comparing behaviours like this using the different service implementations.  Currently FTP is failing, so I\u0027ll need to figure that one out.",
+    "The problem I had with ftp was in the testcase.  I\u0027ll close this now.",
+    "Marking as breaking API since we changed\n   ISubSystem#checkIsConnected()\ninto\n   ISubSystem#checkIsConnected(IProgressMonitor)"
+  ],
+  "commentCreationDates": [
+    "2007-10-22T23:54:21+02:00",
+    "2007-10-23T13:43:00+02:00",
+    "2007-10-24T16:09:20+02:00",
+    "2007-10-24T16:11:28+02:00",
+    "2007-10-25T14:42:29+02:00",
+    "2007-10-25T18:29:11+02:00",
+    "2007-10-25T19:12:57+02:00",
+    "2007-10-31T18:07:31+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.rse.services.dstore.AbstractDStoreService.getMinerElement",
+          "source": "AbstractDStoreService.java:75"
+        },
+        {
+          "method": "org.eclipse.rse.services.dstore.AbstractDStoreService.getMinerElement",
+          "source": "AbstractDStoreService.java:68"
+        },
+        {
+          "method": "org.eclipse.rse.internal.services.dstore.files.DStoreFileService.getElementFor",
+          "source": "DStoreFileService.java:1297"
+        },
+        {
+          "method": "org.eclipse.rse.internal.services.dstore.files.DStoreFileService.getFile",
+          "source": "DStoreFileService.java:767"
+        },
+        {
+          "method": "org.eclipse.rse.internal.services.dstore.files.DStoreFileService.getUserHome",
+          "source": "DStoreFileService.java:889"
+        },
+        {
+          "method": "org.eclipse.rse.subsystems.files.core.servicesubsystem.FileServiceSubSystem.getUserHome",
+          "source": "FileServiceSubSystem.java:264"
+        },
+        {
+          "method": "org.eclipse.rse.subsystems.files.core.servicesubsystem.FileServiceSubSystem.getRemoteFileObject",
+          "source": "FileServiceSubSystem.java:187"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "207095",
+      "date": "2007-10-22T23:54:21+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "207095",
+  "bugId": "207095",
+  "date": "2007-10-22T23:54:21+02:00",
+  "product": "Target Management",
+  "component": "RSE",
+  "severity": "normal"
+}

@@ -1,0 +1,65 @@
+{
+  "comments": [
+    "Driver:   WTP 2.0.1 08/16 driver\n\nCreate a bottom-up Axis2 Web service with the converter bean (from the tutorial) selecting START for service and client.  On the client page, select \"generate test case\".  Click Finish.\n\nSelect the same converter bean and go through the steps above again, now when you click Finish after selecting \"generate test case\" on the Axis2 client page, you\u0027ll get this error:\n\nException occurred while code generation for WSDL  : null\n    java.lang.ArrayIndexOutOfBoundsException: Array index out of range: 37\n    at org.eclipse.jst.ws.axis2.core.utils.ClassLoadingUtil.init(ClassLoadingUtil.java:65)\n    at org.eclipse.jst.ws.axis2.consumption.core.command.Axis2ClientCodegenCommand.execute(Axis2ClientCodegenCommand.java:91)\n    at org.eclipse.wst.command.internal.env.core.fragment.CommandFragmentEngine.runCommand(CommandFragmentEngine.java:419)\n\nThis should be fixed in WTP 2.0.1.",
+    "Actually, I found that the problem would occur if you do \"generate test case\" the first time.  Then when creating Axis2 Web service client the second time, you don\u0027t have to \"generate test case\" and the problem would still occur.  However, if you do not \"generate test case\" the first time, doing another Axis2 Web service client the second time is OK.",
+    "Note that this is a regression from WTP 2.0.  Please try to address this for WTP 2.0.1 RC2 (DCUT 09/12).",
+    "Created an attachment (id\u003d78412)\nFix for the 202299\n\nI was able to find an isolated fix for the 202299, I have tested all the scenarios with this. Please review and commit. ",
+    "I\u0027ve reviewed and tested the patch.  It fixes the problem reported but I have one concern over the following  lines in ClassLoadingUtils:\n\nif (!(axis2ClassPath \u003d\u003dnull) || !libsLoaded){\n   classLoadPath \u003d getAxis2Libs(project);\n}\n\nIf the above IF statement is not executed, then \"classLoadPath\" remains to be set to null and would cause a NPE later on.  I trace through the code and it seems like the order of setting axis2Classpath and libsLoaded is that either one of the OR expression would always be set to TRUE.  Since this is the case, the IF statement should be removed (together with removing libsLoaded since it\u0027s only used here).\n\nPlease re-submit the patch with these changes.\nPlease also briefly describe the problem, the fix and the workaround if this problem is not fixed so that we could bring this to the PMC.\n\nI also have some other comments with this class, I\u0027ll open a seperate defect for this to be addressed later.",
+    "Created an attachment (id\u003d78608)\nFix for the 202299\n\nAttaching the corrected patch to include it in the latest build. I have corrected the statement condition after looking at it. NOTE : we need the libsLoaded variable too, if there was a failure in the libs loading in the earlier attempt, like in a combined client and server scenario. Tested with the latest WTP build with all the possible scenarios and safe to apply.\n\nYes Kathy , we ll cleanup the Util class when we have the freedom with bulk changes. \n\nThanks \n\nLahiru",
+    "Moving to PMC requested approval on Kathy\u0027s behalf. ",
+    "After talking to Lahiru regarding the latest patch, we agreed that it\u0027s safer\nto change: \n\nif ((!axis2ClassPath \u003d\u003dnull) || !libsLoaded){\n        classLoadPath \u003d getAxis2Libs(project);\n}\n\nto \n\nif ((classLoadPath \u003d\u003dnull) || !libsLoaded){\n        classLoadPath \u003d getAxis2Libs(project);\n}\n\nThis would ensure that classLoadPath is always set to a non-null value.  Lahiru\nwould be uploading an updated patch soon.\n",
+    "Created an attachment (id\u003d78708)\nattaching the corrected patch\n\nobsolete the earlier patches and attaching the new patch after the discussion. \nLahiru ",
+    "I\u0027ve reviewed and tested the patch.  Asking for PMC approval for WTP 2.0.1 since this is a regression from WTP 2.0.\n\nThe problem:\n\nIf a user select \"generate test case to test service\" the first time they create an Axis2 Web service client, then the second time creating Axis2 Web service client in the same project would result in an ArrayIndexOutOfBoundsException and the user would not be able to finish the wizard.\n\nThe fix:\n\nThe problem arises because selecting \"generate test case\" adds one more JAR (junit.jar) to the lib directory.  So we need to add an extra check:\n\n     else if(urls !\u003d null \u0026\u0026 (urls.length)!\u003d(classLoadPath.length)){\n\turls\u003d new URL[classLoadPath.length];\n     }\n\nNow, the second time the client wizard is run, if the number of JARs in the lib directory (classLoadPath.length) is different than what was in the \"urls\" variable, the urls variable will be re-calculated again based on the number of JARs in the lib directory.  This avoids the ArrayIndexOutOfBoundsException when trying to set the classpath later on in the init() method.\n\nAlso, changing the check for calculating classLoadPath to avoid possible NPE.\n\nRisk:\n\nLow.  Change isolated in a couple of places in one file.  This has been tested by Lahiru and myself.\n\nWorkaround:\n\nWithout this fix, the workaround is for the user manually remove the generated JUnit, remove junit.jar from the project\u0027s build path and to delete the junit.jar from the WEB-INF/lib directory after using \"generate test case\" option when they need to create Axis2 client the second time.  ",
+    "Approving since this is a regression.",
+    "Released to HEAD and R2_0_maintenance as v200709191532.",
+    "Verified on WTP 2.0.1 RC3."
+  ],
+  "commentCreationDates": [
+    "2007-09-05T19:10:51+02:00",
+    "2007-09-07T16:26:20+02:00",
+    "2007-09-10T19:42:01+02:00",
+    "2007-09-14T11:53:25+02:00",
+    "2007-09-14T19:56:32+02:00",
+    "2007-09-18T07:01:36+02:00",
+    "2007-09-19T06:17:09+02:00",
+    "2007-09-19T06:20:59+02:00",
+    "2007-09-19T06:47:21+02:00",
+    "2007-09-19T07:07:33+02:00",
+    "2007-09-19T15:01:29+02:00",
+    "2007-09-19T17:42:35+02:00",
+    "2007-09-27T19:02:34+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "message": "Array index out of range: 37",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.ws.axis2.core.utils.ClassLoadingUtil.init",
+          "source": "ClassLoadingUtil.java:65"
+        },
+        {
+          "method": "org.eclipse.jst.ws.axis2.consumption.core.command.Axis2ClientCodegenCommand.execute",
+          "source": "Axis2ClientCodegenCommand.java:91"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.core.fragment.CommandFragmentEngine.runCommand",
+          "source": "CommandFragmentEngine.java:419"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "202299",
+      "date": "2007-09-05T19:10:51+02:00",
+      "product": "Web Tools",
+      "component": "jst.ws",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "202299",
+  "bugId": "202299",
+  "date": "2007-09-05T19:10:51+02:00",
+  "product": "Web Tools",
+  "component": "jst.ws",
+  "severity": "critical"
+}

@@ -1,0 +1,66 @@
+{
+  "comments": [
+    "Build M5\n\nConsider the following .java file:\n\npublic class Hello {\n\n\tpublic static void main(String[] args) {\n\t\tnew Hello().doit();\n\t}\n\n\tpublic void doit() {\n\t\tString foo \u003d\n\t\t\t((Object)null).toString();\n\t}\n\n}\n\nEclipse produces the following debug table for doit():\n  pc: 0 line number: 9\n  pc: 4 line number: 8\n  pc: 5 line number: 7\n\nFor the same file, javac (1.3) produces the following line number table:\n  pc: 0 line number: 8\n  pc: 8 line number: 10\n\nThe javac line number table results in a superior debug experience for the \nuser.\n\nIt doesn\u0027t make sense to split the assignment up into two lines in the line \nnumber table. This makes the program difficult to debug, since a breakpoint on \nthe first line of the method will never be hit!\n\nI also don\u0027t understand why the implicit return got mapped to the method \ndeclaration.",
+    "The disassembler output is:\n/* Stack: 1, Locals: 2 */\n0\taconst_null\n1\tinvokevirtual #25 \n\u003cMethod java.lang.Object\u003ejava.lang.String toString()\u003e\n4\tastore_1\n5\treturn\n\nLine \nnumber attribute:\n[pc: 0, line: 9]\n[pc: 4, line: 8]\n[pc: 5, line: 7]\n\nThe aconst_null is \nthe generated code for the ((Object)null). This is on line 9. The astore_1 is the resulting code \nfor the assignment. The assignment is done on line 8. So I don\u0027t see what is wrong.\n\nFor the \nimplicit return being mapped to the line that contains the close brace of the method of the method \ndeclaration doesn\u0027t strike me at all. It is a matter of taste and I really don\u0027t find one is better \nthan the other one.\n\nJavac produces:\n\tLine number attribute:\n\t\t[pc: 0, line: 8]\n\t\t[pc: \n8, line: 10]\n\nI cannot explain the first line. The opcode at 0 is aconst_null. Its \ncorresponding source is on line 9. So, why is it mapped to line 8?\n\nPutting a breakpoint of the \nfirst line of the method doesn\u0027t mean that this breakpoint will be hit all the time. In this case you \nput the breakpoint on an assignment line and it will be hit only if the assignment can be done. Like \nthere is an exception before the assignment is executed, you won\u0027t hit the breakpoint. But \nlooking at the stack trace:\njava.lang.NullPointerException\n\tat \nHello.doit(Hello.java:9)\n\tat Hello.main(Hello.java:4)\nException in thread \"main\" \n\ncan tell you that something bad happened on line 9. Put your breakpoint on that line and you will \nhit it.\n\nI would not change anything to the line number table attribute because it really \ncorrespond to what it should be. Mapping between lines of code to generated code. This is the case, \nso there is nothing \"boggus\" or incorrect with that.\n\nI would say that javac is incorrect in \nthis case, because it doesn\u0027t make a difference between:\nString foo \u003d \n((Object)null).toString();\nand:\nString foo \u003d\n ((Object)null).toString();\nBut there \nis one.\n\nI consider our behavior as an enhancement, because multiple lines assignements \nresult in multiple entries in the line number table attribute which results in a better debugging \nsupport.\n\nIf I debug the javac .class file, you get the first line highlighted and then you get a \nNPE without seeing the line containing the null.toString() highlighted. Then you have to \nunderstand what happened.\n\nI don\u0027t see what we can fix in this case.",
+    "It should be read:\n\nI would say that javac is incorrect in\nthis case, because it doesn\u0027t make a \ndifference between:\nString foo \u003d ((Object)null).toString(); // on a single \nline\nand:\nString foo \u003d\n ((Object)null).toString();\nBut there is one.\n\nIt seems that \nbugzilla cut my line.",
+    "Ok to close?",
+    "I\u0027m still not entirely convinced that we\u0027re doing the right thing.\n\nIt\u0027s very confusing for the user -- I\u0027m quite experienced with Java and \nbytecodes, and I had to disassemble some class files to figure out why my \nbreakpoint wasn\u0027t being hit.\n\nBut on the other hand I understand that the line number table is, strictly \nspeaking, accurate. In fact it\u0027s more accurate than Sun\u0027s table.\n\nPerhaps this is a problem better solved by the debugger, although I don\u0027t \nreally see what they can do in this case, either.",
+    "I think this is a limitation related to the way the line number table attribute is supposed to be \nbuilt. We do a strict mapping from line numbers to positions in the bytes of the code attribute. In \nthis case, we provide an accurate table. We cannot start introducing bugs in the line number table \nsimply to fix this problem. Our table is generic and I think this specific case cannot be handle \nproperly. Sun\u0027s line number table attribute is incorrect if I refer to the JVM specs. There is not \nmuch we can do to fix this, because there is really nothing to fix.",
+    "Your case looks weird, because you don\u0027t assign a field. If you replace your example \nwith:\n1:public class Hello {\n2:\n3:\tString foo;\n4:\t\n5:\tpublic static void \nmain(String[] args) {\n6:\t\tnew Hello().doit();\n7:\t}\n8:\n9:\tpublic void doit() \n{\n10:\t\tfoo \u003d\n11:\t\t\t((Object)null).toString();\n12:\t}\n13:\n14:}\nYou generate the \nfollowing table:\n\tLine number attribute:\n\t\t[pc: 0, line: 10]\n\t\t[pc: 1, line: 11]\n\t\t[pc: \n5, line: 10]\n\t\t[pc: 8, line: 9]\nAnd putting a breakpoint on the first line will work as \nexpected.\nSun is not improving their table:\n\tLine number attribute:\n\t\t[pc: 0, line: \n10]\n\t\t[pc: 11, line: 12]\nSo I really don\u0027t think we can change our actual behavior. If we map the \nopcode 0 onto the first line (line 8 in yout test case), we will lose the fact that the second line \n((Object) null).toString(); is highlighted with our table. Sun never highlights this line. I \nconsider this behavior as incorrect. I will try to see if we can add another entry in your case.",
+    "I suppose I would encounter the same problem if I did:\n\nmyStaticMethod(\n ((Object)null).toString()\n);\n\nso I\u0027m convinced that it\u0027s probably not a problem that can be solved by the \ncompiler.\n\nThanks for looking at it.\n",
+    "If you write something like:\n1:public class Hello {\n2:\n3:\tpublic static void \nmain(String[] args) {\n4:\t\tdoit();\n5:\t}\n6:\n7:\tpublic static void doit() \n{\n8:\t\t((Object)null)\n9:\t\t\t.toString();\n10:\t}\n11:\n12:}\n\nThen we \ngenerate:\n\t\t[pc: 0, line: 8]\n\t\t[pc: 1, line: 9]\n\t\t[pc: 5, line: 7]\nAnd it will behave as you \nexpected it. The problem we have with your first test case is that there is no bytecode before the \naconst_null which is on the next line compare to the \"String foo \u003d \". Then this will be the first \nentry in the table.",
+    "I don\u0027t think that I was very clear.\n\nI meant that:\n\n1:public static void doit() {\n2:  myStaticMethod(\n3:    ((Object)null).toString()\n4:  );\n5:}\n\nwouldn\u0027t stop at a breakpoint on line 2, since no bytecodes are run for that \nline until after the exception has been thrown.\n\nBut if myStaticMethod weren\u0027t static it would work (because of the \naload0) . . . Java is weird sometimes \u003cg\u003e.\n\n",
+    "In this case, javac persists to provide a table which doesn\u0027t match the lines in \nthe source. Like they have the same problem, when a receiver is on the first \nline (aload_0), I believe it is a bug and not a specific way to handle this \ncase.\nAre you ok if we don\u0027t change anything?",
+    "Yes. I\u0027d still like to find a way to address this, but I think that the .class \nfile debug info just isn\u0027t powerful enough. What you really want is expression \ninfo, not just line info.",
+    "We should not put a entry for the implicit return to the method declaration line. The reason for \nthat is that putting a breakpoint on the method declaration line is confusing, because the \nbreakpoint is hit when the method is exited and not when the method is entered. This is not natural \nand could be improved by putting this entry on the line that contains the closing brace of the \nmethod.",
+    "I think the best scenario is to exit the method when there is a free return instead of jumping to the \nline of the declaration of the method. Then the free return has the same behavior than a \nreturn.\nDoes this address your debugging issue?\nIs this ok for you?",
+    "Removing the entry for the free return is not a solution. The best solution seems to map this \nbytecode to the body end of the method declaration.\n",
+    "Verified."
+  ],
+  "commentCreationDates": [
+    "2002-05-04T01:52:02+02:00",
+    "2002-05-06T23:44:46+02:00",
+    "2002-05-07T00:16:31+02:00",
+    "2002-05-07T16:40:22+02:00",
+    "2002-05-07T17:19:26+02:00",
+    "2002-05-07T17:39:54+02:00",
+    "2002-05-07T20:08:51+02:00",
+    "2002-05-07T20:15:18+02:00",
+    "2002-05-07T20:29:00+02:00",
+    "2002-05-07T20:35:31+02:00",
+    "2002-05-07T22:23:49+02:00",
+    "2002-05-07T22:30:28+02:00",
+    "2002-05-07T23:57:36+02:00",
+    "2002-05-16T22:05:23+02:00",
+    "2002-05-21T17:46:18+02:00",
+    "2002-06-03T17:32:17+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "Hello.doit",
+          "source": "Hello.java:9"
+        },
+        {
+          "method": "Hello.main",
+          "source": "Hello.java:4"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "15250",
+      "date": "2002-05-06T23:44:46+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "15250",
+  "bugId": "15250",
+  "date": "2002-05-04T01:52:02+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

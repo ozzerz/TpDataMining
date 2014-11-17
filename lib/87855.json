@@ -1,0 +1,130 @@
+{
+  "comments": [
+    "Here is a stack trace I found when trying to kill a running process by \npressing the \"kill\" button in the console view. I use 3.1M5a.\n\n!ENTRY org.eclipse.ui 4 0 2005-03-12 14:26:25.58\n!MESSAGE java.lang.NullPointerException\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.swt.widgets.Table.callWindowProc(Table.java:156)\n\tat org.eclipse.swt.widgets.Table.sendMouseDownEvent(Table.java:2084)\n\tat org.eclipse.swt.widgets.Table.WM_LBUTTONDOWN(Table.java:3174)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:3057)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:3480)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessageW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessage(OS.java:1619)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2539)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1612)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1578)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.java:293)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:144)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run\n(IDEApplication.java:102)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:228)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:333)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:150)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:268)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:260)\n\tat org.eclipse.core.launcher.Main.run(Main.java:887)\n\tat org.eclipse.core.launcher.Main.main(Main.java:871)",
+    "This code changed due to a bug fix for:\n\nhttps://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d79064\n\nSteve, Silenio, The NPE happens in Table.callWindowProc() after the call to \nOS.CallWindowProc().  Should we guard against the possiblity that display is \nbeing set to null during the OS.CallWindowProc processing?\n\ncase OS.WM_LBUTTONDOWN:\ncase OS.WM_MBUTTONDOWN:\ncase OS.WM_RBUTTONDOWN:\ncase OS.WM_XBUTTONDOWN: {\n\tdisplay.ignoreMsgFilter \u003d true;\n\tint code \u003d OS.CallWindowProc (TableProc, hwnd, msg, wParam, lParam);\n\tdisplay.ignoreMsgFilter \u003d false;\n\treturn code;\n}\n\nI have been unable to create a simple example where the display gets nulled \nout in this way but it appears to be possible.",
+    "Changed the code so that display is stored locally in the case the widget is \ndisposed during OS.CallWindowProc:\n\ncase OS.WM_LBUTTONDOWN:\ncase OS.WM_MBUTTONDOWN:\ncase OS.WM_RBUTTONDOWN:\ncase OS.WM_XBUTTONDOWN:\n\t// Keep a local reference to display because the widget could be\n\t// disposed during the call to CallWindowProc().\n\tDisplay display \u003d this.display;\n\tdisplay.ignoreMsgFilter \u003d true;\n\tint code \u003d OS.CallWindowProc (TreeProc, hwnd, msg, wParam, lParam);\n\tdisplay.ignoreMsgFilter \u003d false;\n\treturn code;\n\n\nLeaving the bug report open and assigning to Steve because I think the \noriginal bug 79064 is not completely solved and this is exposing yet another \ncase of the same problem.",
+    "It\u0027s not a case of bug 79064.  Depending what WM_LBUTTONDOWN does in the \nWindows code for Table, other callbacks might run.  For example, if the C code \nin Windows does UpdateWindow(), then WM_PAINT might come in.  If it does a \nPeekMessage(), then cross process message sends might be happening too.  If \nthat is the case, then the original fix didn\u0027t fix this problem."
+  ],
+  "commentCreationDates": [
+    "2005-03-12T12:29:41+01:00",
+    "2005-03-14T17:05:11+01:00",
+    "2005-03-14T21:11:08+01:00",
+    "2005-03-29T00:28:47+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.widgets.Table.callWindowProc",
+          "source": "Table.java:156"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Table.sendMouseDownEvent",
+          "source": "Table.java:2084"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Table.WM_LBUTTONDOWN",
+          "source": "Table.java:3174"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3057"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:3480"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessage",
+          "source": "OS.java:1619"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2539"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1612"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1578"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:293"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:144"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:102"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:228"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:333"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:150"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:268"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:260"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:887"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:871"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "87855",
+      "date": "2005-03-12T12:29:41+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "87855",
+  "bugId": "87855",
+  "date": "2005-03-12T12:29:41+01:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

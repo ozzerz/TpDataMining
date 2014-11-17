@@ -1,0 +1,173 @@
+{
+  "comments": [
+    "When BIRT detected jdbc error, it does not propogate this exception to report generation task.  As a result, application will treat the report generation task finished successfully.\n\n\n\nJun 5, 2006 11:45:06 AM org.eclipse.birt.report.data.oda.jdbc.JDBCDriverManager loadAndRegisterDriver\nWARNING: Failed to load JDBC driver class: net.sourceforge.jtds.jdbc.Driver\nJun 5, 2006 11:45:06 AM org.eclipse.birt.data.engine.odaconsumer.ConnectionManager openConnection\nSEVERE: Cannot open connection.\norg.eclipse.birt.report.data.oda.jdbc.JDBCException: Cannot load JDBC Driver class: net.sourceforge.jtds.jdbc.Driver \n\tat org.eclipse.birt.report.data.oda.jdbc.JDBCDriverManager.loadAndRegisterDriver(JDBCDriverManager.java:461)\n\tat org.eclipse.birt.report.data.oda.jdbc.JDBCDriverManager.doConnect(JDBCDriverManager.java:145)\n\tat org.eclipse.birt.report.data.oda.jdbc.JDBCDriverManager.getConnection(JDBCDriverManager.java:94)\n\tat org.eclipse.birt.report.data.oda.jdbc.Connection.connectByUrl(Connection.java:150)\n\tat org.eclipse.birt.report.data.oda.jdbc.Connection.open(Connection.java:111)\n\tat org.eclipse.datatools.connectivity.oda.consumer.helper.OdaConnection.open(OdaConnection.java:235)\n\tat org.eclipse.birt.data.engine.odaconsumer.ConnectionManager.openConnection(ConnectionManager.java:124)\n\tat org.eclipse.birt.data.engine.executor.DataSource.newConnection(DataSource.java:120)\n\tat org.eclipse.birt.data.engine.executor.DataSource.open(DataSource.java:108)\n\tat org.eclipse.birt.data.engine.impl.DataSourceRuntime.openOdiDataSource(DataSourceRuntime.java:206)\n\tat org.eclipse.birt.data.engine.impl.QueryExecutor.openDataSource(QueryExecutor.java:258)\n\tat org.eclipse.birt.data.engine.impl.QueryExecutor.prepareExecution(QueryExecutor.java:207)\n\tat org.eclipse.birt.data.engine.impl.PreparedQuery.doPrepare(PreparedQuery.java:359)\n\tat org.eclipse.birt.data.engine.impl.PreparedDataSourceQuery.execute(PreparedDataSourceQuery.java:187)\n\tat org.eclipse.birt.data.engine.impl.PreparedDataSourceQuery.execute(PreparedDataSourceQuery.java:170)\n\tat org.eclipse.birt.report.engine.data.dte.DataGenerationEngine.doExecuteQuery(DataGenerationEngine.java:121)\n\tat org.eclipse.birt.report.engine.data.dte.AbstractDataEngine.execute(AbstractDataEngine.java:214)\n\tat org.eclipse.birt.report.engine.data.dte.AbstractDataEngine.execute(AbstractDataEngine.java:204)\n\tat org.eclipse.birt.report.engine.executor.QueryItemExecutor.openResultSet(QueryItemExecutor.java:62)\n\tat org.eclipse.birt.report.engine.executor.TableItemExecutor.execute(TableItemExecutor.java:123)\n\tat org.eclipse.birt.report.engine.executor.ReportExecutorVisitor.visitTableItem(ReportExecutorVisitor.java:205)\n\tat org.eclipse.birt.report.engine.ir.TableItemDesign.accept(TableItemDesign.java:69)\n\tat org.eclipse.birt.report.engine.executor.ReportExecutor.execute(ReportExecutor.java:129)\n\tat org.eclipse.birt.report.engine.executor.ReportExecutor.execute(ReportExecutor.java:89)\n\tat org.eclipse.birt.report.engine.api.impl.RunTask.doRun(RunTask.java:202)\n\tat org.eclipse.birt.report.engine.api.impl.RunTask.run(RunTask.java:111)\n\tat org.eclipse.birt.report.engine.api.impl.RunTask.run(RunTask.java:96)\n\tat com.actuate.reportapi.engine.birt.ReportGenerationTask.generateReport(ReportGenerationTask.java:100)\n\tat com.actuate.reportapi.engine.ReportGenerationTaskBase.doTask(ReportGenerationTaskBase.java:129)\n\tat com.actuate.reportapi.engine.Task.execute(Task.java:182)\n\tat com.actuate.reportapi.enginemanager.ThreadPool$ControlRunnable.run(ThreadPool.java:534)\n\tat java.lang.Thread.run(Thread.java:595)",
+    "This exception is thrown. From below code. You can see that not only warning is logged, but also an exception is throw out.\n\nif ( driverClass \u003d\u003d null ) //line  457\n{\n\tlogger.warning( \"Failed to load JDBC driver class: \"+ className );\n\tthrow new JDBCException( ResourceConstants.CANNOT_LOAD_DRIVER,\n\t\tnull,\n\t\tclassName );\n}\n\nCan you tell me in which case such an exception is hidden?",
+    "I did not write \"no exception was thrown\".  I wrote:\n\"it does not propogate this exception to report generation task\".  \n\nAfter exception was thrown, BIRT went through these methods:\n\nOdaConnection.open(Properties)\nDataGenerationEngine.doExecuteQuery(DteResultSet, IQueryDefinition) \nDataGenerationEngine(AbstractDataEngine).execute(IResultSet, IBaseQueryDefinition)\nDataGenerationEngine(AbstractDataEngine).execute(IResultSet, IBaseQueryDefinition) \n\n\nDataGenerationEngine.doExecuteQuery catches this exception and save it to \"context\" (see below appended code).  You can trace through the remaining codes and find out whether any other methods process this \"context\" which contains the exception information.  This exception needs to propagate to BIRT engine\u0027s report generation task which then needs to relay it to application (e.g., iPortal) because report generation failed and the generated rptdocument is useless.\n\nprotected IResultSet doExecuteQuery( DteResultSet resultSet, IQueryDefinition query )\n{\n....\n...\n\n\t\tcatch ( BirtException be )\n\t\t{\n\t\t\tlogger.log( Level.SEVERE, be.getMessage( ) );\n\t\t\tcontext.addException( be );\n\t\t}\n\n\t\treturn null;\n}\n",
+    "The exception is thrown by DtE, and is suppressed by Engine.",
+    "The report engine tries to finish the report generation at all the times. It misses an API to export the running status. We will add an interfact to get the running result instead of throws out the exception directly.",
+    "This is a required fix for 2.1. Without this BIRT appl would not be able to detect a failed job run.",
+    "We need add all DTE exceptions to the execution context.",
+    "Fixed",
+    "Please invoke IEngineTask.getErrors() to fetch the error list and confirm if the task succeed  or not."
+  ],
+  "commentCreationDates": [
+    "2006-06-05T21:20:38+02:00",
+    "2006-06-06T03:41:44+02:00",
+    "2006-06-06T23:12:14+02:00",
+    "2006-06-07T03:38:31+02:00",
+    "2006-06-09T07:10:31+02:00",
+    "2006-06-09T21:27:53+02:00",
+    "2006-06-16T03:04:27+02:00",
+    "2006-06-16T04:54:10+02:00",
+    "2006-06-16T04:57:30+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.birt.report.data.oda.jdbc.JDBCException",
+      "message": "Cannot load JDBC Driver class: net.sourceforge.jtds.jdbc.Driver",
+      "elements": [
+        {
+          "method": "org.eclipse.birt.report.data.oda.jdbc.JDBCDriverManager.loadAndRegisterDriver",
+          "source": "JDBCDriverManager.java:461"
+        },
+        {
+          "method": "org.eclipse.birt.report.data.oda.jdbc.JDBCDriverManager.doConnect",
+          "source": "JDBCDriverManager.java:145"
+        },
+        {
+          "method": "org.eclipse.birt.report.data.oda.jdbc.JDBCDriverManager.getConnection",
+          "source": "JDBCDriverManager.java:94"
+        },
+        {
+          "method": "org.eclipse.birt.report.data.oda.jdbc.Connection.connectByUrl",
+          "source": "Connection.java:150"
+        },
+        {
+          "method": "org.eclipse.birt.report.data.oda.jdbc.Connection.open",
+          "source": "Connection.java:111"
+        },
+        {
+          "method": "org.eclipse.datatools.connectivity.oda.consumer.helper.OdaConnection.open",
+          "source": "OdaConnection.java:235"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.odaconsumer.ConnectionManager.openConnection",
+          "source": "ConnectionManager.java:124"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.executor.DataSource.newConnection",
+          "source": "DataSource.java:120"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.executor.DataSource.open",
+          "source": "DataSource.java:108"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.DataSourceRuntime.openOdiDataSource",
+          "source": "DataSourceRuntime.java:206"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.QueryExecutor.openDataSource",
+          "source": "QueryExecutor.java:258"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.QueryExecutor.prepareExecution",
+          "source": "QueryExecutor.java:207"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedQuery.doPrepare",
+          "source": "PreparedQuery.java:359"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedDataSourceQuery.execute",
+          "source": "PreparedDataSourceQuery.java:187"
+        },
+        {
+          "method": "org.eclipse.birt.data.engine.impl.PreparedDataSourceQuery.execute",
+          "source": "PreparedDataSourceQuery.java:170"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.data.dte.DataGenerationEngine.doExecuteQuery",
+          "source": "DataGenerationEngine.java:121"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.data.dte.AbstractDataEngine.execute",
+          "source": "AbstractDataEngine.java:214"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.data.dte.AbstractDataEngine.execute",
+          "source": "AbstractDataEngine.java:204"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.QueryItemExecutor.openResultSet",
+          "source": "QueryItemExecutor.java:62"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.TableItemExecutor.execute",
+          "source": "TableItemExecutor.java:123"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.ReportExecutorVisitor.visitTableItem",
+          "source": "ReportExecutorVisitor.java:205"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.ir.TableItemDesign.accept",
+          "source": "TableItemDesign.java:69"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.ReportExecutor.execute",
+          "source": "ReportExecutor.java:129"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.executor.ReportExecutor.execute",
+          "source": "ReportExecutor.java:89"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.RunTask.doRun",
+          "source": "RunTask.java:202"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.RunTask.run",
+          "source": "RunTask.java:111"
+        },
+        {
+          "method": "org.eclipse.birt.report.engine.api.impl.RunTask.run",
+          "source": "RunTask.java:96"
+        },
+        {
+          "method": "com.actuate.reportapi.engine.birt.ReportGenerationTask.generateReport",
+          "source": "ReportGenerationTask.java:100"
+        },
+        {
+          "method": "com.actuate.reportapi.engine.ReportGenerationTaskBase.doTask",
+          "source": "ReportGenerationTaskBase.java:129"
+        },
+        {
+          "method": "com.actuate.reportapi.engine.Task.execute",
+          "source": "Task.java:182"
+        },
+        {
+          "method": "com.actuate.reportapi.enginemanager.ThreadPool$ControlRunnable.run",
+          "source": "ThreadPool.java:534"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "145414",
+      "date": "2006-06-05T21:20:38+02:00",
+      "product": "BIRT",
+      "component": "Report Engine",
+      "severity": "major"
+    }
+  ],
+  "groupId": "145414",
+  "bugId": "145414",
+  "date": "2006-06-05T21:20:38+02:00",
+  "product": "BIRT",
+  "component": "Report Engine",
+  "severity": "major"
+}

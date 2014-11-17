@@ -1,0 +1,132 @@
+{
+  "comments": [
+    "Ok I\u0027ve checked that archives and this isn\u0027t there... tried posting to \neclipse.tools, no response.\n\nCan\u0027t get the type dialog to work right in some cases when using a scope\nobtained by calling\n\nSearchEngine.createHierarchyScope. Some code:\n\nIJavaSearchScope scope \u003d SearchEngine.createHierarchyScope(myIType);\n\nSelectionDialog dialog \u003d\nJavaUI.createTypeDialog(\n    getShell(),\n    new ProgressMonitorDialog(getShell()),\n    scope(),\n    IJavaElementSearchConstants.CONSIDER_CLASSES,\n    false);\n\nif (dialog.open .. yada yada.\n\nThe shown dialog does whats its supposed to as it own shows classes in the\nhierachy scope. But when I select one thats found in a Jar in project\nclasspath, I get an\nerror: \"Could not uniquely map the type name to a type.\"\n\nand the exception:\n\njava.lang.NullPointerException\n at\ncom.iw.plugins.spindle.ui.TypeDialogCellEditor.openDialogBox(TypeDialogCellE\nditor.java:108)\n at\ncom.iw.plugins.spindle.ui.EditableDialogCellEditor$2.widgetSelected(Editable\nDialogCellEditor.java:146)\n at org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:85)\n at org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:74)\n at org.eclipse.swt.widgets.Widget.notifyListeners(Widget.java:637)\n at org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1413)\n at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1205)\n at org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:788)\n at org.eclipse.ui.internal.Workbench.run(Workbench.java:771)\n at\norg.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.jav\na:777)\n at org.eclipse.core.boot.BootLoader.run(BootLoader.java:319)\n at java.lang.reflect.Method.invoke(Native Method)\n at org.eclipse.core.launcher.Main.basicRun(Main.java:151)\n at org.eclipse.core.launcher.Main.run(Main.java:502)\n at org.eclipse.core.launcher.Main.main(Main.java:362)\n\n\n\nIf the class is found in my source directories, no problem everything works\nok.\n\nThis does not happen when I launch my plugin from within Eclipse (i.e launch\nanother workspace), but when the plugin is installed in another instance of\neclipse by putting it in the plugins directory - then the error happens\nevery time.\n\nWe tried using a class and an interface as \"myIType\" above -\u003e the problem\nappears as described regardless.\n\nGeoff",
+    "*** Bug 12991 has been marked as a duplicate of this bug. ***",
+    "I suspect this is a consequence of the Jar element ambiguity, i.e., a JAR \nelements container is ambiguous since the JAR element is shared. \n \nThe ambiguity could be resolved by an additional API that also takes the \nproject containing the type as an argument. \n\nMoving to JDT CORE for investigation.",
+    "FYI...\n\nI copied the source of HierarchyScope to my own class and added the following \ncode to fix the bug for me. It seems to work OK so far.\n\npublic class FixedHierarchyScope ... {\n   private IType parent;\n   .\n   .\n   .\n   public FixedHierarchyScope(IType type) throws JavaModelException {\n      this.parent \u003d type;\n      .\n      .\n      .\n   }\n\n   private void buildResourceVector() throws JavaModelException {\n      .\n      .\n      .\n      paths.put(parent.getJavaProject().getPath(), parent);\n      .\n      .\n      .\n   }\n}\n\nJeff",
+    "Jeff, do you still have the problem in a more recent build (ie. \u003e\u003d M5) and \nwithout your patch?",
+    "Its seems to be ok in M5. Only had time for a very quick glance though. ",
+    "Ack and thanks for your prompt reply! \n\nPlease reopen if you see the problem again.",
+    "I tested with M5 and still got \"Could not uniquely map the type name to a type.\"\n\nHere\u0027s the code I run...\n\n\tprivate IType chooseType(String base) {\n\t\tIPackageFragmentRoot root \u003d getPackageFragmentRoot();\n\t\tif (root \u003d\u003d null) {\n\t\t\treturn null;\n\t\t}\n\n\t\ttry {\n\t\t\tIType type \u003d\n\t\t\t\tJavaModelUtil.findType(root.getJavaProject\n(), \"java.text.Format\");\n\t\t\tIJavaSearchScope scope \u003d new HierarchyScope(type);\n\n\t\t\tTypeSelectionDialog dialog \u003d\n\t\t\t\tnew TypeSelectionDialog(\n\t\t\t\t\tgetShell(),\n\t\t\t\t\tgetWizard().getContainer(),\n\t\t\t\t\tIJavaSearchConstants.CLASS,\n\t\t\t\t\tscope);\n\t\t\tdialog.setTitle(\"Open Type...\");\n\t\t\tdialog.setMessage(\"Message...\");\n\n\t\t\tif (dialog.open() \u003d\u003d dialog.OK) {\n\t\t\t\treturn (IType) dialog.getFirstResult();\n\t\t\t}\n\t\t} catch (Exception ex) {\n\t\t\tex.printStackTrace();\n\t\t}\n\n\t\treturn null;\n\t}\n\n\nThe dialog comes up just fine, but when I select a type and hit \"Ok\", I get the \nabove error message.",
+    "Just checked it again, works for me in M5 - code is as in my initial report",
+    "Jeff, do you have a test case that would show the problem? I guess it depends \non the content of your workspace.",
+    "I just found a case where this bug still occurs in \nbuild 200206271827\nWin2k\n\nTo reproduce - start eclipse in a new workspace\ncreate a new project - add a jar containing a hierachy of Types\nIn the source folders, ensure that there are absolutly not types that extends \nor implement any of the types in the jar file.\n\nIf a plugin were to execute the following:\n\nIJavaSearchScope scope \u003d SearchEngine.createHierarchyScope(myIType);\n\nSelectionDialog dialog \u003d\nJavaUI.createTypeDialog(\n    getShell(),\n    new ProgressMonitorDialog(getShell()),\n    scope(),\n    IJavaElementSearchConstants.CONSIDER_CLASSES,\n    false);\n\nif (dialog.open .. yada yada.\n\nwhere myIType is one in the jar file, then the Type Dialog will throw the \noriginal error.\n\nI have debugged through this and it looks like HierachyScope\u0027s \nenclosingProjectsAndJarFiles collection is created wrong in this case as\norg.eclipse.jdt.internal.corext.util.TypeInfo.findJarInScope() can\u0027t find the \nenclosing project as it is not in the scope.\n\nIf you take the same project and create a class in the source folders that \nimplements or extends a type in the jar file - everything works fine.\n\nGeoff\n\n",
+    "Any word on this bug? Its very annoying and breaks my plugin.\n\nIts been a couple of weeks since I re-opened the bug, and no response.",
+    "Both Jerome and Phillipe are currently in vacation. We have to wait until they \nare back...",
+    "I believe I ran into this a little while ago. The issue was kind of \ncomplicated, and I quickly found a workaround(*), so forgive me if I\u0027m not 100% \ncorrect.\n\nMy recollection of what happens: TypeSelectionDialog.computeResult() attempts \nto find the IType for the selection. But if the selected type comes from an \nexternal JAR, it fails with the message given in the original report.\n\nI traced it down to org.eclipse.jdt.internal.corext.util.TypeInfo line 176:\n\nIPath curr\u003d enclosedPaths[i];\nif (curr.segmentCount() \u003d\u003d 1) {\n\nThis \"\u003d\u003d 1\" seems a little strange. Could Geoff Longman, the original reporter, \ncheck my explanation indeed applies to this problem?\n\n(*) I subclassed TypeSelectionDialog and overrode computeResult() to skip the \ntype resolution process entirely, since all I need is the type name.",
+    "(curr.segmentCount() \u003d\u003d 1) is used to differ between projects and JARs. It \nfails if there is an external JAR with path length 1. Is that the case?\nFrom the orignal description it sounds like a different problem.\n\nThere is a quite an ugly problem with paths for libraries as they can either \nmap to an internal or external JAR and a heuristic has to be used to solve the \nambiguity.\nJerome, is there API in JCore to solve this problem?",
+    "Sorry, there is no API. Please enter a separate feature request.",
+    "Martin, is (curr.segmentCount() \u003d\u003d 1) the \"official\" heuristic used to \ndifferentiate between internal and external JARs? I ran into this problem too, \nIClasspathEntry.getPath returns a path relative to the workspace root directory \nfor internal JARs, and an absolute path for external ones. I\u0027m not sure how to \ntell the difference.\n",
+    "In this case the path can either be a project, external JAR and internal JAR.\ncurr.segmentCount() \u003d\u003d 1 is used to test for a project. This, unfortunatly is \nonly a guess. I filed bug 24245 for this.\nA related problem is bug 24243.\n\nHowever, I think this is not the problem of this bug report.\nThe problem is that scope.enclosingProjectsAndJars() does not contain the \nproject where the JAR is located. TypeInfo assumes that it can find the JAR in \none of the projects. This might be a wrong assumption as Geoff created the \nscope from a hierarchy. TypeInfo avoids the problem desribed in bug 24243 by \nusing IJavaProject.findElement()\nHaving no project this fails. A method JavaCore.findElement(IPath) would solve \nthe problem.\nOr, even better: JCore takes over TypeInfo and TypeInfoRequestor\n",
+    "I think this is it. Martin nailed it on the head. The Hierarchy scope used by \nthe dialog spans the entire workspace, while the type resolution that occurs \nonce the dialog is dismissed doesn\u0027t. Hence the failure to resolve the type \nname. ",
+    "bug is in TypeInfo",
+    "fixed \u003e 20021008",
+    "So a year has gone by and I never had pressing need to verify that this bug was \nindeed fixed.\n\nIts not.\n\nI\u0027m running the same code as I originally had the problem with.. there is no \nexception any more. yay!\n\nHowever, the hierarchy scope search only shows types that exist in jars! No \ntypes in the source path are shown in the results.\n\nThis is in 2.1.1 running on Win2k.\n\nGeoff\n\n",
+    "Geoff, I opened a new bug report 45193. Closing this one."
+  ],
+  "commentCreationDates": [
+    "2002-04-07T13:38:49+02:00",
+    "2002-04-08T16:36:25+02:00",
+    "2002-04-09T15:00:07+02:00",
+    "2002-04-18T21:21:58+02:00",
+    "2002-05-15T18:24:16+02:00",
+    "2002-05-15T18:34:12+02:00",
+    "2002-05-15T18:45:25+02:00",
+    "2002-05-15T20:34:33+02:00",
+    "2002-05-15T20:49:27+02:00",
+    "2002-05-16T18:55:55+02:00",
+    "2002-07-19T15:24:36+02:00",
+    "2002-08-05T19:15:28+02:00",
+    "2002-08-06T11:18:22+02:00",
+    "2002-09-29T00:40:45+02:00",
+    "2002-09-30T09:56:05+02:00",
+    "2002-09-30T10:55:59+02:00",
+    "2002-09-30T22:26:30+02:00",
+    "2002-10-01T10:00:38+02:00",
+    "2002-10-01T18:17:24+02:00",
+    "2002-10-08T14:57:17+02:00",
+    "2002-10-08T16:35:44+02:00",
+    "2003-10-19T18:35:52+02:00",
+    "2003-10-20T10:58:11+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "com.iw.plugins.spindle.ui.TypeDialogCellEditor.openDialogBox",
+          "source": "TypeDialogCellE ditor.java:108"
+        },
+        {
+          "method": "com.iw.plugins.spindle.ui.EditableDialogCellEditor$2.widgetSelected",
+          "source": "Editable DialogCellEditor.java:146"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:85"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:74"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.notifyListeners",
+          "source": "Widget.java:637"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:1413"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1205"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:788"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:771"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.jav a:777"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:319"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:151"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:502"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:362"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "12955",
+      "date": "2002-04-07T13:38:49+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "12955",
+  "bugId": "12955",
+  "date": "2002-04-07T13:38:49+02:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "critical"
+}

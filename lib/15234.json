@@ -1,0 +1,72 @@
+{
+  "comments": [
+    "Originally reported as bug 10005, I\u0027m still seeing problems with this \nscenario.  The net is that the platform has a common usage pattern of:\n\n  URL someURL;\n  File aFile\u003dnew File(someURL.getFile());\n\nThis will fail if the URL contains escape characters. The JDKs are starting to \nmove to a pattern of converting special characters (such as space) to \"correct\" \nURLs, such as file:/c:/program%20files/blah.  When this happens, the above \nusage fails.  The correct usage should be:\n\n  URL someURL;\n  File aFile\u003dnew File(URLDecoder.decode(someURL.getFile()));\n\nThat will convert the %20 back to space, and it will work.  This problem is \nparticularly occuring when I\u0027m running the headless workbench.  I don\u0027t have \nthe code in an \"Eclipse\" directory, so the default ways of loading the \nconfiguration (in PlatformConfiguration.initializeCurrent(URL url)) is \nvia \"COMMON\".  This seems different enough that it triggers the URL syntax, as \ndescribed above.  The initial failure I see, on M5, is:\n\nStarting workbench.\nInstall URL: file:/Y:/builds/EJBDeploy50%200502/itp/\nDebug-Options: file:/Y:/builds/EJBDeploy50%200502/itp/.options\nPlatformConfig: Unable to load configuration from USER.DIR \njava.io.FileNotFoundException: Y:\\builds\\EJBDeploy50 0502\n\\itp\\eclipse\\install\\platform.cfg (The system cannot find the path specified)\nPlatformConfig: Unable to load configuration from USER.HOME \njava.io.FileNotFoundException: C:\\Documents and \nSettings\\Labuser\\eclipse\\install\\platform.cfg (The system cannot find the path \nspecified)\nPlatformConfig: Using configuration file:/Y:/builds/EJBDeploy50%\n200502/itp/install/platform.cfg\nPlatformConfig: No links detected in Y:\\builds\\EJBDeploy50%200502\n\\itp\\install\\links\nPlatformConfig: file:/Y:/builds/EJBDeploy50%200502/itp/ located  0 feature(s) \nin 0ms\nPlatformConfig: file:/Y:/builds/EJBDeploy50%200502/itp/ feature stamp: 0 [no \nchanges]\nPlatformConfig: file:/Y:/builds/EJBDeploy50%200502/itp/ located  0 plugin(s) in \n10ms\nPlatformConfig: file:/Y:/builds/EJBDeploy50%200502/itp/ plugin stamp: 0 [was \n1021671453506]\nShutting down workbench.\n\nError starting EJBDeploy environment: null.\njava.lang.NullPointerException\n        at \norg.eclipse.core.internal.boot.InternalBootLoader.getPlatformClassLoaderPath\n(InternalBootLoader.java:280)\n        at \norg.eclipse.core.internal.boot.InternalBootLoader.configurePlatformLoader\n(InternalBootLoader.java:156)\n        at org.eclipse.core.internal.boot.InternalBootLoader.initialize\n(InternalBootLoader.java:531)\n        at org.eclipse.core.internal.boot.InternalBootLoader.startup\n(InternalBootLoader.java:878)\n        at org.eclipse.core.boot.BootLoader.startup(BootLoader.java:374)\n        at com.ibm.etools.ejbdeploy.batch.impl.BatchDeploy.startup\n(BatchDeploy.java:204)\n        at com.ibm.etools.ejbdeploy.EJBDeploy.startup(EJBDeploy.java:375)\n        at com.ibm.etools.ejbdeploy.EJBDeploy.execute(EJBDeploy.java:80)\n        at com.ibm.etools.ejbdeploy.EJBDeploy.main(EJBDeploy.java:302)\n\n----------------------------\nI edited the PlatformConfiguration file, and surrounded every url.getFile() \nthere with URLDecoder.decode() (about 10 instances), and the process got much \nfurther:  \n\nStarting workbench.\nInstall URL: file:/Y:/builds/EJBDeploy50%200502/itp/\nDebug-Options: file:/Y:/builds/EJBDeploy50%200502/itp/.options\nPlatformConfig: Unable to load configuration from USER.DIR \njava.io.FileNotFoundException: Y:\\builds\\EJBDeploy50 0502\n\\itp\\eclipse\\install\\platform.cfg (The system cannot find the path specified)\nPlatformConfig: Unable to load configuration from USER.HOME \njava.io.FileNotFoundException: C:\\Documents and \nSettings\\Labuser\\eclipse\\install\\platform.cfg (The system cannot find the path \nspecified)\nPlatformConfig: Using configuration file:/Y:/builds/EJBDeploy50%\n200502/itp/install/platform.cfg\nPlatformConfig: No links detected in Y:\\builds\\EJBDeploy50 0502\n\\itp\\install\\links\nPlatformConfig: file:/Y:/builds/EJBDeploy50%200502/itp/ located  0 feature(s) \nin 0ms\nPlatformConfig: file:/Y:/builds/EJBDeploy50%200502/itp/ feature stamp: 0 [no \nchanges]\nPlatformConfig: file:/Y:/builds/EJBDeploy50%200502/itp/ located  25 plugin(s) \nin 10ms\nPlatformConfig: file:/Y:/builds/EJBDeploy50%200502/itp/ plugin stamp: -\n1020343747749 [was 1021671453506]\nPlatformConfig: computed plug-in path:\nPlatformConfig:    file:/Y:/builds/EJBDeploy50%\n200502/itp/plugins/com.ibm.etools.common.command/plugin.xml\nPlatformConfig:    file:/Y:/builds/EJBDeploy50%\n200502/itp/plugins/com.ibm.etools.ejbdeploy/plugin.xml\nPlatformConfig:    file:/Y:/builds/EJBDeploy50%\n200502/itp/plugins/com.ibm.etools.ejbdeploy.core/plugin.xml\nPlatformConfig:    file:/Y:/builds/EJBDeploy50%\n200502/itp/plugins/com.ibm.etools.emf/plugin.xml\nPlatformConfig:    file:/Y:/builds/EJBDeploy50%\n200502/itp/plugins/com.ibm.etools.emf.edit/plugin.xml\nPlatformConfig:    file:/Y:/builds/EJBDeploy50%\n200502/itp/plugins/com.ibm.etools.emf.mapping/plugin.xml\nPlatformConfig:    file:/Y:/builds/EJBDeploy50%\n200502/itp/plugins/com.ibm.etools.emf.workbench/plugin.xml\nPlatformConfig:    file:/Y:/builds/EJBDeploy50%\n200502/itp/plugins/com.ibm.etools.j2ee/plugin.xml\nPlatformConfig:    file:/Y:/builds/EJBDeploy50%\n200502/itp/plugins/com.ibm.etools.j2ee.core/plugin.xml\n      .... many more deleted.....\n\nI then had another failure downstream, but with similar symptoms (still \ndebugging that).  The general problem is that you cannot create a File object \nfrom URL.getFile without using a decoder, and this pattern is pervasive in \neclipse.",
+    "Can you reproduce this problem with a \"headed\" eclipse? I don\u0027t see why this \nwould only occur on head-less versions. In the past, I have been able to run \neclipse with my install in non-standard locations, so I would expect that to \nwork.\n\nIf this does not work in \"standard\" eclipse, we can investigate that problem. \nIf it does, you can explore how your launching differs from the standard \neclipse launching. ",
+    "The initial problem I saw, on M5, was in PlatformConfiguration.initializeCurrent\n(URL url) - that loaded the configuration differently in the \u0027headed\u0027 \nand \u0027headless\u0027 cases.  However, in attempting to recreate the problem on the \nlatest integration build (0502), all that code appears to have been re-\nwritten... and it now appears to work correctly when running headless as well \n(thanks). \n\nMy comments above about the safety of the \n  File aFile\u003dnew File(someURL.getFile()); \npattern remain, I think that may come back to bite you in the future... but for \nnow, for me, the latest builds seem to work ok.",
+    "Vlad, added you as CC, just to double check that your recent install/update work \nhandles spaces correctly.  Our convenience method InternalBootLoader.decode() \nshould handle all the interesting cases.  ",
+    "Verified that this works correctly in build F1."
+  ],
+  "commentCreationDates": [
+    "2002-05-03T22:04:38+02:00",
+    "2002-05-06T16:32:46+02:00",
+    "2002-05-06T21:12:32+02:00",
+    "2002-05-06T21:20:23+02:00",
+    "2002-05-28T23:58:34+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.getPlatformClassLoaderPath",
+          "source": "InternalBootLoader.java:280"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.configurePlatformLoader",
+          "source": "InternalBootLoader.java:156"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.initialize",
+          "source": "InternalBootLoader.java:531"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.startup",
+          "source": "InternalBootLoader.java:878"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.startup",
+          "source": "BootLoader.java:374"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.batch.impl.BatchDeploy.startup",
+          "source": "BatchDeploy.java:204"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.EJBDeploy.startup",
+          "source": "EJBDeploy.java:375"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.EJBDeploy.execute",
+          "source": "EJBDeploy.java:80"
+        },
+        {
+          "method": "com.ibm.etools.ejbdeploy.EJBDeploy.main",
+          "source": "EJBDeploy.java:302"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "15234",
+      "date": "2002-05-03T22:04:38+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "15234",
+  "bugId": "15234",
+  "date": "2002-05-03T22:04:38+02:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "normal"
+}

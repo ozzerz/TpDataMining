@@ -1,0 +1,302 @@
+{
+  "comments": [
+    "3.3M5\n\nProbably happend after \"Run\" on an individual test method from the JUnit view.\n\norg.eclipse.core.runtime.AssertionFailedException: assertion failed: \n\tat org.eclipse.core.runtime.Assert.isTrue(Assert.java:109)\n\tat org.eclipse.core.runtime.Assert.isTrue(Assert.java:95)\n\tat org.eclipse.jdt.internal.core.SourceMethod.\u003cinit\u003e(SourceMethod.java:34)\n\tat org.eclipse.jdt.internal.core.SourceType.getMethod(SourceType.java:368)\n\tat org.eclipse.jdt.junit.launcher.JUnitLaunchConfigurationDelegate.evaluateTests(JUnitLaunchConfigurationDelegate.java:258)\n\tat org.eclipse.jdt.junit.launcher.JUnitLaunchConfigurationDelegate.launch(JUnitLaunchConfigurationDelegate.java:128)\n\tat org.eclipse.debug.internal.core.LaunchConfiguration.launch(LaunchConfiguration.java:747)\n\tat org.eclipse.debug.internal.core.LaunchConfiguration.launch(LaunchConfiguration.java:613)\n\tat org.eclipse.debug.internal.core.LaunchConfiguration.launch(LaunchConfiguration.java:606)\n\tat org.eclipse.jdt.internal.junit.model.TestRunSession.rerunTest(TestRunSession.java:298)\n\tat org.eclipse.jdt.internal.junit.ui.TestRunnerViewPart.rerunTest(TestRunnerViewPart.java:1604)\n\tat org.eclipse.jdt.internal.junit.ui.RerunAction.run(RerunAction.java:49)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:498)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:545)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:490)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:402)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:938)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3490)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3104)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2264)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2228)\n\tat org.eclipse.ui.internal.Workbench.access$4(Workbench.java:2103)\n\tat org.eclipse.ui.internal.Workbench$4.run(Workbench.java:457)\n\tat org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:289)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:452)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\n\tat org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:101)\n\tat org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:146)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:106)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:76)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:354)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:169)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:64)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n\tat java.lang.reflect.Method.invoke(Method.java:615)\n\tat org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:476)\n\tat org.eclipse.equinox.launcher.Main.basicRun(Main.java:416)\n\tat org.eclipse.equinox.launcher.Main.run(Main.java:1124)\n\tat org.eclipse.equinox.launcher.Main.main(Main.java:1099)",
+    "Christof, you beat me to submitting this (I had it written up, just didn\u0027t hit submit until I\u0027d had time for some more effort to repro).  My notes:\n\nBuild ID: I20070209-1006\n\nSteps To Reproduce:\n1. Run a test suite that has tests whose name is not the name of a method.\n2. After the tests run, right-click on one of those tests\n3. Select Run or Debug; this will produce the Assert failure shown below.\n\nI can reliably reproduce this in my local environment with a test that used to be \"re-runnable\" in 3.3M4, but haven\u0027t yet figured out what it is about the JUnit test that is incompatible with the 3.3M5 JDT.  I wrote a focused little JUnit test where the names are not the names of the methods, and the problem didn\u0027t recur.  If you have any tips on how to further isolate this, I\u0027ll be happy to try to isolate.\n",
+    "Markus can you investigate if we find an easy fix for M6?\n",
+    "James, is there a good reason for creating test cases with non-standard names? This is just calling for trouble...\n\nHere\u0027s a test to reproduce (run as JUnit Test, then rerun \"my.Test\"):\n\nimport junit.framework.*;\n\npublic class Bug178441 extends TestCase {\n\tpublic Bug178441(String name) {\n\t\tsuper(name);\n\t}\n\t\n\tprotected void runTest() throws Throwable {\n\t\tfail(\"too bad\");\n\t}\n\t\n\tpublic static Test suite() {\n\t\tTestSuite res\u003d new TestSuite();\n\t\tres.addTest(new Bug178441(\"my.Test\"));\n\t\treturn res;\n\t}\n}",
+    "Markus, yes, there is a good reason for the non-standard test names.  We\u0027re using EMF for modeling/generation of classes, and our own sub-system for persisting these objects in a relational database.  To test this persistence for each type, we have generic tests that will test a particular type, and this information is passed to the test via the name of the test (e.g. \"testSave Type1\" or \"testUpdate Type3\").\n\nIf we had a single \"testSave\" that tested all types in one run, then we wouldn\u0027t be able to re-run (debug) the test for a single type.\n\nFYI, I did try your test case, and it failed as shown below:\n\norg.eclipse.core.runtime.AssertionFailedException: assertion failed:\nat org.eclipse.core.runtime.Assert.isTrue(Assert.java:109)\nat org.eclipse.core.runtime.Assert.isTrue(Assert.java:95)\nat org.eclipse.jdt.internal.core.SourceMethod.\u003cinit\u003e(SourceMethod.java:34)\nat org.eclipse.jdt.internal.core.SourceType.getMethod(SourceType.java:368)\nat org.eclipse.jdt.junit.launcher.JUnitLaunchConfigurationDelegate.evaluateTests(JUnitLaunchConfigurationDelegate.java:258)\nat org.eclipse.jdt.junit.launcher.JUnitLaunchConfigurationDelegate.launch(JUnitLaunchConfigurationDelegate.java:128)\nat org.eclipse.debug.internal.core.LaunchConfiguration.launch(LaunchConfiguration.java:747)\nat org.eclipse.debug.internal.core.LaunchConfiguration.launch(LaunchConfiguration.java:613)\nat org.eclipse.debug.internal.core.LaunchConfiguration.launch(LaunchConfiguration.java:606)\nat org.eclipse.jdt.internal.junit.model.TestRunSession.rerunTest(TestRunSession.java:298)\nat org.eclipse.jdt.internal.junit.ui.TestRunnerViewPart.rerunTest(TestRunnerViewPart.java:1604)\nat org.eclipse.jdt.internal.junit.ui.RerunAction.run(RerunAction.java:49)\nat org.eclipse.jface.action.Action.runWithEvent(Action.java:498)\nat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:545)\nat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:490)\nat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:402)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:938)\nat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3490)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3104)",
+    "Unfortunately, rerunning tests with user-supplied names can only work if \"Keep Junit running...\" is checked in the launch configuration.\n\nAs soon as the target VM is down, there\u0027s no way to get hold of such tests any more. The best I can do is to avoid the exception and just show a dialog if the test method could not be found on rerun.",
+    "This worked fine in 3.3 M4 (and before).  I\u0027ve been using it successfully for quite some time.  Something has changed in 3.3 M5 that broke this.  I suspect that what broke it is trying to use the test name as the name of a method, rather than leaving it up to Test.runTest to do that.",
+    "You\u0027re right, the only problem is that org.eclipse.jdt.junit.launcher.JUnitLaunchConfigurationDelegate.evaluateTests(..) assumes that JUnitLaunchConfigurationConstants.ATTR_TEST_METHOD_NAME can only contain a test method name, but in fact it contains the name of a TestCase, which can also be user-defined.\n\nSince the test name is usually a method name and since evaluateTests(..) is already API, we don\u0027t plan to change this in jdt.junit. Filed bug 179011 for jdt.core to avoid the AFE.",
+    "Works fine in I20070430-0010."
+  ],
+  "commentCreationDates": [
+    "2007-03-20T08:47:58+01:00",
+    "2007-03-20T13:40:06+01:00",
+    "2007-03-21T12:42:15+01:00",
+    "2007-03-21T15:25:49+01:00",
+    "2007-03-21T16:20:44+01:00",
+    "2007-03-21T18:13:58+01:00",
+    "2007-03-21T19:12:41+01:00",
+    "2007-03-23T14:56:25+01:00",
+    "2007-04-30T14:34:14+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.core.runtime.AssertionFailedException",
+      "message": "assertion failed:",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.Assert.isTrue",
+          "source": "Assert.java:109"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Assert.isTrue",
+          "source": "Assert.java:95"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SourceMethod.\u003cinit\u003e",
+          "source": "SourceMethod.java:34"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SourceType.getMethod",
+          "source": "SourceType.java:368"
+        },
+        {
+          "method": "org.eclipse.jdt.junit.launcher.JUnitLaunchConfigurationDelegate.evaluateTests",
+          "source": "JUnitLaunchConfigurationDelegate.java:258"
+        },
+        {
+          "method": "org.eclipse.jdt.junit.launcher.JUnitLaunchConfigurationDelegate.launch",
+          "source": "JUnitLaunchConfigurationDelegate.java:128"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+          "source": "LaunchConfiguration.java:747"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+          "source": "LaunchConfiguration.java:613"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+          "source": "LaunchConfiguration.java:606"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.model.TestRunSession.rerunTest",
+          "source": "TestRunSession.java:298"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.ui.TestRunnerViewPart.rerunTest",
+          "source": "TestRunnerViewPart.java:1604"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.ui.RerunAction.run",
+          "source": "RerunAction.java:49"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:498"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:545"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:490"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:402"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:938"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3490"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3104"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2264"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2228"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:2103"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$4.run",
+          "source": "Workbench.java:457"
+        },
+        {
+          "method": "org.eclipse.core.databinding.observable.Realm.runWithDefault",
+          "source": "Realm.java:289"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:452"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.application.IDEApplication.start",
+          "source": "IDEApplication.java:101"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:146"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:106"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:76"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:354"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:169"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:64"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:43"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:615"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:476"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:416"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1124"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.main",
+          "source": "Main.java:1099"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "178190",
+      "date": "2007-03-20T08:47:58+01:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.core.runtime.AssertionFailedException",
+      "message": "assertion failed:",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.Assert.isTrue",
+          "source": "Assert.java:109"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Assert.isTrue",
+          "source": "Assert.java:95"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SourceMethod.\u003cinit\u003e",
+          "source": "SourceMethod.java:34"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SourceType.getMethod",
+          "source": "SourceType.java:368"
+        },
+        {
+          "method": "org.eclipse.jdt.junit.launcher.JUnitLaunchConfigurationDelegate.evaluateTests",
+          "source": "JUnitLaunchConfigurationDelegate.java:258"
+        },
+        {
+          "method": "org.eclipse.jdt.junit.launcher.JUnitLaunchConfigurationDelegate.launch",
+          "source": "JUnitLaunchConfigurationDelegate.java:128"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+          "source": "LaunchConfiguration.java:747"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+          "source": "LaunchConfiguration.java:613"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+          "source": "LaunchConfiguration.java:606"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.model.TestRunSession.rerunTest",
+          "source": "TestRunSession.java:298"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.ui.TestRunnerViewPart.rerunTest",
+          "source": "TestRunnerViewPart.java:1604"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.ui.RerunAction.run",
+          "source": "RerunAction.java:49"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:498"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:545"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:490"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:402"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:938"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3490"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3104"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 4,
+      "bugId": "178190",
+      "date": "2007-03-21T16:20:44+01:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "178190",
+  "bugId": "178190",
+  "date": "2007-03-20T08:47:58+01:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "normal"
+}

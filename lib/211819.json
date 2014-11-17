@@ -1,0 +1,125 @@
+{
+  "comments": [
+    "Created an attachment (id\u003d84366)\nlaunch config\n\nI have a simple OSGi launch config (I\u0027ll attach) that has only the o.e.e.simpleconfigurator and o.e.osgi bundles selected.  I try to run and I get a slew of errors like this:\n\norg.osgi.framework.BundleException: State change in progress for bundle \"initial@reference:file:../../../home/overholt/work/workspaces/p2workspace/org.eclipse.equinox.simpleconfigurator/\" by thread \"Start Level Event Dispatcher\".\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.beginStateChange(AbstractBundle.java:1139)\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.uninstall(AbstractBundle.java:829)\n\tat org.eclipse.equinox.simpleconfigurator.internal.ConfigApplier.uninstallBundles(ConfigApplier.java:290)\n\tat org.eclipse.equinox.simpleconfigurator.internal.ConfigApplier.install(ConfigApplier.java:58)\n\tat org.eclipse.equinox.simpleconfigurator.internal.SimpleConfiguratorImpl.applyConfiguration(SimpleConfiguratorImpl.java:99)\n\tat org.eclipse.equinox.simpleconfigurator.internal.SimpleConfiguratorImpl.applyConfiguration(SimpleConfiguratorImpl.java:113)\n\tat org.eclipse.equinox.simpleconfigurator.internal.Activator.start(Activator.java:47)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run(BundleContextImpl.java:999)\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:993)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.start(BundleContextImpl.java:974)\n\tat org.eclipse.osgi.framework.internal.core.BundleHost.startWorker(BundleHost.java:346)\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.resume(AbstractBundle.java:351)\n\tat org.eclipse.osgi.framework.internal.core.Framework.resumeBundle(Framework.java:1061)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles(StartLevelManager.java:632)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL(StartLevelManager.java:506)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel(StartLevelManager.java:280)\n\tat org.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent(StartLevelManager.java:466)\n\tat org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent(EventManager.java:209)\n\tat org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.run(EventManager.java:319)\nCaused by: org.eclipse.osgi.framework.internal.core.AbstractBundle$BundleStatusException\n\t... 20 more\n\nI\u0027ve tried various cleaning techniques (removing org.eclipse.osgi in my launch config\u0027s directory, checking the \"clean my config\" option in the run config) to no avail.",
+    "Do you have the bundles.txt that is being applied? I suspect that the problem comes from simpleconfigurator trying to update itself. Could you confirm that?",
+    "(In reply to comment #1)\n\u003e Do you have the bundles.txt that is being applied? I suspect that the problem\n\u003e comes from simpleconfigurator trying to update itself. Could you confirm that?\n\nI\u0027ll attach bundles.txt.",
+    "Created an attachment (id\u003d84372)\nbundles.txt\n\n",
+    "I confirm that the problem you are experiencing is caused by simple configurator trying to replace itself while it is still starting. I\u0027m not sure about what a real fix would be. CC\u0027ing Tom to get his suggestions.\nThat said in your scenario the workaround consist in modifing bundles.txt to refer to the simple configurator from your workspace. \nThis would give the following line:\norg.eclipse.equinox.simpleconfigurator,0.1.0.HEAD,file:/\u003cPATH to the folder containing simpleconfigurator in your workspace \u003e,1,true\n\n",
+    "(In reply to comment #4)\nIsn\u0027t simple configurator on the osgi.bundles list?  In p2 scenarios I thought simple configurator was the only bundle installed by EclipseStarter.  Seems like the right fix is to let EclipseStarter do the work of updating simple configurator and not have simple configurator update itself.\n\nDoes p2 update the config.ini to have a the latest version of simple configurator?  or does it simply let EclipseStarter search for the latest version?\n\nIf simple configurator is to update itself then quite a bit of juggling will need to be done since a single thread cannot be used to perform nested bundle operations on the same bundle.\n\n",
+    "(In reply to comment #4)\n\u003e That said in your scenario the workaround consist in modifing bundles.txt to\n\u003e refer to the simple configurator from your workspace. \n\u003e This would give the following line:\n\u003e org.eclipse.equinox.simpleconfigurator,0.1.0.HEAD,file:/\u003cPATH to the folder\n\u003e containing simpleconfigurator in your workspace \u003e,1,true\n\nThanks, this works for me.",
+    "\u003e Isn\u0027t simple configurator on the osgi.bundles list?  In p2 scenarios I thought\n\u003e simple configurator was the only bundle installed by EclipseStarter.  Seems\n\u003e like the right fix is to let EclipseStarter do the work of updating simple\n\u003e configurator and not have simple configurator update itself.\n You are correct. Simple configurator is on the osgi.bundles list and it is installed by EclipseStarter. It is also in the bundles.txt (by design bundles.txt contains all the bundles that are expected to be running) and when the system has been provisioned with p2 the version is the same in the config.ini and in the bundles.txt. \n\nHowever I do think that it would be good if simple configurator was able to replace itself while starting. Is it that much juggling? Would you have some code around doing that?\nA deluxe solution would also handle changing the fwk...\n\nNote that this is not a high priority since in 1.0 the versions will be aligned.",
+    "Part of the problem is the fact that the configurator bundles do all their management work from the start method.  This was done in order to make the boot process sequential to ensure that the configurator was finished updating the system before the rest of the platform got started.  This is not a problem until the configurator needs to manage itself.\n\nOne possibility is for the configurator to spawn a separate thread if it detects that itself needs to be updated.  The normal sequence would process all the other bundles sequentially from the Activator.start method, but the update of the configurator would not be included in this operation.  At the end of the start method if it was detected that the configurator needed updated then a thread could be spawned to perform the update.  You would likely want to wait until after the FrameworkEvent.STARTLEVEL_CHANGED event got fired before performing the update.  The one drawback to this is that any bundles depending on the configurator will be refreshed at this time when you perform the refreshPackages operation.\n\nI\u0027ll look at providing a patch that demonstrates this."
+  ],
+  "commentCreationDates": [
+    "2007-12-03T22:14:48+01:00",
+    "2007-12-03T22:52:22+01:00",
+    "2007-12-03T23:09:45+01:00",
+    "2007-12-03T23:13:08+01:00",
+    "2007-12-04T01:01:39+01:00",
+    "2007-12-04T04:10:04+01:00",
+    "2007-12-04T14:49:15+01:00",
+    "2007-12-05T02:40:53+01:00",
+    "2007-12-05T15:20:12+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.osgi.framework.BundleException",
+      "message": "State change in progress for bundle \"initial@reference:file:../../../home/overholt/work/workspaces/p2workspace/org.eclipse.equinox.simpleconfigurator/\" by thread \"Start Level Event Dispatcher\".",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.beginStateChange",
+          "source": "AbstractBundle.java:1139"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.uninstall",
+          "source": "AbstractBundle.java:829"
+        },
+        {
+          "method": "org.eclipse.equinox.simpleconfigurator.internal.ConfigApplier.uninstallBundles",
+          "source": "ConfigApplier.java:290"
+        },
+        {
+          "method": "org.eclipse.equinox.simpleconfigurator.internal.ConfigApplier.install",
+          "source": "ConfigApplier.java:58"
+        },
+        {
+          "method": "org.eclipse.equinox.simpleconfigurator.internal.SimpleConfiguratorImpl.applyConfiguration",
+          "source": "SimpleConfiguratorImpl.java:99"
+        },
+        {
+          "method": "org.eclipse.equinox.simpleconfigurator.internal.SimpleConfiguratorImpl.applyConfiguration",
+          "source": "SimpleConfiguratorImpl.java:113"
+        },
+        {
+          "method": "org.eclipse.equinox.simpleconfigurator.internal.Activator.start",
+          "source": "Activator.java:47"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run",
+          "source": "BundleContextImpl.java:999"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:993"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "BundleContextImpl.java:974"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "BundleHost.java:346"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.resume",
+          "source": "AbstractBundle.java:351"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.Framework.resumeBundle",
+          "source": "Framework.java:1061"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.resumeBundles",
+          "source": "StartLevelManager.java:632"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.incFWSL",
+          "source": "StartLevelManager.java:506"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.doSetStartLevel",
+          "source": "StartLevelManager.java:280"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.StartLevelManager.dispatchEvent",
+          "source": "StartLevelManager.java:466"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent",
+          "source": "EventManager.java:209"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.run",
+          "source": "EventManager.java:319"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "211819",
+      "date": "2007-12-03T22:14:48+01:00",
+      "product": "Equinox",
+      "component": "Incubator",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "211819",
+  "bugId": "211819",
+  "date": "2007-12-03T22:14:48+01:00",
+  "product": "Equinox",
+  "component": "Incubator",
+  "severity": "normal"
+}

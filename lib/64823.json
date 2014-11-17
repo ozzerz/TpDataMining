@@ -1,0 +1,543 @@
+{
+  "comments": [
+    "Build: 3.0 RC1\n\n1) Did a text search for a string inside a *.java file\n2) Double-clicked on the search result to open the file.\n3) Closed the search results view.\n4) Deleted the reference in the java file and hit Ctrl+S.\n\nThe following error appeared in my log file:\n\n!ENTRY org.eclipse.ui 4 4 May 31, 2004 16:10:18.327\n!MESSAGE Unhandled event loop exception\n!ENTRY org.eclipse.ui 4 0 May 31, 2004 16:10:18.405\n!MESSAGE Widget is disposed\n!STACK 0\norg.eclipse.swt.SWTException: Widget is disposed\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat org.eclipse.swt.SWTException.\u003cinit\u003e(SWTException.java:73)\n\tat org.eclipse.swt.SWT.error(SWT.java:2691)\n\tat org.eclipse.swt.SWT.error(SWT.java:2616)\n\tat org.eclipse.swt.SWT.error(SWT.java:2587)\n\tat org.eclipse.swt.widgets.Widget.error(Widget.java:381)\n\tat org.eclipse.swt.widgets.Widget.checkWidget(Widget.java)\n\tat org.eclipse.swt.widgets.Tree.getSelection(Tree.java)\n\tat org.eclipse.jface.viewers.TreeViewer.getSelection(TreeViewer.java)\n\tat org.eclipse.jface.viewers.TreeViewer.setSelection(TreeViewer.java)\n\tat\norg.eclipse.jface.viewers.AbstractTreeViewer.setSelectionToWidget(AbstractTreeViewer.java)\n\tat\norg.eclipse.jface.viewers.StructuredViewer.setSelectionToWidget(StructuredViewer.java)\n\tat\norg.eclipse.jface.viewers.StructuredViewer.preservingSelection(StructuredViewer.java)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java)\n\tat\norg.eclipse.search.internal.ui.text.FileTreeContentProvider.remove(FileTreeContentProvider.java:104)\n\tat\norg.eclipse.search.internal.ui.text.FileTreeContentProvider.remove(FileTreeContentProvider.java:100)\n\tat\norg.eclipse.search.internal.ui.text.FileTreeContentProvider.remove(FileTreeContentProvider.java:100)\n\tat\norg.eclipse.search.internal.ui.text.FileTreeContentProvider.remove(FileTreeContentProvider.java:100)\n\tat\norg.eclipse.search.internal.ui.text.FileTreeContentProvider.remove(FileTreeContentProvider.java:100)\n\tat\norg.eclipse.search.internal.ui.text.FileTreeContentProvider.remove(FileTreeContentProvider.java:100)\n\tat\norg.eclipse.search.internal.ui.text.FileTreeContentProvider.remove(FileTreeContentProvider.java:100)\n\tat\norg.eclipse.search.internal.ui.text.FileTreeContentProvider.elementsChanged(FileTreeContentProvider.java:137)\n\tat\norg.eclipse.search.internal.ui.text.FileSearchPage.elementsChanged(FileSearchPage.java:178)\n\tat\norg.eclipse.search.ui.text.AbstractTextSearchViewPage.runBatchedUpdates(AbstractTextSearchViewPage.java:1013)\n\tat\norg.eclipse.search.ui.text.AbstractTextSearchViewPage.access$1(AbstractTextSearchViewPage.java:1003)\n\tat\norg.eclipse.search.ui.text.AbstractTextSearchViewPage$UpdateUIJob.runInUIThread(AbstractTextSearchViewPage.java:122)\n\tat org.eclipse.ui.progress.UIJob$1.run(UIJob.java)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1363)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1334)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:253)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:96)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:334)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:273)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:128)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:79)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:41)\n\tat java.lang.reflect.Method.invoke(Method.java:386)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n\tat org.eclipse.core.launcher.Main.run(Main.java:638)\n\tat org.eclipse.core.launcher.Main.main(Main.java:622)",
+    "John, is this repeateable for you? I\u0027m trying to assess wether this is just a\ntiming issue (i.e. a posted runnable is executed in the wrong order) or wether\nwe\u0027re not deregistering a listener correctly. I have been able to recreate this\n(i.e. get an exception), but no reliably.",
+    "I get it occasionally (three times yesterday, from looking at my log). The bug\nlooks pretty straight-forward - whenever you do an asyncExec or a UIJob, the\nwidget you are operating on might no longer exist when the job or runnable\nfinally executes, because another event ahead of it in the queue might dipose\nthe widget. It looks like you just need an if (!isDisposed()) check somewhere.",
+    "I got a similar error. It might be a timing problem. \nI\u0027m not 100% sure what I did to get the error, but something like:\n- search\n- close the search view\n- open the search view\n- clicking on some items\n- running a search again\n\n(I might have closed the view while a background search was running)\n\nThe commonality with Johns backtrace is, that I closed the search view!\n\norg.eclipse.swt.SWTException: Widget is disposed\nat org.eclipse.swt.SWT.error(SWT.java:2691)\nat org.eclipse.swt.SWT.error(SWT.java:2616)\nat org.eclipse.swt.SWT.error(SWT.java:2587)\nat org.eclipse.swt.widgets.Widget.error(Widget.java:381)\nat org.eclipse.swt.widgets.Widget.checkWidget(Widget.java:283)\nat org.eclipse.swt.widgets.Widget.getData(Widget.java:411)\nat org.eclipse.jface.viewers.AbstractTreeViewer.createAddedElement\n(AbstractTreeViewer.java:171)\nat org.eclipse.jface.viewers.AbstractTreeViewer.add\n(AbstractTreeViewer.java:158)\nat org.eclipse.jface.viewers.AbstractTreeViewer.add\n(AbstractTreeViewer.java:244)\nat org.eclipse.search.internal.ui.text.FileTreeContentProvider.insert\n(FileTreeContentProvider.java:68)\nat org.eclipse.search.internal.ui.text.FileTreeContentProvider.elementsChanged\n(FileTreeContentProvider.java:135)\nat org.eclipse.search.internal.ui.text.FileSearchPage.elementsChanged\n(FileSearchPage.java:178)\nat org.eclipse.search.ui.text.AbstractTextSearchViewPage.runBatchedUpdates\n(AbstractTextSearchViewPage.java:1013)\nat org.eclipse.search.ui.text.AbstractTextSearchViewPage.access$1\n(AbstractTextSearchViewPage.java:1003)\nat \norg.eclipse.search.ui.text.AbstractTextSearchViewPage$UpdateUIJob.runInUIThread\n(AbstractTextSearchViewPage.java:122)\nat org.eclipse.ui.progress.UIJob$1.run(UIJob.java:87)\nat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:106)\nat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2693)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2385)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1363)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1334)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:253)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\nat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:96)\nat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:334)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:273)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:128)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\nat java.lang.reflect.Method.invoke(Unknown Source)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\nat org.eclipse.core.launcher.Main.run(Main.java:638)\nat org.eclipse.core.launcher.Main.main(Main.java:622)\n",
+    "Looks like the same problem.",
+    "I can reproduce this quite easily (3.0 RC1 build):\n\n1) Close search results view\n2) Select a Java method and do Ctrl+Shift+G (global search)\n3) Immediately close the search results view when it opens.\n\nI get a slightly different stach from Michael:\n\norg.eclipse.swt.SWTException: Widget is disposed\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat org.eclipse.swt.SWTException.\u003cinit\u003e(SWTException.java:73)\n\tat org.eclipse.swt.SWT.error(SWT.java:2691)\n\tat org.eclipse.swt.SWT.error(SWT.java:2616)\n\tat org.eclipse.swt.SWT.error(SWT.java:2587)\n\tat org.eclipse.swt.widgets.Widget.error(Widget.java:381)\n\tat org.eclipse.swt.widgets.Widget.checkWidget(Widget.java)\n\tat org.eclipse.swt.widgets.Control.getParent(Control.java)\n\tat org.eclipse.ui.part.PageBook.showPage(PageBook.java:89)\n\tat\norg.eclipse.search.ui.text.AbstractTextSearchViewPage.showBusyLabel(AbstractTextSearchViewPage.java:547)\n\tat\norg.eclipse.search.ui.text.AbstractTextSearchViewPage.updateBusyLabel(AbstractTextSearchViewPage.java:540)\n\tat\norg.eclipse.search.ui.text.AbstractTextSearchViewPage.runBatchedUpdates(AbstractTextSearchViewPage.java:1016)\n\tat\norg.eclipse.search.ui.text.AbstractTextSearchViewPage.access$1(AbstractTextSearchViewPage.java:1003)\n\tat\norg.eclipse.search.ui.text.AbstractTextSearchViewPage$UpdateUIJob.runInUIThread(AbstractTextSearchViewPage.java:122)\n\tat org.eclipse.ui.progress.UIJob$1.run(UIJob.java)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1363)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1334)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:253)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:96)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:334)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:273)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:128)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:79)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:41)\n\tat java.lang.reflect.Method.invoke(Method.java:386)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n\tat org.eclipse.core.launcher.Main.run(Main.java:638)\n\tat org.eclipse.core.launcher.Main.main(Main.java:622)",
+    "Thanks John, I was able to reproduce it. I put in code that checks that the\ncontrol is still ok.",
+    "verifying...",
+    "verified.\n\nCan no longer reproduce the steps from either comment 0 or comment 5."
+  ],
+  "commentCreationDates": [
+    "2004-05-31T22:13:07+02:00",
+    "2004-06-03T15:08:14+02:00",
+    "2004-06-03T16:43:49+02:00",
+    "2004-06-04T16:39:35+02:00",
+    "2004-06-04T16:57:40+02:00",
+    "2004-06-04T16:59:08+02:00",
+    "2004-06-04T17:12:19+02:00",
+    "2004-06-11T10:56:05+02:00",
+    "2004-06-11T11:00:03+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Widget is disposed",
+      "elements": [
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "org.eclipse.swt.SWTException.\u003cinit\u003e",
+          "source": "SWTException.java:73"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2691"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2616"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2587"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:381"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Tree.getSelection",
+          "source": "Tree.java"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TreeViewer.getSelection",
+          "source": "TreeViewer.java"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TreeViewer.setSelection",
+          "source": "TreeViewer.java"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.setSelectionToWidget",
+          "source": "AbstractTreeViewer.java"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.setSelectionToWidget",
+          "source": "StructuredViewer.java"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.preservingSelection",
+          "source": "StructuredViewer.java"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java"
+        },
+        {
+          "method": "org.eclipse.search.internal.ui.text.FileTreeContentProvider.remove",
+          "source": "FileTreeContentProvider.java:104"
+        },
+        {
+          "method": "org.eclipse.search.internal.ui.text.FileTreeContentProvider.remove",
+          "source": "FileTreeContentProvider.java:100"
+        },
+        {
+          "method": "org.eclipse.search.internal.ui.text.FileTreeContentProvider.remove",
+          "source": "FileTreeContentProvider.java:100"
+        },
+        {
+          "method": "org.eclipse.search.internal.ui.text.FileTreeContentProvider.remove",
+          "source": "FileTreeContentProvider.java:100"
+        },
+        {
+          "method": "org.eclipse.search.internal.ui.text.FileTreeContentProvider.remove",
+          "source": "FileTreeContentProvider.java:100"
+        },
+        {
+          "method": "org.eclipse.search.internal.ui.text.FileTreeContentProvider.remove",
+          "source": "FileTreeContentProvider.java:100"
+        },
+        {
+          "method": "org.eclipse.search.internal.ui.text.FileTreeContentProvider.remove",
+          "source": "FileTreeContentProvider.java:100"
+        },
+        {
+          "method": "org.eclipse.search.internal.ui.text.FileTreeContentProvider.elementsChanged",
+          "source": "FileTreeContentProvider.java:137"
+        },
+        {
+          "method": "org.eclipse.search.internal.ui.text.FileSearchPage.elementsChanged",
+          "source": "FileSearchPage.java:178"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchViewPage.runBatchedUpdates",
+          "source": "AbstractTextSearchViewPage.java:1013"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchViewPage.access$1",
+          "source": "AbstractTextSearchViewPage.java:1003"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchViewPage$UpdateUIJob.runInUIThread",
+          "source": "AbstractTextSearchViewPage.java:122"
+        },
+        {
+          "method": "org.eclipse.ui.progress.UIJob$1.run",
+          "source": "UIJob.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1363"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1334"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:253"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:334"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:128"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:79"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:41"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:386"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:638"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:622"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "64823",
+      "date": "2004-05-31T22:13:07+02:00",
+      "product": "Platform",
+      "component": "Search",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Widget is disposed",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2691"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2616"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2587"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:381"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java:283"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.getData",
+          "source": "Widget.java:411"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.createAddedElement",
+          "source": "AbstractTreeViewer.java:171"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.add",
+          "source": "AbstractTreeViewer.java:158"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.add",
+          "source": "AbstractTreeViewer.java:244"
+        },
+        {
+          "method": "org.eclipse.search.internal.ui.text.FileTreeContentProvider.insert",
+          "source": "FileTreeContentProvider.java:68"
+        },
+        {
+          "method": "org.eclipse.search.internal.ui.text.FileTreeContentProvider.elementsChanged",
+          "source": "FileTreeContentProvider.java:135"
+        },
+        {
+          "method": "org.eclipse.search.internal.ui.text.FileSearchPage.elementsChanged",
+          "source": "FileSearchPage.java:178"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchViewPage.runBatchedUpdates",
+          "source": "AbstractTextSearchViewPage.java:1013"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchViewPage.access$1",
+          "source": "AbstractTextSearchViewPage.java:1003"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchViewPage$UpdateUIJob.runInUIThread",
+          "source": "AbstractTextSearchViewPage.java:122"
+        },
+        {
+          "method": "org.eclipse.ui.progress.UIJob$1.run",
+          "source": "UIJob.java:87"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2693"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2385"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1363"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1334"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:253"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:334"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:128"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:638"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:622"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 3,
+      "bugId": "64823",
+      "date": "2004-06-04T16:39:35+02:00",
+      "product": "Platform",
+      "component": "Search",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Widget is disposed",
+      "elements": [
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "org.eclipse.swt.SWTException.\u003cinit\u003e",
+          "source": "SWTException.java:73"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2691"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2616"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2587"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:381"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.getParent",
+          "source": "Control.java"
+        },
+        {
+          "method": "org.eclipse.ui.part.PageBook.showPage",
+          "source": "PageBook.java:89"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchViewPage.showBusyLabel",
+          "source": "AbstractTextSearchViewPage.java:547"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchViewPage.updateBusyLabel",
+          "source": "AbstractTextSearchViewPage.java:540"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchViewPage.runBatchedUpdates",
+          "source": "AbstractTextSearchViewPage.java:1016"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchViewPage.access$1",
+          "source": "AbstractTextSearchViewPage.java:1003"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchViewPage$UpdateUIJob.runInUIThread",
+          "source": "AbstractTextSearchViewPage.java:122"
+        },
+        {
+          "method": "org.eclipse.ui.progress.UIJob$1.run",
+          "source": "UIJob.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1363"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1334"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:253"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:334"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:128"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:79"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:41"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:386"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:638"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:622"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 5,
+      "bugId": "64823",
+      "date": "2004-06-04T16:59:08+02:00",
+      "product": "Platform",
+      "component": "Search",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "64823",
+  "bugId": "64823",
+  "date": "2004-05-31T22:13:07+02:00",
+  "product": "Platform",
+  "component": "Search",
+  "severity": "normal"
+}

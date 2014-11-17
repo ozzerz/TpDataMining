@@ -1,0 +1,114 @@
+{
+  "comments": [
+    "import junit.framework.TestCase;\n\nclass A {\n\tpublic void test() {\n\t\tthrow new RuntimeException();\n\t}\n}\n\npublic class Test extends TestCase {\n\t\n\tpublic void testA() {\n\t\tnew A().test();\n\t}\n\n}\n\n@@@@\n\nMy failure trace will be:\n\njava.lang.RuntimeException\n\tat A.test(Test.java:5)\n\tat Test2.testA(Test.java:12)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat junit.framework.TestCase.runTest(TestCase.java:154)\n\tat junit.framework.TestCase.runBare(TestCase.java:127)\n\tat junit.framework.TestResult$1.protect(TestResult.java:106)\n\tat junit.framework.TestResult.runProtected(TestResult.java:124)\n\tat junit.framework.TestResult.run(TestResult.java:109)\n\tat junit.framework.TestCase.run(TestCase.java:118)\n\tat junit.framework.TestSuite.runTest(TestSuite.java:208)\n\tat junit.framework.TestSuite.run(TestSuite.java:203)\n\tat\norg.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:392)\n\tat\norg.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run(RemoteTestRunner.java:276)\n\tat\norg.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main(RemoteTestRunner.java:167)\n\n@@@@\n\nClicking on \"at A.test(Test.java:5)\" will show an dialog stating \"Test class not\nfound in project\".",
+    "Navigating to inner class works:\n\n@@@@\n\npublic class Test2 extends TestCase {\n\t\n\tclass A {\n\t\tpublic void test() {\n\t\t\tthrow new RuntimeException();\n\t\t}\n\t}\n\t\n\tpublic void testA() {\n\t\tnew A().test();\n\t}\n}\n\n",
+    "Erich, please comment",
+    "i think this is a known limitation",
+    "Looking at the source code I found:\n\n\t/**\n\t * Returns the first type found following this project\u0027s classpath \n\t * with the given fully qualified name or \u003ccode\u003enull\u003c/code\u003e if none is found.\n\t * The fully qualified name is a dot-separated name. For example,\n\t * a class B defined as a member type of a class A in package x.y should have a \n\t * the fully qualified name \"x.y.A.B\".\n\t * \n\t * TODO: (kent) need to change spec if secondary types are found\n\t * Note that in order to be found, a type name (or its toplevel enclosing\n\t * type name) must match its corresponding compilation unit name. As a \n\t * consequence, secondary types cannot be found using this functionality.\n\t * Secondary types can however be explicitely accessed through their enclosing\n\t * unit or found by the \u003ccode\u003eSearchEngine\u003c/code\u003e.\n\t * \n\t * @param fullyQualifiedName the given fully qualified name\n\t * @exception JavaModelException if this element does not exist or if an\n\t *\t\texception occurs while accessing its corresponding resource\n\t * @return the first type found following this project\u0027s classpath \n\t * with the given fully qualified name or \u003ccode\u003enull\u003c/code\u003e if none is found\n\t * @see IType#getFullyQualifiedName(char)\n\t * @since 2.0\n\t */\n\tIType findType(String fullyQualifiedName) throws JavaModelException;\n\n\n@@@@\n\nUsed in OpenEditorAtLineAction:\n\nprotected IJavaElement findElement(IJavaProject project, String className)\nthrows JavaModelException {\n       return project.findType(className);\n}",
+    "yes, it\u0027s a jdt core limitation",
+    "yep this is all correct. the plan was to use the AllTypes cache or the \nSearchEngine when findType fails. Since the AllTypes cache isn\u0027t exposed as API \nwe should take the SearchEngine path. It is straightforward to implement but \nslower than using the AllTypes cache.\n",
+    "Created an attachment (id\u003d4817)\nfix\n\nImplementation notes:\n\nJust having the class\u0027 name and project is not enough; consider search for\nnon-public class A might yield:\n\nA in S.java\nA in T.java\n\nSo I pass the CU\u0027s name into the Action to be able to check each search result\nif it is in the desired CU.\n\n@@@@\n\nImprovemnts:\n\nThe NullProgressMonitor should be replaced w/ a suitable one to prevent the\nuser\u0027s perceived \"nothing happens\" while searching.",
+    "thanks for the fix - released to HEAD",
+    "Verified in build 200306042359"
+  ],
+  "commentCreationDates": [
+    "2003-05-07T17:55:59+02:00",
+    "2003-05-07T17:59:14+02:00",
+    "2003-05-07T18:04:09+02:00",
+    "2003-05-07T18:07:34+02:00",
+    "2003-05-07T18:32:35+02:00",
+    "2003-05-07T18:40:35+02:00",
+    "2003-05-07T21:59:26+02:00",
+    "2003-05-08T01:18:12+02:00",
+    "2003-05-10T23:42:55+02:00",
+    "2003-06-05T13:42:36+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "elements": [
+        {
+          "method": "A.test",
+          "source": "Test.java:5"
+        },
+        {
+          "method": "Test2.testA",
+          "source": "Test.java:12"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "junit.framework.TestCase.runTest",
+          "source": "TestCase.java:154"
+        },
+        {
+          "method": "junit.framework.TestCase.runBare",
+          "source": "TestCase.java:127"
+        },
+        {
+          "method": "junit.framework.TestResult$1.protect",
+          "source": "TestResult.java:106"
+        },
+        {
+          "method": "junit.framework.TestResult.runProtected",
+          "source": "TestResult.java:124"
+        },
+        {
+          "method": "junit.framework.TestResult.run",
+          "source": "TestResult.java:109"
+        },
+        {
+          "method": "junit.framework.TestCase.run",
+          "source": "TestCase.java:118"
+        },
+        {
+          "method": "junit.framework.TestSuite.runTest",
+          "source": "TestSuite.java:208"
+        },
+        {
+          "method": "junit.framework.TestSuite.run",
+          "source": "TestSuite.java:203"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests",
+          "source": "RemoteTestRunner.java:392"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run",
+          "source": "RemoteTestRunner.java:276"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main",
+          "source": "RemoteTestRunner.java:167"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "37333",
+      "date": "2003-05-07T17:55:59+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "37333",
+  "bugId": "37333",
+  "date": "2003-05-07T17:55:59+02:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "normal"
+}

@@ -1,0 +1,89 @@
+{
+  "comments": [
+    "RC2, using gtk 2.0.6\n\n- run the following snippet and you\u0027ll see a gray square in the top-left \ncorner, which is strange\n- close the example and you\u0027ll see:\n   - a gtk critical warning spew: assertion GTK_IS_WINDOW(window) failed\n   - a GP, the next attachment",
+    "Created an attachment (id\u003d4181)\ntrace\n",
+    "Grant, I think you forgot to attach the snippet.",
+    "right, here goes...\n\nimport org.eclipse.jface.window.ApplicationWindow;\nimport org.eclipse.swt.SWT;\nimport org.eclipse.swt.layout.*;\nimport org.eclipse.swt.widgets.*;\n\npublic class Main2 extends ApplicationWindow {\n\tprivate Shell mShell;\n\t\n\tpublic static void main(String[] args) {\n\t\tnew Main2(new Shell()).open();\n\t}\n\tpublic Main2(Shell parentShell) {\n\t\tsuper(parentShell);\n\t\topen();\n\t\tmShell \u003d getShell();\n\t\tmShell.setSize(800, 600);\n\t\tDisplay mDisplay \u003d mShell.getDisplay();\n\t\tFormLayout layout \u003d new FormLayout();\n\t\tmShell.setLayout(layout);\n\t\tcreateControls();\n\t\tmShell.layout();\n\t\twhile (mShell !\u003d null \u0026\u0026 !mShell.isDisposed()) {\n\t\t\tif (!mDisplay.readAndDispatch())\n\t\t\t\tmDisplay.sleep();\n\t\t}\n\t\tmDisplay.dispose();\n\t}\n\n\tprivate void createControls() {\n\t\tControl[] controls \u003d mShell.getChildren();\n\t\tLabel label \u003d (Label) controls[0];\n\t\tFormData formData \u003d new FormData();\n\t\tformData.right \u003d new FormAttachment(100, 1);\n\t\tformData.left \u003d new FormAttachment(0, 1);\n\t\tformData.top \u003d new FormAttachment(label, 3);\n\t\tformData.bottom \u003d new FormAttachment(100, 0);\n\t\tTabFolder tabFolder \u003d new TabFolder(mShell, SWT.NONE);\n\t\ttabFolder.setLayoutData(formData);\n\t\ttabFolder.moveAbove(label);\n\t\tTabItem statusTab \u003d new TabItem(tabFolder, SWT.NONE);\n\t\tstatusTab.setControl(new Text(tabFolder, SWT.BORDER));\n\t}\n}\n",
+    "We are missing a checkWidget (); in the very first line of Shell.getBounds () \nin GTK.\n\nI don\u0027t know what jface is doing but it also fails in Windows, I think the \nexample is doing something wrong.\n\n",
+    "Well, I\u0027ve had the same kind of behavior almost a year ago (I don\u0027t remember the \nEclipse version), also on Linux, and then, the solution was to do a moveAbove(label) \n(for some kind of reason, the label wasn\u0027t painted correctly) and then it worked. But \nnow, it\u0027s not working anymore. I\u0027m downloading Eclipse 2.1 now and I\u0027ll check to see if \nI get the same behavior.  ",
+    "Well, the problem is also in the 2.1 release. ",
+    "I found a workaround for this bug. Instead of putting the tab control directly on the \nshell, I put it on a Composite (which has the shell as the parent) and it works as \nexpected.  ",
+    "Grant or Stelian:\n\nDo you guys have a snippet that do not use JFace ?\n",
+    "Also note that this example has a bug:\nnew Main2(new Shell()).open();\n\nThe instance of Main2 will be disposed when open() is called.\nlook the stacktrace when it runs on windows:\norg.eclipse.swt.SWTException: Widget is disposed\n\tat org.eclipse.swt.SWT.error(SWT.java:2332)\n\tat org.eclipse.swt.SWT.error(SWT.java:2262)\n\tat org.eclipse.swt.widgets.Widget.error(Widget.java:385)\n\tat org.eclipse.swt.widgets.Shell.getDisplay(Shell.java:547)\n\tat org.eclipse.swt.widgets.Shell.\u003cinit\u003e(Shell.java:324)\n\tat org.eclipse.jface.window.Window.createShell(Window.java:329)\n\tat org.eclipse.jface.window.Window.create(Window.java:295)\n\tat org.eclipse.jface.window.Window.open(Window.java:546)\n\tat gtk.prs.PR35161.main(PR35161.java:12)\nException in thread \"main\" ",
+    "SWT test case:\n\npublic static void main(String[] args) {\n\tDisplay display \u003d new Display();\n\tShell shell \u003d new Shell (display);\t\t\n\tCanvas canvas \u003d new Canvas (shell, 0);\t\t\n\tcanvas.setBounds(0, 0, 128, 128);\n\tcanvas.setBackground(display.getSystemColor(SWT.COLOR_BLUE));\n\tshell.open(); //comment this line and it all works fine\n\t\n\tTabFolder tabFolder \u003d new TabFolder(shell, SWT.NONE);\n\ttabFolder.setBounds(shell.getClientArea());\n\tTabItem statusTab \u003d new TabItem(tabFolder, SWT.NONE);\n\tstatusTab.setText(\"Test\");\n\t\n\ttabFolder.moveAbove(canvas);\t//moving above after creating the text widget and\nall works fine\n\tText text \u003d new Text(tabFolder, SWT.BORDER);\n\tstatusTab.setControl(text);\n\t\n\tshell.open();\n\twhile (shell !\u003d null \u0026\u0026 !shell.isDisposed()) {\n\t\tif (!display.readAndDispatch())\n\t\t\tdisplay.sleep();\n\t}\n\tdisplay.dispose();\t\t\n}\n\n",
+    "As I said in the code:\nIf you don\u0027t open the shell before creating the widget or if you move the\ntabfolder above after all children are created then the problem doesn\u0027t happen.\n\nIt seems the tabfolder is been moved below when creating the text widget,\ncommented line number 2958 in Control and it fixed the problem:\nat end of Control#setZOrder (Control, boolean, boolean) \n\n/*\n* Make sure that the parent handle is on the bottom of the stack\n* when the parent children are siblings of the parent handle.\n*/\nif (!above \u0026\u0026 fixChildren \u0026\u0026 parent.parentingHandle () \u003d\u003d parent.fixedHandle) {\n\twindow \u003d OS.GTK_WIDGET_WINDOW (parent.handle);\n\tif (window !\u003d 0) OS.gdk_window_lower (window); //Comment here to fix this bug\n}\n\n\n\nAnyhow, I don\u0027t know what we need this code so I getting SSQ to advise.",
+    "fixed \u003e 20040705 in HEAD "
+  ],
+  "commentCreationDates": [
+    "2003-03-17T19:39:02+01:00",
+    "2003-03-17T19:39:35+01:00",
+    "2003-03-17T19:57:57+01:00",
+    "2003-03-17T20:02:40+01:00",
+    "2003-03-17T20:26:57+01:00",
+    "2003-03-31T10:53:04+02:00",
+    "2003-04-01T08:34:29+02:00",
+    "2003-04-02T10:40:52+02:00",
+    "2003-04-04T21:23:12+02:00",
+    "2003-04-04T21:35:07+02:00",
+    "2004-06-29T20:22:20+02:00",
+    "2004-06-29T20:30:20+02:00",
+    "2004-07-05T18:18:36+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Widget is disposed",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2332"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2262"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:385"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.getDisplay",
+          "source": "Shell.java:547"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.\u003cinit\u003e",
+          "source": "Shell.java:324"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.createShell",
+          "source": "Window.java:329"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.create",
+          "source": "Window.java:295"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:546"
+        },
+        {
+          "method": "gtk.prs.PR35161.main",
+          "source": "PR35161.java:12"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 9,
+      "bugId": "35161",
+      "date": "2003-04-04T21:35:07+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "35161",
+  "bugId": "35161",
+  "date": "2003-03-17T19:39:02+01:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

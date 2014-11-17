@@ -1,0 +1,63 @@
+{
+  "comments": [
+    "Open logic diagram, invoke context menu on any element, don\u0027t choose any action, open any other emf-generated editor (say, one for .ecore) - exception:\n\njava.lang.ClassCastException: org.eclipse.emf.edit.domain.AdapterFactoryEditingDomain\nat org.eclipse.gmf.runtime.diagram.ui.actions.AbstractDeleteFromAction.getEditingDomain(AbstractDeleteFromAction.java:116)\nat org.eclipse.gmf.runtime.diagram.ui.actions.AbstractDeleteFromAction.updateTargetRequest(AbstractDeleteFromAction.java:84)\nat org.eclipse.gmf.runtime.diagram.ui.actions.DiagramAction.refresh(DiagramAction.java:111)\nat org.eclipse.gmf.runtime.diagram.ui.internal.actions.DeleteFromModelAction.refresh(DeleteFromModelAction.java:50)\nat org.eclipse.gmf.runtime.common.ui.action.AbstractActionHandler$2.partActivated(AbstractActionHandler.java:149)\nat org.eclipse.ui.internal.PartListenerList$1.run(PartListenerList.java:72)\n\n\nThe reason is AbstractActionHandler superclass of DeleteFromModelAction which registers itself as listener to part changes (when context menu is shown). It\u0027s not unregistered on context menu close, and activating part with another editingDomain-aware EMF editor get us to refresh() and AbstractDeleteFromAction#getEditingDomain() with reasonable, although wrong, expectations about editing domain type.\n\nEither context menu actions should not be registered as part change listeners (one barely could change part while context menu is up) or should be unregistered (as part listeners) on menu hide.",
+    "This looks like an RC5 candidate",
+    "This seems to be a problem for all of the part contributions made through the contribution item service.  Part contributions must specify either the part ID or the name of the class/interface implemented by the part that they are contributed to.\n\nHowever, action handlers for part contributions are instantiated with the current workbench page and listen for part activation.  They refresh themselves when _any_ part is activated.  They also register themselves as selection change listeners, property listeners and operation history listeners for all parts, even ones that do not match the kind of part against which they were contributed.\n\nThe GMF runtime contributes 54 part actions using the contribution item service (e.g., cut, copy, paste, open, save, delete from diagram, delete from model, select all, autosize, oblique router, etc...).  Once instantiated (e.g., once you\u0027ve worked with a logic example diagram) these actions are refreshed with every selection change made on any workbench part (ecore editor, property browser, you name it...).  We\u0027re interfering with the performance of other workbench parts, and, as is the case with the delete from model action, we\u0027re running the risk of throwing exceptions if our refresh() implementations are not robust enough to deal with any kind of editor or view.\n\nI propose that the action handlers for part contributions be instantiated with the descriptor for the part that they are contributed against, and that they are refreshed only when that kind of part is activated, and register as selection, property and operation history listeners only for parts that match their descriptor.\n\n",
+    "Committed a fix for the AbstractDeleteFromAction#getEditingDomain() so that it no longer assumes that a part implementing IEditingDomainProvider will provide a TransactionalEditingDomain.\n\nStill working on the solution for the underlying problem of part actions being refreshed on selection changes in parts for which they were not contributed.\n\n",
+    "Created an attachment (id\u003d44433)\nProposed patch to prevent unnecessary popup and part action refresh\n\nThe primary difficulty in solving this problem is that the AbstractActionHandler is used in the same way by the contribution item service for both part action contributions AND popup menu action contributions.  However, the requirements for when these two different kinds of actions are refreshed are quite different.  It would be nice if the two different kinds of actions were implemented by two different classes.  However, this is not a feasible option at this point.\n\nIn the proposed solution, the AbstractActionHandler uses an IPartSelector to determine whether or not it should listen for selection, property and operation history changes on the active workbench part.\n\nThe IPartSelector is created by the contribution item service at the time that the the actions are first contributed to a popup menu or action bar.  \n\nFor part contributions, the part selector matches using the part ID or part class/interface name from the XML contribution.  \n\nFor popup contributions, the part selector never matches.  Popup contributions are refreshed when the popup menu it about to be shown, so they have no need to listen for part activation or selection change.",
+    "Delivered the fix as proposed."
+  ],
+  "commentCreationDates": [
+    "2006-05-31T21:57:39+02:00",
+    "2006-06-02T20:18:59+02:00",
+    "2006-06-08T15:14:25+02:00",
+    "2006-06-08T22:46:04+02:00",
+    "2006-06-14T19:48:51+02:00",
+    "2006-06-14T21:52:25+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.eclipse.emf.edit.domain.AdapterFactoryEditingDomain",
+      "elements": [
+        {
+          "method": "org.eclipse.gmf.runtime.diagram.ui.actions.AbstractDeleteFromAction.getEditingDomain",
+          "source": "AbstractDeleteFromAction.java:116"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.diagram.ui.actions.AbstractDeleteFromAction.updateTargetRequest",
+          "source": "AbstractDeleteFromAction.java:84"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.diagram.ui.actions.DiagramAction.refresh",
+          "source": "DiagramAction.java:111"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.diagram.ui.internal.actions.DeleteFromModelAction.refresh",
+          "source": "DeleteFromModelAction.java:50"
+        },
+        {
+          "method": "org.eclipse.gmf.runtime.common.ui.action.AbstractActionHandler$2.partActivated",
+          "source": "AbstractActionHandler.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartListenerList$1.run",
+          "source": "PartListenerList.java:72"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "144762",
+      "date": "2006-05-31T21:57:39+02:00",
+      "product": "GMF",
+      "component": "Runtime Diagram",
+      "severity": "major"
+    }
+  ],
+  "groupId": "144762",
+  "bugId": "144762",
+  "date": "2006-05-31T21:57:39+02:00",
+  "product": "GMF",
+  "component": "Runtime Diagram",
+  "severity": "major"
+}

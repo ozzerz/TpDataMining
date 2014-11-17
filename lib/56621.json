@@ -1,0 +1,77 @@
+{
+  "comments": [
+    "If you try to create an Image which is larger than 2048 in either dimension, \nthe call will fail on Windows XP (probably all versions of Windows).  SWT \nreports a misleading error in this case:\n\norg.eclipse.swt.SWTError: No more handles\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat java.lang.Throwable.\u003cinit\u003e(Throwable.java)\n\tat org.eclipse.swt.SWTError.\u003cinit\u003e(SWTError.java:82)\n\tat org.eclipse.swt.SWTError.\u003cinit\u003e(SWTError.java:71)\n\tat org.eclipse.swt.SWT.error(SWT.java:2356)\n\tat org.eclipse.swt.SWT.error(SWT.java:2260)\n\tat org.eclipse.swt.graphics.Image.init(Image.java:1445)\n\tat org.eclipse.swt.graphics.Image.\u003cinit\u003e(Image.java:161)\n\tat org.eclipse.draw2d.internal.ImageInfo.\u003cinit\u003e(ImageInfo.java:69)\n\nThe code in Image.init() looks like this:\n\n\t/* Get the HDC for the device */\n\tint hDC \u003d device.internal_new_GC(null);\n\t\t\t\n\t/* Fill the bitmap with the current background color */\n\thandle \u003d OS.CreateCompatibleBitmap(hDC, width, height);\n\tif (handle \u003d\u003d 0) SWT.error(SWT.ERROR_NO_HANDLES);\n\tint memDC \u003d OS.CreateCompatibleDC(hDC);\n\nThe call \"OS.GetDC(0)\" in internal_new_GC() retrieves the device context for \nthe entire screen (since 0 was passed in).  This device context contains \ninformation limiting the size of bitmaps that can be created on it.\n\nLorne found this code snippet on the net \n(http://home.att.net/~srschmitt/Num_plot.html):\n\nHDC hdc \u003d GetDC( hwnd );\n// get screen size\nX_max_pixels \u003d GetSystemMetrics( SM_CXSCREEN );\nY_max_pixels \u003d GetSystemMetrics( SM_CYSCREEN );\n// make a compatible bitmap\nhMemoryDC \u003d CreateCompatibleDC( hdc );\nhbit \u003d CreateCompatibleBitmap( hdc, X_max_pixels, Y_max_pixels ); \n\nGetSystemMetrics: (http://msdn.microsoft.com/library/default.asp?\nurl\u003d/library/en-us/sysinfo/base/getsystemmetrics.asp)\nThe above link basically will tell you that the maximum sizes are system and \ndevice dependent.\n\nWe think that SWT should catch failed attempts to create a bitmap which is too \nlarge, and report an appropriate error (with an IllegalArgumentException?).\n\nIt would then be up to callers (in our case, the draw2d framework) to handle \nthis situation gracefully.",
+    "As a reference point, I can create images of the size:\n3000 x 2500\n5000 x 1200\n2000 x 4200\n\nwithout any problems using 32-bit color depth. So there does not appear to be \nany limitation associated with the Display resolution.",
+    "I agree with Randy, the maximum size of an image does not depend on the size \nof the screen. If you reduce the depth of the screen (let\u0027s say 16bit), you \nwill probably be able to create a larger image.\n\nThe MSDN documentation for CreateCompatibleBitmap says that the size in bytes \nof the image must not exceed 16Mb on Windows 95/98/Me, but it does not say \nanything about Xp/2k/NT. I believe that the size ultimately depends on the \nvideo driver, but I have not found any doc to support that.\n\nSo, SWT can not just add the sugested check, but the application could limit \nthe size of the images it creates to the size of the screen using \nDisplay.getBounds().",
+    "marking as won\u0027t fix",
+    "Silenio, does \"must not exceed 16MB\" imply that\n\"will be successful for all sizes \u003c\u003d 16MB\"?",
+    "That is all the doc says:\n\n\"Windows 95/98/Me: The created bitmap cannot exceed 16MB in size.\"\n\nI personally don\u0027t believe it.\n\nFYI. In my XP machine it seems that the limit is 68Mb.",
+    "Re what Randy says:\nSilenio, does \"must not exceed 16MB\" imply that\n\"will be successful for all sizes \u003c\u003d 16MB\"?\n\nI think it doesn\u0027t imply that at all.  There might be other circumstances (e.g. \nyou are really out of memory) which cause the allocation to fail even if you \nstay under the 16MB limit.  Of course, Windows 95/98/Me would probably crash \nanyway under circumstances like that.\n\nRe Silenio\u0027s last comment, Windows XP has a different internal architecture \nfrom Windows 95/98/Me.  XP apparently doesn\u0027t have the same arbitrary size \nlimitation.  \u003d)\n\nBut ultimately, there is usually *some* limit on the image dimensions, which:\n  - is device and driver dependent\n  - may depend on OS version\n  - may depend on what DC you use to create the image ???  (we\u0027re using a DC \nfor the whole screen in the cases I\u0027m aware of)\n\nThe limit is almost certainly larger than the screen in all ordinary cases.\n\nSteve suggested a good code pattern for callers who try to create images which \nmight be large.  If an SWTError is thrown, they should catch it and then try to \ncreate a tiny image (1x1 ?).  If this succeeds, the image was probably just too \nbig, and the SWTError should be treated as a recoverable error.  If it fails, \nthen the \"out of handles\" SWTError really means what it says."
+  ],
+  "commentCreationDates": [
+    "2004-03-29T20:21:17+02:00",
+    "2004-04-06T23:03:04+02:00",
+    "2004-04-07T16:16:57+02:00",
+    "2004-04-07T16:28:21+02:00",
+    "2004-04-07T19:25:54+02:00",
+    "2004-04-08T21:02:52+02:00",
+    "2004-04-08T21:12:19+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "No more handles",
+      "elements": [
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "java.lang.Throwable.\u003cinit\u003e",
+          "source": "Throwable.java"
+        },
+        {
+          "method": "org.eclipse.swt.SWTError.\u003cinit\u003e",
+          "source": "SWTError.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.SWTError.\u003cinit\u003e",
+          "source": "SWTError.java:71"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2356"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2260"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.init",
+          "source": "Image.java:1445"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.\u003cinit\u003e",
+          "source": "Image.java:161"
+        },
+        {
+          "method": "org.eclipse.draw2d.internal.ImageInfo.\u003cinit\u003e",
+          "source": "ImageInfo.java:69"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "56621",
+      "date": "2004-03-29T20:21:17+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "56621",
+  "bugId": "56621",
+  "date": "2004-03-29T20:21:17+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

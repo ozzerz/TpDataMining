@@ -1,0 +1,129 @@
+{
+  "comments": [
+    "While recording AST modifications and copySubtree is performed on a node from \nthe same AST, eg: ASTNode x \u003d ast.newXXX ... y \u003d ASTNode.copySubtree(ast, x), \nwhen the edit is requested it fails to get the source from the original node \nwith an Assertion exception.\n\nI\u0027m not sure if it\u0027s my fault, but ASTNode.copySubtree javadoc implies that \nthis is a legal operation.\n\nI get the following stack trace when running the attached unit test (irrelevant \ntraces removed):\n\norg.eclipse.jface.text.Assert$AssertionFailedException: Assertion failed: \n\tat org.eclipse.jface.text.Assert.isTrue(Assert.java:177)\n\tat org.eclipse.jface.text.Assert.isTrue(Assert.java:162)\n\tat org.eclipse.text.edits.TextEdit.\u003cinit\u003e(TextEdit.java:149)\n\tat org.eclipse.text.edits.CopySourceEdit.\u003cinit\u003e(CopySourceEdit.java:96)\n\tat \norg.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.getCopySourceEdit\n(ASTRewriteAnalyzer.java:128)\n\tat \norg.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.doTextInsert\n(ASTRewriteAnalyzer.java:984)\n\tat \norg.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer$ListRewriter.rewrit\neList(ASTRewriteAnalyzer.java:461)\n\tat \norg.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.rewriteParagraphLis\nt(ASTRewriteAnalyzer.java:837)\n\tat org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.visit\n(ASTRewriteAnalyzer.java:1263)\n\tat org.eclipse.jdt.core.dom.TypeDeclaration.accept0\n(TypeDeclaration.java:469)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.doVisit\n(ASTRewriteAnalyzer.java:249)\n\tat \norg.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.doVisitList\n(ASTRewriteAnalyzer.java:280)\n\tat \norg.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.doVisitUnchangedChi\nldren(ASTRewriteAnalyzer.java:298)\n\tat org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.visit\n(ASTRewriteAnalyzer.java:1151)\n\tat org.eclipse.jdt.core.dom.CompilationUnit.accept0\n(CompilationUnit.java:287)\n\tat org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.eclipse.jdt.core.dom.InternalASTRewrite.rewriteAST\n(InternalASTRewrite.java:71)\n\tat org.eclipse.jdt.core.dom.AST.rewrite(AST.java:2642)\n\tat org.eclipse.jdt.core.dom.CompilationUnit.rewrite\n(CompilationUnit.java:853)\n\tat jdt.tests.AstRewriteBug.testAstRewriteBug(AstRewriteBug.java:60)",
+    "Created an attachment (id\u003d20487)\nJUnit testcase for the bug\n",
+    "I\u0027ve found a workaround for this bug. Instead of copying the subtree, make the \nnode orfan and use it. This might even save some bits of memory since \ncopySubTree does not perform COW.\n\nThis method does the kludge:\n\n    public static void killParent(ASTNode node) {\n        StructuralPropertyDescriptor locationInParent \u003d node\n                .getLocationInParent();\n        if (!locationInParent.isChildListProperty())\n            node.getParent().setStructuralProperty(locationInParent, node.getAST\n().newNullLiteral());\n        else {\n            List list \u003d (List) node.getParent().getStructuralProperty(\n                    locationInParent);\n            list.remove(node);\n        }\n    }",
+    "Martin, could you please check if this occurs in HEAD?",
+    "Bug is in the modifying ast rewrite: A close on a new (non-original) node should\nnot create a copy event. New end original nodes can be distinguised with the\n\u0027ASTNode.ORIGINAL\u0027 flag.\n\nMoving to Daniel",
+    "+1 for RC2",
+    "Fixed and test added\n  ASTRewritingModifyingCopyTest#test0007()\n\nReplaced\n\nvoid postCloneNodeEvent(ASTNode node, ASTNode clone) {\n\tthis.clonedNodes.put(clone, node);\n\tthis.cloneDepth--;\n}\n\nby\n\nvoid postCloneNodeEvent(ASTNode node, ASTNode clone) {\n\tif(node.ast \u003d\u003d root.ast \u0026\u0026 clone.ast \u003d\u003d root.ast) {\n\t\tif((node.getFlags() \u0026 ASTNode.ORIGINAL) !\u003d 0) {\n\t\t\tthis.clonedNodes.put(clone, node);\n\t\t} else {\n\t\t\t// node can be a cloned node\n\t\t\tObject original \u003d this.clonedNodes.get(node);\n\t\t\tif(original !\u003d null) {\n\t\t\t\tthis.clonedNodes.put(clone, original);\n\t\t\t}\n\t\t}\n\t}\n\tthis.cloneDepth--;\n}",
+    "Verified in N20050609-0010 + JDT/Core HEAD.\n\nVerified that the attached Junit test passed.\nResult in System.out is:\npackage test; public class Test {\n\n\tvoid foo(){this.x;} }",
+    "Verified in I20050610-0010."
+  ],
+  "commentCreationDates": [
+    "2005-04-29T03:25:41+02:00",
+    "2005-04-29T03:27:33+02:00",
+    "2005-05-02T21:46:46+02:00",
+    "2005-06-07T17:08:49+02:00",
+    "2005-06-07T17:28:33+02:00",
+    "2005-06-09T15:54:52+02:00",
+    "2005-06-09T15:59:27+02:00",
+    "2005-06-09T16:51:27+02:00",
+    "2005-06-10T18:10:48+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.jface.text.Assert$AssertionFailedException",
+      "message": "Assertion failed:",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.text.Assert.isTrue",
+          "source": "Assert.java:177"
+        },
+        {
+          "method": "org.eclipse.jface.text.Assert.isTrue",
+          "source": "Assert.java:162"
+        },
+        {
+          "method": "org.eclipse.text.edits.TextEdit.\u003cinit\u003e",
+          "source": "TextEdit.java:149"
+        },
+        {
+          "method": "org.eclipse.text.edits.CopySourceEdit.\u003cinit\u003e",
+          "source": "CopySourceEdit.java:96"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.getCopySourceEdit",
+          "source": "ASTRewriteAnalyzer.java:128"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.doTextInsert",
+          "source": "ASTRewriteAnalyzer.java:984"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer$ListRewriter.rewriteList",
+          "source": "ASTRewriteAnalyzer.java:461"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.rewriteParagraphList",
+          "source": "ASTRewriteAnalyzer.java:837"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.visit",
+          "source": "ASTRewriteAnalyzer.java:1263"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.TypeDeclaration.accept0",
+          "source": "TypeDeclaration.java:469"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.doVisit",
+          "source": "ASTRewriteAnalyzer.java:249"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.doVisitList",
+          "source": "ASTRewriteAnalyzer.java:280"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.doVisitUnchangedChildren",
+          "source": "ASTRewriteAnalyzer.java:298"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer.visit",
+          "source": "ASTRewriteAnalyzer.java:1151"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.CompilationUnit.accept0",
+          "source": "CompilationUnit.java:287"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.InternalASTRewrite.rewriteAST",
+          "source": "InternalASTRewrite.java:71"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.AST.rewrite",
+          "source": "AST.java:2642"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.CompilationUnit.rewrite",
+          "source": "CompilationUnit.java:853"
+        },
+        {
+          "method": "jdt.tests.AstRewriteBug.testAstRewriteBug",
+          "source": "AstRewriteBug.java:60"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "93208",
+      "date": "2005-04-29T03:25:41+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "93208",
+  "bugId": "93208",
+  "date": "2005-04-29T03:25:41+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

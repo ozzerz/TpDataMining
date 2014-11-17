@@ -1,0 +1,146 @@
+{
+  "comments": [
+    "I\u0027m not sure the reason yet, but from RC2, the following error sometimes happens when calling DocumentCSS#getOverrideStyle() method. \nFix of bug 119176 may be related to this problem.\n\n\njava.lang.NullPointerException\n\tat org.eclipse.wst.sse.core.internal.text.BasicStructuredDocumentRegion.getType(BasicStructuredDocumentRegion.java:347)\n\tat org.eclipse.wst.css.core.internal.text.CSSStructuredDocumentReParser.getUpdateRangeForDelimiter(CSSStructuredDocumentReParser.java:166)\n\tat org.eclipse.wst.css.core.internal.text.CSSStructuredDocumentReParser.checkForCrossStructuredDocumentRegionSyntax(CSSStructuredDocumentReParser.java:117)\n\tat org.eclipse.wst.sse.core.internal.text.StructuredDocumentReParser.checkForCrossStructuredDocumentRegionBoundryCases(StructuredDocumentReParser.java:527)\n\tat org.eclipse.wst.sse.core.internal.text.StructuredDocumentReParser.checkHeuristics(StructuredDocumentReParser.java:665)\n\tat org.eclipse.wst.sse.core.internal.text.StructuredDocumentReParser.reparse(StructuredDocumentReParser.java:1281)\n\tat org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.updateModel(BasicStructuredDocument.java:2614)\n\tat org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.internalReplaceText(BasicStructuredDocument.java:1867)\n\tat org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.replaceText(BasicStructuredDocument.java:2335)\n\tat org.eclipse.wst.sse.core.internal.text.JobSafeStructuredDocument.replaceText(JobSafeStructuredDocument.java:82)\n\tat org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.setText(BasicStructuredDocument.java:2511)\n\tat org.eclipse.wst.sse.core.internal.text.JobSafeStructuredDocument.setText(JobSafeStructuredDocument.java:134)\n\tat org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.set(BasicStructuredDocument.java:2396)\n\tat org.eclipse.wst.css.core.internal.document.CSSStyleDeclItemImpl.setCssValueTextCore(CSSStyleDeclItemImpl.java:240)\n\tat org.eclipse.wst.css.core.internal.document.CSSStyleDeclItemImpl.setCssValueText(CSSStyleDeclItemImpl.java:229)\n\tat org.eclipse.wst.css.core.internal.document.CSSStyleDeclarationImpl.setProperty(CSSStyleDeclarationImpl.java:267)\n\tat org.eclipse.wst.html.core.internal.htmlcss.CSSQueryContext.applyFull(CSSQueryContext.java:73)\n\tat org.eclipse.wst.html.core.internal.htmlcss.CSSQueryTraverser.getDeclaration(CSSQueryTraverser.java:56)\n\tat org.eclipse.wst.html.core.internal.htmlcss.HTMLDocumentAdapter.getOverrideStyle(HTMLDocumentAdapter.java:201)\n\tat org.eclipse.wst.html.core.internal.document.DocumentStyleImpl.getOverrideStyle(DocumentStyleImpl.java:50)",
+    "It might be indirectly related to bug 119176, but, I think, only in the sense of exposing a pre-existing bug. From inspecting the code, there is no direct connection. At the same time, from inspecting at the code, there\u0027s potential for a number of problems in this code path. I suggest we develop some good use-cases (and JUnit tests) to better test these cases of doing CSS work when there is no CSS document that underlies the CSS Model. I\u0027ll list below a few of the issues that need investigation. \n\n1. The cause of the NPE is an area of code as follows: \n// we are assume there is always at least one region in a flatnode!\nresult \u003d getRegions().get(0).getType();\n\nSo, if this assumption is no longer true, I\u0027d wonder why. \nPerhaps we could at least improve this code to throw more meaningful exception, \nif getRegions().get(0) was indeed null ... or, just return \"UNKNOWN\" if this is legitamte state?\n\n2. It seems getUpdateRangeForDelimiter is the only method in CSSStructuredDocumentReParser that uses dirtyStart. It never sets it. \nI wonder why -- is it depending on superclass behavior? Or ... should it have been changed to use ReparseRange? \n\n3. Note that setCssText in CSSNodeImpl is \"broken\" and has been for a long time. \nIt has not shown up before because this abstract method only gets called if model has no associated document, which used to be more \"forced\". There may be paths now that a model is used before it has an underlying document. \n\n4. We over notify sometimes for newly created attributes. I\u0027m not sure what \"started\" the chain of events in your stack trace, but might have been one of these early notifications. I\u0027ve recently opened bug 120308 to track that problem. \n\nI have, btw, tried a very simple test just to verify basics work, so suspect the cause is more complicated. The simple test is in TestCSSDecl in org.eclipse.wst.css.core.tests ... and is only in CVS, not part of built code (yet). \n\nAny help narrowing this down would be appreciated. I\u0027ll target for 1.0.1 for now, but we will need a reproducable test case to justify touching code for the fix release. Thanks very much. \n\n\n\n\n\n\n",
+    "Moving target back to 1.0 while this is investigated. \nIt may be blocking adopter ... so, we\u0027ll see if we can figure out \nproblem and potential fix. Once known, we\u0027ll go though the process. \n",
+    "Here is the simple JUnit test case to reproducet this problem.\n\nGiven that we have a project called \"test\" and have test.html under WebContentFolder. The contents of \"test.html\" is \"\u003chtml\u003e\u003chead\u003e\u003c/head\u003e\u003cbody\u003e\u003c/body\u003e\u003c/html\u003e\".\n\n// Test Scenario: create \u003cstyle\u003e tag under \u003chead\u003e tag and \n// create style declaration including \"background-color\" property.\n\n// \"path\" value should be replaced with your project location\nIPath path \u003d new Path(\"G:/wtp/eclipse/runtime-workspace/test/WebContent/test.html\"); \n\nIWorkspaceRoot root \u003d ResourcesPlugin.getWorkspace().getRoot();\nIFile file \u003d root.getFileForLocation(path);\nIDOMModel domModel;\ntry {\ndomModel \u003d (IDOMModel)StructuredModelManager.getModelManager().getModelForEdit(file);\nIDOMDocument doc \u003d (IDOMDocument)domModel.getDocument();\n\t\t\n// get head tag\nNodeList list \u003d doc.getElementsByTagName(HTML40Namespace.ElementName.HEAD);\nElement head \u003d (Element)list.item(0);\n\t\t\t\n// create and append style element\nElement ele \u003d doc.createElement(HTML40Namespace.ElementName.STYLE);\nele.setAttribute(HTML40Namespace.ATTR_NAME_TYPE, \"text/css\");\n\t\t\nString delim \u003d domModel.getStructuredDocument().getLineDelimiter();\nif (delim \u003d\u003d null) delim \u003d \"\\n\";//$NON-NLS-1$\nStringBuffer buffer \u003d new StringBuffer(delim);\nbuffer.append(\"\u003c!--\");//$NON-NLS-1$\nbuffer.append(delim);\nbuffer.append(\"--\u003e\");//$NON-NLS-1$\nbuffer.append(delim);\nText text \u003d doc.createTextNode(buffer.toString());\nele.appendChild(text);\n\t\t\t\nhead.insertBefore(ele, null);\n\t\t\t\n// get adapter for StyleSheet\nICSSStyleSheet sheet \u003d (ICSSStyleSheet) ((IStyleSheetAdapter) ((INodeNotifier)ele).getAdapterFor(IStyleSheetAdapter.class)).getSheet();\n\t\t\t\n// create style declaration\nICSSStyleRule rule \u003d sheet.createCSSStyleRule();\nrule.getStyle().setProperty(\"background-color\", \"lime\", \"\");\nrule.getStyle().setProperty(\"background-color\", \"blue\", \"\");\nrule.getStyle().setProperty(\"background-color\", \"#0080ff\", \"\");\n\t\t\t\ndomModel.save();\ndomModel.releaseFromEdit();\n\n} catch (IOException e) {\ne.printStackTrace();\n} catch (CoreException e) {\ne.printStackTrace();\n}\n\nIn this test case, first rule.getStyle().setProperty(...) works fine,\nbut second one is failed with NPE that is discussed in this defect.\n\nI think the cause of NPE thrown from getRegion().get(0).getType() is \nBasicStructuredDocumeng#getCachedDocumentRegion() which is called by StructuredDocumentReparser#reparse().\n\nSo I also try some workaround code not to use cached document region like below.\n\nICSSStyleRule rule \u003d sheet.createCSSStyleRule();\nrule.getStyle().setProperty(\"background-color\", \"lime\", \"\");\nBasicStructuredDocument.setUSE_LOCAL_THREAD(false);\n((BasicStructuredDocument)domModel.getStructuredDocument()).setCachedDocumentRegion(null);\nrule.getStyle().setProperty(\"background-color\", \"blue\", \"\");\nBasicStructuredDocument.setUSE_LOCAL_THREAD(false);\n((BasicStructuredDocument)domModel.getStructuredDocument()).setCachedDocumentRegion(null);\nrule.getStyle().setProperty(\"background-color\", \"#0080ff\", \"\");\n\nIn this workaroud code, first and second setProperty works fine.\nBut third one is failed with same NPE...\n",
+    "Added to Hot List.  We need a fix/defer recommendation. David - please investigate and post a recommendation. Thx.",
+    "Created an attachment (id\u003d31561)\nJUnit test \n\n",
+    "I created another JUnit test case (GetOverrideStyleTest.java) for org.eclipse.wst.html.core.tests.parser.css package.",
+    "Thanks for the test cases. I\u0027ve added versions of them to org.eclipse.wst.css.core.tests.model\nand have committed to HEAD, but have not released for a build\n(and wouldn\u0027t until they pass :) \n\nIts seems a \"quick fix\" is that in \"setText\" we can just make sure the \ncached region, and the first and last regions are reset to \u0027null\u0027, \nbefore giving the reparser the text to parse. \n\nBut, I\u0027d still like to investigate why this is needed. I think specific to \nCSS Parser, but not positive. \n\nSince this is a \"low level\" fix which might have indirect side effects, I\u0027d recommend this be deferred to 1.0.1, unless more serious adopter-blocking scenerios are discovered. \n",
+    "David, I agree that it would be unsafe to target this to 1.0 until the problem is fully understood. Perhaps you could attach a patch here so that others can do some testing on it and see if it allows them to make further testing progress?",
+    "Created an attachment (id\u003d31600)\npatch to avoid NPE exception\n\nTurns out I think this is a pretty obvious problem and fix. One part of our code said\n\n// we assume there is always at least one region in a structuredDocumentRegion!\nresult \u003d getRegions().get(0).getType();\n\nBut looking at other parts of the code, its obvious this assumption is not always true. For example, \"clear\" of TextRegionsList just resets the count to 0.  I think we did not see before, because 1) CSS makes the most advanced use of some of these low level methods, and 2) we recently changed (to fix other bugs) so that \"set\" does not cause a \"new model\" event, but instead replaces existing text. So .. this \"replacement\" and \"reuse\" of documents is a rare code path, that just happends to be central to advanced CSS use. \n",
+    "Created an attachment (id\u003d31603)\ndevelopment built jar with NPE fix. Should be compatible with any recent RC build. \n\n",
+    "If anyone gets a chance to review/test this fix that would be great. \n\nI think this fix is perfectly safe and necessary, but wonder if is sufficient, for those cases that used to depend on \"newModel\" event? If not, please open new bugs for other \"newModel\" problems (since, \"new model\" and \"replaced content\" should be functionally equivilent). \n\n\n",
+    "Note, I moved the unit tests to the html.core.tests plugin, since the pattern is for html to depend on css (currently) not vice versa. \n\nAlso, those interested in this bug, might also be interested in bug 120507\n(re-evaluate use of static shared temporary document in CSSStyleDeclItemImpl)\n\nI think bug 120507 highlights some \"problematic\" code, but am hoping/assuming there is no immediate need to fix it (that I know of), but it should be improved in future versions. \n",
+    "I\u0027ve tried the patch and it worked fine with my codes.\nIn my test case, CSSStyleDeclaration::setProperty(String, String, String) is called several time. Without the patch, NPE was thrown at the second time.",
+    "Great, thanks for the confirmation. If there are reasons to created another RC, I\u0027ll suggest this one be included. Otherwise, it\u0027ll be in our 101 stream. \n",
+    "I am temporarily untargetting this bug so we can consider it for RC5.",
+    "Nitin - The fix is very small and safe and has been tested.\nPMC approved.",
+    "Committed and Released.",
+    "I\u0027m marking as verified, as component owner. If origantor disagrees, or sees other similar bugs, please open new ones (with reference to this one). \n",
+    "I confirmed that the original problem was fixed.\nThank you for your effort."
+  ],
+  "commentCreationDates": [
+    "2005-12-11T15:47:49+01:00",
+    "2005-12-12T04:49:24+01:00",
+    "2005-12-12T07:20:24+01:00",
+    "2005-12-12T07:58:50+01:00",
+    "2005-12-12T14:30:30+01:00",
+    "2005-12-12T14:45:13+01:00",
+    "2005-12-12T14:48:45+01:00",
+    "2005-12-12T19:13:03+01:00",
+    "2005-12-12T19:17:08+01:00",
+    "2005-12-13T01:12:16+01:00",
+    "2005-12-13T01:39:51+01:00",
+    "2005-12-13T01:43:59+01:00",
+    "2005-12-13T05:02:39+01:00",
+    "2005-12-13T06:35:54+01:00",
+    "2005-12-13T09:31:02+01:00",
+    "2005-12-14T22:03:59+01:00",
+    "2005-12-15T19:29:55+01:00",
+    "2005-12-15T20:03:06+01:00",
+    "2005-12-19T07:53:52+01:00",
+    "2005-12-20T02:48:10+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.BasicStructuredDocumentRegion.getType",
+          "source": "BasicStructuredDocumentRegion.java:347"
+        },
+        {
+          "method": "org.eclipse.wst.css.core.internal.text.CSSStructuredDocumentReParser.getUpdateRangeForDelimiter",
+          "source": "CSSStructuredDocumentReParser.java:166"
+        },
+        {
+          "method": "org.eclipse.wst.css.core.internal.text.CSSStructuredDocumentReParser.checkForCrossStructuredDocumentRegionSyntax",
+          "source": "CSSStructuredDocumentReParser.java:117"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.StructuredDocumentReParser.checkForCrossStructuredDocumentRegionBoundryCases",
+          "source": "StructuredDocumentReParser.java:527"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.StructuredDocumentReParser.checkHeuristics",
+          "source": "StructuredDocumentReParser.java:665"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.StructuredDocumentReParser.reparse",
+          "source": "StructuredDocumentReParser.java:1281"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.updateModel",
+          "source": "BasicStructuredDocument.java:2614"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.internalReplaceText",
+          "source": "BasicStructuredDocument.java:1867"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.replaceText",
+          "source": "BasicStructuredDocument.java:2335"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.JobSafeStructuredDocument.replaceText",
+          "source": "JobSafeStructuredDocument.java:82"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.setText",
+          "source": "BasicStructuredDocument.java:2511"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.JobSafeStructuredDocument.setText",
+          "source": "JobSafeStructuredDocument.java:134"
+        },
+        {
+          "method": "org.eclipse.wst.sse.core.internal.text.BasicStructuredDocument.set",
+          "source": "BasicStructuredDocument.java:2396"
+        },
+        {
+          "method": "org.eclipse.wst.css.core.internal.document.CSSStyleDeclItemImpl.setCssValueTextCore",
+          "source": "CSSStyleDeclItemImpl.java:240"
+        },
+        {
+          "method": "org.eclipse.wst.css.core.internal.document.CSSStyleDeclItemImpl.setCssValueText",
+          "source": "CSSStyleDeclItemImpl.java:229"
+        },
+        {
+          "method": "org.eclipse.wst.css.core.internal.document.CSSStyleDeclarationImpl.setProperty",
+          "source": "CSSStyleDeclarationImpl.java:267"
+        },
+        {
+          "method": "org.eclipse.wst.html.core.internal.htmlcss.CSSQueryContext.applyFull",
+          "source": "CSSQueryContext.java:73"
+        },
+        {
+          "method": "org.eclipse.wst.html.core.internal.htmlcss.CSSQueryTraverser.getDeclaration",
+          "source": "CSSQueryTraverser.java:56"
+        },
+        {
+          "method": "org.eclipse.wst.html.core.internal.htmlcss.HTMLDocumentAdapter.getOverrideStyle",
+          "source": "HTMLDocumentAdapter.java:201"
+        },
+        {
+          "method": "org.eclipse.wst.html.core.internal.document.DocumentStyleImpl.getOverrideStyle",
+          "source": "DocumentStyleImpl.java:50"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "120267",
+      "date": "2005-12-11T15:47:49+01:00",
+      "product": "Web Tools",
+      "component": "wst.sse",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "120267",
+  "bugId": "120267",
+  "date": "2005-12-11T15:47:49+01:00",
+  "product": "Web Tools",
+  "component": "wst.sse",
+  "severity": "critical"
+}

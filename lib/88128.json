@@ -1,0 +1,81 @@
+{
+  "comments": [
+    "We are trying to port legacy runtime environments onto the Eclipse platform.\nSome of these environments use JVM shutdown hooks that perform some amount of\ncleanup.  Unfortunately, in an Eclipse environment the bundles are stopped\nbefore the shutdown hooks are executed, which severely restricts what can be\ndone in the hook.  For example, no classes may be loaded.\n\nIn general, we do not own the code for the hooks, so we cannot easily change the\ncode to fit some other mechanism (e.g. bundle start levels).\n\nWe can, however, live without a standard shutdown of the Eclipse platform.  That\nis, if bundles stayed active during the JVM shutdown, I believe that would be\nacceptable.\n\nHere is a very trivial example.  If you run it, you should get the following output:\n\nosgi\u003e \n### adding shutdown hook\n### in shutdown hook com.acme.Main$ShutdownHook\njava.lang.NoClassDefFoundError: com/acme/Foo\n        at com.acme.Main$ShutdownHook.run(Main.java:16)\n\n\n\n-------------- main application -----------\npackage com.acme;\n\nimport org.eclipse.core.runtime.IPlatformRunnable;\n\npublic class Main implements IPlatformRunnable {\n\n    public Object run(Object arg0) throws Exception {\n        System.out.println(\"### adding shutdown hook\");\n        Runtime.getRuntime().addShutdownHook(new ShutdownHook());\n        return null;\n    }\n\n    private static class ShutdownHook extends Thread {\n        public void run() {\n            System.out.println(\"### in shutdown hook \" + this.getClass().getName());\n            Foo f \u003d new Foo();\n        }\n    }\n}\n\n--------------- auxiliary class Foo --------------------\n\npackage com.acme;\n\npublic class Foo {\n}\n\n-------------- plugin.xml -----------------------\n\n\u003c?xml version\u003d\"1.0\" encoding\u003d\"UTF-8\"?\u003e\n\u003c?eclipse version\u003d\"3.0\"?\u003e\n\u003cplugin\u003e\n\n   \u003cextension id\u003d\"Test\" point\u003d\"org.eclipse.core.runtime.applications\"\u003e\n     \u003capplication\u003e\n       \u003crun class\u003d\"com.acme.Main\"/\u003e\n     \u003c/application\u003e\n   \u003c/extension\u003e\n \n\u003c/plugin\u003e\n\n------------------ manifest.mf ----------------\nManifest-Version: 1.0\nBundle-Name: Sample Bundle\nBundle-SymbolicName: com.bugsrus\nBundle-Version: 1.0.0\nBundle-ClassPath: testbundle.jar\nBundle-Vendor: Acme Corp.\nBundle-Localization: plugin\nEclipse-AutoStart: true\nImport-Package: org.eclipse.core.runtime,\n  org.osgi.framework",
+    "need to investigate for M6 as part of the classloading work.",
+    "is this related to bug 73059?",
+    "Yes, this does appear to be the same issue documented in bug 73059.\n\nI will look further into preloading the set of classes needed by the shutdown\nhook but in general this will not be practical because parts of the\nimplementations come from 3rd party code.  It will be very brittle.\n",
+    "I agree, I seem to remember that we did not close the classloaders on \nshutdown.  Jeff, does this not sound familiar?\n\nI notice that you are using Eclipse-AutoStart: true\n\nI think if you use some of the advanced features of the Eclipse-AutoStart \nheader then you can filter some packages to prevent your bundle from being \nauto-started.  For example the packages with your shutdown hooks should not \ncause your bundle to be auto-started.  Jeff or Rafael, can you point Tom to \nsome documentation about the Eclipse-AutoStart header?\n",
+    "There is an \"exceptions\" attribute (TJ, should this be a directive?).  \nBasically you set Eclipse-AutoStart to the base behaviour (true or false) and \nthen specify exception packages which cause the opposite behaivour.  So in \n\nEclipse-AutoStart: true;exceptions\u003d\"foo\"\n\nthe bundle will be autostarted for loads of all classes in all packages \n*except* the foo package.",
+    "Technically it should be a directive.  I\u0027d hate to have to convert now.  This \nhas been available since 3.0 ...\n\nIs there and value in converting this to a directive?  Tooling would be \neffected too ...",
+    "ok, lets not change it.\n\non the classloader closing, I don\u0027t remember.  There must be classloaders being \nclosed or disabled because classloads are failing.  We need to recapture the \nlogic used here.",
+    "see bug 47255.  That explains that we do not close classloaders on shutdown.  \nI think the classloader error occurs if the bundle has Eclipse-AutoStart: \ntrue.  this causes the EclipseClassLoader to prevent classloads if the bundle \nis stopped.",
+    "see also bug 72797",
+    "Cool. so this means that Tom M can either turn off Autostart or list the \nclasses involved in shutdown as exceptions.  The bummer would be if for some \nreason he needed autostart to be triggered by loading of classes from the same \npackage as the shutdown code.",
+    "I\u0027ve tried flipping Auto-Start to false in my simple example and it does\nnot seem to have any effect (R3.1M5a).  What I\u0027m seeing in the debugger\nis that all bundle loaders are being closed as the framework shuts down:\n\n   Thread [System Bundle Shutdown] (Suspended (breakpoint at line 251 in\nBundleLoader))\n\tBundleLoader.close() line: 251\n\tBundleHost.closeBundleLoader(BundleLoaderProxy) line: 558\n\tBundleHost.refresh() line: 132\n\tStartLevelManager.unloadAllBundles(BundleRepository) line: 699\n\tStartLevelManager.decFWSL(int) line: 617\n\tStartLevelManager.doSetStartLevel(int, AbstractBundle) line: 284\n\tStartLevelManager.shutdown() line: 257\n\tSystemBundle.suspend() line: 190\n\tFramework.shutdown() line: 420\n\tSystemBundle$1.run() line: 171\n\tThread.run() line: 568\n\nThe shutdown hook is triggered by the System.exit() in the\norg.eclipse.core.launcher.Main which occurs after framework shutdown.  At this\npoint, the BundleLoader will not allow any additional classes to be loaded.\n",
+    "Something has changed since 3.0 that reintroduced this problem.  I will \ninvestigate.",
+    "This is not a regression.  The same bug is in 3.0.1.  We are closing the \nBundleLoaders on shutdown which is causing this problem.",
+    "hmmm.  I was pretty sure we were closing them but I\u0027m getting pretty old...\n\nSo what to do? some sort of indication that they should not be closed?  and \nwhat about reactivation?",
+    "The simple fix is to just not unload all the bundles on shutdown.  I believe \nthat was the original intent of bug 47255.  But that was not fixed properly.  \nI tested this out, and it seems to fix the problem but it opens us up to other \nissues.  For example, at shutdown the frameworkLog is set to null.  This will \ncause NPE if any logging is needed while loading the classes in the shutdown \nhooks.  I ran into an NPE when the plugin had autostart set to true because \nthe EclipseClassLoader wanted to log an error ...",
+    "there has to be an end to the expectations.  I mean if someone registers \nshutdown code, the code has to be pretty darn careful about what it does as the \nsystem is going down so various parts are being torn apart.  TomM, do you have \na sense as to what kinds of things are needed during this shutdown code?  for \nexample, can we say that it will not reference any OSGi classes?  will only \nload classes from its own bundle (and the system classloader)?  we have to put \na box around it somehow.",
+    "before fixing this, we need to clean up the open files we are leaving arround \non shutdown ...",
+    "We encountered several issues while investigating this.  Most having to do \nwith enabling classloaders to function after the framework has shutdown.  \nSeveral NPE\u0027s started to occur if the classloader was used after shutdown.  \nWill look into implementing a solution in M7.",
+    "Created an attachment (id\u003d19872)\nProposed solution\n\nThis patch allows existing bundle classloaders to load classes even after the\nframework has been shutdown.  The bundle classloader and BundleLoader objects\ncan still function and use the proper OSGi delegation model.  Note that all\nreferences to the BundleLoader and bundle classloader objects have been dropped\nby the framework.  In theory this would allow a classloader to be GC\u0027ed if all\nclasses it loaded have been GC\u0027ed.  \n\nIn the shutdown hook case this would not happen because an object would still\nexist for the actual shutdown hook.  Also all resources (jar files) have been\nclosed for the bundles and their classloaders upon shutdown.  If a class is\nloaded after the framework has been shutdown then the jars will be reopened on\ndemand.  Potentially new classloaders could even be created in cases where an\nexisting BundleLoader has not created the classloader yet.  I tested these\ndifferent scenarios out and they all worked as expected.  \n\nPlease note that you must not use Eclipse-AutoStart: true in any of the bundles\nwhich contain code that may run in your shutdown hook.\tThe EclispeClassLoader\nwill prevent any classes from being loaded after shutdown in bundles marked\nwith the Eclipse-AutoStart flag.\n\nJeff, can you review the patch.  Thanks.",
+    "Created an attachment (id\u003d19884)\nupdated patch\n\nHad to release a fix to BundleLoader for dynamic imports.  This is a new patch\nagainst the latest in HEAD.",
+    "including Pascal for the review because he loves classloaders as much as I \ndo :-)",
+    "I reviewed the patch and it seems to contain the refactorings to use bit masks\ninstead of booleans and the fix for this bug.\nFor clarity we should release them independently.\n\nIn BundleLoader.close() shouldn\u0027t we keep the \"null\u0027ation\" of classloader and\nbundle, and skip them when a system property is enabled?\n",
+    "I moved to using bit masks because I did not want to introduce yet another \nboolean slot to indicate the BundleLoader is closed.  Previously the code \nchecked if the bundle \u003d\u003d null to see if the BundleLoader was closed.  I can \nrelease the fix to move to bit masks before releasing the rest of the fix.\n\nWe no longer null out any of the slots in BundleLoader during shutdown.  This \nis to allow the BundleLoader to remain functional.  We do remove all \nreferences to the BundleLoaderProxy\u0027s.  All access to BundleLoaders (and \nBundleClassLoaders) from the framework is done through the BundleLoaderProxy.  \nKeeping a refernce to the BundleClassLaoder from the BundleLoader should not \nprevent the BundleClassLoader from being GC\u0027ed as long as no references exist \nto the BundleLoaderProxy.",
+    "I released the patch in HEAD without splitting the concern."
+  ],
+  "commentCreationDates": [
+    "2005-03-15T22:36:06+01:00",
+    "2005-03-16T03:58:13+01:00",
+    "2005-03-16T04:14:56+01:00",
+    "2005-03-16T13:55:47+01:00",
+    "2005-03-16T14:22:18+01:00",
+    "2005-03-16T14:37:27+01:00",
+    "2005-03-16T14:46:26+01:00",
+    "2005-03-16T16:07:02+01:00",
+    "2005-03-16T16:16:32+01:00",
+    "2005-03-16T16:20:21+01:00",
+    "2005-03-16T16:26:42+01:00",
+    "2005-03-16T18:37:37+01:00",
+    "2005-03-16T19:36:57+01:00",
+    "2005-03-16T20:01:45+01:00",
+    "2005-03-16T20:39:11+01:00",
+    "2005-03-16T21:02:04+01:00",
+    "2005-03-16T23:34:45+01:00",
+    "2005-03-23T21:13:36+01:00",
+    "2005-03-31T16:41:58+02:00",
+    "2005-04-13T18:13:12+02:00",
+    "2005-04-13T20:41:18+02:00",
+    "2005-04-13T20:44:32+02:00",
+    "2005-04-18T15:27:43+02:00",
+    "2005-04-19T19:41:13+02:00",
+    "2005-04-19T20:54:18+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "com/acme/Foo",
+      "elements": [
+        {
+          "method": "com.acme.Main$ShutdownHook.run",
+          "source": "Main.java:16"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "88128",
+      "date": "2005-03-15T22:36:06+01:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "88128",
+  "bugId": "88128",
+  "date": "2005-03-15T22:36:06+01:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "normal"
+}

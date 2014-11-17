@@ -1,0 +1,94 @@
+{
+  "comments": [
+    "Upon revealing a IJavaElement in an editor I get thisthe following exception.\nThe IJavaElement represents a method. It was reconstructed from a handle \ncreated with IJavaElement.getHandleIdentifier()\n\njava.lang.IllegalArgumentException\n\tat org.eclipse.jdt.core.Signature.toCharArray(Signature.java:1269)\n\tat org.eclipse.jdt.core.Signature.toString(Signature.java:1381)\n\tat org.eclipse.jdt.internal.core.Member.findMethods(Member.java:107)\n\tat org.eclipse.jdt.internal.core.SourceType.findMethods\n(SourceType.java:134)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.findElements\n(CompilationUnit.java:268)\n\tat \norg.eclipse.jdt.internal.corext.util.JavaModelUtil.findInCompilationUnit\n(JavaModelUtil.java:219)\n\tat org.eclipse.jdt.internal.ui.javaeditor.EditorUtility.getWorkingCopy\n(EditorUtility.java:295)\n\tat \norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.getCorrespondingEle\nment(CompilationUnitEditor.java:679)\n\tat org.eclipse.jdt.internal.ui.javaeditor.JavaEditor.setSelection\n(JavaEditor.java:1422)\n\tat org.eclipse.jdt.internal.ui.javaeditor.EditorUtility.revealInEditor\n(EditorUtility.java:121)\n\tat org.eclipse.jdt.ui.JavaUI.revealInEditor(JavaUI.java:564)\n\ncode:\n\tif (element !\u003d null) {\n\t   IEditorPart javaEditor \u003d JavaUI.openInEditor(element);\n\t   JavaUI.revealInEditor(javaEditor, element);\n\t}\n\n\nFrank",
+    "example handle that fails:\n\n\u003dFPL/src\u003cnet.sourceforge.fpl.commands{GlobNode.java\n[GlobNode~addFolderContent~File~String~boolean~List",
+    "Frank, it looks like the handle for the method you\u0027re trying to reveal in the \neditor is malformed. The parameter types should be signatures, i.e. they should \nbe: {\"QFile;\", \"QString;\", \"Z\", \"QList;\"}\n\nDid you create this handle? If you didn\u0027t, how did you get it?",
+    "The handle was created with the element.getHandleIdentifier() method....\n\nprivate Max(String name, String per, double value, IJavaElement element) {\n\tthis(name, per, value);\n\tif (element !\u003d null) handle \u003d element.getHandleIdentifier();\n}\n",
+    "I meant: how was the method (i.e. the IJavaElement you\u0027re getting the handle \nidentifier from) created? \n\nIt looks like this IJavaElement (an IMethod from my investigation) was created \nusing the wrong parameter type signatures. If the IMethod is malformed, then \nthe handle identifier is also malformed, which causes the IAE.",
+    "The IMethod was obtained like this, starting with a  \norg.eclipse.jdt.core.dom.MethodDeclaration:\n\nprivate IMethod findMethod(MethodDeclaration m) {\n\tIType type \u003d (IType)input;\n\tList parms \u003d m.parameters();\n\tString[] argtypes \u003d new String[parms.size()];\n\tint index \u003d 0;\n\tfor (Iterator i \u003d parms.iterator();i.hasNext();index++) {\n\t\tString svd \u003d i.next().toString();\n\t\tint space \u003d svd.indexOf(\u0027 \u0027);\n\t\targtypes[index] \u003d svd.substring(0, space);\n\t}\n\tIMethod im \u003d type.getMethod(m.getName().getIdentifier(), argtypes);\n\tif (im \u003d\u003d null) {\n\t\tSystem.err.println(\"No method found for \" + m.getName\n().getIdentifier() + \" (\" + argtypes + \")\");\n\t} \n\treturn im;\n}",
+    "Hmm, I see what you\u0027re saying now. I changed the code posted earlier\nto print the following output, and what I get from the getMethod call is\ndefinetely different from a direct listing of all the methods. Code:\n\nif (im \u003d\u003d null) {\n   System.err.println(\"No method found for \" + m.getName().getIdentifier() + \" \n(\" + argtypes + \")\");\n} else {\n   System.err.println(\"Found method \" + im.getHandleIdentifier());\n   try {\n\tIMethod[] methods \u003d type.getMethods();\n\tfor (int i \u003d 0; i \u003c methods.length;i++) {\n\t\tSystem.err.println(\"methods[\" + i + \"] \u003d \" + methods\n[i].getHandleIdentifier());\n\t}\n   } catch (JavaModelException e) {\n\t// HACK Auto-generated catch block\n\te.printStackTrace();\n   }\n}\n\nFound method \u003dFPL/src\u003cnet.sourceforge.fpl.commands{FPLNode.java\n[FPLNode~fireVariableSet~Variable~boolean\n...\nmethods[47] \u003d \u003dFPL/src\u003cnet.sourceforge.fpl.commands{FPLNode.java\n[FPLNode~fireVariableSet~QVariable;~Z\n\nSo why does type.getMethod(m.getName().getIdentifier(), argtypes) find\nsomething if I don\u0027t pass the correct argument types, or why does the IMethod\nreturned by the getMethod - if it finds a method - not answer the correct\nhandle?",
+    "found workaround as follows.\nThis still does not explain differnetce between getMethod(name, argtypes)\nand getMethods() though...\n\nprivate IMethod findMethod(MethodDeclaration m) {\n   IType type \u003d (IType)input;\n   List parms \u003d m.parameters();\n   String[] argtypes \u003d new String[parms.size()];\n   int index \u003d 0;\n   for (Iterator i \u003d parms.iterator();i.hasNext();index++) {\n\tString svd \u003d i.next().toString();\n\tint space \u003d svd.indexOf(\u0027 \u0027);\n\targtypes[index] \u003d Signature.createTypeSignature(svd.substring(0, \nspace), false);\n   }\n   IMethod im \u003d type.getMethod(m.getName().getIdentifier(), argtypes);\n   if (im \u003d\u003d null) {\n\tSystem.err.println(\"No method found for \" + m.getName().getIdentifier() \n+ \" (\" + argtypes + \")\");\n   } \n   return im;\n}",
+    "As specified in the javadoc of these methods:\n- getMethod(String name, String[] parameterTypeSignatures) is a handle-only \nfunction. The method may or may not be present. You need to call exists() on \nthis method if you want to know if the method is present in the type.\n- getMethods() returns the methods and constructors declared by this type. So \nall methods returns by this function are guarantied to exist.\n\nI agree that the names of these methods may be too close. The second one should \nreally be \u0027findMethods()\u0027. However these are here since 1.0, and we cannot \nchange the names any longer.\n\nBTW, I don\u0027t think you\u0027re solution is a workaround. I think that it the right \nway to get the IMethod handle from the ASTNode. However you don\u0027t need to check \nfor null as getMethod(String, String[]) will never return null. You can - if \nyou want - call exists() on this method to ensure it is present in the type.",
+    "Frank, with the above explanation is it ok to close?",
+    "yes, ok. I agree that the method names could be improved:\ngetMethod(name, argtypes) should be createMethod since it\u0027s not really a finder\nbut more of a factory method. Thanks for your help.",
+    "Closing."
+  ],
+  "commentCreationDates": [
+    "2003-02-22T19:55:13+01:00",
+    "2003-02-22T20:02:51+01:00",
+    "2003-02-23T11:21:34+01:00",
+    "2003-02-23T15:06:25+01:00",
+    "2003-02-23T16:42:27+01:00",
+    "2003-02-23T16:58:48+01:00",
+    "2003-02-23T18:59:38+01:00",
+    "2003-02-23T23:31:07+01:00",
+    "2003-02-24T09:57:45+01:00",
+    "2003-02-25T10:37:44+01:00",
+    "2003-02-25T14:10:51+01:00",
+    "2003-02-25T14:20:20+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.core.Signature.toCharArray",
+          "source": "Signature.java:1269"
+        },
+        {
+          "method": "org.eclipse.jdt.core.Signature.toString",
+          "source": "Signature.java:1381"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.Member.findMethods",
+          "source": "Member.java:107"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.SourceType.findMethods",
+          "source": "SourceType.java:134"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.findElements",
+          "source": "CompilationUnit.java:268"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.util.JavaModelUtil.findInCompilationUnit",
+          "source": "JavaModelUtil.java:219"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.EditorUtility.getWorkingCopy",
+          "source": "EditorUtility.java:295"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.getCorrespondingElement",
+          "source": "CompilationUnitEditor.java:679"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.JavaEditor.setSelection",
+          "source": "JavaEditor.java:1422"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.EditorUtility.revealInEditor",
+          "source": "EditorUtility.java:121"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.JavaUI.revealInEditor",
+          "source": "JavaUI.java:564"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "32563",
+      "date": "2003-02-22T19:55:13+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "32563",
+  "bugId": "32563",
+  "date": "2003-02-22T19:55:13+01:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

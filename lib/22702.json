@@ -1,0 +1,79 @@
+{
+  "comments": [
+    "build 20020821 branch 2.0.1\n\nIf the user wants to use a logger other than the default the command line\n -logger \u003cloggerClassName\u003e can be used. It seems to work fine if you create a \nlogger and add its JAR to the Ant classpath but trying to use the \norg.apache.tools.ant.XmlLogger (available in the ant.jar) gives a \ndialog \"Build Failed.\" with no more explanation about the problem. The user \nhas no clue of what is wrong.",
+    "The same happens in 2.1.0 M1 build when calling antRunner from command line \n(\"eclipse -application org.eclipse.core.antRunner -logger ....\")\n\n     [exec] java.lang.reflect.InvocationTargetException: \njava.lang.ClassCastException: org.apache.tools.ant.XmlLogger\n     [exec]     at \norg.eclipse.ant.internal.core.ant.InternalAntRunner.addBuildListeners\n(InternalAntRunner.java:176)\n     [exec]     at org.eclipse.ant.internal.core.ant.InternalAntRunner.run\n(InternalAntRunner.java:279)\n     [exec]     at org.eclipse.ant.internal.core.ant.InternalAntRunner.run\n(InternalAntRunner.java:443)\n     [exec]     at java.lang.reflect.Method.invoke(Native Method)\n     [exec]     at org.eclipse.ant.core.AntRunner.run(AntRunner.java:338)\n     [exec]     at org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:775)\n     [exec]     at org.eclipse.core.boot.BootLoader.run(BootLoader.java:462)\n     [exec]     at java.lang.reflect.Method.invoke(Native Method)\n     [exec]     at org.eclipse.core.launcher.Main.basicRun(Main.java:247)\n     [exec]     at org.eclipse.core.launcher.Main.run(Main.java:703)\n     [exec]     at org.eclipse.core.launcher.Main.main(Main.java:539)\n     [exec] --- Nested Exception ---\n     [exec] java.lang.ClassCastException: org.apache.tools.ant.XmlLogger\n     [exec]     at \norg.eclipse.ant.internal.core.ant.InternalAntRunner.createLogger\n(InternalAntRunner.java:474)\n     [exec]     at \norg.eclipse.ant.internal.core.ant.InternalAntRunner.addBuildListeners\n(InternalAntRunner.java:169)\n     [exec]     at org.eclipse.ant.internal.core.ant.InternalAntRunner.run\n(InternalAntRunner.java:279)\n     [exec]     at org.eclipse.ant.internal.core.ant.InternalAntRunner.run\n(InternalAntRunner.java:443)\n     [exec]     at java.lang.reflect.Method.invoke(Native Method)\n     [exec]     at org.eclipse.ant.core.AntRunner.run(AntRunner.java:338)\n     [exec]     at org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:775)\n     [exec]     at org.eclipse.core.boot.BootLoader.run(BootLoader.java:462)\n     [exec]     at java.lang.reflect.Method.invoke(Native Method)\n     [exec]     at org.eclipse.core.launcher.Main.basicRun(Main.java:247)\n     [exec]     at org.eclipse.core.launcher.Main.run(Main.java:703)\n     [exec]     at org.eclipse.core.launcher.Main.main(Main.java:539)\n     [exec] --- Nested Exception ---\n     [exec] java.lang.ClassCastException: org.apache.tools.ant.XmlLogger\n     [exec]     at \norg.eclipse.ant.internal.core.ant.InternalAntRunner.createLogger\n(InternalAntRunner.java:470)\n     [exec]     at \norg.eclipse.ant.internal.core.ant.InternalAntRunner.addBuildListeners\n(InternalAntRunner.java:169)\n     [exec]     at org.eclipse.ant.internal.core.ant.InternalAntRunner.run\n(InternalAntRunner.java:279)\n     [exec]     at org.eclipse.ant.internal.core.ant.InternalAntRunner.run\n(InternalAntRunner.java:443)\n     [exec]     at java.lang.reflect.Method.invoke(Native Method)\n     [exec]     at org.eclipse.ant.core.AntRunner.run(AntRunner.java:338)\n     [exec]     at org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:775)\n     [exec]     at org.eclipse.core.boot.BootLoader.run(BootLoader.java:462)\n     [exec]     at java.lang.reflect.Method.invoke(Native Method)\n     [exec]     at org.eclipse.core.launcher.Main.basicRun(Main.java:247)\n     [exec]     at org.eclipse.core.launcher.Main.run(Main.java:703)\n     [exec]     at org.eclipse.core.launcher.Main.main(Main.java:539)",
+    "I found the following interesting method in the source of CruiseControl \n(cruisecontrol.sourceforge.net). It seems that there are two different \nimplementations of \"org.apache.tools.ant.XmlLogger\" (Ant 1.4/1.5 ?!?) One is \nuses as \"-logger\" and one is used as \"-listener\".\n\n    /**\n     *  Determine whether the org.apache.tools.ant.XmlLogger being\n     *  used implements the BuildLogger interface.  Using the XmlLogger\n     *  as a BuildLogger rather than a BuildListener is a newer feature\n     *  and can reduce log file size dramatically.\n     *\n     *  @return true if XmlLogger can be found and used as a BuildLogger.\n     */\n    protected boolean isLoggerSupported() {\n        try {\n            Class[] interfaces \u003d Class.forName\n(\"org.apache.tools.ant.XmlLogger\").getInterfaces();\n            for(int i\u003d0; i\u003cinterfaces.length; i++) {\n                log.debug(interfaces[i].getName());\n            }\n            boolean isLoggerAssignableToXml \u003d (Class.forName\n(\"org.apache.tools.ant.BuildLogger\").isAssignableFrom(Class.forName\n(\"org.apache.tools.ant.XmlLogger\")));\n            boolean isXmlAssignableToLogger \u003d (Class.forName\n(\"org.apache.tools.ant.XmlLogger\").isAssignableFrom(Class.forName\n(\"org.apache.tools.ant.BuildLogger\")));\n            log.debug(\"\" + isLoggerAssignableToXml);\n            log.debug(\"\" + isXmlAssignableToLogger);\n            return (Class.forName\n(\"org.apache.tools.ant.BuildLogger\").isAssignableFrom(Class.forName\n(\"org.apache.tools.ant.XmlLogger\")));\n        } catch (ClassNotFoundException e) {\n            log.error(\"Could not find Ant XmlLogger\", e);\n            return false;\n        }\n    }\n\n\n",
+    "The XmlLogger provided in org.apache.tools.ant is NOT a BuildLogger but a \nBuildListener in Ant 1.4.1.  It should be added using -listener.\n\nUsing Ant 1.5, the XmlLogger IS a BuildLogger.\n\nThanks Gunnar.\n\nSo our bug here is that we need a much better error message in these types of \ncases where we expect a certain type of class passed \n\n",
+    "For BuildListeners and BuildLoggers, the class cast error message is shown to \nthe user to help diagnose and fix the problem.",
+    "Please verify (Jared).",
+    "Verified."
+  ],
+  "commentCreationDates": [
+    "2002-08-22T16:24:37+02:00",
+    "2002-09-23T13:37:28+02:00",
+    "2002-09-23T13:48:40+02:00",
+    "2002-09-23T22:07:23+02:00",
+    "2002-09-27T23:50:34+02:00",
+    "2002-09-27T23:50:58+02:00",
+    "2002-10-07T18:00:50+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.apache.tools.ant.XmlLogger      [exec]",
+      "elements": [
+        {
+          "method": "org.eclipse.ant.internal.core.ant.InternalAntRunner.addBuildListeners",
+          "source": "InternalAntRunner.java:176"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "22702",
+      "date": "2002-09-23T13:37:28+02:00",
+      "product": "Platform",
+      "component": "Ant",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.apache.tools.ant.XmlLogger      [exec]",
+      "elements": [
+        {
+          "method": "org.eclipse.ant.internal.core.ant.InternalAntRunner.createLogger",
+          "source": "InternalAntRunner.java:474"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 1,
+      "bugId": "22702",
+      "date": "2002-09-23T13:37:28+02:00",
+      "product": "Platform",
+      "component": "Ant",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.apache.tools.ant.XmlLogger      [exec]",
+      "elements": [
+        {
+          "method": "org.eclipse.ant.internal.core.ant.InternalAntRunner.createLogger",
+          "source": "InternalAntRunner.java:470"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 1,
+      "bugId": "22702",
+      "date": "2002-09-23T13:37:28+02:00",
+      "product": "Platform",
+      "component": "Ant",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "22702",
+  "bugId": "22702",
+  "date": "2002-08-22T16:24:37+02:00",
+  "product": "Platform",
+  "component": "Ant",
+  "severity": "normal"
+}

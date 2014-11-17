@@ -1,0 +1,134 @@
+{
+  "comments": [
+    "In the glassbox inspector I\u0027m seeing a new bug (not present in dev builds from \nsay last week or earlier). I get a null value for thisJoinPointStaticPart. From \nthe stack trace, it should be statically determinable that this pointcut would \nnever match, and maybe the pointcut rules are for the first time evaluating out \nof order (I gather from Matthew Webster that AspectJ is now taking the policy \nthat pointcuts will not be evaluated left to right, which seems like a bad idea \nto mean).\n\nJmxManagement.ajc$if_1(JmxManagement$ManagedBean, JoinPoint$StaticPart) line: 41\nJdbcStatementMonitor(AbstractResourceMonitor).\u003cinit\u003e() line: 18\nJdbcStatementMonitor.\u003cinit\u003e() line: 28\nJdbcStatementMonitor.ajc$postClinit() line: not available\nJdbcStatementMonitor.\u003cclinit\u003e() line: 28\nJdbcStatementMonitor.aspectOf() line: not available\nSimpleConfig.doConfig() line: 65\nSimpleConfig.ajc$before$glassbox_inspector_config_SimpleConfig$1\n$81249c3e_aroundBody0(SimpleConfig) line: 151\nSimpleConfig$AjcClosure1.run(Object[]) line: 1\nErrorHandling.ajc$around$glassbox_inspector_error_ErrorHandling$1\n$ed5f19b0proceed(AroundClosure) line: not available\nErrorHandling.ajc$around$glassbox_inspector_error_ErrorHandling$1$ed5f19b0\n(AroundClosure, JoinPoint$StaticPart) line: 50\nSimpleConfig.ajc$before$glassbox_inspector_config_SimpleConfig$1$81249c3e() \nline: 1\n\nThe operative code is:\n\n    public interface ManagedBean {\n        /** Define a JMX operation name for this bean. Not to be confused with \na Web request operation. */\n//        Map getAttributes();\n        String getOperationName();\n        /** Returns the underlying JMX MBean that provides management \ninformation for this bean (POJO).. */\n        Object getMBean();\n        /** Get assembler used to assemble a model bean as the management \ninterface */\n        MBeanInfoAssembler getAssembler();\n    }\n\n    private pointcut managedBeanConstruction(ManagedBean bean) : \n        execution(ManagedBean+.new(..)) \u0026\u0026 this(bean); \n\n    //NPE\u0027s on the if pointcut below    \n    private pointcut topLevelManagedBeanConstruction(ManagedBean bean) : \n        managedBeanConstruction(bean) \u0026\u0026 if(thisJoinPointStaticPart.getSignature\n().getDeclaringType() \u003d\u003d bean.getClass()); \n\n    after(ManagedBean bean) returning: topLevelManagedBeanConstruction(bean) {\n...",
+    "I am also seeing this stack trace when incrementally compiling in AJDT. I would \nguess that it\u0027s caused by the same bug.\n\njava.lang.NullPointerException\nat org.aspectj.weaver.patterns.IfPointcut.equals(IfPointcut.java:127)\nat org.aspectj.weaver.patterns.PointcutEvaluationExpenseComparator.compare\n(PointcutEvaluationExpenseComparator.java:65)\nat java.util.TreeMap.compare(TreeMap.java:1093)\nat java.util.TreeMap.put(TreeMap.java:465)\nat java.util.TreeSet.add(TreeSet.java:210)\nat org.aspectj.weaver.patterns.PointcutRewriter.collectAndNodes\n(PointcutRewriter.java:239)\nat org.aspectj.weaver.patterns.PointcutRewriter.collectAndNodes\n(PointcutRewriter.java:232)\nat org.aspectj.weaver.patterns.PointcutRewriter.simplifyAnd\n(PointcutRewriter.java:190)\nat org.aspectj.weaver.patterns.PointcutRewriter.simplifyAnds\n(PointcutRewriter.java:182)\nat org.aspectj.weaver.patterns.PointcutRewriter.rewrite\n(PointcutRewriter.java:35)\nat org.aspectj.weaver.bcel.BcelWeaver.rewritePointcuts(BcelWeaver.java:480)\nat org.aspectj.weaver.bcel.BcelWeaver.prepareForWeave(BcelWeaver.java:437)\nat org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave\n(AjCompilerAdapter.java:283)\nat org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling\n(AjCompilerAdapter.java:178)\nat \norg.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspect\nj_ajdt_internal_compiler_CompilerAdapter$2$f9cc9ca0(CompilerAdapter.aj:70)\nat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile\n(Compiler.java:367)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation\n(AjBuildManager.java:759)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild\n(AjBuildManager.java:249)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.incrementalBuild\n(AjBuildManager.java:158)\nat org.aspectj.ajde.internal.CompilerAdapter.compile(CompilerAdapter.java:117)\nat org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run\n(AspectJBuildManager.java:191)\n\nNullPointerException thrown: null",
+    "From further investigation, I think the second stack trace is unrelated. I was \nseeing this bug in a recent dev build on pointcuts like this\n    protected pointcut isMonitorEnabled() : if(aspectOf().isEnabled());\n\nI uncommented them all out (to be within(*)) and it worked. I then restored \nthem and things now seem to be working?! So the stack trace from the second \ncomment in this bug is fixed, although I don\u0027t think the first bug is fixed (I \nam hitting yet another bug that is preventing me from testing to see if the \nfirst part has been fixed yet but presumably not).",
+    "I\u0027m about to check in a fix for the stack trace in comment #1.  This could\npossibly affect the other problem ... but I\u0027m not all that confident.\n\nI\u0027ve no idea whats happening in comment #2.",
+    "fix checked in for stack trace in comment #1.",
+    "fix available for problem reported in comment #1 - does it make any difference\nfor your other scenarios ron or do you need for an AJDT before you can check?",
+    "I\u0027ve added a compile-and-run test for bugs150/Pr113368.aj in the tests module. This replicates the failing glassbox inspector logic and is passing for me.\n\nAre you still seeing the original problem Ron? It\u0027s hard to tell from the comments whether everything reported in this bug is now fixed or not...",
+    "The original bug is still failing... it took some work to narrow it down, but here\u0027s a patch to the test case that fails for me with the same error inside the test harness....",
+    "Created an attachment (id\u003d30360)\npatch to test case that reproduces the problem\n\n",
+    "Great - thanks Ron. I can reproduce the failure now with your patch to the test case. Now all I have to do is figure out why..........",
+    "OK, the test case fails, but not in the way that you originally reported, and in a way that is \"correct\".\n\nThis test fails for me with an \n\norg.aspectj.lang.NoAspectBoundException: ManagedSubBean\n\nas the root cause of the ExceptionInInitializer.\n\nThis is the expected behaviour as seen by following the chain of reasoning:\n\nThe execution of hook() causes ManagedSubBean.aspectOf to be called.\nThis causes the staticinitialization of ManagedBean\nWhich causes the execution of the AutoStart advice\nWhich calls ManagedSubBean.aspectOf() .....\n    .... which fails (correctly) with a NoAspectBoundException because there is no aspect bound until the staticinitializers and constructors have run. \n\nIf I remove any of the components of the test to try and get around this, it passes again....\n\nAre you seeing NoAspectBound with this test case? Or do you get the NPE??",
+    "I didn\u0027t see the chained exception from the test output so I assumed it was the same NPE error I was seeing.\n\nHowever, the original code that does generate the NPE is failing in the same way: it is trying to access the thisJoinPointStaticPart field before staticinitialization is completed. So this bug is invalid."
+  ],
+  "commentCreationDates": [
+    "2005-10-21T18:11:27+02:00",
+    "2005-10-24T09:09:22+02:00",
+    "2005-11-14T16:12:49+01:00",
+    "2005-11-14T16:21:03+01:00",
+    "2005-11-14T16:29:33+01:00",
+    "2005-11-15T11:42:00+01:00",
+    "2005-11-21T15:38:33+01:00",
+    "2005-11-22T04:38:03+01:00",
+    "2005-11-22T04:38:54+01:00",
+    "2005-11-22T09:51:27+01:00",
+    "2005-11-22T10:40:29+01:00",
+    "2005-11-22T16:56:09+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.patterns.IfPointcut.equals",
+          "source": "IfPointcut.java:127"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.PointcutEvaluationExpenseComparator.compare",
+          "source": "PointcutEvaluationExpenseComparator.java:65"
+        },
+        {
+          "method": "java.util.TreeMap.compare",
+          "source": "TreeMap.java:1093"
+        },
+        {
+          "method": "java.util.TreeMap.put",
+          "source": "TreeMap.java:465"
+        },
+        {
+          "method": "java.util.TreeSet.add",
+          "source": "TreeSet.java:210"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.PointcutRewriter.collectAndNodes",
+          "source": "PointcutRewriter.java:239"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.PointcutRewriter.collectAndNodes",
+          "source": "PointcutRewriter.java:232"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.PointcutRewriter.simplifyAnd",
+          "source": "PointcutRewriter.java:190"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.PointcutRewriter.simplifyAnds",
+          "source": "PointcutRewriter.java:182"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.PointcutRewriter.rewrite",
+          "source": "PointcutRewriter.java:35"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.rewritePointcuts",
+          "source": "BcelWeaver.java:480"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.prepareForWeave",
+          "source": "BcelWeaver.java:437"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave",
+          "source": "AjCompilerAdapter.java:283"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling",
+          "source": "AjCompilerAdapter.java:178"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspectj_ajdt_internal_compiler_CompilerAdapter$2$f9cc9ca0",
+          "source": "CompilerAdapter.aj:70"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:367"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:759"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:249"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.incrementalBuild",
+          "source": "AjBuildManager.java:158"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:117"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:191"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "113368",
+      "date": "2005-10-24T09:09:22+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "113368",
+  "bugId": "113368",
+  "date": "2005-10-21T18:11:27+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "critical"
+}

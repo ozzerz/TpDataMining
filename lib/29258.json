@@ -1,0 +1,203 @@
+{
+  "comments": [
+    "Build 20030107\nLinux-GTK\n\nI was debugging a target Eclipse. A breakpoint was encountered, but while\ntrying to activate the editor, my host workbench froze up for a little while\nand then a dialog popped up saying that an SWT error had occurred. The\ndialog asked if I wanted to exit the workbench. Clicking the No button didn\u0027t\nwork, but I could dismiss the dialog by clicking the close button (\u0027X\u0027).\n\nAfter some flakiness - the error happened twice and the editor stopped\nscrolling text correctly while I was at the breakpoint - I resumed my target\nEclipse and the host seems to have recovered.\n\nThe following exception was in the log. Note that I was not doing any drag\nand drop. In fact, I\u0027m not sure the host Eclipse window even had focus when\nthe problem started.\n\n!SESSION Jan 09, 2003 17:26:57.401 ---------------------------------------------\njava.fullversion\u003dJ2RE 1.3.1 IBM build cxia32131-20020410 (JIT enabled: jitc)\nBootLoader constants: OS\u003dlinux, ARCH\u003dx86, WS\u003dgtk, NL\u003den_US\nCommand-line arguments: -os linux -ws gtk -arch x86 -debug -dev bin -data /home/jburns/target -install file:/home/jburns/host/eclipse/\n!ENTRY org.eclipse.ui 4 4 Jan 09, 2003 17:26:57.402\n!MESSAGE Unhandled exception caught in event loop.\n!ENTRY org.eclipse.ui 4 0 Jan 09, 2003 17:26:57.409\n!MESSAGE Can not initialize Drop\n!STACK 0\norg.eclipse.swt.SWTError: Can not initialize Drop\n\tat org.eclipse.swt.dnd.DND.error(DND.java:216)\n\tat org.eclipse.swt.dnd.DND.error(DND.java:177)\n\tat org.eclipse.swt.dnd.DropTarget.\u003cinit\u003e(DropTarget.java:126)\n\tat org.eclipse.jface.viewers.StructuredViewer.addDropSupport(StructuredViewer.java:148)\n\tat org.eclipse.jdt.internal.ui.javaeditor.JavaOutlinePage.initDragAndDrop(JavaOutlinePage.java:1103)\n\tat org.eclipse.jdt.internal.ui.javaeditor.JavaOutlinePage.createControl(JavaOutlinePage.java:943)\n\tat org.eclipse.ui.views.contentoutline.ContentOutline.doCreatePage(ContentOutline.java:104)\n\tat org.eclipse.ui.part.PageBookView.createPage(PageBookView.java:268)\n\tat org.eclipse.ui.part.PageBookView.partActivated(PageBookView.java:509)\n\tat org.eclipse.ui.views.contentoutline.ContentOutline.partBroughtToTop(ContentOutline.java:170)\n\tat org.eclipse.ui.internal.PartListenerList$2.run(PartListenerList.java:63)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java(Compiled Code))\n\tat org.eclipse.core.runtime.Platform.run(Platform.java(Compiled Code))\n\tat org.eclipse.ui.internal.PartListenerList.firePartBroughtToTop(PartListenerList.java:61)\n\tat org.eclipse.ui.internal.WorkbenchPage.firePartBroughtToTop(WorkbenchPage.java:1099)\n\tat org.eclipse.ui.internal.WorkbenchPage.openEditor(WorkbenchPage.java:1873)\n\tat org.eclipse.ui.internal.WorkbenchPage.openEditor(WorkbenchPage.java:1733)\n\tat org.eclipse.debug.internal.ui.views.launch.LaunchView$3.run(LaunchView.java:684)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:65)\n\tat org.eclipse.debug.internal.ui.views.launch.LaunchView.openEditor(LaunchView.java:693)\n\tat org.eclipse.debug.internal.ui.views.launch.LaunchView.openEditor(LaunchView.java:655)\n\tat org.eclipse.debug.internal.ui.views.launch.LaunchView.openEditorForStackFrame(LaunchView.java:531)\n\tat org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.updateForSuspendEvent(LaunchViewEventHandler.java:265)\n\tat org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.updateForDebugEvents(LaunchViewEventHandler.java:239)\n\tat org.eclipse.debug.internal.ui.views.AbstractDebugEventHandler$1.run(AbstractDebugEventHandler.java:67)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java(Compiled Code))\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java(Compiled Code))\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java(Compiled Code))\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java(Compiled Code))\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java(Compiled Code))\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1450)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:845)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:462)\n\tat java.lang.reflect.Method.invoke(Native Method)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:247)\n\tat org.eclipse.core.launcher.Main.run(Main.java:703)\n\tat org.eclipse.core.launcher.Main.main(Main.java:539)",
+    "It maybe a problem in the application code, it\u0027s attempting to create to \nDropTargets on the same control: DropTarget line 126 says:\nif (control.getData(DROPTARGETID) !\u003d null) DND.error\n(DND.ERROR_CANNOT_INIT_DROP);\n\nVI to investigate.",
+    "You can not create multiple DropTargets for one widget. That is the error that \nis occurring here.\n\nThe problem lies with JavaOutlinePage.initDragAndDrop which is trying to \ninitialize a drop target either for the second time or after some other code \nhas already created a drop target for this widget.  Redirecting to the JDT UI \nteam.\n",
+    "Kai, don\u0027t know if you or Adam is responsible for DnD in outline page.",
+    "*** Bug 30937 has been marked as a duplicate of this bug. ***",
+    "Adam please investigate since you\u0027re the DnD master plus have a Linux box",
+    "Adam, I set it to assigned ;-)",
+    "*** Bug 39748 has been marked as a duplicate of this bug. ***",
+    "Adam,\n\nI had a look at JavaOutlinePage.createControl.\n\nA lot of things get initialized before JavaOutlinePage.initDragAndDrop is \ncalled.  There seems to be lots of room for some other plugin (e.g. someone \nlistening for content changed) to get in the way here and add their DropTarget \nto the fOutlineViewer tree before you do.  Is there a reason why \ninitDragAndDrop is not called till the very end?\n\nJared, Rob,  do you have any additional (not eclipse SDK) plugins installed?\n\nI think if we moved the call to initDragAndDrop in \nJavaOutlinePage.createControl so that it came directly after the creation of \nthe Tree, we might see the real culprit who is sneaking in and adding a drop \ntarget on the fOutlineViewer.",
+    "The only other plugin I could have possibly had installed (besides the SDK \nplugins) would be the EditorList plugin. But I wrote this plugin and I know it \ndoesn\u0027t have any DND-related or outline-related code.",
+    "I have not installed any eclipse plugins.",
+    "moved the call as suggested by Veronika\nif we see a stack the thing again, then we might get a better stacktrace then",
+    "should\u0027ve read:\n\u0027if we see the thing again, we might get a better stacktrace then\u0027",
+    "*** Bug 39903 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2003-01-09T23:08:42+01:00",
+    "2003-01-11T00:32:58+01:00",
+    "2003-01-13T18:09:56+01:00",
+    "2003-01-14T08:14:11+01:00",
+    "2003-02-05T20:11:14+01:00",
+    "2003-06-13T18:08:27+02:00",
+    "2003-06-16T14:42:42+02:00",
+    "2003-07-09T21:14:01+02:00",
+    "2003-07-09T21:18:06+02:00",
+    "2003-07-09T22:29:25+02:00",
+    "2003-07-10T14:52:13+02:00",
+    "2003-07-11T18:40:03+02:00",
+    "2003-07-11T18:40:40+02:00",
+    "2003-07-16T15:26:28+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "Can not initialize Drop",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.dnd.DND.error",
+          "source": "DND.java:216"
+        },
+        {
+          "method": "org.eclipse.swt.dnd.DND.error",
+          "source": "DND.java:177"
+        },
+        {
+          "method": "org.eclipse.swt.dnd.DropTarget.\u003cinit\u003e",
+          "source": "DropTarget.java:126"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.addDropSupport",
+          "source": "StructuredViewer.java:148"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.JavaOutlinePage.initDragAndDrop",
+          "source": "JavaOutlinePage.java:1103"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.JavaOutlinePage.createControl",
+          "source": "JavaOutlinePage.java:943"
+        },
+        {
+          "method": "org.eclipse.ui.views.contentoutline.ContentOutline.doCreatePage",
+          "source": "ContentOutline.java:104"
+        },
+        {
+          "method": "org.eclipse.ui.part.PageBookView.createPage",
+          "source": "PageBookView.java:268"
+        },
+        {
+          "method": "org.eclipse.ui.part.PageBookView.partActivated",
+          "source": "PageBookView.java:509"
+        },
+        {
+          "method": "org.eclipse.ui.views.contentoutline.ContentOutline.partBroughtToTop",
+          "source": "ContentOutline.java:170"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartListenerList$2.run",
+          "source": "PartListenerList.java:63"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartListenerList.firePartBroughtToTop",
+          "source": "PartListenerList.java:61"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.firePartBroughtToTop",
+          "source": "WorkbenchPage.java:1099"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.openEditor",
+          "source": "WorkbenchPage.java:1873"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.openEditor",
+          "source": "WorkbenchPage.java:1733"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchView$3.run",
+          "source": "LaunchView.java:684"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:65"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchView.openEditor",
+          "source": "LaunchView.java:693"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchView.openEditor",
+          "source": "LaunchView.java:655"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchView.openEditorForStackFrame",
+          "source": "LaunchView.java:531"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.updateForSuspendEvent",
+          "source": "LaunchViewEventHandler.java:265"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.updateForDebugEvents",
+          "source": "LaunchViewEventHandler.java:239"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.AbstractDebugEventHandler$1.run",
+          "source": "AbstractDebugEventHandler.java:67"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1450"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:845"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:462"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:247"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:703"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:539"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "29258",
+      "date": "2003-01-09T23:08:42+01:00",
+      "product": "JDT",
+      "component": "Text",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "29258",
+  "bugId": "29258",
+  "date": "2003-01-09T23:08:42+01:00",
+  "product": "JDT",
+  "component": "Text",
+  "severity": "normal"
+}

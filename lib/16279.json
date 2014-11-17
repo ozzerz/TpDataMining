@@ -1,0 +1,109 @@
+{
+  "comments": [
+    "I am using the Jakarta Avalon open source project.  I checked out jakarta-\navalon-excalibur from the apache cvs tree, mounted all source folders in the \nproject and imported the necessary libraries.  \n\nI have a class that needs to use the \norg/apache/excalibur/fortress/util/ContextManager class.  When I try to run my \nclass or the unit test class \norg.apache.excalibur.fortress.test.ContainerProfile.java (any class that needs \nthe ContextManager) I get the following Exception trace:\n\njava.lang.VerifyError: (class: \norg/apache/excalibur/fortress/util/ContextManager, method: \ninitializeLoggerManager signature: ()V) Register 2 contains wrong type\n\tat \norg.apache.excalibur.fortress.test.ContainerProfile.testCompare_ECM_ContainerMan\nager_UseageTime(ContainerProfile.java:106)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat junit.framework.TestCase.runTest(TestCase.java:166)\n\tat junit.framework.TestCase.runBare(TestCase.java:140)\n\tat junit.framework.TestResult$1.protect(TestResult.java:106)\n\tat junit.framework.TestResult.runProtected(TestResult.java:124)\n\tat junit.framework.TestResult.run(TestResult.java:109)\n\tat junit.framework.TestCase.run(TestCase.java:131)\n\tat junit.framework.TestSuite.runTest(TestSuite.java:173)\n\tat junit.framework.TestSuite.run(TestSuite.java:168)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests\n(RemoteTestRunner.java:319)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run\n(RemoteTestRunner.java:215)\n\tat org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main\n(RemoteTestRunner.java:150)\n\nWhen running the excalibur build file using ant and the jdk1.4 compiler and \nthen import the generated jar everything seems to work ok,  so I attribute the \nerror to the eclipse compiler.  I also tried to change the order of the class \npath, which didn\u0027t help.\n\nI am running latest stable build M5 on Win2k and jdk1.4.  The compiler \ncompatibility settings are set to jdk1.4.",
+    "Could you provide the offending unit source for debug purpose ?",
+    "Here is a simpler test case:\npublic class Test16279 {\n\n\tLogger logger;\n\n\tpublic static \nvoid main(String[] args) {\n\t}\n\n\tpublic void foo() {\n\t\ttry \n{\n\t\t\tSystem.out.println();\n\t\t} catch (Exception ce) {\n\t\t\tString s \u003d null;\n\t\t\ttry \n{\n\t\t\t\treturn;\n\t\t\t} catch (Exception ex) {\n\t\t\t}\n\n\t\t\ts.hashCode();\n\t\t} finally \n{\n\t\t\tif (this.logger \u003d\u003d null) {\n\t\t\t\tLoggerManager loggerManager \u003d \nnull;\n\t\t\t}\n\t\t}\n\t}\n}\n\nThe J9 doesn\u0027t complain even if you add -verify. Any JDK fails \nwith:\nException in thread \"main\" java.lang.VerifyError: (class: Test16279, method: foo \nsignature: ()V) Register 2 contains wrong type.\n\nIt seems to be related to the subroutine code \ngeneration. For the above code, our bytecodes are:\nMethod void foo()\n   0 getstatic #26 \u003cField \njava.io.PrintStream out\u003e\n   3 invokevirtual #31 \u003cMethod void println()\u003e\n   6 goto 31\n   9 \nastore_1\n  10 aconst_null\n  11 astore_2\n  12 jsr 37\n  15 return\n  16 astore_3\n  17 aload_2   \u003c\u003d\u003d\u003d\u003d \nThis seems to be the problem\n  18 invokevirtual #37 \u003cMethod int hashCode()\u003e\n  21 pop\n  22 goto \n31\n  25 astore_1\n  26 jsr 37\n  29 aload_1\n  30 athrow\n  31 jsr 37\n  34 goto 50\n  37 astore 4\n  39 \naload_0\n  40 getfield #39 \u003cField Logger logger\u003e\n  43 ifnonnull 48\n  46 aconst_null\n  47 \nastore_2 \u003c\u003d\u003d\u003d\u003d This seems to be the problem\n  48 ret 4\n  50 return\nException table:\n   from   to  \ntarget type\n     0     9     9   \u003cClass java.lang.Exception\u003e\n    12    16    16   \u003cClass java.lang.Exception\u003e\n     0    22    25   \nany\n\nThe first attempt we can do in order to fix the problem is to avoid reusing the same slot \nbetween the first catch block and the finally block.\nJavac produces the following \nbytecodes:\nMethod void foo()\n   0 getstatic #2 \u003cField java.io.PrintStream out\u003e\n   3 \ninvokevirtual #3 \u003cMethod void println()\u003e\n   6 jsr 42\n   9 goto 56\n  12 astore_1\n  13 aconst_null\n  \n14 astore_2\n  15 jsr 42\n  18 return\n  19 astore_3\n  20 goto 23\n  23 aload_2\n  24 invokevirtual #5 \n\u003cMethod int hashCode()\u003e\n  27 pop\n  28 jsr 42\n  31 goto 56\n  34 astore 4\n  36 jsr 42\n  39 aload 4\n  41 \nathrow\n  42 astore 5\n  44 aload_0\n  45 getfield #6 \u003cField Logger logger\u003e\n  48 ifnonnull 54\n  51 \naconst_null\n  52 astore 6\n  54 ret 5\n  56 return\nException table:\n   from   to  target type\n     0     6    12   \n\u003cClass java.lang.Exception\u003e\n     0     9    34   any\n    12    18    34   any\n    19    31    34   any\n    34    39    34   any\n\nWe can see \nthat they never reuse any register for the locals. I will investigate this solution.",
+    "Jikes 1.15 compiles in a similar way we do compare to javac, but it doesn\u0027t reuse the same slots for \nthe locals:\nMethod void foo()\n   0 getstatic #21 \u003cField java.io.PrintStream out\u003e\n   3 \ninvokevirtual #26 \u003cMethod void println()\u003e\n   6 jsr 41\n   9 goto 53\n  12 astore 4\n  14 aconst_null\n  \n15 astore 5\n  17 jsr 41\n  20 return\n  21 astore 6\n  23 aload 5\n  25 invokevirtual #34 \u003cMethod int \nhashCode()\u003e\n  28 pop\n  29 jsr 41\n  32 goto 53\n  35 astore_1\n  36 jsr 41\n  39 aload_1\n  40 athrow\n  \n41 astore_2\n  42 aload_0\n  43 getfield #38 \u003cField Logger logger\u003e\n  46 ifnonnull 51\n  49 \naconst_null\n  50 astore_3\n  51 ret 2\n  53 return\nException table:\n   from   to  target type\n    17    21    \n21   \u003cClass java.lang.RuntimeException\u003e\n     0     6    12   \u003cClass java.lang.RuntimeException\u003e\n     0    29    35   \nany\n\nI am not sure this is not a bug in the bytecode verifier. If you remove the latest if in the \nsource code, then you can run the code fine. Anyway we have to fix this problem, because any JDK will \nfail running the code compiled by Eclipse.",
+    "The finally block needs to be shifted behind try and catch blocks for local \nvariable allocation. We did shift against the try block, and missed the catch \nblocks shifting.\n\nFixed",
+    "Verified. The source can now compile fine.",
+    "Verified in F2.",
+    "Verified.",
+    "*** Bug 19916 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2002-05-17T18:56:37+02:00",
+    "2002-05-18T11:09:14+02:00",
+    "2002-05-21T22:06:14+02:00",
+    "2002-05-21T22:28:36+02:00",
+    "2002-05-22T13:40:27+02:00",
+    "2002-05-22T17:43:29+02:00",
+    "2002-06-03T20:19:28+02:00",
+    "2002-06-03T20:19:41+02:00",
+    "2002-06-12T11:42:02+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.VerifyError",
+      "message": "(class:  org/apache/excalibur/fortress/util/ContextManager, method:  initializeLoggerManager signature: ()V) Register 2 contains wrong type",
+      "elements": [
+        {
+          "method": "org.apache.excalibur.fortress.test.ContainerProfile.testCompare_ECM_ContainerManager_UseageTime",
+          "source": "ContainerProfile.java:106"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "junit.framework.TestCase.runTest",
+          "source": "TestCase.java:166"
+        },
+        {
+          "method": "junit.framework.TestCase.runBare",
+          "source": "TestCase.java:140"
+        },
+        {
+          "method": "junit.framework.TestResult$1.protect",
+          "source": "TestResult.java:106"
+        },
+        {
+          "method": "junit.framework.TestResult.runProtected",
+          "source": "TestResult.java:124"
+        },
+        {
+          "method": "junit.framework.TestResult.run",
+          "source": "TestResult.java:109"
+        },
+        {
+          "method": "junit.framework.TestCase.run",
+          "source": "TestCase.java:131"
+        },
+        {
+          "method": "junit.framework.TestSuite.runTest",
+          "source": "TestSuite.java:173"
+        },
+        {
+          "method": "junit.framework.TestSuite.run",
+          "source": "TestSuite.java:168"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests",
+          "source": "RemoteTestRunner.java:319"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run",
+          "source": "RemoteTestRunner.java:215"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main",
+          "source": "RemoteTestRunner.java:150"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "16279",
+      "date": "2002-05-17T18:56:37+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "16279",
+  "bugId": "16279",
+  "date": "2002-05-17T18:56:37+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "critical"
+}

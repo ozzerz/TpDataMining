@@ -1,0 +1,112 @@
+{
+  "comments": [
+    "I get the stack trace below.  To reproduce:\n\n1) Create a dynamic web project with the JSF 1.1 facet.  Make sure to use a valid implementation library (myfaces or sun ri) to ensure that TLDs are loaded.\n\n2) Create a test.jsp file in the WebContents folder.\n\n3) Open the JSP file using the web page editor\n\n4) From the palette, drag a Text Input onto the canvas.\n\n5) Add a value property to the new Text Input tag (h:inputText).\n\n6) In the attribute value add a #{} late-bound EL braces.\n\n7) Trigger content assist inside the braces.  Note that JSF tooling should populate the drop down with default values.\n\n8) Close and reopen the project\n\n9) Reopen the JSP. Notice that content assist no longer works.  The SSE editor may now also mark the JSF tags as being invalid (taglib not found).\n\n10) Validate the file (Right-click-\u003eValidate).\n\nI get the following exception reproducibly:\n\njava.lang.NullPointerException\n\tat org.eclipse.jst.jsp.core.internal.validation.JSPActionValidator.getTaglibPrefixes(JSPActionValidator.java:157)\n\tat org.eclipse.jst.jsp.core.internal.validation.JSPActionValidator.performValidation(JSPActionValidator.java:215)\n\tat org.eclipse.jst.jsp.core.internal.validation.JSPActionValidator.performValidation(JSPActionValidator.java:193)\n\tat org.eclipse.jst.jsp.core.internal.validation.JSPBatchValidator.performValidation(JSPBatchValidator.java:377)\n\tat org.eclipse.jst.jsp.core.internal.validation.JSPBatchValidator.validateFile(JSPBatchValidator.java:428)\n\tat org.eclipse.jst.jsp.core.internal.validation.JSPBatchValidator.doValidate(JSPBatchValidator.java:190)\n\tat org.eclipse.jst.jsp.core.internal.validation.JSPBatchValidator$1.run(JSPBatchValidator.java:452)\n\tat org.eclipse.jdt.internal.core.BatchOperation.executeOperation(BatchOperation.java:39)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:720)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1797)\n\tat org.eclipse.jdt.core.JavaCore.run(JavaCore.java:4466)\n\tat org.eclipse.jst.jsp.core.internal.validation.JSPBatchValidator.validateInJob(JSPBatchValidator.java:460)\n\tat org.eclipse.wst.validation.internal.operations.ValidatorJob.run(ValidatorJob.java:75)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)",
+    "This bug isn\u0027t just about the NPE, right?  I\u0027m guessing the behaviour you\u0027re seeing in step 9 was not expected either?\n\nThe stack trace is indicating that manager is null in the following line:\nTLDCMDocumentManager manager \u003d TaglibController.getTLDCMDocumentManager(document);\nList trackers \u003d manager.getTaglibTrackers();\n\nSomething is causing the manager not to be found for the document anymore.",
+    "(In reply to comment #1)\n\u003e This bug isn\u0027t just about the NPE, right?  I\u0027m guessing the behaviour you\u0027re\n\u003e seeing in step 9 was not expected either?\n\nYes, the issue appears to be bigger than the NPE in the validator.  This was the most indicative result of the problem since you get a stack trace, but clearly there is a deeper issue at play here with the taglib manager as you say.",
+    "This might not even just be an issue with the taglib manager.  It might have to do with the general model manager.  Here is a shorter scenario:\n1. create a dynamic web project with jsf facet (either version is fine - but the facet is needed though actual implementation library is not)\n\n2. create a test.jsp file in webcontents folder (must be jsp)\n\n3. open the jsp file in either jsp or web page editor\n\n4. close project while jsp file is still open\n\n5. reopen project and reopen jsp file and prompt for content assist\n\n6. you end up with exceptions about not getting a model\n\nI suspect something is not being done to the model when the project is closed while still in use.",
+    "Hmm... this may be partially caused by JSF.  We may have a lifecycle problem with the way we register (or fail to deregister) with the structured model.  I\u0027m still not sure why it would cause problems for the JSPActionValidator, but we may be causing it.",
+    "If something it causing the model not to be released properly, or if there\u0027s sort of disconnect between the model \u0026 document, then no model or the wrong model will be retrieved, and a lot of things like content assist, validation, taglib management retrieve the model and try to use it in some way.",
+    "When a resource underlying a structured model becomes inaccessible (due to being deleted, closed etc.), is there no flush of that model?",
+    "When a resource underlying a structured model becomes inaccessible (due to being deleted, closed etc.), is there no flush of that model?",
+    "Good question(s?).  The document within the structured model is managed by the text file buffer manager.  The FileBufferModelManager that bridges the IStructuredModelManager and ITextFileBufferBanager might be responding correctly in this scenario.",
+    "I meant, \"responding *incorrectly*\"",
+    "Interesting problem:  when an editor part (or at least the SSE editor part; haven\u0027t checked others) is closed due to the containing project being closed, no partClosed() is fired on the workbench listener.  We are using this event to release a resource (JSPModelProcessor) that holds a read handle on the underlying structured model.\n\nI will try to determine why.",
+    "This has turned out to be a problem with the way JSF was releasing the model in the case where the editor is being closed by a project close.  To decide if the editor being closed was one we cared about, we were checking the facet on the project  (amongst other things).  This requires us to check if the project is accessible, which it unfortunately isn\u0027t on a project close (I would have thought the editors would close before the project closed to allow them to same any project-tied state).\n\nBut it is only important for us to check the project facet on open, since this is when we install the listener.  On close, we can simply check if we a listener installed on the IFile being edited.\n\nReassigning the bug to me.  Sorry for the misassignment.",
+    "Fix applied at HEAD.",
+    "*** Bug 202153 has been marked as a duplicate of this bug. ***",
+    "Verified in M-2.0.1RC3-20070921180805."
+  ],
+  "commentCreationDates": [
+    "2007-07-17T03:27:33+02:00",
+    "2007-07-19T17:51:19+02:00",
+    "2007-07-19T19:31:04+02:00",
+    "2007-07-19T23:50:05+02:00",
+    "2007-07-19T23:55:14+02:00",
+    "2007-07-20T00:07:01+02:00",
+    "2007-07-20T00:11:22+02:00",
+    "2007-07-20T00:27:46+02:00",
+    "2007-07-20T00:30:37+02:00",
+    "2007-07-20T00:31:08+02:00",
+    "2007-07-20T01:03:32+02:00",
+    "2007-07-20T01:38:20+02:00",
+    "2007-08-07T19:21:34+02:00",
+    "2007-09-08T00:54:34+02:00",
+    "2007-09-24T23:19:07+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jst.jsp.core.internal.validation.JSPActionValidator.getTaglibPrefixes",
+          "source": "JSPActionValidator.java:157"
+        },
+        {
+          "method": "org.eclipse.jst.jsp.core.internal.validation.JSPActionValidator.performValidation",
+          "source": "JSPActionValidator.java:215"
+        },
+        {
+          "method": "org.eclipse.jst.jsp.core.internal.validation.JSPActionValidator.performValidation",
+          "source": "JSPActionValidator.java:193"
+        },
+        {
+          "method": "org.eclipse.jst.jsp.core.internal.validation.JSPBatchValidator.performValidation",
+          "source": "JSPBatchValidator.java:377"
+        },
+        {
+          "method": "org.eclipse.jst.jsp.core.internal.validation.JSPBatchValidator.validateFile",
+          "source": "JSPBatchValidator.java:428"
+        },
+        {
+          "method": "org.eclipse.jst.jsp.core.internal.validation.JSPBatchValidator.doValidate",
+          "source": "JSPBatchValidator.java:190"
+        },
+        {
+          "method": "org.eclipse.jst.jsp.core.internal.validation.JSPBatchValidator$1.run",
+          "source": "JSPBatchValidator.java:452"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.BatchOperation.executeOperation",
+          "source": "BatchOperation.java:39"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.run",
+          "source": "JavaModelOperation.java:720"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1797"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.run",
+          "source": "JavaCore.java:4466"
+        },
+        {
+          "method": "org.eclipse.jst.jsp.core.internal.validation.JSPBatchValidator.validateInJob",
+          "source": "JSPBatchValidator.java:460"
+        },
+        {
+          "method": "org.eclipse.wst.validation.internal.operations.ValidatorJob.run",
+          "source": "ValidatorJob.java:75"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "196760",
+      "date": "2007-07-17T03:27:33+02:00",
+      "product": "Java Server Faces",
+      "component": "core",
+      "severity": "major"
+    }
+  ],
+  "groupId": "196760",
+  "bugId": "196760",
+  "date": "2007-07-17T03:27:33+02:00",
+  "product": "Java Server Faces",
+  "component": "core",
+  "severity": "major"
+}

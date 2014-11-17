@@ -1,0 +1,219 @@
+{
+  "comments": [
+    "On every step, if a variable is selected in the variables view and the detail \npane is visible.  Thread claims to still be [Evaluating] after step.\njdk1.4.1_b11 for both eclipse and target.\n\n!ENTRY org.eclipse.jdt.debug.ui 4 150 Jun 05, 2002 10:40:19.715\n!MESSAGE Internal Error\n!STACK 1\norg.eclipse.debug.core.DebugException: Thread not suspended, stack frame \nunavailable.\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIDebugElement.throwDebugException\n(JDIDebugElement.java:277)\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIDebugElement.requestFailed\n(JDIDebugElement.java:235)\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIStackFrame.getUnderlyingStackFrame\n(JDIStackFrame.java:922)\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIStackFrame.getUnderlyingMethod\n(JDIStackFrame.java:190)\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIStackFrame.getDeclaringTypeName\n(JDIStackFrame.java:659)\n\tat \norg.eclipse.jdt.internal.debug.ui.JDIModelPresentation.getStackFrameText\n(JDIModelPresentation.java:1246)\n\tat org.eclipse.jdt.internal.debug.ui.JDIModelPresentation.getText\n(JDIModelPresentation.java:181)\n\tat org.eclipse.debug.internal.ui.LazyModelPresentation.getText\n(LazyModelPresentation.java:68)\n\tat org.eclipse.debug.internal.ui.DelegatingModelPresentation.getText\n(DelegatingModelPresentation.java:121)\n\tat org.eclipse.jface.viewers.TreeViewer.doUpdateItem(TreeViewer.java:82)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem\n(AbstractTreeViewer.java:354)\n\tat org.eclipse.jface.viewers.StructuredViewer.updateItem\n(StructuredViewer.java:1134)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh\n(AbstractTreeViewer.java:834)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh\n(AbstractTreeViewer.java:817)\n\tat org.eclipse.jface.viewers.StructuredViewer$4.run\n(StructuredViewer.java:748)\n\tat org.eclipse.jface.viewers.StructuredViewer.preservingSelection\n(StructuredViewer.java:688)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh\n(StructuredViewer.java:746)\n\tat org.eclipse.debug.internal.ui.views.launch.LaunchViewer.refresh\n(LaunchViewer.java:62)\n\tat org.eclipse.debug.internal.ui.views.launch.LaunchView.autoExpand\n(LaunchView.java:770)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleSuspen\ndThreadEvent(LaunchViewEventHandler.java:234)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleSuspen\ndEvent(LaunchViewEventHandler.java:175)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleDebugE\nvents(LaunchViewEventHandler.java:95)\n\tat org.eclipse.debug.internal.ui.views.AbstractDebugEventHandler$1.run\n(AbstractDebugEventHandler.java:49)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:29)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages\n(Synchronizer.java:93)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:1504)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1292)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1177)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1160)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:739)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:462)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:244)\n\tat org.eclipse.core.launcher.Main.run(Main.java:693)\n\tat org.eclipse.core.launcher.Main.main(Main.java:526)",
+    "marking as F3 candidate.",
+    "Not sure I understand how to reproduce this one exactly. When I simply step \nwith a selected variable, I did not have the problem - but the description \nmentions something about \"[Evaluating]\". Am I missing something?",
+    "The \"evaluating\" comes out of determining the toString to show in the detail \npane for the selected variable.  Detail pane must be visible.",
+    "The following program demonstrates a problem here:\npublic class Hello {\n  public static void main(String[] args) {\n    new Hello().hello();\n  }\n  public void hello() {\n    System.out.println(\"Hello!\"); // Breakpoint here\n    while(true) {\n      System.out.println(\"blah\");\n    }\n  }\n  public int hashCode() {\n    try {\n      Thread.sleep(1000);\n    } catch (InterruptedException e) {\n    }\n    return super.hashCode();\n  }\n}\n\nDebug to the breakpoint, select \"this\" in the variables view, and start \nhitting F6. I\u0027m not getting an exception like DarinS gets, but the editor \nstops updating its location as I step.",
+    "The problem here is that the VariablesView happens to get the suspend first. \nIt then performs an evaluation to update the details pane. Then the LaunchView \ngets the suspend event and tries to update while the evaluation is taking \nplace. It sees that the thread is not suspended and doesn\u0027t update.",
+    "A simple fix is to add a flag to the launch view event handler, which says \n\"The thread was resumed when I tried to update for a suspend event.\" Then, the \nnext time it updates for an implicit evaluation (which it normally wouldn\u0027t \nupdate for), it can update and reset the flag.\n\nThis works, but it\u0027s not a good solution. I\u0027ll look for something better.",
+    "There is also a problem if the expressions view and variables view are both \nopen with a selection while stepping. Only one of them can update after the \nstep. The other always says it can\u0027t perform the evaluation.\n\nObservation for post-2.0 consideration:\nWe shouldn\u0027t be refreshing details (performing evaluations) immediately after \na step anyway. The variables view should have a timer like ala the launch \nview. If someone is holding down the F6 key, we\u0027re just slowing them down.",
+    "*** Bug 19809 has been marked as a duplicate of this bug. ***",
+    "Released temporary fix for 2.0.\n\nWe can still get the above exception, but the required timing is much more \ndifficult to achieve.",
+    "Please verify current improvement and defer to revisit post-2.0.",
+    "Even with the fix, I was able to reproduce the problem. The reason is that \nthe \"thread suspended\" test is time sensitive - the thread can resume between \nthe time we do the test and the time we render the thread. So, we do not fix \nall occurrences of this problem.",
+    "Yep. A better short-term solution is welcome, but seeing the problem for 1 in \n10 steps beats seeing it for 10 in 10.",
+    "*** Bug 17824 has been marked as a duplicate of this bug. ***",
+    "Agreed. For now this is a good as we can do. Deferred for post 2.0 \nconsideration.",
+    "I experimented with serial details computations. I queue up detail computations \nin the JDI debug model presentation, executing one at a time (per IJavaThread). \nThis way, a variables view and expression view can both properly update after a \nstep. However, this makes the view update timing problem more pronounced - i.e. \nthe debug view attempts to update, but an evaluation is taking place, and it \nfails.",
+    "Marking as 2.1 candidate",
+    "Fixed. The debug plugin now supports async execs. \"Deatil\" compuatations are \nqueued up serially, after event dispatch is compelte. As well, details can now \nbe displayed in more than one debug view simaltaneously (eg. variables and \nexpression view).",
+    "Please verify, Jared.",
+    "Verified."
+  ],
+  "commentCreationDates": [
+    "2002-06-05T17:34:45+02:00",
+    "2002-06-05T23:19:52+02:00",
+    "2002-06-06T05:47:08+02:00",
+    "2002-06-06T14:01:22+02:00",
+    "2002-06-06T20:13:06+02:00",
+    "2002-06-07T18:28:46+02:00",
+    "2002-06-07T18:31:01+02:00",
+    "2002-06-07T22:12:39+02:00",
+    "2002-06-10T22:02:15+02:00",
+    "2002-06-11T15:56:41+02:00",
+    "2002-06-11T16:02:10+02:00",
+    "2002-06-11T16:32:44+02:00",
+    "2002-06-11T16:38:01+02:00",
+    "2002-06-11T16:45:10+02:00",
+    "2002-06-11T17:05:57+02:00",
+    "2002-08-13T21:39:43+02:00",
+    "2002-08-15T16:46:26+02:00",
+    "2002-08-15T17:08:52+02:00",
+    "2002-08-15T17:09:04+02:00",
+    "2002-08-28T23:05:34+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.debug.core.DebugException",
+      "message": "Thread not suspended, stack frame  unavailable.",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.throwDebugException",
+          "source": "JDIDebugElement.java:277"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugElement.requestFailed",
+          "source": "JDIDebugElement.java:235"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIStackFrame.getUnderlyingStackFrame",
+          "source": "JDIStackFrame.java:922"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIStackFrame.getUnderlyingMethod",
+          "source": "JDIStackFrame.java:190"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIStackFrame.getDeclaringTypeName",
+          "source": "JDIStackFrame.java:659"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.ui.JDIModelPresentation.getStackFrameText",
+          "source": "JDIModelPresentation.java:1246"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.ui.JDIModelPresentation.getText",
+          "source": "JDIModelPresentation.java:181"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.LazyModelPresentation.getText",
+          "source": "LazyModelPresentation.java:68"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.DelegatingModelPresentation.getText",
+          "source": "DelegatingModelPresentation.java:121"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TreeViewer.doUpdateItem",
+          "source": "TreeViewer.java:82"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "AbstractTreeViewer.java:354"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.updateItem",
+          "source": "StructuredViewer.java:1134"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh",
+          "source": "AbstractTreeViewer.java:834"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh",
+          "source": "AbstractTreeViewer.java:817"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$4.run",
+          "source": "StructuredViewer.java:748"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.preservingSelection",
+          "source": "StructuredViewer.java:688"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "StructuredViewer.java:746"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewer.refresh",
+          "source": "LaunchViewer.java:62"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchView.autoExpand",
+          "source": "LaunchView.java:770"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleSuspendThreadEvent",
+          "source": "LaunchViewEventHandler.java:234"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleSuspendEvent",
+          "source": "LaunchViewEventHandler.java:175"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleDebugEvents",
+          "source": "LaunchViewEventHandler.java:95"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.AbstractDebugEventHandler$1.run",
+          "source": "AbstractDebugEventHandler.java:49"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:29"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:93"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:1504"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1292"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1177"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1160"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:739"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:462"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:244"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:693"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:526"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "19349",
+      "date": "2002-06-05T17:34:45+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "19349",
+  "bugId": "19349",
+  "date": "2002-06-05T17:34:45+02:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

@@ -1,0 +1,73 @@
+{
+  "comments": [
+    "Here is a small test case that illustrates the problem I\u0027m seeing with the \nAspectJ in CVS HEAD (it also affects 1.5.0 M2):\n\nThe program should output 1 but it outputs null instead. \n\npublic aspect AspectStatic {\n    public interface Iface {\n    }\n\n    private static Class[] managedInterfaces \u003d { Iface.class };\n    private static Object assembler \u003d initAssembler();\n    private static Object initAssembler() {\n            return new Integer(1);\n    }\n\n    public static void main(String args[]) {\n        System.out.println(\"test \u003d \"+assembler);\n    }\n}\n\naspect StopsInit pertypewithin(AspectStatic) {\n    before() : staticinitialization(*) {\n    }\n}",
+    "for investigation in M4",
+    "Hmmm...\n\nif you compile this program \u0027ajc AspectStatic.aj\u0027 and run it, you get \u0027null\u0027.\n \nIf you compile this program \u0027ajc -1.5 AspectStatic.aj\u0027 and run it, you get \u00271\u0027.",
+    "It is this line that causes us to fail when compiling without -1.5:\n\nprivate static Class[] managedInterfaces \u003d { Iface.class };\n\ncommenting *out* that line and compiling \u0027ajc AspectStatic.aj\u0027, it runs OK. \n(or,  as the bug suggests, commenting out the advice in the sub-aspect, also\nmakes it work).\n\nmanagedInterfaces is obviously initialized via a static initializer block.\n\n",
+    "yuck.\n\nModified program: \n---\npublic aspect A {\n  interface I { }\n\n  static Class[] classes \u003d { I.class };\n\n  static Object f \u003d new Integer(1);\n\n  public static void main(String args[]) {\n    System.out.println(\"test \u003d \"+f);\n    System.err.println(\"A:\"+A.aspectOf());\n  }\n}\n\naspect StopsInit pertypewithin(A) {\n  before() : staticinitialization(*) {}\n}\n---\nCompiling and running this (no -1.5) will fail with:\ntest \u003d null\nException in thread \"main\" org.aspectj.lang.NoAspectBoundException: Exception \nwhile initializing A: java.lang.IncompatibleClassChangeError\n        at A.aspectOf(A.aj)\n        at A.main(A.aj:10) \n  Caused by: java.lang.IncompatibleClassChangeError\n        at A$I.\u003cclinit\u003e(A.aj:1)\n        at java.lang.Class.forName0(Native Method)\n        at java.lang.Class.forName(Class.java:164)\n        at A.\u003cclinit\u003e(A.aj:4)\n\n\nIf you change the declaration of the inner type from \u0027interface I\u0027 to \u0027class I\u0027\nthen it compiles and runs OK !\n\nThe \u0027bang\u0027 that occurs during initialization prevents us executing the code that\nsets the field (hence it is null).  The aspectOf() call enables us to see the\nexception that occurred during initialization.",
+    "The difference when the code is compiled with \u0027-1.5\u0027 is the bytecode for\ninitializing:\n\n   private static Class[] managedInterfaces \u003d { Iface.class };\n\nWhen it fails (no -1.5):\nstatic {};\n  Code:\n   Stack\u003d5, Locals\u003d1, Args_size\u003d0\n   0:\tldc\t#104; //String A\n   2:\tinvokestatic\t#135; //Method\nStopsInit.ajc$createAspectInstance:(Ljava/lang/String;)LStopsInit;\n   5:\tputstatic\t#122; //Field ajc$StopsInit$ptwAspectInstance:LStopsInit;\n   8:\tinvokestatic\t#126; //Method ajc$StopsInit$localAspectOf:()LStopsInit;\n   11:\tinvokevirtual\t#131; //Method StopsInit.ajc$before$StopsInit$1$ee91c721:()V\n   14:\ticonst_1\n   15:\tanewarray\t#20; //class java/lang/Class\n   18:\tdup\n   19:\ticonst_0\n   20:\tgetstatic\t#22; //Field class$0:Ljava/lang/Class;\n   23:\tdup\n   24:\tifnonnull\t52\n   27:\tpop\n   28:\tldc\t#24; //String A$I\n   30:\tinvokestatic\t#28; //Method\njava/lang/Class.forName:(Ljava/lang/String;)Ljava/lang/Class;\n   33:\tdup\n   34:\tputstatic\t#22; //Field class$0:Ljava/lang/Class;\n   37:\tgoto\t52\n   40:\tnew\t#30; //class java/lang/NoClassDefFoundError\n   43:\tdup_x1\n   44:\tswap\n   45:\tinvokevirtual\t#36; //Method\njava/lang/Throwable.getMessage:()Ljava/lang/String;\n   48:\tinvokespecial\t#40; //Method\njava/lang/NoClassDefFoundError.\"\u003cinit\u003e\":(Ljava/lang/String;)V\n   51:\tathrow\n   52:\taastore\n   53:\tputstatic\t#42; //Field classes:[Ljava/lang/Class;\n   56:\tnew\t#44; //class java/lang/Integer\n   59:\tdup\n   60:\ticonst_1\n   61:\tinvokespecial\t#47; //Method java/lang/Integer.\"\u003cinit\u003e\":(I)V\n   64:\tputstatic\t#49; //Field f:Ljava/lang/Object;\n   67:\tinvokestatic\t#52; //Method ajc$postClinit:()V\n   70:\tgoto\t78\n   73:\tastore_0\n   74:\taload_0\n   75:\tputstatic\t#54; //Field ajc$initFailureCause:Ljava/lang/Throwable;\n   78:\treturn\n\nwhen it works (-1.5):\nstatic {};\n  Code:\n   Stack\u003d4, Locals\u003d1, Args_size\u003d0\n   0:\tldc\t#89; //String A\n   2:\tinvokestatic\t#121; //Method\nStopsInit.ajc$createAspectInstance:(Ljava/lang/String;)LStopsInit;\n   5:\tputstatic\t#108; //Field ajc$StopsInit$ptwAspectInstance:LStopsInit;\n   8:\tinvokestatic\t#112; //Method ajc$StopsInit$localAspectOf:()LStopsInit;\n   11:\tinvokevirtual\t#117; //Method StopsInit.ajc$before$StopsInit$1$ee91c721:()V\n   14:\ticonst_1\n   15:\tanewarray\t#19; //class java/lang/Class\n   18:\tdup\n   19:\ticonst_0\n   20:\tldc\t#21; //class A$I\n   22:\taastore\n   23:\tputstatic\t#23; //Field classes:[Ljava/lang/Class;\n   26:\tnew\t#25; //class java/lang/Integer\n   29:\tdup\n   30:\ticonst_1\n   31:\tinvokespecial\t#29; //Method java/lang/Integer.\"\u003cinit\u003e\":(I)V\n   34:\tputstatic\t#31; //Field f:Ljava/lang/Object;\n   37:\tinvokestatic\t#34; //Method ajc$postClinit:()V\n   40:\tgoto\t48\n   43:\tastore_0\n   44:\taload_0\n   45:\tputstatic\t#36; //Field ajc$initFailureCause:Ljava/lang/Throwable;\n   48:\treturn\n\nwhen Iface is a class rather than an interface (it works):\nstatic {};\n  Code:\n   Stack\u003d5, Locals\u003d1, Args_size\u003d0\n   0:\tldc\t#104; //String A\n   2:\tinvokestatic\t#135; //Method\nStopsInit.ajc$createAspectInstance:(Ljava/lang/String;)LStopsInit;\n   5:\tputstatic\t#122; //Field ajc$StopsInit$ptwAspectInstance:LStopsInit;\n   8:\tinvokestatic\t#126; //Method ajc$StopsInit$localAspectOf:()LStopsInit;\n   11:\tinvokevirtual\t#131; //Method StopsInit.ajc$before$StopsInit$1$ee91c721:()V\n   14:\ticonst_1\n   15:\tanewarray\t#20; //class java/lang/Class\n   18:\tdup\n   19:\ticonst_0\n   20:\tgetstatic\t#22; //Field class$0:Ljava/lang/Class;\n   23:\tdup\n   24:\tifnonnull\t52\n   27:\tpop\n   28:\tldc\t#24; //String A$I\n   30:\tinvokestatic\t#28; //Method\njava/lang/Class.forName:(Ljava/lang/String;)Ljava/lang/Class;\n   33:\tdup\n   34:\tputstatic\t#22; //Field class$0:Ljava/lang/Class;\n   37:\tgoto\t52\n   40:\tnew\t#30; //class java/lang/NoClassDefFoundError\n   43:\tdup_x1\n   44:\tswap\n   45:\tinvokevirtual\t#36; //Method\njava/lang/Throwable.getMessage:()Ljava/lang/String;\n   48:\tinvokespecial\t#40; //Method\njava/lang/NoClassDefFoundError.\"\u003cinit\u003e\":(Ljava/lang/String;)V\n   51:\tathrow\n   52:\taastore\n   53:\tputstatic\t#42; //Field classes:[Ljava/lang/Class;\n   56:\tnew\t#44; //class java/lang/Integer\n   59:\tdup\n   60:\ticonst_1\n   61:\tinvokespecial\t#47; //Method java/lang/Integer.\"\u003cinit\u003e\":(I)V\n   64:\tputstatic\t#49; //Field f:Ljava/lang/Object;\n   67:\tinvokestatic\t#52; //Method ajc$postClinit:()V\n   70:\tgoto\t78\n   73:\tastore_0\n   74:\taload_0\n   75:\tputstatic\t#54; //Field ajc$initFailureCause:Ljava/lang/Throwable;\n   78:\treturn",
+    "test and fix checked in. waiting on build.",
+    "fix available in latest dev build."
+  ],
+  "commentCreationDates": [
+    "2005-08-09T22:25:56+02:00",
+    "2005-08-26T17:53:46+02:00",
+    "2005-09-12T16:07:50+02:00",
+    "2005-09-12T16:12:16+02:00",
+    "2005-09-12T17:33:20+02:00",
+    "2005-09-13T10:16:53+02:00",
+    "2005-09-13T17:11:55+02:00",
+    "2005-09-14T09:05:55+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IncompatibleClassChangeError",
+      "elements": [
+        {
+          "method": "A.aspectOf",
+          "source": "A.aj"
+        },
+        {
+          "method": "A.main",
+          "source": "A.aj:10"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.IncompatibleClassChangeError",
+        "elements": [
+          {
+            "method": "A$I.\u003cclinit\u003e",
+            "source": "A.aj:1"
+          },
+          {
+            "method": "java.lang.Class.forName0",
+            "source": "Native Method"
+          },
+          {
+            "method": "java.lang.Class.forName",
+            "source": "Class.java:164"
+          },
+          {
+            "method": "A.\u003cclinit\u003e",
+            "source": "A.aj:4"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "106554",
+      "date": "2005-09-12T17:33:20+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "106554",
+  "bugId": "106554",
+  "date": "2005-08-09T22:25:56+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

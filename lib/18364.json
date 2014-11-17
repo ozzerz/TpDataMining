@@ -1,0 +1,225 @@
+{
+  "comments": [
+    "This is a problem which happens only on F1 driver\n\nWe have overriten the dispose() method for one of our views\nso it will prompt the user to save the changes ( if necessary )\non workbench shutdown\n\nWith the F1 driver sometimes dispose() method is not called on shutdown,\nwith no visible reason, no exception being thrown.\nThe tricky problem is that it doesn\u0027t happen all the time, I could\nreproduce it once on my machine and the test team could reproduce it few times.\n\nAnother problem the bvt team encountered on F1 driver which can have \nthe same origin: a no more handlers exception was thrown while running the\nworkbench. All system resources are released on plugin.shutdown, which means \nthe plugins shutdown method failed to be called at some point\n\n!MESSAGE No more handles\n!STACK 0\norg.eclipse.swt.SWTError: No more handles\n at org.eclipse.swt.SWT.error(SWT.java:1912)\n at org.eclipse.swt.graphics.Image.init(Image.java(Compiled Code))\n at org.eclipse.swt.graphics.Image.init(Image.java(Compiled Code))\n at org.eclipse.swt.graphics.Image.\u003cinit\u003e(Image.java(Compiled Code))\n at org.eclipse.swt.graphics.Image.\u003cinit\u003e(Image.java(Compiled Code))\n at org.eclipse.jface.resource.ImageDescriptor.createImage\n(ImageDescriptor.java:128)\n at org.eclipse.jface.resource.ImageDescriptor.createImage\n(ImageDescriptor.java:87)\n at org.eclipse.jface.resource.ImageDescriptor.createImage\n(ImageDescriptor.java:76)\n at org.eclipse.jface.action.ActionContributionItem$ImageCache.getImage\n(ActionContributionItem.java:92)\n at org.eclipse.jface.action.ActionContributionItem.updateImages\n(ActionContributionItem.java:590)\n at org.eclipse.jface.action.ActionContributionItem.update\n(ActionContributionItem.java:468)\n at org.eclipse.jface.action.ActionContributionItem.fill\n(ActionContributionItem.java:287)\n at org.eclipse.jface.action.ToolBarManager.update(ToolBarManager.java:230)\n at org.eclipse.ui.internal.ViewPane.updateActionBars(ViewPane.java:621)\n at org.eclipse.ui.internal.ViewActionBars.updateActionBars\n(ViewActionBars.java:48)\n at com.ibm.etools.trace.adapter.ReferencePatternViewer.makeActions(Unknown \nSource)\n at com.ibm.etools.trace.adapter.TraceViewer.addViewPage(Unknown Source)\n at com.ibm.etools.trace.adapter.TraceViewer.createPartControl(Unknown Source)\n at org.eclipse.ui.internal.PartPane$4.run(PartPane.java:133)\n at org.eclipse.core.runtime.Platform.run(Platform.java(Compiled Code))\n at org.eclipse.core.runtime.Platform.run(Platform.java(Compiled Code))\n at org.eclipse.ui.internal.PartPane.createChildControl(PartPane.java:131)\n at org.eclipse.ui.internal.PartPane.createControl(PartPane.java:175)\n at org.eclipse.ui.internal.ViewPane.createControl(ViewPane.java:179)\n at org.eclipse.ui.internal.PartTabFolder.createPartTab(PartTabFolder.java:245)\n at org.eclipse.ui.internal.PartTabFolder.replaceChild(PartTabFolder.java:679)\n at org.eclipse.ui.internal.PartTabFolder.replace(PartTabFolder.java:621)\n at org.eclipse.ui.internal.PerspectivePresentation.addPart\n(PerspectivePresentation.java:182)\n at org.eclipse.ui.internal.Perspective.showView(Perspective.java:1275)\n at org.eclipse.ui.internal.WorkbenchPage.busyShowView(WorkbenchPage.java:591)\n at org.eclipse.ui.internal.WorkbenchPage.access$7(WorkbenchPage.java:573)\n at org.eclipse.ui.internal.WorkbenchPage$10.run(WorkbenchPage.java:2261)\n at org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:56)\n at org.eclipse.ui.internal.WorkbenchPage.showView(WorkbenchPage.java:2258)\n at org.eclipse.ui.internal.WorkbenchPage.showView(WorkbenchPage.java:2248)\n at com.ibm.etools.trace.action.OpenReferencePatternViewAction.run(Unknown \nSource)\n at com.ibm.etools.trace.action.OpenReferencePatternViewAction.run(Unknown \nSource)\n at org.eclipse.ui.internal.PluginAction.runWithEvent(PluginAction.java:210)\n at org.eclipse.ui.internal.WWinPluginAction.runWithEvent\n(WWinPluginAction.java:171)\n at org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection\n(ActionContributionItem.java:407)\n at org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent\n(ActionContributionItem.java:361)\n at org.eclipse.jface.action.ActionContributionItem.access$0\n(ActionContributionItem.java:352)\n at",
+    "Can reproduce it. Do you have any other exception in the .log file when that \nhappens?\nNote that if the view is in a perspective that was never activated then the \nview is not created and dispose() is not called.",
+    "No, I don\u0027t get any exception in the log file\n\nThe perspective which own the view is activated; \nI am in the owning perspective when I close the workspace",
+    "It\u0027s possible that TraceViewer or some other part leaks images, then we finally \nrun out here even though this is not leaking.\nNeed to do an image leak check on the latest build since there has been other \nevidence of image leaks.",
+    "Nick, these leak problem only happened on the F1 driver, we never encountered\nthe problem on a previous driver.\nThe icons are loaded/released by the TracePlugin and the code is doing the \nright think ( if plugin shutdown is called )",
+    "This is the information we talked about on the phone :\nThe person who got the no more handles exception was mostly opening the \nProfiling, Server perspectives and was running the Server Samples. It might be \na problem in the views he opened, some leaking resources; after we had the \nphone conversation,I took a look at the code on most of these views and I could \nfind a problem on the Sequence Diagram view ( the owner was \nnotified and already fixed the problem ). \nThe current defect is opened against dispose() not being called all the time on\nworkbench shutdown; the leak problem is something I mentioned because I thought\nit can be related to this one ( the workbench failing to shutdown the plugins)\nThey don\u0027t seam to be related so I guess the defect focus should be now only on\ndispose no being called. ",
+    "Even if WorkbenchPart.dispose() was not being called on workbench shutdown, \nthe OS releases any allocated images when the process terminates, so I don\u0027t \nsee how this could explain running out of image handles.\n\nBut we\u0027ll try to look for cases where dispose() is not called.\nIf you have a reproduceable case, that would help.\n",
+    "As I mentioned in my previous note, running out of image handles is a separate\nproblem and I mentioned it in this defect just because it happened on the new \nF1 driver and I assumed it may help you solve the dispose() not being called on \nworkbench part. (I know this leak has nothing to do with dispose not being \ncalled )\n\nUnfortunately the dispose not being called is not reproducible.\nI could make it happen only once on my machine in the last few days and\nwas not related to any crash or error being thrown.",
+    "This defect brings up three issues:\n\n1)\tYour view has changes that require saving\n2)\tRunning out of handles causes an exception\n3)\tNot calling workbench part on dispose\n\nI have seen this view and prompting the user when they are about to lose work \nis a good thing to do but as you have determined there is no API to support \nthis (Views should not have unsaved changes. Please refer to the UI guidelines \n(6.2).) and you are forced to implement a workaround. The scenario that you \ndescribe is typical of cases where an exception occurred on shutdown which \naborts the normal shutdown process. If you find and fix the source of the \nexception your code will run. If you get a testcase that we can help with \nplease let us know. \n\nFrom the phone conversation that I had with Valentina the exception is \nindicative of a memory leak as it was described as ?I was running for a long \ntime without problems then I got this exception?  There were several leaks \nfound and fixed by the eclipse team but you need to check to ensure that your \ncode does not leak as well. \n\nFixing second problem ?not calling dispose on shutdown? will not solve the leak \nas the OS will return these resources when the application exits. \n\nRecommend that this defect be resolved as invalid.",
+    "Kevin,\nThe only issue I want to bring up for this defect is \n3)\t\t Not calling workbench part on dispose\n\nIf you read my previous comments, the leak problem is not related to this\nand I don\u0027t expect it to be brought into attention in this defect; it was \nsomething I thought it might be related to dispose not being called. \nSo no comments on the leak problem, at least in this defect.\n\nFor the other issue :\n1)\t\t Your view has changes that require saving\nThe view was not changed, just the data displayed by this view was changed.\nI don\u0027t argue the design here, just the fact that there is a bug which stops \nthe dispose method being called. The problem happens only on F2 driver.\nAs I mentioned before, I don\u0027t get any exception when the dispose is not called \nso there\u0027s nothing I can fix.. The defect is not reproducible so I don\u0027t have a \nscenario were you can run into the problem.\n\nI do want to see the defect fixed , though this is not a blocking defect for \nour component. I still think it should be fixed somehow, there might be some \nother unknown scenarios where this can be much more harmful than just a message \nnot being shown.",
+    "Without a reproducable case, it will be very difficult for us to address this \nfor 2.0.  We can review our calls to dispose() again, but the code paths here \nare relatively straightforward.\n\nNote that closing a view does not dispose it if it is still open in another \nperspective in the same window, since they are shared.  Is it possible that \nthis explains the cases you\u0027re seeing?\n",
+    "\u0027Note that closing a view does not dispose it if it is still open in another \nperspective in the same window, since they are shared.  Is it possible that \nthis explains the cases you\u0027re seeing?\u0027\nVP: No, this is not possible, the problem happens when I close the workspace, \nnot only that view.",
+    "Valentina, \n\n   Are you still getting walkbacks like this?",
+    "Closing defect report. Please reopen if you encounter this problem again. ",
+    "closing"
+  ],
+  "commentCreationDates": [
+    "2002-05-30T21:07:54+02:00",
+    "2002-05-30T21:50:36+02:00",
+    "2002-05-30T21:59:29+02:00",
+    "2002-05-31T17:43:36+02:00",
+    "2002-05-31T17:55:03+02:00",
+    "2002-06-03T15:56:38+02:00",
+    "2002-06-04T05:16:00+02:00",
+    "2002-06-04T15:12:18+02:00",
+    "2002-06-13T21:04:38+02:00",
+    "2002-06-13T21:26:50+02:00",
+    "2002-06-14T16:13:15+02:00",
+    "2002-06-14T18:16:40+02:00",
+    "2002-08-30T02:18:21+02:00",
+    "2002-09-03T17:22:20+02:00",
+    "2005-10-18T17:48:19+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "No more handles",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:1912"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.init",
+          "source": "Image.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.init",
+          "source": "Image.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.\u003cinit\u003e",
+          "source": "Image.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.\u003cinit\u003e",
+          "source": "Image.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageDescriptor.createImage",
+          "source": "ImageDescriptor.java:128"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageDescriptor.createImage",
+          "source": "ImageDescriptor.java:87"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageDescriptor.createImage",
+          "source": "ImageDescriptor.java:76"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$ImageCache.getImage",
+          "source": "ActionContributionItem.java:92"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.updateImages",
+          "source": "ActionContributionItem.java:590"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.update",
+          "source": "ActionContributionItem.java:468"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.fill",
+          "source": "ActionContributionItem.java:287"
+        },
+        {
+          "method": "org.eclipse.jface.action.ToolBarManager.update",
+          "source": "ToolBarManager.java:230"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewPane.updateActionBars",
+          "source": "ViewPane.java:621"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewActionBars.updateActionBars",
+          "source": "ViewActionBars.java:48"
+        },
+        {
+          "method": "com.ibm.etools.trace.adapter.ReferencePatternViewer.makeActions",
+          "source": "Unknown  Source"
+        },
+        {
+          "method": "com.ibm.etools.trace.adapter.TraceViewer.addViewPage",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "com.ibm.etools.trace.adapter.TraceViewer.createPartControl",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane$4.run",
+          "source": "PartPane.java:133"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.createChildControl",
+          "source": "PartPane.java:131"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.createControl",
+          "source": "PartPane.java:175"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewPane.createControl",
+          "source": "ViewPane.java:179"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartTabFolder.createPartTab",
+          "source": "PartTabFolder.java:245"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartTabFolder.replaceChild",
+          "source": "PartTabFolder.java:679"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartTabFolder.replace",
+          "source": "PartTabFolder.java:621"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PerspectivePresentation.addPart",
+          "source": "PerspectivePresentation.java:182"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Perspective.showView",
+          "source": "Perspective.java:1275"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.busyShowView",
+          "source": "WorkbenchPage.java:591"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.access$7",
+          "source": "WorkbenchPage.java:573"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage$10.run",
+          "source": "WorkbenchPage.java:2261"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:56"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.showView",
+          "source": "WorkbenchPage.java:2258"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.showView",
+          "source": "WorkbenchPage.java:2248"
+        },
+        {
+          "method": "com.ibm.etools.trace.action.OpenReferencePatternViewAction.run",
+          "source": "Unknown  Source"
+        },
+        {
+          "method": "com.ibm.etools.trace.action.OpenReferencePatternViewAction.run",
+          "source": "Unknown  Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PluginAction.runWithEvent",
+          "source": "PluginAction.java:210"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WWinPluginAction.runWithEvent",
+          "source": "WWinPluginAction.java:171"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:407"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent",
+          "source": "ActionContributionItem.java:361"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$0",
+          "source": "ActionContributionItem.java:352"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "18364",
+      "date": "2002-05-30T21:07:54+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "18364",
+  "bugId": "18364",
+  "date": "2002-05-30T21:07:54+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "critical"
+}

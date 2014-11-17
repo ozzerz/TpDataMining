@@ -1,0 +1,68 @@
+{
+  "comments": [
+    "I get the following exception trace when I use the profiling launch system. \nDisabling the \"Launch in background\" checkbox made no difference. When I reboot \nmy machine and use the BIOS settings to disable all but one processor, the \nproblem goes away.\n\norg.eclipse.hyades.internal.execution.local.control.InactiveProcessException\nat org.eclipse.hyades.internal.execution.local.control.ProcessImpl.getProcessId\n(ProcessImpl.java:409)\nat org.eclipse.hyades.trace.ui.internal.util.PDCoreUtil.launchTrace\n(PDCoreUtil.java:794)\nat \norg.eclipse.hyades.trace.ui.internal.launcher.ProfileJavaApplicationDelegate.lau\nnch(ProfileJavaApplicationDelegate.java:66)\nat org.eclipse.debug.internal.core.LaunchConfiguration.launch\n(LaunchConfiguration.java:569)\nat org.eclipse.debug.internal.core.LaunchConfiguration.launch\n(LaunchConfiguration.java:150)\nat org.eclipse.debug.internal.ui.DebugUIPlugin.buildAndLaunch\n(DebugUIPlugin.java:779)\nat \norg.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog$6.\nrun(LaunchConfigurationsDialog.java:1161)\nat org.eclipse.jface.operation.ModalContext$ModalContextThread.run\n(ModalContext.java:101)",
+    "More info: I have a Xeon processor with hyperthreading, so it appears to \nWindows as two processors.\n\nSome co-workers of mine also have Xeon processors, or even FOUR (logical) \nprocessors, and do not observe this exception.\n\nI myself did not observe it for a while, with hyperthreading enabled. But then \nit started happening again. When it does happen, it happens every time: ten or \ntwenty launch attempts today, no success until I turned of hyperthreading.",
+    "I think I\u0027ve seen this problem before on AS/400.\n\nThe solution is to create an object lock for getting and setting PID of \nlaunched process.\n\nCurrently, there are 2 threads which do the setting and getting of PID.\n\nClass:\norg.eclipse.hyades.internal.execution.local.control.ProcessImpl\n\nMethod:\npublic String getProcessId() throws InactiveProcessException /* at line 408 */\nprotected void handleCommand(CommandElement command) /* at line 489 */\n\nOn slow/SMP machines, the thread which calls getProcessId() will try to get the \nPID before another thread setting the PID in handleCommand(). The getter thread \nwill get a null PID and throws an InactiveProcessException. The default timeout \nof 7 seconds (line 143 under launch()) is not sufficient for a process launch, \nespecially if the RAC is on a slow machine or a mainframe with queue batch job.\n",
+    "Fix checked in as of 2004/04/23.\n\nThe best fix I can do is to put a 30 x 1sec delay loop in the getters of \n_processId and _UUID to wait and recheck whether these variables have been \nupdated or not. I cannot put in a lock since there might be cases where the \nprocess cannot be launched and these variables will not be set as a result.",
+    "This sounds like it means that when a launch fails, it\u0027ll take 30 seconds for \nsome parts of the Workbench to notice. Is that even true in common and explicit \nfailure scenarios, like when the RAC is not running or the RAC reports an \nexplicit launch failure? We should notice those (and other definite, \naffirmative failures) and drop out of the loop quickly. This way the 30-second \ndelay will only apply to \"mysterious\" failures where the process just never \nmaterializes.\n"
+  ],
+  "commentCreationDates": [
+    "2004-04-15T02:00:42+02:00",
+    "2004-04-15T02:17:03+02:00",
+    "2004-04-22T20:47:04+02:00",
+    "2004-04-23T15:37:03+02:00",
+    "2004-04-23T18:30:14+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.hyades.internal.execution.local.control.InactiveProcessException",
+      "elements": [
+        {
+          "method": "org.eclipse.hyades.internal.execution.local.control.ProcessImpl.getProcessId",
+          "source": "ProcessImpl.java:409"
+        },
+        {
+          "method": "org.eclipse.hyades.trace.ui.internal.util.PDCoreUtil.launchTrace",
+          "source": "PDCoreUtil.java:794"
+        },
+        {
+          "method": "org.eclipse.hyades.trace.ui.internal.launcher.ProfileJavaApplicationDelegate.launch",
+          "source": "ProfileJavaApplicationDelegate.java:66"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+          "source": "LaunchConfiguration.java:569"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+          "source": "LaunchConfiguration.java:150"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.DebugUIPlugin.buildAndLaunch",
+          "source": "DebugUIPlugin.java:779"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.launchConfigurations.LaunchConfigurationsDialog$6.run",
+          "source": "LaunchConfigurationsDialog.java:1161"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:101"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "58583",
+      "date": "2004-04-15T02:00:42+02:00",
+      "product": "Hyades",
+      "component": "DataCollection\u0026Control",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "58583",
+  "bugId": "58583",
+  "date": "2004-04-15T02:00:42+02:00",
+  "product": "Hyades",
+  "component": "DataCollection\u0026Control",
+  "severity": "critical"
+}

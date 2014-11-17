@@ -1,0 +1,112 @@
+{
+  "comments": [
+    "While using conditional breakpoints, I frequently get the\nfollowing popup message when the breakpoint is hit:\n\n\tConditional breakpoint runtime exception\n\t\n\tReason: com.sun.jdi.ObjectCollectedException occurred retrieving reference type\n\nI have confirmed, and reconfirmed, that the conditional expression is valid.\nI have received the error in several contexts and in all cases the expression is\nvalid. And I have confirmed that the expression does not throw a runtime\nexception.\n\nI cannot reproduce this problem in a small testcase, but hopefully there\u0027s\nenough information for you to track down the cause.\n\nThe problem started appearing when I updated to 2.1 RC1.",
+    "Are you sure that your expression isn\u0027t referencing an object that\u0027s been\ngarbage collected?",
+    "The problem occurs in multiple cases, and the breakpoint expressions\nare referencing local varables or arguments.\n\nOne breakpoint expression in particular looked like this:\n\n\t\"string\".equals(ref.getName())\n\t\nwhere \"ref\" is an argument to the method in which the breakpoint is set. \nSo, it could not be garbage collected.\n\n\n\n",
+    "David, can you check the .log file in the .metadata directory to see if there\u0027s\na stack trace there with this exception? Also, please let us know if you find\na test case.",
+    "Does the VM you are debugging with make a difference?",
+    "Created an attachment (id\u003d3824)\n\".metadata/.log\" that shows the exceptions\n\nThis show the .log output for Feb 24\u0027th. That was one of several days in which\nthe exception occurred.\n",
+    "I have only one JVM on my machine: JRE 1.4.1_01",
+    "Looking at the stack traces - the object collected exceptions are coming from \nthe variables view - not the conditional breakpoints. The evaluations are \nfailing due to an incompatible thread state. However there is an NPE coming \nfrom the breakpoint:\n\n!ENTRY org.eclipse.jdt.debug 4 120 Feb 24, 2003 17:06:53.781\n!MESSAGE Internal error logged from JDI Debug: \n!STACK 0\njava.lang.NullPointerException\n\tat \norg.eclipse.jdt.internal.debug.core.breakpoints.JavaLineBreakpoint$EvaluationLis\ntener.evaluationComplete(JavaLineBreakpoint.java:476)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$EvalRunnable.\nevaluationFinished(ASTEvaluationEngine.java:338)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$EvalRunnable.\nrun(ASTEvaluationEngine.java:333)\n\tat org.eclipse.jdt.internal.debug.core.model.JDIThread$AsyncThread.run\n(JDIThread.java:2451)\n\tat java.lang.Thread.run(Thread.java:536)",
+    "Deferred",
+    "Open for 3.0",
+    "I observed a similar error:\n\nConditional breakpoint encountered runtime exception\nReason: com.sun.jdi.ObjectCollectedException occurred invoking mthod\n\nThe condition was:\nmyControllerName !\u003d null \u0026\u0026 myControllerName.equals(\"PRI_W40_C99\")\n\nmyControllerName is a field of class String in the debugged class. No stack \ndump was written to the .log file.",
+    "I have seen similar problems when doing evaluations. I\u0027m not sure what we can \ndo about it. The problem is that the VM does a GC and collects objects that are \nbeing used by the debugger for evaluation purposes (but otherwise have no \nreferences).",
+    "I have a proposed implementation, but we cannot currently use it, as it blows \nsome VMs out of the water.\n\nThe proposal is to disable garbage collection of temporary objects that are \ncreated during an evaluation. As an object is pushed onto our evaluation \nstack, we disable the garbage collection of that object. When an evaluation \ncompletes, all \"disabled\" objects are re-enabled. I experimented with this, \nbut I found VMs that crash when the JDI \"disableCollection\" feature is used. \nFor example:\n\nJVMCI161: FATAL ERROR in native method: Illegal ref passed to \nDeleteWeakGlobalRef\nJVMDG217: Dump Handler is Processing a Signal - Please Wait.\nJVMDG303: JVM Requesting Java core file\nJVMDG304: Java core file written to c:\\eclipse3.0-darin\\runtime-\nworkspace\\Junk\\javacore.20040326.104616.2128.txt\nJVMDG215: Dump Handler has Processed Error Signal 22.\n\nI will attach my suggested implementation for future reference, created \nagainst the 3.0 M8 candidate.\n\nNote, I found the Sun VM handles the GC requests, but that IBM VMs do not. \nMarking as later.",
+    "Created an attachment (id\u003d8918)\nexample patch for disabling gc\n",
+    "*** Bug 48815 has been marked as a duplicate of this bug. ***",
+    "*** Bug 64091 has been marked as a duplicate of this bug. ***",
+    "*** Bug 64673 has been marked as a duplicate of this bug. ***",
+    "*** Bug 70301 has been marked as a duplicate of this bug. ***",
+    "*** Bug 78372 has been marked as a duplicate of this bug. ***",
+    "*** Bug 79034 has been marked as a duplicate of this bug. ***",
+    "*** Bug 79917 has been marked as a duplicate of this bug. ***",
+    "Re-opening to see which VMs are problematic.",
+    "Deferred for post 3.1",
+    "*** Bug 106626 has been marked as a duplicate of this bug. ***",
+    "Hi. What\u0027s the current status of this bug? I\u0027m just starting to get bitten by it \ntoo.",
+    "*** Bug 32222 has been marked as a duplicate of this bug. ***",
+    "Latest findings. I found that disabling collection on the following IBM does not work: 1.3.1 (10a) (with or without j9), 1.4.2 without j9.",
+    "Created an attachment (id\u003d72082)\npatch\n\nUpdated patch. We\u0027d need a way to turn the feature on selectively, based on the target VM.",
+    "Created an attachment (id\u003d72090)\nupdated patch\n\nThis patch enables the feature based on the VM. It seems the feature does not work in the IBM \"Classic VM\".",
+    "Created an attachment (id\u003d72690)\npatch\n\nUpdated patch with NLS and specialization for null value enable/disable colleciton.",
+    "Released fix to HEAD.",
+    "Please verify, Curtis.",
+    "Verified"
+  ],
+  "commentCreationDates": [
+    "2003-02-27T16:58:41+01:00",
+    "2003-03-03T23:28:15+01:00",
+    "2003-03-04T00:12:13+01:00",
+    "2003-03-04T00:17:48+01:00",
+    "2003-03-04T00:33:06+01:00",
+    "2003-03-04T00:53:25+01:00",
+    "2003-03-04T17:26:46+01:00",
+    "2003-03-06T16:58:28+01:00",
+    "2003-03-25T18:56:23+01:00",
+    "2003-05-28T20:43:23+02:00",
+    "2003-12-09T13:50:20+01:00",
+    "2003-12-09T14:18:01+01:00",
+    "2004-03-26T16:53:04+01:00",
+    "2004-03-26T16:54:31+01:00",
+    "2004-05-14T18:28:19+02:00",
+    "2004-05-26T15:49:55+02:00",
+    "2004-05-29T19:18:55+02:00",
+    "2004-07-19T15:48:58+02:00",
+    "2004-11-11T15:26:11+01:00",
+    "2004-11-22T16:19:30+01:00",
+    "2004-12-01T19:44:06+01:00",
+    "2004-12-01T21:02:13+01:00",
+    "2005-04-18T16:20:23+02:00",
+    "2005-08-10T16:23:17+02:00",
+    "2005-11-03T11:32:15+01:00",
+    "2006-06-19T20:13:44+02:00",
+    "2007-06-21T22:18:59+02:00",
+    "2007-06-21T22:20:07+02:00",
+    "2007-06-21T22:49:19+02:00",
+    "2007-06-28T16:41:11+02:00",
+    "2007-06-28T16:42:08+02:00",
+    "2007-06-28T16:42:37+02:00",
+    "2007-06-28T22:45:35+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.breakpoints.JavaLineBreakpoint$EvaluationListener.evaluationComplete",
+          "source": "JavaLineBreakpoint.java:476"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$EvalRunnable.evaluationFinished",
+          "source": "ASTEvaluationEngine.java:338"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$EvalRunnable.run",
+          "source": "ASTEvaluationEngine.java:333"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread$AsyncThread.run",
+          "source": "JDIThread.java:2451"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:536"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 7,
+      "bugId": "33452",
+      "date": "2003-03-06T16:58:28+01:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "33452",
+  "bugId": "33452",
+  "date": "2003-02-27T16:58:41+01:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

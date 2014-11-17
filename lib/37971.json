@@ -1,0 +1,158 @@
+{
+  "comments": [
+    "I\u0027ve implemented a nature and builder that runs after the Java compiler.  The \nproblem I\u0027m seeing is related to generating the AST for a Java compilation \nunit.  The builder provides an IResource resource, which can be changed via\n\n    IJavaElement javaResource \u003d JavaCore.create(resource);\n    if ((javaResource !\u003d null)\n      \u0026\u0026 (javaResource.getElementType() \u003d\u003d IJavaElement.COMPILATION_UNIT)) {\n      ICompilationUnit compUnit \u003d (ICompilationUnit) javaResource;\n\nOK this all seems to work EXCEPT if the \"foo.java\" file is NOT within a source \npath or is excluded, via a filter, from within a source path of the Java \nproject (i.e., the Java builder doesn\u0027t compile it) in that case a call to:\n\n        CompilationUnit ast \u003d AST.parseCompilationUnit(compUnit, true);\n\nresults in a runtime exception (varies, null pointer, etc.)\n\nI\u0027ve tried a couple approaches to work around this (as no obvious API is \njumping out at me)\n\n(1) to see if sturcture exists:\n\n      boolean hasStructure \u003d false;\n      }\n      try {\n        hasStructure \u003d compUnit.isStructureKnown();\n      } catch (JavaModelException e) {\n        e.printStackTrace();\n      }\n      if (hasStructure) {\n        CompilationUnit ast \u003d AST.parseCompilationUnit(compUnit, true);\n\nThis seems to work but isStructureKnown ALWAYS throws JavaModelException for \none of these outside foo.java files.  It also seems very slow.\n\n(2) to try and see if the compilation unit was within a Java source path via:\n\n      boolean hasStructure \u003d false;\n      IPackageFragmentRoot pfr \u003d\n        (IPackageFragmentRoot) compUnit.getAncestor(\n          IJavaElement.PACKAGE_FRAGMENT_ROOT);\n      if ((pfr !\u003d null) \u0026\u0026 (!pfr.isArchive())) {\n      \tLOG.info(\"found pfr \"+ pfr.getElementName());\n        hasStructure \u003d true;\n      }\n      if (hasStructure) {\n        CompilationUnit ast \u003d AST.parseCompilationUnit(compUnit, true);\n\nThis just doesn\u0027t work.  Everything seems to have a package fragment root.\n\nI think there should be a way to identify if the resource passed by a builder, \nonce changed into a ICompilationUnit, is actually within a source path the \nproject normally builds so the strangness I\u0027m seeing is avoidable.  Either\n\n(1) I\u0027m missing some API :-)\n(2) The IJavaElement for these .java files should NOT be a ICompilationUnit\n    (a bug)\n(3) The isStructureKnown() should return \"false\" and not die (a bug)\n\nThis looks fishy enough I reported it...Thoughts?",
+    "JavaCore.create(rsc) doesn\u0027t transform anything. It creates a handle onto this \nresource which denotes a compilation unit. The fact that this unit isn\u0027t \nreachable on the build path is another issue. Handles are quite flexible, and \ncan be created on non-existing units etc...\n\nIn order to check whether your unit handle is on the build path, why aren\u0027t you \nusing: IJavaProject.isOnClasspath ?\n\nThe fact that the unit outside the path still has a package fragment root \ncorresponds to the fact that we support this mode, and create a fake package \nfragment root (which doesn\u0027t exist for real). This behavior is required to \nallow opening Java editors on units outside the classpath (which you can still \nedit).",
+    "I agree though that #isStructureKnown shouldn\u0027t declare thrown exceptions. Will \nsee if we can perform this change for 3.0 (likely yes).",
+    "When I tried:\nCompilationUnit ast \u003d AST.parseCompilationUnit(compUnit, true);\nwith a compilation unit that is not on the classpath, I got a\nIllegalArgumentException because the source could not be retrieved. You said you\ngot a NullPointerException. Could you please provide the stack trace? I\u0027d like\nto investigate this.",
+    "Olivier,\n\nYes, that\u0027s the most common case and in my most recent code I always get it. \nI\u0027ll try to dig up what I was doing that was throwing the NullPointerException\nand post if I can find it.\n\nINFO [ModalContext] (Majordomo.java:83) - can\u0027t generate AST for SimpleService.java\njava.lang.IllegalArgumentException\n  at org.eclipse.jdt.core.dom.AST.parseCompilationUnit(AST.java:251)\n  at edu.cmu.cs.fluid.javaassure.Majordomo.analyzeResource(Majordomo.java:81)\n  at edu.cmu.cs.fluid.javaassure.Builder.analyzeResource(Builder.java:42)\n  at edu.cmu.cs.fluid.javaassure.Builder.visit(Builder.java:135)\n  at org.eclipse.core.internal.resources.Resource$2.visit(Resource.java:106)\n  at org.eclipse.core.internal.resources.Resource$1.visitElement(Resource.java:50)\n  at\norg.eclipse.core.internal.watson.ElementTreeIterator.doIteration(ElementTreeIterator.java:76)\n  at\norg.eclipse.core.internal.watson.ElementTreeIterator.doIteration(ElementTreeIterator.java:80)\n  at\norg.eclipse.core.internal.watson.ElementTreeIterator.doIteration(ElementTreeIterator.java:80)\n  at\norg.eclipse.core.internal.watson.ElementTreeIterator.doIteration(ElementTreeIterator.java:80)\n  at\norg.eclipse.core.internal.watson.ElementTreeIterator.iterate(ElementTreeIterator.java:119)\n  at org.eclipse.core.internal.resources.Resource.accept(Resource.java:60)\n  at org.eclipse.core.internal.resources.Resource.accept(Resource.java:104)\n  at org.eclipse.core.internal.resources.Resource.accept(Resource.java:82)\n  at edu.cmu.cs.fluid.javaassure.Builder.build(Builder.java:62)\n  at org.eclipse.core.internal.events.BuildManager$2.run(BuildManager.java:427)\n  at\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:889)\n  at org.eclipse.core.runtime.Platform.run(Platform.java:413)\n  at org.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:125)\n  at org.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:181)\n  at org.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:191)\n  at org.eclipse.core.internal.events.BuildManager$1.run(BuildManager.java:151)\n  at\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:889)\n  at org.eclipse.core.runtime.Platform.run(Platform.java:413)\n  at org.eclipse.core.internal.events.BuildManager.basicBuild(BuildManager.java:165)\n  at\norg.eclipse.core.internal.events.BuildManager.basicBuildLoop(BuildManager.java:243)\n  at org.eclipse.core.internal.events.BuildManager.build(BuildManager.java:212)\n  at org.eclipse.core.internal.resources.Workspace.build(Workspace.java:181)\n  at org.eclipse.ui.actions.GlobalBuildAction$1.run(GlobalBuildAction.java:174)\n  at\norg.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:101)",
+    "The below code seems to work OK (I missed the indirect link to isOnClasspath via\nthe JavaProject -- should the ICompilationUnit have a \"boolean isOnClasspath()\"\nconvience method?\n\n    IJavaElement javaResource \u003d JavaCore.create(resource);\n    if ((javaResource !\u003d null)\n      \u0026\u0026 (javaResource.getElementType() \u003d\u003d IJavaElement.COMPILATION_UNIT)) {\n      ICompilationUnit compUnit \u003d (ICompilationUnit) javaResource;\n      if (compUnit.getJavaProject().isOnClasspath(compUnit)) {\n        CompilationUnit ast \u003d AST.parseCompilationUnit(compUnit, true);\n      } else {\n        LOG.info(\n          \"can\u0027t generate AST for \"\n            + compUnit.getElementName()\n            + \" not on classpath\");\n      }\n"
+  ],
+  "commentCreationDates": [
+    "2003-05-22T15:31:41+02:00",
+    "2003-05-22T16:21:44+02:00",
+    "2003-05-22T16:24:17+02:00",
+    "2003-05-22T16:59:55+02:00",
+    "2003-05-22T19:08:04+02:00",
+    "2003-05-22T19:16:00+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.core.dom.AST.parseCompilationUnit",
+          "source": "AST.java:251"
+        },
+        {
+          "method": "edu.cmu.cs.fluid.javaassure.Majordomo.analyzeResource",
+          "source": "Majordomo.java:81"
+        },
+        {
+          "method": "edu.cmu.cs.fluid.javaassure.Builder.analyzeResource",
+          "source": "Builder.java:42"
+        },
+        {
+          "method": "edu.cmu.cs.fluid.javaassure.Builder.visit",
+          "source": "Builder.java:135"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource$2.visit",
+          "source": "Resource.java:106"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource$1.visitElement",
+          "source": "Resource.java:50"
+        },
+        {
+          "method": "org.eclipse.core.internal.watson.ElementTreeIterator.doIteration",
+          "source": "ElementTreeIterator.java:76"
+        },
+        {
+          "method": "org.eclipse.core.internal.watson.ElementTreeIterator.doIteration",
+          "source": "ElementTreeIterator.java:80"
+        },
+        {
+          "method": "org.eclipse.core.internal.watson.ElementTreeIterator.doIteration",
+          "source": "ElementTreeIterator.java:80"
+        },
+        {
+          "method": "org.eclipse.core.internal.watson.ElementTreeIterator.doIteration",
+          "source": "ElementTreeIterator.java:80"
+        },
+        {
+          "method": "org.eclipse.core.internal.watson.ElementTreeIterator.iterate",
+          "source": "ElementTreeIterator.java:119"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.accept",
+          "source": "Resource.java:60"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.accept",
+          "source": "Resource.java:104"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.accept",
+          "source": "Resource.java:82"
+        },
+        {
+          "method": "edu.cmu.cs.fluid.javaassure.Builder.build",
+          "source": "Builder.java:62"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager$2.run",
+          "source": "BuildManager.java:427"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:889"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:413"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:125"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:181"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:191"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager$1.run",
+          "source": "BuildManager.java:151"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:889"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:413"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuild",
+          "source": "BuildManager.java:165"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.basicBuildLoop",
+          "source": "BuildManager.java:243"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.BuildManager.build",
+          "source": "BuildManager.java:212"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.build",
+          "source": "Workspace.java:181"
+        },
+        {
+          "method": "org.eclipse.ui.actions.GlobalBuildAction$1.run",
+          "source": "GlobalBuildAction.java:174"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:101"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "37971",
+      "date": "2003-05-22T19:08:04+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "37971",
+  "bugId": "37971",
+  "date": "2003-05-22T15:31:41+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

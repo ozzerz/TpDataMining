@@ -1,0 +1,185 @@
+{
+  "comments": [
+    "I20050512-2035\n\nIn the test run for said build, org.eclipse.jdt.ui.tests.refactoring_winxp tests\nfailed due to the exception below. AFAICS, there must have been an exception in\nWorkspace.prepareOperation(..), which prevented beginRule(..) from being called.\nUnfortunately, that exception has been lost due to the subsequent IAE inside\nrefreshLocal(..)\u0027s finally block.\n\nThis problem is not easy reproducible and seems to happen intermittently. We\nalready had this once in a nightly build, but could not reproduce then either.\n\nStacktrace from\nhttp://download.eclipse.org/downloads/drops/I20050512-2035/testresults/html/org.eclipse.jdt.ui.tests.refactoring_winxp.html\n :\n\nendRule without matching beginRule: P/TestProject1115963724375\n\njava.lang.IllegalArgumentException: endRule without matching beginRule:\nP/TestProject1115963724375\nat org.eclipse.core.internal.runtime.Assert.isLegal(Assert.java:58)\nat org.eclipse.core.internal.jobs.ImplicitJobs.end(ImplicitJobs.java:114)\nat org.eclipse.core.internal.jobs.JobManager.endRule(JobManager.java:486)\nat org.eclipse.core.internal.resources.WorkManager.checkOut(WorkManager.java:120)\nat org.eclipse.core.internal.resources.Workspace.endOperation(Workspace.java:926)\nat org.eclipse.core.internal.resources.Resource.refreshLocal(Resource.java:1249)\nat\norg.eclipse.jdt.ui.tests.refactoring.RefactoringTest.refreshFromLocal(RefactoringTest.java:122)\nat\norg.eclipse.jdt.ui.tests.refactoring.RefactoringTest.tearDown(RefactoringTest.java:97)\nat junit.extensions.TestDecorator.basicRun(TestDecorator.java:22)\nat junit.extensions.TestSetup$1.protect(TestSetup.java:19)\nat junit.extensions.TestSetup.run(TestSetup.java:23)\nat junit.extensions.TestDecorator.basicRun(TestDecorator.java:22)\nat junit.extensions.TestSetup$1.protect(TestSetup.java:19)\nat junit.extensions.TestSetup.run(TestSetup.java:23)\nat org.eclipse.test.EclipseTestRunner.run(EclipseTestRunner.java:313)\nat org.eclipse.test.EclipseTestRunner.run(EclipseTestRunner.java:199)\nat org.eclipse.test.UITestApplication$3.run(UITestApplication.java:188)\nat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:118)\nat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2898)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2557)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1601)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1565)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:315)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\nat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:103)\nat org.eclipse.test.UITestApplication.runApplication(UITestApplication.java:131)\nat org.eclipse.test.UITestApplication.run(UITestApplication.java:58)\nat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:230)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:371)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:160)\nat org.eclipse.core.launcher.Main.invokeFramework(Main.java:330)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:274)\nat org.eclipse.core.launcher.Main.run(Main.java:977)\nat org.eclipse.core.launcher.Main.main(Main.java:952)",
+    "A similar failure happened in N20051013 with JDT core tests.  In both cases\nsomeone is releasing a project scheduling rule during a workspace operation.",
+    "*** Bug 112464 has been marked as a duplicate of this bug. ***",
+    "This happened again in N20060221-0010.  Bug 128815 occurred in the same test, so they are likely related.",
+    "I would start solving this mystery by fixing the finally block in Resource#refreshLocal(..). You should rewrite\n\n\t} finally {\n\t\tworkspace.endOperation(..);\n\t}\n\ninto something like\n\n\t} finally {\n\t\ttry {\n\t\t\tworkspace.endOperation(..);\n\t\t} catch (Exception e2) {\n\t\t\tlog e2 here, and don\u0027t rethrow it!\n\t\t}\n\t}\n\nto avoid swallowing the original exception. Otherwise, I don\u0027t know how you could find out what the original exception was.",
+    "I don\u0027t want to catch and log exceptions from endOperation because any exception occurring in this method really is quite severe.  If the workspace is in a bad state or locks have not been properly acquired or released, it is likely that nothing will work after that point.  I have made some changes in prepareOperation to ensure beginRule is always called.  \n\nAlso, the bug is not necessarily a case of the endOperation failure masking an earlier failure.  For example an unmatched endRule somewhere in the operation would cause the same failure, such as:\n\nfinal IProject project \u003d getWorkspace().getRoot().getProject(\"p\");\ngetWorkspace().run(new IWorkspaceRunnable() {\n\tpublic void run(IProgressMonitor monitor) {\n\t\tPlatform.getJobManager().endRule(project);\n\t}\n}, project, IResource.NONE, getMonitor());\n",
+    "To help track this down, I have temporarily added extra catch clauses in the refreshLocal method:\n\n} catch (Error e) {\n\tPolicy.log(e);\n\tthrow e;\n} catch (RuntimeException e) {\n\t//support to track down Bug 95089\n\tPolicy.log(e);\n\tthrow e;\n",
+    "*** Bug 128815 has been marked as a duplicate of this bug. ***",
+    "Not reproduced."
+  ],
+  "commentCreationDates": [
+    "2005-05-13T10:31:55+02:00",
+    "2005-10-17T21:17:04+02:00",
+    "2005-10-17T21:17:14+02:00",
+    "2006-02-21T16:30:49+01:00",
+    "2006-02-22T16:16:10+01:00",
+    "2006-02-22T16:44:47+01:00",
+    "2006-02-22T17:41:31+01:00",
+    "2006-02-22T17:42:59+01:00",
+    "2007-06-25T22:33:49+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "endRule without matching beginRule: P/TestProject1115963724375",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.Assert.isLegal",
+          "source": "Assert.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ImplicitJobs.end",
+          "source": "ImplicitJobs.java:114"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobManager.endRule",
+          "source": "JobManager.java:486"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.WorkManager.checkOut",
+          "source": "WorkManager.java:120"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.endOperation",
+          "source": "Workspace.java:926"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.refreshLocal",
+          "source": "Resource.java:1249"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.tests.refactoring.RefactoringTest.refreshFromLocal",
+          "source": "RefactoringTest.java:122"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.tests.refactoring.RefactoringTest.tearDown",
+          "source": "RefactoringTest.java:97"
+        },
+        {
+          "method": "junit.extensions.TestDecorator.basicRun",
+          "source": "TestDecorator.java:22"
+        },
+        {
+          "method": "junit.extensions.TestSetup$1.protect",
+          "source": "TestSetup.java:19"
+        },
+        {
+          "method": "junit.extensions.TestSetup.run",
+          "source": "TestSetup.java:23"
+        },
+        {
+          "method": "junit.extensions.TestDecorator.basicRun",
+          "source": "TestDecorator.java:22"
+        },
+        {
+          "method": "junit.extensions.TestSetup$1.protect",
+          "source": "TestSetup.java:19"
+        },
+        {
+          "method": "junit.extensions.TestSetup.run",
+          "source": "TestSetup.java:23"
+        },
+        {
+          "method": "org.eclipse.test.EclipseTestRunner.run",
+          "source": "EclipseTestRunner.java:313"
+        },
+        {
+          "method": "org.eclipse.test.EclipseTestRunner.run",
+          "source": "EclipseTestRunner.java:199"
+        },
+        {
+          "method": "org.eclipse.test.UITestApplication$3.run",
+          "source": "UITestApplication.java:188"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:118"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2898"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2557"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1601"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1565"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:315"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:103"
+        },
+        {
+          "method": "org.eclipse.test.UITestApplication.runApplication",
+          "source": "UITestApplication.java:131"
+        },
+        {
+          "method": "org.eclipse.test.UITestApplication.run",
+          "source": "UITestApplication.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:230"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:371"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:160"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:330"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:274"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "95089",
+      "date": "2005-05-13T10:31:55+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "major"
+    }
+  ],
+  "groupId": "95089",
+  "bugId": "95089",
+  "date": "2005-05-13T10:31:55+02:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "major"
+}

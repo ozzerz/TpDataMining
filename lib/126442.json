@@ -1,0 +1,326 @@
+{
+  "comments": [
+    "I was profiling on I20060131-1200 and noticed leakage on opening and closing the Compare editor.\n\nTest case:\nIn the Synchronize view, double click on an outgoing CVS change\nClose the resulting Compare Editor.\n\nUsing OptimizeIt, I see leakage which appears to be traced back to the toolbar created in the CompareViewerPane not being disposed.\n\nThis likely be handled by disposing the toolbarmanager in the dispose listener?",
+    "fixed for I20060207",
+    "There appears to still be a problem here with Java file compares\nThe following stack shows a toolbar manager etc getting created on the dispose of the JavaStructureDiffViewer. This manager and toolbar do not get disposed.\n\n\tCompareEditorInput$3(CompareViewerPane).getToolBarManager() line: 146\n\tCompareViewerPane.getToolBarManager(Composite) line: 124\n\tJavaStructureDiffViewer.setSmartButtonVisible(boolean) line: 202\n\tJavaStructureDiffViewer.compareInputChanged(ICompareInput) line: 126\n\tJavaStructureDiffViewer(StructureDiffViewer).handleDispose(DisposeEvent) line: 163\n\tContentViewer$2.widgetDisposed(DisposeEvent) line: 189\n\tTypedListener.handleEvent(Event) line: 101\n\tEventTable.sendEvent(Event) line: 66\n\tTree(Widget).sendEvent(Event) line: 925\n\tTree(Widget).sendEvent(int, Event, boolean) line: 949\n\tTree(Widget).sendEvent(int) line: 930\n\tTree(Widget).release(boolean) line: 740\n\tCompareEditorInput$3(Composite).releaseChildren(boolean) line: 623\n\tCompareEditorInput$3(Widget).release(boolean) line: 743\n\tSplitter(Composite).releaseChildren(boolean) line: 623\n\tSplitter(Widget).release(boolean) line: 743\n\tSplitter(Composite).releaseChildren(boolean) line: 623\n\tSplitter(Widget).release(boolean) line: 743\n\tComposite.releaseChildren(boolean) line: 623\n\tComposite(Widget).release(boolean) line: 743\n\tComposite.releaseChildren(boolean) line: 623\n\tComposite(Widget).release(boolean) line: 743\n\tComposite(Widget).dispose() line: 412\n\tEditorPane(PartPane).dispose() line: 164\n\tEditorReference(WorkbenchPartReference).dispose() line: 628\n\tWorkbenchPage.disposePart(WorkbenchPartReference) line: 1435\n\tWorkbenchPage.handleDeferredEvents() line: 1262\n\tWorkbenchPage.deferUpdates(boolean) line: 1246\n\tWorkbenchPage.closeEditors(IEditorReference[], boolean) line: 1220\n\tWorkbenchPage.closeEditor(IEditorReference, boolean) line: 1275\n\tEditorPane.doHide() line: 54\n\tEditorStack(PartStack).close(IPresentablePart) line: 497\n\tEditorStack.close(IPresentablePart[]) line: 201\n\tPartStack$1.close(IPresentablePart[]) line: 105\n\tTabbedStackPresentation$1.handleEvent(TabFolderEvent) line: 81\n\tDefaultTabFolder(AbstractTabFolder).fireEvent(TabFolderEvent) line: 267\n\tDefaultTabFolder(AbstractTabFolder).fireEvent(int, AbstractTabItem) line: 276\n\tDefaultTabFolder.access$1(DefaultTabFolder, int, AbstractTabItem) line: 1\n\tDefaultTabFolder$1.closeButtonPressed(CTabItem) line: 67\n\tPaneFolder.notifyCloseListeners(CTabItem) line: 580\n\tPaneFolder$3.close(CTabFolderEvent) line: 187\n\tCTabFolder.onMouse(Event) line: 2105\n\tCTabFolder$1.handleEvent(Event) line: 291\n\tEventTable.sendEvent(Event) line: 66\n\tCTabFolder(Widget).sendEvent(Event) line: 925\n\tDisplay.runDeferredEvents() line: 3287\n\tDisplay.readAndDispatch() line: 2907\n\tWorkbench.runEventLoop(Window$IExceptionHandler, Display) line: 1899\n\tWorkbench.runUI() line: 1863\n\tWorkbench.createAndRunWorkbench(Display, WorkbenchAdvisor) line: 417\n\tPlatformUI.createAndRunWorkbench(Display, WorkbenchAdvisor) line: 143\n\tIDEApplication.run(Object) line: 106\n\tPlatformActivator$1.run(Object) line: 99\n\tEclipseAppLauncher.runApplication(Object) line: 92\n\tEclipseAppLauncher.start(Object) line: 68\n\tEclipseStarter.run(Object) line: 374\n\tEclipseStarter.run(String[], Runnable) line: 169\n\tNativeMethodAccessorImpl.invoke0(Method, Object, Object[]) line: not available [native method]\n\tNativeMethodAccessorImpl.invoke(Object, Object[]) line: 39\n\tDelegatingMethodAccessorImpl.invoke(Object, Object[]) line: 25\n\tMethod.invoke(Object, Object[]) line: 324\n\tMain.invokeFramework(String[], URL[]) line: 338\n\tMain.basicRun(String[]) line: 282\n\tMain.run(String[]) line: 977\n\tMain.main(String[]) line: 952\n",
+    "Not for M5",
+    "Increasing priority since every single compare editor is leaked as long as its editor input is in the navigation history.",
+    "Created an attachment (id\u003d62756)\nReference graph + alloc backtrace\n\n",
+    "There appears to be 2 problems mentioned here:\n\n1) Comment 2 indicates a leak occurs because a tool bar is recreated when the editor is closed. This is old so I\u0027ll need to confirm that it is still the case.\n\n2) A change in 3.3 has caused the editor to be leaked because the editor history is holding onto the input which is holding onto the editor. I think the real issue here is that the editor history is keeping a reference to the editor input. Compare editors do not generally stay in the editor history when the are closed but there appears to be some scenarios where a reference is kept. If they are kept, an error occurs if the input is selected from the drop down. Regardless, in the very least, I will address the leak and will hopefully be able to sort of the reference in the editor history.",
+    "\u003eI think the\n\u003ereal issue here is that the editor history is keeping a reference to the editor\n\u003einput.\nNope. This is well documents in IEditorInput:\n\n * Please note that it is important that the editor input be light weight.\n * Within the workbench, the navigation history tends to hold on to editor\n * inputs as a means of reconstructing the editor at a later time. The\n * navigation history can hold on to quite a few inputs (i.e., the default is\n * fifty). The actual data model should probably not be held in the input.\n",
+    "Thanks for the info. I have released a fix for 2 to HEAD and will investigate 1 during M7.",
+    "I verified your fix in HEAD. There are two problems with it:\n\n1. it give an NPE (see below)\n2. the editor input is gone but there\u0027s still every last closed editor leaked because the editor contributor holds on to the last active editor.\n\n!ENTRY org.eclipse.ui 4 0 2007-04-04 10:05:15.454\n!MESSAGE Unhandled event loop exception\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.compare.CompareEditorInput.removeCompareInputChangeListener(CompareEditorInput.java:1023)\n\tat org.eclipse.compare.contentmergeviewer.ContentMergeViewer.handleDispose(ContentMergeViewer.java:909)\n\tat org.eclipse.compare.contentmergeviewer.TextMergeViewer.handleDispose(TextMergeViewer.java:1762)\n\tat org.eclipse.jface.viewers.ContentViewer$2.widgetDisposed(ContentViewer.java:191)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:116)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:938)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:962)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:943)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:740)\n\tat org.eclipse.swt.widgets.Composite.releaseChildren(Composite.java:662)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:743)\n\tat org.eclipse.swt.widgets.Composite.releaseChildren(Composite.java:662)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:743)\n\tat org.eclipse.swt.widgets.Composite.releaseChildren(Composite.java:662)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:743)\n\tat org.eclipse.swt.widgets.Composite.releaseChildren(Composite.java:662)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:743)\n\tat org.eclipse.swt.widgets.Composite.releaseChildren(Composite.java:662)\n\tat org.eclipse.swt.widgets.Widget.release(Widget.java:743)\n\tat org.eclipse.swt.widgets.Widget.dispose(Widget.java:410)\n\tat org.eclipse.ui.internal.PartPane.dispose(PartPane.java:175)\n\tat org.eclipse.ui.internal.WorkbenchPartReference.dispose(WorkbenchPartReference.java:668)\n\tat org.eclipse.ui.internal.WorkbenchPage.disposePart(WorkbenchPage.java:1586)\n\tat org.eclipse.ui.internal.WorkbenchPage.handleDeferredEvents(WorkbenchPage.java:1345)\n\tat org.eclipse.ui.internal.WorkbenchPage.deferUpdates(WorkbenchPage.java:1329)\n\tat org.eclipse.ui.internal.WorkbenchPage.closeEditors(WorkbenchPage.java:1303)\n\tat org.eclipse.ui.internal.WorkbenchPage.closeEditor(WorkbenchPage.java:1358)\n\tat org.eclipse.ui.internal.EditorPane.doHide(EditorPane.java:61)\n\tat org.eclipse.ui.internal.PartStack.close(PartStack.java:519)\n\tat org.eclipse.ui.internal.EditorStack.close(EditorStack.java:209)\n\tat org.eclipse.ui.internal.PartStack$1.close(PartStack.java:119)\n\tat org.eclipse.ui.internal.presentations.util.TabbedStackPresentation$1.handleEvent(TabbedStackPresentation.java:81)\n\tat org.eclipse.ui.internal.presentations.util.AbstractTabFolder.fireEvent(AbstractTabFolder.java:267)\n\tat org.eclipse.ui.internal.presentations.util.AbstractTabFolder.fireEvent(AbstractTabFolder.java:276)\n\tat org.eclipse.ui.internal.presentations.defaultpresentation.DefaultTabFolder.access$1(DefaultTabFolder.java:1)\n\tat org.eclipse.ui.internal.presentations.defaultpresentation.DefaultTabFolder$1.closeButtonPressed(DefaultTabFolder.java:67)\n\tat org.eclipse.ui.internal.presentations.PaneFolder.notifyCloseListeners(PaneFolder.java:596)\n\tat org.eclipse.ui.internal.presentations.PaneFolder$3.close(PaneFolder.java:189)\n\tat org.eclipse.swt.custom.CTabFolder.onMouse(CTabFolder.java:2142)\n\tat org.eclipse.swt.custom.CTabFolder$1.handleEvent(CTabFolder.java:312)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:938)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3673)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3284)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2361)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2325)\n\tat org.eclipse.ui.internal.Workbench.access$4(Workbench.java:2200)\n\tat org.eclipse.ui.internal.Workbench$4.run(Workbench.java:466)\n\tat org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:289)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:461)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\n\tat org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:101)\n\tat org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:152)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:106)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:76)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:359)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:174)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:476)\n\tat org.eclipse.equinox.launcher.Main.basicRun(Main.java:416)\n\tat org.eclipse.equinox.launcher.Main.run(Main.java:1141)\n\tat org.eclipse.equinox.launcher.Main.main(Main.java:1116)\n",
+    "Michael, once you have fixed the NPE adding the following method to CompareEditorContributor will fix the remaining leakage:\n\n\t/*\n\t * @see org.eclipse.ui.part.EditorActionBarContributor#dispose()\n\t * @since 3.3\n\t */\n\tpublic void dispose() {\n\t\tsetActiveEditor(null);\n\t\tsuper.dispose();\n\t}\n\nHTH\nDani\n",
+    "Thanks Dani. I have a question for you. Why is the workbench keeping a reference to a disposed IEditorActionBarContributor? The javadoc doesn\u0027t seem to indicate that a disposed instance can be reused so I don;t see why the reference would be kept.",
+    "Because your contributor registers global action handlers in setActiveEditor(...) and they remain connected if you don\u0027t unregister them. I guess the reference to the contributor comes from there.",
+    "I see. I\u0027m used to views where the SubActionBar handles that. I noticed that other editor contributors (e.g. BasicTextEditorActionContributor) clear the actions on dispose so I\u0027ll do that too.",
+    "I\u0027ve released the fix for the NPE on Compare with Each Other and I\u0027ve added the editor contribution dispose which nulls the editor and the global actions.",
+    "Michael, I\u0027ve verified the bug in HEAD.",
+    "Of course I meant the fix not the bug. OK to close.",
+    "I have released a fix for the problem mentioned in comment 2 as well."
+  ],
+  "commentCreationDates": [
+    "2006-02-04T01:21:27+01:00",
+    "2006-02-06T09:52:45+01:00",
+    "2006-02-14T22:06:25+01:00",
+    "2006-02-16T09:07:55+01:00",
+    "2007-04-03T11:24:46+02:00",
+    "2007-04-03T11:26:05+02:00",
+    "2007-04-03T14:58:17+02:00",
+    "2007-04-03T15:05:52+02:00",
+    "2007-04-03T15:45:15+02:00",
+    "2007-04-04T10:10:03+02:00",
+    "2007-04-04T10:12:39+02:00",
+    "2007-04-04T14:37:42+02:00",
+    "2007-04-04T14:47:02+02:00",
+    "2007-04-04T15:08:26+02:00",
+    "2007-04-04T16:46:47+02:00",
+    "2007-04-04T18:29:01+02:00",
+    "2007-04-04T18:29:23+02:00",
+    "2007-04-05T16:48:53+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.compare.CompareEditorInput.removeCompareInputChangeListener",
+          "source": "CompareEditorInput.java:1023"
+        },
+        {
+          "method": "org.eclipse.compare.contentmergeviewer.ContentMergeViewer.handleDispose",
+          "source": "ContentMergeViewer.java:909"
+        },
+        {
+          "method": "org.eclipse.compare.contentmergeviewer.TextMergeViewer.handleDispose",
+          "source": "TextMergeViewer.java:1762"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.ContentViewer$2.widgetDisposed",
+          "source": "ContentViewer.java:191"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:116"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:938"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:962"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:943"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:740"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.releaseChildren",
+          "source": "Composite.java:662"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:743"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.releaseChildren",
+          "source": "Composite.java:662"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:743"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.releaseChildren",
+          "source": "Composite.java:662"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:743"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.releaseChildren",
+          "source": "Composite.java:662"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:743"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.releaseChildren",
+          "source": "Composite.java:662"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.release",
+          "source": "Widget.java:743"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.dispose",
+          "source": "Widget.java:410"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.dispose",
+          "source": "PartPane.java:175"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.dispose",
+          "source": "WorkbenchPartReference.java:668"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.disposePart",
+          "source": "WorkbenchPage.java:1586"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.handleDeferredEvents",
+          "source": "WorkbenchPage.java:1345"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.deferUpdates",
+          "source": "WorkbenchPage.java:1329"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.closeEditors",
+          "source": "WorkbenchPage.java:1303"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.closeEditor",
+          "source": "WorkbenchPage.java:1358"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorPane.doHide",
+          "source": "EditorPane.java:61"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.close",
+          "source": "PartStack.java:519"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorStack.close",
+          "source": "EditorStack.java:209"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack$1.close",
+          "source": "PartStack.java:119"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.TabbedStackPresentation$1.handleEvent",
+          "source": "TabbedStackPresentation.java:81"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.AbstractTabFolder.fireEvent",
+          "source": "AbstractTabFolder.java:267"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.AbstractTabFolder.fireEvent",
+          "source": "AbstractTabFolder.java:276"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.defaultpresentation.DefaultTabFolder.access$1",
+          "source": "DefaultTabFolder.java:1"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.defaultpresentation.DefaultTabFolder$1.closeButtonPressed",
+          "source": "DefaultTabFolder.java:67"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.PaneFolder.notifyCloseListeners",
+          "source": "PaneFolder.java:596"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.PaneFolder$3.close",
+          "source": "PaneFolder.java:189"
+        },
+        {
+          "method": "org.eclipse.swt.custom.CTabFolder.onMouse",
+          "source": "CTabFolder.java:2142"
+        },
+        {
+          "method": "org.eclipse.swt.custom.CTabFolder$1.handleEvent",
+          "source": "CTabFolder.java:312"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:938"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3673"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3284"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2361"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2325"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:2200"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$4.run",
+          "source": "Workbench.java:466"
+        },
+        {
+          "method": "org.eclipse.core.databinding.observable.Realm.runWithDefault",
+          "source": "Realm.java:289"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:461"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.application.IDEApplication.start",
+          "source": "IDEApplication.java:101"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:152"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:106"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:76"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:359"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:174"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:476"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:416"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1141"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.main",
+          "source": "Main.java:1116"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 9,
+      "bugId": "126442",
+      "date": "2007-04-04T10:10:03+02:00",
+      "product": "Platform",
+      "component": "Compare",
+      "severity": "major"
+    }
+  ],
+  "groupId": "126442",
+  "bugId": "126442",
+  "date": "2006-02-04T01:21:27+01:00",
+  "product": "Platform",
+  "component": "Compare",
+  "severity": "major"
+}

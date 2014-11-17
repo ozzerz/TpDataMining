@@ -1,0 +1,112 @@
+{
+  "comments": [
+    "This code snippet (note that source.getJavaElement() yields an IPackageFragment \nin this case):\n\n\tprivate Metric calculateEfferentCoupling(PackageFragmentMetrics source) \n{\n\t\tSearchEngine searchEngine \u003d new SearchEngine();\n\t\tEfferentCollector c \u003d new EfferentCollector(source);\n\t\tIWorkspace workspace \u003d ResourcesPlugin.getWorkspace();\n\t\ttry {\n\t\t\tsearchEngine.searchDeclarationsOfReferencedTypes\n(workspace, source.getJavaElement(), c);\n\t\t\treturn c.getResult();\n\t\t} catch (JavaModelException e) {\n\t\t\tMetricsPlugin.logError(\"Error searching for efferent \ncouplings\", e);\n\t\t\treturn null;\n\t\t}\n\t}\n\n\njava.lang.NullPointerException\n\tat \norg.eclipse.jdt.internal.core.search.matching.DeclarationOfReferencedTypesPatter\nn.reportDeclaration(DeclarationOfReferencedTypesPattern.java:137)\n\tat \norg.eclipse.jdt.internal.core.search.matching.DeclarationOfReferencedTypesPatter\nn.matchReportReference(DeclarationOfReferencedTypesPattern.java:118)\n\tat \norg.eclipse.jdt.internal.core.search.matching.MatchLocator2.reportSuperTypeRefer\nence(MatchLocator2.java:1365)\n\tat \norg.eclipse.jdt.internal.core.search.matching.MatchingNodeSet.reportMatching\n(MatchingNodeSet.java:476)\n\tat \norg.eclipse.jdt.internal.core.search.matching.MatchingNodeSet$LocalDeclarationVi\nsitor.visit(MatchingNodeSet.java:72)\n\tat \norg.eclipse.jdt.internal.compiler.ast.AnonymousLocalTypeDeclaration.traverse\n(AnonymousLocalTypeDeclaration.java:138)\n\tat \norg.eclipse.jdt.internal.compiler.ast.QualifiedAllocationExpression.traverse\n(QualifiedAllocationExpression.java:342)\n\tat org.eclipse.jdt.internal.compiler.ast.MessageSend.traverse\n(MessageSend.java:290)\n\tat org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.traverse\n(MethodDeclaration.java:157)\n\tat \norg.eclipse.jdt.internal.core.search.matching.MatchingNodeSet.reportMatching\n(MatchingNodeSet.java:227)\n\tat \norg.eclipse.jdt.internal.core.search.matching.MatchingNodeSet.reportMatching\n(MatchingNodeSet.java:448)\n\tat \norg.eclipse.jdt.internal.core.search.matching.MatchingNodeSet.reportMatching\n(MatchingNodeSet.java:346)\n\tat org.eclipse.jdt.internal.core.search.matching.MatchLocator2.process\n(MatchLocator2.java:978)\n\tat \norg.eclipse.jdt.internal.core.search.matching.MatchLocator2.locateMatches\n(MatchLocator2.java:677)\n\tat \norg.eclipse.jdt.internal.core.search.matching.MatchLocator2.locateMatches\n(MatchLocator2.java:635)\n\tat \norg.eclipse.jdt.internal.core.search.matching.MatchLocator2.locateMatches\n(MatchLocator2.java:851)\n\tat org.eclipse.jdt.core.search.SearchEngine.search\n(SearchEngine.java:471)\n\tat \norg.eclipse.jdt.core.search.SearchEngine.searchDeclarationsOfReferencedTypes\n(SearchEngine.java:707)\n\tat \nnet.sourceforge.metrics.calculators.RMartinCouplings.calculateEfferentCoupling\n(RMartinCouplings.java:160)\n\n\nTo ensure this is not caused by my collector, I catch all exceptions in the\naccept method, just to find out:\n\n\t\tpublic void accept(IResource resource, int start, int end, \nIJavaElement enclosingElement, int accuracy) throws CoreException {\n\t\t\ttry {\n\t\t\t\tif (enclosingElement !\u003d null) {\n\t\t\t\t\t// don\u0027t count references to standard \njava(x) API and internal (same package)\n\t\t\t\t\tString type \u003d \nenclosingElement.getHandleIdentifier();\n\t\t\t\t\tIJavaElement pack \u003d \nenclosingElement.getAncestor(IJavaElement.PACKAGE_FRAGMENT);\n\t\t\t\t\tif ((!source.getJavaElement().equals\n(pack))\u0026\u0026(!pack.getElementName().startsWith(\"java\"))) {\n\t\t\t\t\t\tresults.add(type);\n\t\t\t\t\t\tpackages.add\n(pack.getHandleIdentifier());\n\t\t\t\t\t}\n\t\t\t\t}\t\t\t\n\t\t\t} catch (Throwable e) {\n\t\t\t\te.printStackTrace();\n\t\t\t}\n\t\t}",
+    "here\u0027s the offending code:\nline marked with \u003e\u003e\u003e\nTypeDeclaration typeDecl \u003d ((SourceTypeBinding)\ntypeBinding).scope.referenceContext;\n\nI guess either typeBinding or its scope must be null for some reason...\nNote that for some packages it works, others cause this problem.\n\nprivate void reportDeclaration(TypeBinding typeBinding, int maxType, \nMatchLocator locator) throws CoreException {\n\tIType type \u003d locator.lookupType(typeBinding);\n\tif (type \u003d\u003d null) return; // case of a secondary type\n\tIResource resource \u003d type.getResource();\n\tboolean isBinary \u003d type.isBinary();\n\tIBinaryType info \u003d null;\n\tif (isBinary) {\n\t\tif (resource \u003d\u003d null) {\n\t\t\tresource \u003d type.getJavaProject().getProject();\n\t\t}\n\t\tinfo \u003d locator.getBinaryInfo\n((org.eclipse.jdt.internal.core.ClassFile)type.getClassFile(), resource);\n\t}\n\twhile (maxType \u003e\u003d 0 \u0026\u0026 type !\u003d null) {\n\t\tif (!this.knownTypes.contains(type)) {\n\t\t\tif (isBinary) {\n\t\t\t\tlocator.reportBinaryMatch(resource, type, info, \nIJavaSearchResultCollector.EXACT_MATCH);\n\t\t\t} else {\n\u003e\u003e\u003e\t\t\t\tTypeDeclaration typeDecl \u003d ((SourceTypeBinding)\ntypeBinding).scope.referenceContext;\n\t\t\t\tlocator.report(resource, typeDecl.sourceStart, \ntypeDecl.sourceEnd, type, IJavaSearchResultCollector.EXACT_MATCH);\n\t\t\t}\n\t\t\tthis.knownTypes.add(type);\n\t\t}\n\t\tif (typeBinding instanceof BinaryTypeBinding) {\n\t\t\ttypeBinding \u003d ((BinaryTypeBinding)\ntypeBinding).enclosingType();\n\t\t} else {\n\t\t\ttypeBinding \u003d ((SourceTypeBinding)\ntypeBinding).enclosingType();\n\t\t}\n\t\tIJavaElement parent \u003d type.getParent();\n\t\tif (parent instanceof IType) {\n\t\t\ttype \u003d (IType)parent;\n\t\t} else {\n\t\t\ttype \u003d null;\n\t\t}\n\t\tmaxType--;\n\t}\n}",
+    "never mind, case of RTFM. Doesn\u0027t work with packages..... Sorry\nPerhaps a feature request? Search for all declarations of referenced\ntypes in a package? Now I have to do multiple searches to get the same\neffect.",
+    "As Frank noticed this is not supported, but we should not get a NPE. Added \nprotection against this case. We now return no result.\n\nAdded regression test JavaSearchTests.testDeclarationOfReferencedTypes7()",
+    "Verified."
+  ],
+  "commentCreationDates": [
+    "2003-05-09T18:05:42+02:00",
+    "2003-05-09T19:27:22+02:00",
+    "2003-05-12T14:36:01+02:00",
+    "2003-05-22T11:21:31+02:00",
+    "2003-06-06T13:07:54+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.DeclarationOfReferencedTypesPattern.reportDeclaration",
+          "source": "DeclarationOfReferencedTypesPattern.java:137"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.DeclarationOfReferencedTypesPattern.matchReportReference",
+          "source": "DeclarationOfReferencedTypesPattern.java:118"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchLocator2.reportSuperTypeReference",
+          "source": "MatchLocator2.java:1365"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchingNodeSet.reportMatching",
+          "source": "MatchingNodeSet.java:476"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchingNodeSet$LocalDeclarationVisitor.visit",
+          "source": "MatchingNodeSet.java:72"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.AnonymousLocalTypeDeclaration.traverse",
+          "source": "AnonymousLocalTypeDeclaration.java:138"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.QualifiedAllocationExpression.traverse",
+          "source": "QualifiedAllocationExpression.java:342"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MessageSend.traverse",
+          "source": "MessageSend.java:290"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.traverse",
+          "source": "MethodDeclaration.java:157"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchingNodeSet.reportMatching",
+          "source": "MatchingNodeSet.java:227"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchingNodeSet.reportMatching",
+          "source": "MatchingNodeSet.java:448"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchingNodeSet.reportMatching",
+          "source": "MatchingNodeSet.java:346"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchLocator2.process",
+          "source": "MatchLocator2.java:978"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchLocator2.locateMatches",
+          "source": "MatchLocator2.java:677"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchLocator2.locateMatches",
+          "source": "MatchLocator2.java:635"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchLocator2.locateMatches",
+          "source": "MatchLocator2.java:851"
+        },
+        {
+          "method": "org.eclipse.jdt.core.search.SearchEngine.search",
+          "source": "SearchEngine.java:471"
+        },
+        {
+          "method": "org.eclipse.jdt.core.search.SearchEngine.searchDeclarationsOfReferencedTypes",
+          "source": "SearchEngine.java:707"
+        },
+        {
+          "method": "net.sourceforge.metrics.calculators.RMartinCouplings.calculateEfferentCoupling",
+          "source": "RMartinCouplings.java:160"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "37438",
+      "date": "2003-05-09T18:05:42+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "37438",
+  "bugId": "37438",
+  "date": "2003-05-09T18:05:42+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

@@ -1,0 +1,108 @@
+{
+  "comments": [
+    "I have a generated model class that I enhance with dynamic EMF by one attribute. \nWhen accessing the dynamic attribute (eGet or eSet doesn\u0027t matter) I get a stack \noverflow.\n\nThe code I use to get the exception is:\nComponent component \u003d ModelFactory.eINSTANCE.createComponent();\nEAttribute dynamicBooleanAttribute \u003d EcoreFactory.eINSTANCE.\ncreateEAttribute();\ndynamicBooleanAttribute.setName(\"myDynamicBoolean\");\ndynamicBooleanAttribute.setEType(EcorePackage.eINSTANCE.getEBoolean());\ndynamicBooleanAttribute.setTransient(true);\ncomponent.eClass().getEStructuralFeatures().add(dynamicBooleanAttribute);\n\nComponent component2 \u003d ModelFactory.eINSTANCE.createComponent();\nObject o \u003d component2.eGet(dynamicBooleanAttribute); // throws\ncomponent2.eSet(dynamicBooleanAttribute, Boolean.TRUE); // throws too\n\n\n\nThe stack trace is (I use Eclipse 3.0rc1 and emf-sdo-xsd-SDK-I200405200923.zip):\n\njava.lang.StackOverflowError\n    at org.eclipse.emf.ecore.impl.EClassImpl.\ngetEAllStructuralFeatures(EClassImpl.java:322)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.\neDerivedStructuralFeatureID(BasicEObjectImpl.java:754)\n    at emf.model.impl.ComponentImpl.eGet(ComponentImpl.java:484)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.eGet(BasicEObjectImpl.java:\n470)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.eOpenGet(BasicEObjectImpl.\njava:492)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.eDynamicGet(BasicEObjectImpl.\njava:483)\n    at emf.model.impl.ComponentImpl.eGet(ComponentImpl.java:509)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.eGet(BasicEObjectImpl.java:\n470)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.eOpenGet(BasicEObjectImpl.\njava:492)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.eDynamicGet(BasicEObjectImpl.\njava:483)\n    at emf.model.impl.ComponentImpl.eGet(ComponentImpl.java:509)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.eGet(BasicEObjectImpl.java:\n470)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.eOpenGet(BasicEObjectImpl.\njava:492)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.eDynamicGet(BasicEObjectImpl.\njava:483)\n    at emf.model.impl.ComponentImpl.eGet(ComponentImpl.java:509)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.eGet(BasicEObjectImpl.java:\n470)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.eOpenGet(BasicEObjectImpl.\njava:492)\n    at org.eclipse.emf.ecore.impl.BasicEObjectImpl.eDynamicGet(BasicEObjectImpl.\njava:483)\n    at emf.model.impl.ComponentImpl.eGet(ComponentImpl.java:509)\n...\n\n\n\nThe generated code is not modified by hand, the interesting lines are:\n\n\tpublic Object eGet(EStructuralFeature eFeature, boolean resolve) {\n\t\tswitch (eDerivedStructuralFeatureID(eFeature)) { // line 484\n\t\t\tcase ModelPackage.COMPONENT__NAME:\n                  ...\n\t\t}\n\t\treturn eDynamicGet(eFeature, resolve); // line 509\n\t}",
+    "I could get rid of the exception by dynamically creating a new subclass of my \ngenerated class, adding the new dynamic attribute there.\nI could understand the idea that a type once defined has a fixed set of \nstructural features and to add new features a new (sub-)type is needed. But when \nI instantiate an instance of my dynamic subclass, the debugger tells me that it \nis in fact an instance of my generated class - no wrapper. That\u0027s somehow what I \nwanted. I still find it strange that this should not be possible by adding new \ndynamic attributes directly to the generated class.\nFor my use case it doesn\u0027t work, however. I have a lib creating the generated \nmodel instances and have several UI views that each want to add some state to \nthe object. My first idea was that dynamic featues must be implemented by some \nsort of a hashmap. So I hoped that even for created objects, new attributes \ncould be added to the class (initially the hashmap of already existing instances \nwould obviously not contain the attribute, but when accessing the dynamic \nattribute the class could be inspected to see if such a dynamic attribute exists \nand if so, create an entry in the hashmap with the default value).\n\nI now this is somewhat weird, but IMHO this would technically be possible and \nwould enhance the possibilities of EMF. But maybe this is just a bug and I can \nstill hope ;-)\n\nI set down the severity to normal (still hoping it\u0027s a bug). If not, I\u0027d like to \nset it to \u0027enhancement\u0027. \n\nAdditionally same as for the generated class, the new subclass could not be \nadded to the generated package but I needed to dynamically create a new package \nthat finally allowed me to instanciate an instance.\n\nRegards\nChris",
+    "For an EStructuralFeature to be meaningful it must be contained by an EClass and \nfor an EClass to be meaningful, it must be contained by an EPackage.  You \ndefinitely can\u0027t modify a generated package, class, or feature, you need to \ncreate new ones.  \n\nWhen an dynamic class is instantiated, the first super type is examined \nrecursively until a non-dynamic one is reached and that implementation will be \nreused. (Failing that EObjectImpl will be used.) The eClass of the instance is \nthen set to be the dynamic EClass and then that instance will behave like an \ninstance of the dynamic EClass, while also reusing the implementation of the \ngenerated base instance.  So what you are seeing in the debugger is what you \nshould expect to be seeing...\n\nI think what you want is very similar to what you get for an element wildcard \nfrom an XML Schema-based model, i.e., a FeatureMap that allows you to support \nopen content features.  How is your model defined?  (Please follow up using the \nnewsgroup.)\n\n"
+  ],
+  "commentCreationDates": [
+    "2004-06-03T10:26:25+02:00",
+    "2004-06-03T11:20:56+02:00",
+    "2004-06-03T13:17:04+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StackOverflowError",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.ecore.impl.EClassImpl.getEAllStructuralFeatures",
+          "source": "EClassImpl.java:322"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eDerivedStructuralFeatureID",
+          "source": "BasicEObjectImpl.java:754"
+        },
+        {
+          "method": "emf.model.impl.ComponentImpl.eGet",
+          "source": "ComponentImpl.java:484"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eGet",
+          "source": "BasicEObjectImpl.java: 470"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eOpenGet",
+          "source": "BasicEObjectImpl. java:492"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eDynamicGet",
+          "source": "BasicEObjectImpl. java:483"
+        },
+        {
+          "method": "emf.model.impl.ComponentImpl.eGet",
+          "source": "ComponentImpl.java:509"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eGet",
+          "source": "BasicEObjectImpl.java: 470"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eOpenGet",
+          "source": "BasicEObjectImpl. java:492"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eDynamicGet",
+          "source": "BasicEObjectImpl. java:483"
+        },
+        {
+          "method": "emf.model.impl.ComponentImpl.eGet",
+          "source": "ComponentImpl.java:509"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eGet",
+          "source": "BasicEObjectImpl.java: 470"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eOpenGet",
+          "source": "BasicEObjectImpl. java:492"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eDynamicGet",
+          "source": "BasicEObjectImpl. java:483"
+        },
+        {
+          "method": "emf.model.impl.ComponentImpl.eGet",
+          "source": "ComponentImpl.java:509"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eGet",
+          "source": "BasicEObjectImpl.java: 470"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eOpenGet",
+          "source": "BasicEObjectImpl. java:492"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.BasicEObjectImpl.eDynamicGet",
+          "source": "BasicEObjectImpl. java:483"
+        },
+        {
+          "method": "emf.model.impl.ComponentImpl.eGet",
+          "source": "ComponentImpl.java:509"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "65496",
+      "date": "2004-06-03T10:26:25+02:00",
+      "product": "EMF",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "65496",
+  "bugId": "65496",
+  "date": "2004-06-03T10:26:25+02:00",
+  "product": "EMF",
+  "component": "Core",
+  "severity": "normal"
+}

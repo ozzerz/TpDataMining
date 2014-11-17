@@ -1,0 +1,49 @@
+{
+  "comments": [
+    "I am seeing this exception when using ajc to do binary weaving:\n\n     [iajc] Exception thrown from AspectJ 1.5.0M4\n\n     [iajc] This might be logged as a bug already -- find current bugs at\n     [iajc]   http://bugs.eclipse.org/bugs/buglist.cgi?product\u003dAspectJ\u0026component\n\u003dCompiler\n\n     [iajc] Bugs for exceptions thrown have titles File:line from the top stack,\n\n     [iajc] e.g., \"SomeFile.java:243\"\n\n     [iajc] If you don\u0027t find the exception below in a bug, please add a new bug\n\n     [iajc] at http://bugs.eclipse.org/bugs/enter_bug.cgi?product\u003dAspectJ\n     [iajc] To make the bug a priority, please include a test program\n     [iajc] that can reproduce this exception.\n     [iajc] org.aspectj.weaver.MissingResolvedTypeWithKnownSignature\n\n     [iajc] when batch building with classpath: ...\n     [iajc] org.aspectj.weaver.MissingResolvedTypeWithKnownSignature\n     [iajc] java.lang.ClassCastException: org.aspectj.weaver.MissingResolvedType\nWithKnownSignature\n     [iajc]     at org.aspectj.weaver.bcel.BcelWorld.addSourceObjectType(BcelWor\nld.java:277)\n     [iajc]     at org.aspectj.weaver.bcel.BcelWeaver.addClassFile(BcelWeaver.ja\nva:373)\n     [iajc]     at org.aspectj.weaver.bcel.BcelWeaver.addJarFile(BcelWeaver.java\n:306)\n     [iajc]     at org.aspectj.ajdt.internal.core.builder.AjBuildManager.initBce\nlWorld(AjBuildManager.java:598)\n     [iajc]     at org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild\n(AjBuildManager.java:204)\n     [iajc]     at org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBu\nild(AjBuildManager.java:151)\n     [iajc]     at org.aspectj.ajdt.ajc.AjdtCommand.doCommand(AjdtCommand.java:1\n12)\n     [iajc]     at org.aspectj.ajdt.ajc.AjdtCommand.runCommand(AjdtCommand.java:\n60)\n     [iajc]     at org.aspectj.tools.ajc.Main.run(Main.java:326)\n     [iajc]     at org.aspectj.tools.ajc.Main.runMain(Main.java:240)\n     [iajc]     at org.aspectj.tools.ajc.Main.main(Main.java:83)\n\n\n     [iajc] 1 fail|abort\n\nI see this also in HEAD and used the debugger to determine it is trying to \nresolve the type that it\u0027s trying to load!\n\nI am able to get it to finish the weave with no errors by changing BcelWorld as \nfollows:\n\n\tpublic BcelObjectType addSourceObjectType(JavaClass jc) {\n\t\tBcelObjectType ret \u003d null;\n\t\tString signature \u003d UnresolvedType.forName(jc.getClassName\n()).getSignature();\n\t\tReferenceType nameTypeX \u003d null;\n\t\tObject lookup \u003d typeMap.get(signature);\n\t\tif (lookup instanceof ReferenceType) {\n\t\t\tnameTypeX \u003d (ReferenceType)lookup;\n\t\t}\n\nInstead of just casting. Then the result is null and it falls through to the \nusual lookup unresolved type logic. Is this fix correct?\n\nI suspect it would take a few hours to narrow down a test case for this one.",
+    "Bug 84572 is the same problem.  And as I mentioned in that bug, I would rather\nsee what has accidentally made it into the type map.  Ron - as you are working\non it, can you change your logic a little to print out what *was* in the type\nmap which is preventing the cast from working?  Something like:\n\npublic BcelObjectType addSourceObjectType(JavaClass jc) {\n  BcelObjectType ret \u003d null;\n  String signature \u003d UnresolvedType.forName(jc.getClassName()).getSignature();\n  ReferenceType nameTypeX \u003d null;\n  Object lookup \u003d typeMap.get(signature);\n  if (lookup instanceof ReferenceType) {\n     nameTypeX \u003d (ReferenceType)lookup;\n  } else {\n    System.err.println(\"Signature: \"+signature);\n    System.err.println(\"lookup: \"+lookup+\" \"+lookup.getClass());\n  }\n\nand let me know what it says?  I can then hopefully determine if just \u0027ignoring\u0027\nthe entry in the map is safe.",
+    "adding\n} else if (lookup !\u003d null){\n\tSystem.err.println(\"DEBUG typeref: Signature: \" + signature);\n\tSystem.err.println(\"lookup: \" + lookup + \" \" + lookup.getClass());\n\nproduces\n\nDEBUG typeref: Signature: Lcom/sample/service/ejb/BungeApplicationServiceBean;\nlookup: com.sample.service.ejb.BungeApplicationServiceBean class \norg.aspectj.weaver.MissingResolvedTypeWithKnownSignature\n\nUp the stack trace I can see that this is the very type being loaded from the \ninpath. I think it\u0027s because there\u0027s a reference to it in an entry in the \naspectpath.",
+    "thanks for doing that so quickly Ron - I\u0027ll mull it over on my lunchtime run :)\n\n",
+    "Ron,\n\nCan you try applying this patch to World.java (not BcelWorld):\n\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d snip below here \u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\nIndex: World.java\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\nRCS file:\n/home/technology/org.aspectj/modules/weaver/src/org/aspectj/weaver/World.java,v\nretrieving revision 1.58\ndiff -u -r1.58 World.java\n--- World.java\t11 Oct 2005 08:25:09 -0000\t1.58\n+++ World.java\t12 Oct 2005 14:17:23 -0000\n@@ -684,6 +684,11 @@\n \t\t\t\t\tSystem.err.println(\"Not putting a bounded reference type into the typemap:\nkey\u003d\"+key+\" type\u003d\"+type);\n \t\t\t\treturn type;\n \t\t\t}\n+\t\t\tif (type instanceof MissingResolvedTypeWithKnownSignature) {\n+\t\t\t\tif (debug) \n+\t\t\t\t\tSystem.err.println(\"Not putting a missing type into the typemap:\nkey\u003d\"+key+\" type\u003d\"+type);\n+\t\t\t\treturn type;\n+\t\t\t}\n \t\t\t\t\t\t\n \t\t\tif (isExpendable(type))  {\n \t\t\t\treturn (ResolvedType) expendableMap.put(key,type);\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d snip above here \u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\nI\u0027m not surprised to see the problematic entry being the\nMissingResolvedTypeWithKnownSignature.  And of course this fails because it is a\nsubtype of ResolvedType and not a subtype of ReferenceType.\n\nI\u0027d rather keep that entry out of the type map in the first place ... I think. \nCan you try it?",
+    "That fixes it too, and more elegantly ;-) If I enable the print-lines I see \nthis:\n\nNot putting a missing type into the typemap: \nkey\u003dLcom/sample/service/ejb/BungeApplicationServiceBean; \ntype\u003dcom.sample.service.ejb.BungeApplicationServiceBean\nNot putting a missing type into the typemap: \nkey\u003dLcom/sample/service/ejb/BungeApplicationServiceBean; \ntype\u003dcom.sample.service.ejb.BungeApplicationServiceBean\n\nSo that solves the problem for me. Thanks.\n",
+    "thanks for testing it Ron - i\u0027ll put in a variant of my fix and your fix - as if\nit ever happens again I\u0027d like to know what was accidentally in the type map. \nWorking on it right now...",
+    "fix committed - waiting on build.",
+    "fix available."
+  ],
+  "commentCreationDates": [
+    "2005-10-11T20:27:35+02:00",
+    "2005-10-12T09:36:50+02:00",
+    "2005-10-12T13:34:45+02:00",
+    "2005-10-12T13:58:38+02:00",
+    "2005-10-12T16:29:43+02:00",
+    "2005-10-13T12:01:17+02:00",
+    "2005-10-13T12:04:22+02:00",
+    "2005-10-13T12:44:17+02:00",
+    "2005-10-13T18:18:34+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.aspectj.weaver.MissingResolvedType WithKnownSignature      [iajc]",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWorld.addSourceObjectType",
+          "source": "BcelWor ld.java:277"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "112243",
+      "date": "2005-10-11T20:27:35+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "112243",
+  "bugId": "112243",
+  "date": "2005-10-11T20:27:35+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

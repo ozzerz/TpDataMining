@@ -1,0 +1,73 @@
+{
+  "comments": [
+    "PROBLEM:\nWhen serializing objects by custom ObjectOutputStream, which was loaded by \nEclipseClassLoader, we get the exception:\n\njava.lang.NoClassDefFoundError: org/eclipse/core/runtime/adaptor/EclipseClassLoa\nder\n        at java.lang.Class.getDeclaredMethods0(Native Method)\n        at java.lang.Class.privateGetDeclaredMethods(Unknown Source)\n        at java.lang.Class.getDeclaredMethod(Unknown Source)\n        at java.io.ObjectOutputStream$1.run(Unknown Source)\n        at java.security.AccessController.doPrivileged(Native Method)\n        at java.io.ObjectOutputStream.auditSubclass(Unknown Source)\n        at java.io.ObjectOutputStream.verifySubclass(Unknown Source)\n        at java.io.ObjectOutputStream.\u003cinit\u003e(Unknown Source)\n        at com.disnetsoft.util.serialization.EclipseClObjectOutputStream.\u003cinit\u003e(\nEclipseClObjectOutputStream.java:60)\n\nThe EclipseClObjectOutputStream is our custom output stream, which just calls \nthe super constructor in this trace. The problematic code is in \nObjectOutputStream which makes introspective call on \nEclipseClObjectOutputStream class (loaded by EclipseClassLoader) which causes \nNoClassDefFoundError in native method.\n\nREASON:\nThe EclipseClassLoader is defined in org.eclipse.core.runtime.adaptor package \nin eclipseAdaptor.jar in org.eclipse.osgi plugin. The \norg.eclipse.core.runtime.adaptor package is not exported from the plugin, \ntherefore the EclipseClassLoader class is inaccessible by other plugins in \nruntime.\n\nWORKAROUD (\u0026possible solution):\nMake org.eclipse.core.runtime.adaptor package exported by adding it to Export-\nPackage: and Provide-Package: sections of MANIFEST.MF in org.eclipse.osgi \nplugin.",
+    "I tried to reproduce the problem but it works for me. What I did:\n\n- created a simple plug-in (test2);\n- defined a simple subclass for OOS:\n\nclass MyObjectOutputStream extends ObjectOutputStream {\n  public MyObjectOutputStream(OutputStream out) throws IOException {\n    super(out);\n  }\n}\n\n- somewhere in the code for that plugin I have:\n\nSystem.out.println(new MyObjectOutputStream(System.out));\nSystem.out.println(MyObjectOutputStream.class.getClassLoader());\n\nWhen the code is executed, the output is:\n\ntest2.Test2Plugin$MyObjectOutputStream@1ba1d9\norg.eclipse.core.runtime.adaptor.EclipseClassLoader@c5d9c1\n\nDid I miss anything?",
+    "\nOoops, it seems it\u0027s my mistake: the EclipseClassLoader actually was referenced \nby our class. I thought the reference was already removed, but it wasn\u0027t. I got \nconfused by the exception\u0027s trace.\n\nOur ObjectOutputStream referenced the EclipseClassLoader, because it\u0027s trying \nto find out which Plugin (or Bundle) contains the class, so that it can be \nannotated by source plugin. The ObjectInputStream on the other side uses the \nannotation to find the correct class. Is there any legal (API) way in Eclipse \nto find out, which Plugin(Bundle) loaded the class?\n\nThanks.\n",
+    "Currently, there is no way of doing that. Bug 60858 requests that.\n\n\n*** This bug has been marked as a duplicate of 60858 ***"
+  ],
+  "commentCreationDates": [
+    "2004-07-21T17:33:53+02:00",
+    "2004-07-22T00:05:13+02:00",
+    "2004-07-22T09:04:34+02:00",
+    "2004-07-22T15:38:08+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "org/eclipse/core/runtime/adaptor/EclipseClassLoa der",
+      "elements": [
+        {
+          "method": "java.lang.Class.getDeclaredMethods0",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.Class.privateGetDeclaredMethods",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.Class.getDeclaredMethod",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.io.ObjectOutputStream$1.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.io.ObjectOutputStream.auditSubclass",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.io.ObjectOutputStream.verifySubclass",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.io.ObjectOutputStream.\u003cinit\u003e",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "com.disnetsoft.util.serialization.EclipseClObjectOutputStream.\u003cinit\u003e",
+          "source": " EclipseClObjectOutputStream.java:60"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "70545",
+      "duplicateId": "60858",
+      "date": "2004-07-21T17:33:53+02:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "65438",
+  "bugId": "70545",
+  "duplicateId": "60858",
+  "date": "2004-07-21T17:33:53+02:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "normal"
+}

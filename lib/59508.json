@@ -1,0 +1,92 @@
+{
+  "comments": [
+    "i200404201300\n\nCopying a plugin manifest to another project seems to cause problems with PDE\u0027s\nmodel for the workspace.\n\nSteps:\n1) create a simple project (any name)\n2) import org.eclipse.core.resources and all of its required plugins as binary\nprojects\n3) copy the plugin manifest from org.eclipse.core.resources into the simple project \n4) in the copied manifest, update the plugin id to be something else than a\nknown plugin id (the simple project name, for instance), and remove any elements\n under plugin:\n\u003c?xml version\u003d\"1.0\" encoding\u003d\"UTF-8\"?\u003e\n\u003c?eclipse version\u003d\"3.0\"?\u003e\n\u003cplugin\n   id\u003d\"XXX\"\n   name\u003d\"%pluginName\"\n   version\u003d\"3.0\"\n   provider-name\u003d\"%providerName\"\u003e\n\u003c/plugin\u003e\n\nIt seems step 3 messes the model PDE maintains for the workspace. For instance,\nif you try running a runtime workbench, any plugins requiring\norg.eclipse.core.resources will not get resolved. If you have any plugin in\nsource form requiring org.eclipse.core.resources, they will have build path\nproblems.\n\nI used to do this with recent builds (to copy existing manifests to a simple\nproject instead of using PDE wizards or creating one from scratch), and don\u0027t\nremember having any problems.",
+    "Why do you do all those Frankenstein-like changes to the plug-ins?\n\nChanging the plug-in id after its creation is like refactoring in a sense, and \nit was never supported in a bullet-proof way by PDE.  If it did work in the \npast, then it was nothing more than a happy accident.",
+    "Not sure it is related, but while I was in this inconsistent state, I got this\nin my log:\n\n!ENTRY org.eclipse.pde.core 4 4 Apr 21, 2004 15:24:42.663\n!MESSAGE Exception caught while creating platform configuration.\n!STACK 0\njava.lang.NullPointerException\n        at org.eclipse.pde.internal.core.TargetPlatform.getTransientSitePath(Tar\ngetPlatform.java:327)\n        at org.eclipse.pde.internal.core.TargetPlatform.savePlatformConfiguratio\nn(TargetPlatform.java:293)\n        at org.eclipse.pde.internal.core.TargetPlatform.createPlatformConfigurat\nionArea(TargetPlatform.java:169)\n        at org.eclipse.pde.internal.ui.launcher.WorkbenchLaunchConfigurationDele\ngate.getProgramArguments(WorkbenchLaunchConfigurationDelegate.java:129)\n        at org.eclipse.pde.internal.ui.launcher.WorkbenchLaunchConfigurationDele\ngate.createVMRunner(WorkbenchLaunchConfigurationDelegate.java:83)\n        at org.eclipse.pde.internal.ui.launcher.WorkbenchLaunchConfigurationDele\ngate.launch(WorkbenchLaunchConfigurationDelegate.java:47)\n        at org.eclipse.debug.internal.core.LaunchConfiguration.launch(LaunchConf\niguration.java:569)\n        at org.eclipse.debug.internal.core.LaunchConfiguration.launch(LaunchConf\niguration.java:150)\n        at org.eclipse.debug.internal.ui.DebugUIPlugin.buildAndLaunch(DebugUIPlu\ngin.java:747)\n        at org.eclipse.debug.internal.ui.DebugUIPlugin$6.run(DebugUIPlugin.java:\n928)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:66)",
+    "Wassim, regardless of the motivation behind the changes, we should probably \nhandle this particular case with special attention. We react to changes in \nplug-in manifests by reloading the model to be up to date with the file. This \nis all fine. However, changing the plug-in ID requires plug-in model manager \nto move the model to a different slot and fire the approriate event because we \nkeep the models in a hash table using the ID as the table key. I think we get \ninto a lot of trouble when this happens because we keep a model in the table \nunder the old ID while the slot with a new ID is not occupied. I would even go \nas far as claim that we need to address this for R3.0 if at all possible.",
+    "I understand that it is a serious problem.\n\nThe fact that Rafael copied the file into a simple project was not the \nproblem, the problem occurred when he changed the id afterwards, which can \noccur more often than one would hope.\n\nSolving it is challenging for the exact reason that you state.  We store \nmodels by id, so once the id changes, it loses all connectivity with models we \nhave in place.\n\nThat is why I made the analogy to refactoring.  If you want to change the name \nof the class in JDT, you explicity refactor, so that they could map the old to \nthe new and do all necessary changes.  Changing the name of the class directly \nin the .java file will cause errors and is not reflected in the java model as \na refactoring operation.\n\n",
+    "The difference is that if I want to change the name of a class manually, I can\ngo and change all references manually as well, that will fix the problem. Or if\nthe class is not refenced by any other classes, things will work just fine.\n\nIn PDE, I used to do the same: I would \"rename\" a plugin, and manually edit any\nplugin manifests that required it.\n\nI cannot stress enough the importance to be able to support direct manipulation\nof files in the project content area. Tools should be able to handle/react to\nthem without caring how it was created in first place. If it should not be\nmanipulated by users, it should be metadata (private to the plugin). ",
+    "As I said above, all other plug-in elements and properties\u0027 changes will be \nproperly handled by model reload. Plug-in ID is the only exception because it \ncontrols the location of the model in the plug-in model manager table.",
+    "Rafael, point well taken.  But as for:\n\u003eThe difference is that if I want to change the name of a class manually, I can\n\u003ego and change all references manually as well, that will fix the problem.\n\nNot quite true.  If you open a java file.  Go the class name and change it \nwithout changing the name of hte .java file accordingly.  Upon saving you will \nget tons of errors, because the name of the java file is not the same as the \nname that you manually entered.\nThis could fixed by you if you explicity renamed the java file itself.  The \nsame is not true in PDE because you can\u0027t go into our models and explictly \nchange the id yourself in our master table.",
+    "Yes, I unintentionally omitted that step...\n\nI guess something that would work here is to maintain a secondary table keyed by\nproject/manifest path. Of course, I am not familiar with PDE\u0027s implementation\ndetails, so I may be ignoring some non-trivial difficulties...",
+    "\n\n*** This bug has been marked as a duplicate of 54917 ***"
+  ],
+  "commentCreationDates": [
+    "2004-04-21T21:53:14+02:00",
+    "2004-04-21T21:57:46+02:00",
+    "2004-04-21T21:59:47+02:00",
+    "2004-04-21T22:08:07+02:00",
+    "2004-04-21T22:14:33+02:00",
+    "2004-04-21T22:23:29+02:00",
+    "2004-04-21T22:26:54+02:00",
+    "2004-04-21T22:30:39+02:00",
+    "2004-04-21T22:47:41+02:00",
+    "2004-04-21T22:53:43+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.pde.internal.core.TargetPlatform.getTransientSitePath",
+          "source": "Tar getPlatform.java:327"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.TargetPlatform.savePlatformConfiguration",
+          "source": "TargetPlatform.java:293"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.TargetPlatform.createPlatformConfigurationArea",
+          "source": "TargetPlatform.java:169"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.launcher.WorkbenchLaunchConfigurationDelegate.getProgramArguments",
+          "source": "WorkbenchLaunchConfigurationDelegate.java:129"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.launcher.WorkbenchLaunchConfigurationDelegate.createVMRunner",
+          "source": "WorkbenchLaunchConfigurationDelegate.java:83"
+        },
+        {
+          "method": "org.eclipse.pde.internal.ui.launcher.WorkbenchLaunchConfigurationDelegate.launch",
+          "source": "WorkbenchLaunchConfigurationDelegate.java:47"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+          "source": "LaunchConf iguration.java:569"
+        },
+        {
+          "method": "org.eclipse.debug.internal.core.LaunchConfiguration.launch",
+          "source": "LaunchConf iguration.java:150"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.DebugUIPlugin.buildAndLaunch",
+          "source": "DebugUIPlu gin.java:747"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.DebugUIPlugin$6.run",
+          "source": "DebugUIPlugin.java: 928"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:66"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "59508",
+      "duplicateId": "54917",
+      "date": "2004-04-21T21:59:47+02:00",
+      "product": "PDE",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "54917",
+  "bugId": "59508",
+  "duplicateId": "54917",
+  "date": "2004-04-21T21:53:14+02:00",
+  "product": "PDE",
+  "component": "UI",
+  "severity": "normal"
+}

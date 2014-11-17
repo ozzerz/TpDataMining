@@ -1,0 +1,126 @@
+{
+  "comments": [
+    "We had the bundle org.eclipse.equinox.cm_3.2.0.200609272246.jar built from the Eclipse project org.eclipse.equinox.cm, then tried to start it on the stand-alone Equinox 3.2.1 running on J9 (version 2.2) against JCL RM (J9 -jcl:rm), and OSGiMin 11 implementation. The bundle org.eclipse.equinox.cm failed to start with the following exception:\n\norg.osgi.framework.BundleException: Exception in org.eclipse.equinox.cm.internal\n.Activator.start() of bundle org.eclipse.equinox.cm.\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActiv\nator(BundleContextImpl.java:1010)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl.start(Bund\nleContextImpl.java:966)\n        at org.eclipse.osgi.framework.internal.core.BundleHost.startWorker(Bundl\neHost.java:317)\n        at org.eclipse.osgi.framework.internal.core.AbstractBundle.start(Abstrac\ntBundle.java:256)\n        at org.eclipse.osgi.framework.internal.core.FrameworkCommandProvider._st\nart(FrameworkCommandProvider.java:239)\n        at java.lang.reflect.AccessibleObject.invokeV(AccessibleObject.java:205)\n\n        at java.lang.reflect.Method.invoke(Method.java:253)\n        at org.eclipse.osgi.framework.internal.core.FrameworkCommandInterpreter.\nexecute(FrameworkCommandInterpreter.java:145)\n        at org.eclipse.osgi.framework.internal.core.FrameworkConsole.docommand(F\nrameworkConsole.java:293)\n        at org.eclipse.osgi.framework.internal.core.FrameworkConsole.console(Fra\nmeworkConsole.java:278)\n        at org.eclipse.osgi.framework.internal.core.FrameworkConsole.run(Framewo\nrkConsole.java:213)\n        at java.lang.Thread.run(Thread.java:719)\nNested Exception:\njava.lang.NoClassDefFoundError: java.text.DateFormat\n        at org.eclipse.equinox.cm.internal.LogTracker.\u003cinit\u003e(LogTracker.java:48)\n\n        at org.eclipse.equinox.cm.internal.Activator.start(Activator.java:26)\n        at org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run(Bund\nleContextImpl.java:991)\n---------\n\nNote that the Equinox 3.2 had the similar problem described in bug 149892 (https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d149892), which has been fixed in Equinox 3.2.1.",
+    "Looking at the source it seems that org.eclipse.equinox.cm is built against the OSGi Foundation Execution Environment, rather than the OSGi Minimum Execution Environment.  This is truly unfortunate.\n\nI took a quick look and I see the following classes are used, which are not available in the OSGi Minimum Execution Environment:\n\n  - DateFormat\n  - HashMap\n  - LinkedList\n  - TreeMap\n  - TreeSet\n\nAlso:\n\n  - The File method listFiles() is not defined.\n\n\nIn the past I\u0027ve survived without DateFormat by using Calendar, but of course locale specific formatting is therefore not possible, or at least a lot harder.  This is clearly not a case where date/time formatting justifies using the large Execution Environment.\n\nAll uses of HashMap can be replaced with Hashtable.  If you\u0027ve typed your declarations to the Map interface then this should be an easy fix.\n\nRegarding LinkedList, TreeMap and TreeSet, I would suggest using some Collection available in the Minimum Execution Environment, or else implement your own.  Again, not really something that justifies the larger Execution Environment.\n\nThis might not be an exhustive list of issues.\n",
+    "Wow, it seems that the ee.minimum.jar that I have been compiling against was dated 5/26/2005, and seems to be the OSGi Minimum 1.0.  Thanks to John W Ross for pointing out the error of my ways.\n\nSo, now that I\u0027m using the ee.minimum.jar for OSGi Minimum 1.1 I can happily report that the only compilation error is due to the use of DateFormat.  As I mentioned before, working around this is possibly using Calendar.  As it turns out, bug 14982 discusses exactly this and Tom attached a patch he created to work around a similar problem:\n\nhttps://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d149892#c10\n\nThanks, and sorry for the fire drill.\n",
+    "The ee.minimum.jar I was using had been copied from the Equinox project org.eclipse.osgi straight out of CVS, so maybe that one needs to be updated.  Maybe Tom knows.",
+    "Created an attachment (id\u003d51448)\nPatch replacing DateFormat\n\nHi Simon,\n\nI think you\u0027re proposing something like this patch. It seems fine and looks harmless as DateFormat is not central to the cm implemtation.\nRuibin, does this patch work for you? (the patch sets the Bundle-RequiredExecutionEnvironment, however I did not get a chance to try this in min 1.1 environment)\n\n--\nAs an aside...\nOne thing I\u0027m less comfortable with is that this code will likely need to be repeated elsewhere. (see bug 142138) We can certainly commit a polished version of this patch, but I\u0027d like to avoid creating future inconsistency if possible.",
+    "Created an attachment (id\u003d51450)\nPatch replacing DateFormat\n\n(missed the import in the last patch)",
+    "Yes, I tried the patch and it looks good.  Sadly it is tricky to know where code such as this could reside such that others could use it.  Maybe Tom can suggest somewhere.\n\nThe .classpath still needs to be updated since it refers to \"CDC-1.0%Foundation-1.0\".\n\nThanks",
+    "I also tried the patch, now it works fine on J9 with -JCL:RM.",
+    "(In reply to comment #3)\n\u003e The ee.minimum.jar I was using had been copied from the Equinox project\n\u003e org.eclipse.osgi straight out of CVS, so maybe that one needs to be updated. \n\u003e Maybe Tom knows.\n\nI have been reluctant to move the core Equinox framework off of ee min 1.0.  This will temp us to start checking in code that will not run on older VMs.  At some point this will become less important when the VMs that support ee min 1.1 have been released for a while.\n",
+    "(In reply to comment #6)\n\u003e Yes, I tried the patch and it looks good.  Sadly it is tricky to know where\n\u003e code such as this could reside such that others could use it.  Maybe Tom can\n\u003e suggest somewhere.\n\nIt is difficult to pick such a place.  I don\u0027t want to start adding more API to the Equinox framework for this.\n\n\n\n",
+    "[Patch submitted to HEAD]\nI\u0027ve also updated and tested with an ee min 1.1 classpath as per Simon\u0027s suggestion.\n(I\u0027ll track the LogTracker differences in bug 142138)",
+    "Is this something that we could fix for R3.2.2?\n",
+    "No, org.eclipse.equinox.cm has not graduated from the incubator and does not exist in 3.2.2.  We are looking to graduate it in 3.3."
+  ],
+  "commentCreationDates": [
+    "2006-10-04T21:12:27+02:00",
+    "2006-10-04T22:12:01+02:00",
+    "2006-10-05T01:07:35+02:00",
+    "2006-10-05T01:22:50+02:00",
+    "2006-10-05T05:48:49+02:00",
+    "2006-10-05T05:52:59+02:00",
+    "2006-10-05T15:41:52+02:00",
+    "2006-10-05T16:49:07+02:00",
+    "2006-10-06T15:42:56+02:00",
+    "2006-10-06T15:48:03+02:00",
+    "2006-10-17T06:00:29+02:00",
+    "2007-01-15T18:43:48+01:00",
+    "2007-01-15T18:50:29+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.osgi.framework.BundleException",
+      "message": "Exception in org.eclipse.equinox.cm.internal .Activator.start() of bundle org.eclipse.equinox.cm.",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:1010"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "Bund leContextImpl.java:966"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "Bundl eHost.java:317"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.start",
+          "source": "Abstrac tBundle.java:256"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkCommandProvider._start",
+          "source": "FrameworkCommandProvider.java:239"
+        },
+        {
+          "method": "java.lang.reflect.AccessibleObject.invokeV",
+          "source": "AccessibleObject.java:205"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:253"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkCommandInterpreter.execute",
+          "source": "FrameworkCommandInterpreter.java:145"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.docommand",
+          "source": "F rameworkConsole.java:293"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.console",
+          "source": "Fra meworkConsole.java:278"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.run",
+          "source": "Framewo rkConsole.java:213"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:719"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "159780",
+      "date": "2006-10-04T21:12:27+02:00",
+      "product": "Equinox",
+      "component": "Bundles",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "java.text.DateForm",
+      "elements": [
+        {
+          "method": "atorg.eclipse.equinox.cm.internal.LogTracker.\u003cinit\u003e",
+          "source": "LogTracker.java:48"
+        },
+        {
+          "method": "org.eclipse.equinox.cm.internal.Activator.start",
+          "source": "Activator.java:26"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run",
+          "source": "Bund leContextImpl.java:991"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "159780",
+      "date": "2006-10-04T21:12:27+02:00",
+      "product": "Equinox",
+      "component": "Bundles",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "159780",
+  "bugId": "159780",
+  "date": "2006-10-04T21:12:27+02:00",
+  "product": "Equinox",
+  "component": "Bundles",
+  "severity": "critical"
+}

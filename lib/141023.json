@@ -1,0 +1,140 @@
+{
+  "comments": [
+    "Just installed a fresh 3.2RC3 Eclipse and a fresh workspace a simple \"Check out\" from CVS fails.\n\nLine 93 in ResponseHandler reads:\n\n            IResource resource \u003d folder.getIResource();\n            if (resource !\u003d null \u0026\u0026 resource.getProject().isAccessible() \u0026\u0026 !CVSTeamProvider.isSharedWithCVS(resource.getProject())) {\n\n...maybe, some more NPE checks are needed here.\n\nExpert from the .log file:\n\n!ENTRY org.eclipse.core.jobs 4 2 2006-05-10 14:42:29.984\n!MESSAGE An internal error occurred during: \"Checking out \u0027xxx\u0027 from CVS\".\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.team.internal.ccvs.core.client.ResponseHandler.createFolder(ResponseHandler.java:93)\n\tat org.eclipse.team.internal.ccvs.core.client.StaticHandler.handle(StaticHandler.java:61)\n\tat org.eclipse.team.internal.ccvs.core.client.Request.executeRequest(Request.java:220)\n\tat org.eclipse.team.internal.ccvs.core.client.Command.doExecute(Command.java:407)\n\tat org.eclipse.team.internal.ccvs.core.client.Checkout.doExecute(Checkout.java:159)\n\tat org.eclipse.team.internal.ccvs.core.client.CheckoutWithOverwrite.doExecute(CheckoutWithOverwrite.java:52)\n\tat org.eclipse.team.internal.ccvs.core.client.Command$1.run(Command.java:326)\n\tat org.eclipse.team.internal.ccvs.core.resources.EclipseSynchronizer.run(EclipseSynchronizer.java:1456)\n\tat org.eclipse.team.internal.ccvs.core.resources.EclipseResource$2.run(EclipseResource.java:260)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n\tat org.eclipse.team.internal.ccvs.core.resources.EclipseResource.run(EclipseResource.java:257)\n\tat org.eclipse.team.internal.ccvs.core.client.Command.execute(Command.java:338)\n\tat org.eclipse.team.internal.ccvs.ui.operations.CheckoutProjectOperation.performCheckout(CheckoutProjectOperation.java:265)\n\tat org.eclipse.team.internal.ccvs.ui.operations.CheckoutProjectOperation.checkout(CheckoutProjectOperation.java:162)\n\tat org.eclipse.team.internal.ccvs.ui.operations.CheckoutMultipleProjectsOperation.checkout(CheckoutMultipleProjectsOperation.java:50)\n\tat org.eclipse.team.internal.ccvs.ui.operations.CheckoutOperation.checkout(CheckoutOperation.java:47)\n\tat org.eclipse.team.internal.ccvs.ui.operations.CheckoutOperation.execute(CheckoutOperation.java:32)\n\tat org.eclipse.team.internal.ccvs.ui.operations.CVSOperation.run(CVSOperation.java:81)\n\tat org.eclipse.team.internal.ui.actions.JobRunnableContext.run(JobRunnableContext.java:144)\n\tat org.eclipse.team.internal.ui.actions.JobRunnableContext$ResourceJob.runInWorkspace(JobRunnableContext.java:72)\n\tat org.eclipse.core.internal.resources.InternalWorkspaceJob.run(InternalWorkspaceJob.java:38)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n!SESSION 2006-05-10 15:18:49.250 -----------------------------------------------\neclipse.buildId\u003dI20060505-1306\njava.version\u003d1.5.0_06\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003dde_DE\nCommand-line arguments:  -os win32 -ws win32 -arch x86",
+    "I suspect your server has TopLevelAdmin\u003dtrue in your CVSROOT/config file. Can you confirm this? The fix ill be simple and shold be included in RC4.",
+    "True.\n\nThe CVSROO/config file says: TopLevelAdmin\u003dyes\n\nCheers,\nChristian",
+    "Created an attachment (id\u003d40958)\nPatch\n\n",
+    "This bug makes checkout impossible for a particular server configuration. This is a regression and the fix is trivial. McQ and Jeff, can I get your approval for this. I can give a demo, if either of you would like.",
+    "Created an attachment (id\u003d40989)\nSafer patch\n\nThe previous patch, although correct, was not as provably safe as this new patch. ",
+    "+1\n\nI inspected the code that is about to be released and it is safe in that all it does is check for null.  If the null case never happens (it does), then the new code isn\u0027t harmfull.  I checked the method to make sure the same failure couldn\u0027t happen later on.  MV, did you check all other references to the method to make sure the failure doesn\u0027t happen elsewhere?  I forgot until just now.",
+    "If you are asking if we always do a null check on the result of resource.getProject() then the answer is no. However, I have checked in in all the other cases I found related to the change that caused this particular problem, and it is not possible for those cases to be given a resource that does not have a project (i.e. getProject will never return null).",
+    "I see the extra protection code that was added. +1.",
+    "Ok, I suggest that you change all senders of getProject() to check for null AFTER 3.2 ships.",
+    "Fix released to HEAD",
+    "Verified",
+    "Verified ... in RC4, I can checkout all projects again.\n\nCheers,\nChristian"
+  ],
+  "commentCreationDates": [
+    "2006-05-10T15:57:10+02:00",
+    "2006-05-10T16:15:11+02:00",
+    "2006-05-10T16:18:20+02:00",
+    "2006-05-10T17:51:55+02:00",
+    "2006-05-10T17:57:04+02:00",
+    "2006-05-10T20:05:12+02:00",
+    "2006-05-10T20:19:49+02:00",
+    "2006-05-10T20:45:22+02:00",
+    "2006-05-10T20:53:49+02:00",
+    "2006-05-10T20:58:48+02:00",
+    "2006-05-10T21:01:27+02:00",
+    "2006-05-11T16:29:15+02:00",
+    "2006-05-15T15:29:05+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.ResponseHandler.createFolder",
+          "source": "ResponseHandler.java:93"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.StaticHandler.handle",
+          "source": "StaticHandler.java:61"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Request.executeRequest",
+          "source": "Request.java:220"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Command.doExecute",
+          "source": "Command.java:407"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Checkout.doExecute",
+          "source": "Checkout.java:159"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.CheckoutWithOverwrite.doExecute",
+          "source": "CheckoutWithOverwrite.java:52"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Command$1.run",
+          "source": "Command.java:326"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseSynchronizer.run",
+          "source": "EclipseSynchronizer.java:1456"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseResource$2.run",
+          "source": "EclipseResource.java:260"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.resources.EclipseResource.run",
+          "source": "EclipseResource.java:257"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Command.execute",
+          "source": "Command.java:338"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.CheckoutProjectOperation.performCheckout",
+          "source": "CheckoutProjectOperation.java:265"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.CheckoutProjectOperation.checkout",
+          "source": "CheckoutProjectOperation.java:162"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.CheckoutMultipleProjectsOperation.checkout",
+          "source": "CheckoutMultipleProjectsOperation.java:50"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.CheckoutOperation.checkout",
+          "source": "CheckoutOperation.java:47"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.CheckoutOperation.execute",
+          "source": "CheckoutOperation.java:32"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.operations.CVSOperation.run",
+          "source": "CVSOperation.java:81"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.actions.JobRunnableContext.run",
+          "source": "JobRunnableContext.java:144"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.actions.JobRunnableContext$ResourceJob.runInWorkspace",
+          "source": "JobRunnableContext.java:72"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.InternalWorkspaceJob.run",
+          "source": "InternalWorkspaceJob.java:38"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "141023",
+      "date": "2006-05-10T15:57:10+02:00",
+      "product": "Platform",
+      "component": "Team",
+      "severity": "major"
+    }
+  ],
+  "groupId": "141023",
+  "bugId": "141023",
+  "date": "2006-05-10T15:57:10+02:00",
+  "product": "Platform",
+  "component": "Team",
+  "severity": "major"
+}

@@ -1,0 +1,75 @@
+{
+  "comments": [
+    "I\u0027m attempting to dynamically install a new feature using InstallCommand. After\nrun()ing the command, I use applyChangesNow() to apply the changes within the\ncurrent running environment. This works fine in a standalone environment, but\nblows up pretty well when self-hosting and using a runtime workbench.\n\nI\u0027ve traced the problem down to ConfigurationActivator.getBundlesToUninstall().\nWhen self hosting, it is trying to uninstall all plugins that are running out of\nmy development workspace! If I stub out this method as shown below, then\neverything works fine.\n\nprivate Bundle[] getBundlesToUninstall(Bundle[] cachedBundles, URL[] newPlugins) {\n\treturn new Bundle[0];\n}\n\nFWIW, the error that shows up when self-hosting is many (several hundred K) of\nthe following:\n\norg.eclipse.core.runtime.InvalidRegistryObjectException: Invalid registry object\n\tat\norg.eclipse.core.internal.registry.RegistryObjectManager.basicGetObject(RegistryObjectManager.java:188)\n\tat\norg.eclipse.core.internal.registry.RegistryObjectManager.getObject(RegistryObjectManager.java:178)\n\tat\norg.eclipse.core.internal.registry.ConfigurationElementHandle.getConfigurationElement(ConfigurationElementHandle.java:27)\n\tat\norg.eclipse.core.internal.registry.ConfigurationElementHandle.getChildren(ConfigurationElementHandle.java:39)\n\t...",
+    "Please explain the setup when it works (ie standalone) versus when it doesn\u0027t (using self-hosting). If you are using an installcommand aren\u0027t you using a separate process? Are you using the same configuration file? I don\u0027t understand self-hosting. Are you still using InstallCommand?",
+    "By \u0027self-hosting\u0027 I mean using PDE to launch an Eclipse Application (runtime workbench) of the Eclipse platform and user plugins. If you launch Eclipse this way (the standard way to debug) the configuration activator fails and you can\u0027t test an InstallCommand.",
+    "That is true. Most people don\u0027t need to test Update handshake and therefore can use the most straightforward way to start Eclipse. There is a way to configure your runtime workbench to get Update to work, but you need to work a bit:\n\n1) Your workspace must follow the \u0027\u003csome-dir\u003e/plugins\u0027 directory.\n2) You must import all external plug-ins into the workspace as binary (no links).\n3) You need to imprort all external features into the workspace (the wizard will automatically import them into \u0027\u003csome-dir\u003e/features\u0027)\n4) When you launch, you need to configure the launcher to use feature-based startup\n\nWhen you set up for selfhosting this way, Update operations will work as expected. Update team selfhosts like this since forever. I know that it requires more work, but it is an age-old (and epic) struggle for startup control in which only one gets to ssay which plug-ins should run - either PDE or Update. In this configuration, Update calls the shots. Standard PDE configuration only works with plug-ins (no features).",
+    "BTW, this setup is first in PDE\u0027s \u0027Tips and Tricks\u0027 in the SDK documentation:\n\nhttp://help.eclipse.org/help31/topic/org.eclipse.pde.doc.user/tips/pde_tips.htm",
+    "IMHO the best way to debug update problems is to use remote debug. In this case you do not have modify your configuration or workspace. And you don\u0027t have to worry about PDE internals.",
+    "I understand that there are workarounds - my personal favorite in this case is to import the Update plugins and hack the getBundlesToUninstall() method. This bug was opened because the workarounds are ugly and most users will never read the PDE\u0027s tips and tricks, understand how to hack PDE or update, or use remote debug.\n\nIf this is already covered by an existing bug, please dup. If you never plan to (or can\u0027t) support this, then let\u0027s close it with an explanation. Otherwise, let\u0027s use this bug to resolve the issue in a future release.",
+    "I think calling this a \u0027workaround\u0027 is a bit harsh. This is a permanent limitation coming from the fact that only one agent can have a say regarding which bundles to run. You can either let PDE tell Eclipse what to do, or let Update go through the normal startup and be in the driver\u0027s seat. Update team uses feature-based selfhosting described in the tip above for their regular development.",
+    "Well I don\u0027t see feature based self hosting as a full solution. As it states it is an approximation. However I wasn\u0027t aware of this and haven\u0027t used. \n\nWhat eclipse needs is a friendlier remote debug. That would mean that on the test platform it can be easily configured to pause during launch so that the remote debug environment could be attached. With this you can fully investigate and track configuration changes. Also can track update policies USER-EXCLUDE, USER-INCLUDE, and MANAGED-ONLY.\n\nFixing it so that 2 SDKs or SDK and RCP can interlock in debug mode would be more valuable than adding approximations to the correct environment.",
+    "Feature-based self hosting works in many cases but it is generally speaking a pain.  I commonly see people using the remote debugging approach.  It is really quite easy and getting easier thanks to the new source lookup work.  You should just create a Java launch config, locate startup.jar and setup your application commandline arg and go.  If you want to stop before Eclipse comes up, check the \"Stop in main\" box in the Java launch config dialog.\n\nHonestly, I don\u0027t see doing more work in this area.",
+    "Stop in main is great for java applications. How about something for plugins?",
+    "Adding Wassim because he owns the PDE function in question.",
+    "I was referring to comment 8 where you said\n  \"test platform it can be easily configured to pause during launch so \n   that the remote debug environment could be attached\"\nWhen I do debug Update scenarios in Eclipse I launch as a Java App with a command line something like\n   java -jar startup.jar -application \u003cwhatever\u003e\nor \n   java -cp startup.jar org.eclipse.core.launcher.Main -application \u003cwhatever\u003e\n\nThis allows you to launch Eclipse as a normal Java application.  You don\u0027t need to do \"remote\" debugging",
+    "re comment 10, as of 3.2M5, you can stop in Main for Eclipse app launches.",
+    "correction to comment 13:\n\nI meant that you can stop in main and see source attached etc. if you manually suspect the Main thread in the Debug view.\n\n\nAs for there is a \u0027Stop in main\u0027 checkbox in the Eclipse app launch config, you can open an enhancement report against PDE/UI.\n\nIt would require a change in the hierarchy of the Eclipse app launch delegate implementation, so it won\u0027t be as easy as it seems.",
+    "based on comments from dejan, jeff and wassim I am closing this bug."
+  ],
+  "commentCreationDates": [
+    "2005-10-12T16:50:43+02:00",
+    "2006-03-08T04:22:39+01:00",
+    "2006-03-08T04:37:02+01:00",
+    "2006-03-08T12:26:32+01:00",
+    "2006-03-08T12:28:20+01:00",
+    "2006-03-08T13:02:40+01:00",
+    "2006-03-08T15:43:11+01:00",
+    "2006-03-08T15:58:09+01:00",
+    "2006-03-08T16:03:07+01:00",
+    "2006-03-09T04:52:41+01:00",
+    "2006-03-09T05:54:09+01:00",
+    "2006-03-09T12:59:44+01:00",
+    "2006-03-09T13:28:40+01:00",
+    "2006-03-09T14:43:50+01:00",
+    "2006-03-09T15:05:34+01:00",
+    "2006-08-02T23:43:09+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.core.runtime.InvalidRegistryObjectException",
+      "message": "Invalid registry object",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.registry.RegistryObjectManager.basicGetObject",
+          "source": "RegistryObjectManager.java:188"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.RegistryObjectManager.getObject",
+          "source": "RegistryObjectManager.java:178"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElementHandle.getConfigurationElement",
+          "source": "ConfigurationElementHandle.java:27"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElementHandle.getChildren",
+          "source": "ConfigurationElementHandle.java:39"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "112341",
+      "date": "2005-10-12T16:50:43+02:00",
+      "product": "Platform",
+      "component": "Update",
+      "severity": "major"
+    }
+  ],
+  "groupId": "112341",
+  "bugId": "112341",
+  "date": "2005-10-12T16:50:43+02:00",
+  "product": "Platform",
+  "component": "Update",
+  "severity": "major"
+}

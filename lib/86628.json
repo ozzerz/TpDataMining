@@ -1,0 +1,233 @@
+{
+  "comments": [
+    "build I20050222-0821\n\n- opened existing workspace\n- did a search\n- opened a CU from the matches\n- noticed the following in the log\n\n!ENTRY org.eclipse.ui 4 4 2005-02-25 09:44:04.439\n!MESSAGE Attempted to beginRule: R/, does not match outer scope rule:\norg.eclipse.ui.internal.decorators.DecorationScheduler$1@f55e8c\n!STACK 0\njava.lang.IllegalArgumentException: Attempted to beginRule: R/, does not match\nouter scope rule: org.eclipse.ui.internal.decorators.DecorationScheduler$1@f55e8c\n\tat org.eclipse.core.internal.runtime.Assert.isLegal(Assert.java:58)\n\tat org.eclipse.core.internal.jobs.ThreadJob.illegalPush(ThreadJob.java:107)\n\tat org.eclipse.core.internal.jobs.ThreadJob.push(ThreadJob.java:201)\n\tat org.eclipse.core.internal.jobs.ImplicitJobs.begin(ImplicitJobs.java:81)\n\tat org.eclipse.core.internal.jobs.JobManager.beginRule(JobManager.java:186)\n\tat org.eclipse.core.internal.resources.WorkManager.checkIn(WorkManager.java:96)\n\tat\norg.eclipse.core.internal.resources.Workspace.prepareOperation(Workspace.java:1657)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1697)\n\tat\norg.eclipse.jdt.internal.core.JavaModelOperation.runOperation(JavaModelOperation.java:766)\n\tat org.eclipse.jdt.internal.core.JavaProject.setRawClasspath(JavaProject.java:2739)\n\tat org.eclipse.jdt.core.JavaCore$3.run(JavaCore.java:4004)\n\tat\norg.eclipse.jdt.internal.core.BatchOperation.executeOperation(BatchOperation.java:34)\n\tat\norg.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:710)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1702)\n\tat org.eclipse.jdt.core.JavaCore.run(JavaCore.java:3817)\n\tat org.eclipse.jdt.core.JavaCore.setClasspathContainer(JavaCore.java:3987)\n\tat\norg.eclipse.pde.internal.core.ModelEntry.updateClasspathContainer(ModelEntry.java:110)\n\tat\norg.eclipse.pde.internal.core.RequiredPluginsInitializer.initialize(RequiredPluginsInitializer.java:40)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.initializeContainer(JavaModelManager.java:1274)\n\tat\norg.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer(JavaModelManager.java:848)\n\tat org.eclipse.jdt.core.JavaCore.getClasspathContainer(JavaCore.java:1280)\n\tat\norg.eclipse.jdt.internal.core.search.JavaSearchScope.add(JavaSearchScope.java:134)\n\tat\norg.eclipse.jdt.internal.core.search.JavaWorkspaceScope.initialize(JavaWorkspaceScope.java:80)\n\tat\norg.eclipse.jdt.internal.core.search.JavaSearchScope.\u003cinit\u003e(JavaSearchScope.java:56)\n\tat\norg.eclipse.jdt.internal.core.search.JavaWorkspaceScope.\u003cinit\u003e(JavaWorkspaceScope.java:31)\n\tat\norg.eclipse.jdt.internal.core.search.BasicSearchEngine.createWorkspaceScope(BasicSearchEngine.java:147)\n\tat\norg.eclipse.jdt.core.search.SearchEngine.createWorkspaceScope(SearchEngine.java:372)\n\tat\norg.eclipse.jdt.internal.core.BinaryType.newSupertypeHierarchy(BinaryType.java:758)\n\tat\norg.eclipse.jdt.internal.core.BinaryType.newSupertypeHierarchy(BinaryType.java:711)\n\tat\norg.eclipse.jdt.internal.corext.util.SuperTypeHierarchyCache.getTypeHierarchy(SuperTypeHierarchyCache.java:88)\n\tat\norg.eclipse.jdt.internal.corext.util.SuperTypeHierarchyCache.getTypeHierarchy(SuperTypeHierarchyCache.java:78)\n\tat\norg.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.getOverrideIndicators(OverrideIndicatorLabelDecorator.java:160)\n\tat\norg.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.computeAdornmentFlags(OverrideIndicatorLabelDecorator.java:128)\n\tat\norg.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.decorate(OverrideIndicatorLabelDecorator.java:239)\n\tat\norg.eclipse.ui.internal.decorators.LightweightDecoratorDefinition.decorate(LightweightDecoratorDefinition.java:220)\n\tat\norg.eclipse.ui.internal.decorators.LightweightDecoratorManager$LightweightRunnable.run(LightweightDecoratorManager.java:65)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1015)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:757)\n\tat\norg.eclipse.ui.internal.decorators.LightweightDecoratorManager.decorate(LightweightDecoratorManager.java:287)\n\tat\norg.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecorations(LightweightDecoratorManager.java:273)\n\tat\norg.eclipse.ui.internal.decorators.DecorationScheduler$2.run(DecorationScheduler.java:317)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:67)",
+    "The steps above may be irrelevant.  This was shortly after startup.  I also had\njust switched to the Java perspective.  It may have just been decorating the\nelements in the package explorer and/or navigator.\n",
+    "*** Bug 90104 has been marked as a duplicate of this bug. ***",
+    "*** Bug 92008 has been marked as a duplicate of this bug. ***",
+    "This happens because the decoration thread owns a scheduling rule,\nDecorationScheduler$1.  When a thread tries to get another rule that is\nunrelated to the one it already owns, this exception is thrown.  This is done to\nprevent the possibility of deadlock (Thread 1 owns rule A and is waiting for\nrule B, Thread 2 owns rule B and is waiting for rule A).  \n\nUnfortunately it means either you can\u0027t use scheduling rules while calling third\nparty code, or decorators should not be obtaining other scheduling rules during\ndecoration.",
+    "The main issue we have here is that we cannot create a top level scheduling rule\n-  you are always in conflict if someone grabs the workspace rule whether or not\nyou care about the workspace (which I don\u0027t).\n\nAs a workaround it was suggested that I have each job check the state of the\nother before they run.",
+    "*** Bug 92057 has been marked as a duplicate of this bug. ***",
+    "I was suggesting fixing up the rule in dup bug 92057, but maybe this isn\u0027t a\ngood idea from reading previous comments.\n\nQuestions for JohnA about locking strategy:\n- why cannot Thread 1 (owning lock A) acquire unrelated lock B, if nobody locked\non B ? \n- if someone is already locked on B, couldn\u0027t it rather use active waiting on\nThread 1 rather than completing abruptely ?\n",
+    "Note that this problem is meant to occur more often since we made CP\ninitialization more lazy to speed up startup.",
+    "I think Philippes idea is also good from a Thread load perspective. A first pass\nat this really increased the worker threads because of the constant\nrescheduling. I\u0027ll attach my first pass as a patch but I a mstill not happy with it.\n\nPhillippe by active waiting do you mean doing a check of a flag than a sleep?\nThat will work fine for a background job but we will need to worry about\nresponsiveness for a UI job.\n\nAnother thing to consider is using the UI job to block the decoration job but\nnot the other way around as we don\u0027t post an update until decoration is done.\n\nJohn I\u0027ll need some help on this one as it is much tougher if we can\u0027t use\nscheduling rules.",
+    "Created an attachment (id\u003d20182)\nPatch of the first pass\n",
+    "Yes, but active waiting, I did mean allow it to ping \u0026 wait if unable to\nperform. Isn\u0027t it a situation where a progress dialog opens already ? I suspect\nhowever it is not meant for such actions, since there is no user action at work\nhere.",
+    "Just more thoughts... what if decoration was simply ONE job with its own\nworkqueue. If it is still active, when posting more decoration work, then the\njob would append to its workqueue. If not active, then it would schedule one\ndecoration job. So at most, there would only be one decoration job, and no need\nto use any rules.",
+    "It is - the problem is that it needs to run all of it\u0027s updates in the UI Thread\n(as they are generally viewers) and the long work of decoration is done in the\nbackground.\n\nI like your idea though - if we block the decoration but not the updates then we\nget the desired results as it is decoration that drives the updating.",
+    "This is something similar to our background indexing story approach.",
+    "Thanks for input Philippe - I have releaseda fix for this to build \u003e20050421.\n\nNow I am no longer doing any blocking on the update jobs. The decoration job\nchecks if there is an update pending and if so will sleep for 100ms at a time\nuntil the updates are done.\n\nAs I mentioned before updates are not requested until all decoration is done so\nthis will only be an issue when more decoration requests occur during update. In\nmany cases the results will still be ready - if not we will decorate the new\nitems later.\n\nI am going to mark this performance as it makes the updates much snappier as\nthey are not blocked once requested anymore.",
+    "Philippe, see bug 92085 for a discussion of the design of scheduling rules.  By\ndesign it does not allow waiting for a rule while holding a rule.  This design\nmeans that deadlock among scheduling rules is impossible.  It\u0027s true that hold\nand wait doesn\u0027t guarantee that a deadlock will happen, but it makes it likely.\n\nIt looks like since the recent JDT core changes, classpath container\ninitialization now usually happens in the decorator thread instead of during\ncreation of working copies.  I think this is good news - it means all this\nexpensive work will now typically happen in a background thread, avoiding a big\nhit for the user when they run the first operation that requires classpaths to\nbe initialized.",
+    "It is good an bad, since it may occur anywhere now... just a timing issue. \u003cg\u003e",
+    "Verified in 20050510"
+  ],
+  "commentCreationDates": [
+    "2005-02-25T14:48:15+01:00",
+    "2005-02-25T14:49:14+01:00",
+    "2005-04-04T14:30:07+02:00",
+    "2005-04-20T14:30:04+02:00",
+    "2005-04-20T16:03:23+02:00",
+    "2005-04-20T16:55:54+02:00",
+    "2005-04-21T13:17:06+02:00",
+    "2005-04-21T13:23:56+02:00",
+    "2005-04-21T13:24:47+02:00",
+    "2005-04-21T15:06:08+02:00",
+    "2005-04-21T15:07:15+02:00",
+    "2005-04-21T15:21:30+02:00",
+    "2005-04-21T15:23:39+02:00",
+    "2005-04-21T15:31:41+02:00",
+    "2005-04-21T15:56:51+02:00",
+    "2005-04-21T16:14:36+02:00",
+    "2005-04-21T16:20:11+02:00",
+    "2005-04-21T21:55:12+02:00",
+    "2005-05-10T20:38:08+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Attempted to beginRule: R/, does not match outer scope rule: org.eclipse.ui.internal.decorators.DecorationScheduler$1@f55e8c",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.Assert.isLegal",
+          "source": "Assert.java:58"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.illegalPush",
+          "source": "ThreadJob.java:107"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ThreadJob.push",
+          "source": "ThreadJob.java:201"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.ImplicitJobs.begin",
+          "source": "ImplicitJobs.java:81"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.JobManager.beginRule",
+          "source": "JobManager.java:186"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.WorkManager.checkIn",
+          "source": "WorkManager.java:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.prepareOperation",
+          "source": "Workspace.java:1657"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1697"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.runOperation",
+          "source": "JavaModelOperation.java:766"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.setRawClasspath",
+          "source": "JavaProject.java:2739"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore$3.run",
+          "source": "JavaCore.java:4004"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.BatchOperation.executeOperation",
+          "source": "BatchOperation.java:34"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.run",
+          "source": "JavaModelOperation.java:710"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1702"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.run",
+          "source": "JavaCore.java:3817"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.setClasspathContainer",
+          "source": "JavaCore.java:3987"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.ModelEntry.updateClasspathContainer",
+          "source": "ModelEntry.java:110"
+        },
+        {
+          "method": "org.eclipse.pde.internal.core.RequiredPluginsInitializer.initialize",
+          "source": "RequiredPluginsInitializer.java:40"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.initializeContainer",
+          "source": "JavaModelManager.java:1274"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelManager.getClasspathContainer",
+          "source": "JavaModelManager.java:848"
+        },
+        {
+          "method": "org.eclipse.jdt.core.JavaCore.getClasspathContainer",
+          "source": "JavaCore.java:1280"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchScope.add",
+          "source": "JavaSearchScope.java:134"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaWorkspaceScope.initialize",
+          "source": "JavaWorkspaceScope.java:80"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaSearchScope.\u003cinit\u003e",
+          "source": "JavaSearchScope.java:56"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.JavaWorkspaceScope.\u003cinit\u003e",
+          "source": "JavaWorkspaceScope.java:31"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.BasicSearchEngine.createWorkspaceScope",
+          "source": "BasicSearchEngine.java:147"
+        },
+        {
+          "method": "org.eclipse.jdt.core.search.SearchEngine.createWorkspaceScope",
+          "source": "SearchEngine.java:372"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.BinaryType.newSupertypeHierarchy",
+          "source": "BinaryType.java:758"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.BinaryType.newSupertypeHierarchy",
+          "source": "BinaryType.java:711"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.util.SuperTypeHierarchyCache.getTypeHierarchy",
+          "source": "SuperTypeHierarchyCache.java:88"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.util.SuperTypeHierarchyCache.getTypeHierarchy",
+          "source": "SuperTypeHierarchyCache.java:78"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.getOverrideIndicators",
+          "source": "OverrideIndicatorLabelDecorator.java:160"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.computeAdornmentFlags",
+          "source": "OverrideIndicatorLabelDecorator.java:128"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.decorate",
+          "source": "OverrideIndicatorLabelDecorator.java:239"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorDefinition.decorate",
+          "source": "LightweightDecoratorDefinition.java:220"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager$LightweightRunnable.run",
+          "source": "LightweightDecoratorManager.java:65"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:1015"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:757"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager.decorate",
+          "source": "LightweightDecoratorManager.java:287"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecorations",
+          "source": "LightweightDecoratorManager.java:273"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.DecorationScheduler$2.run",
+          "source": "DecorationScheduler.java:317"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:67"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "86628",
+      "date": "2005-02-25T14:48:15+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "86628",
+  "bugId": "86628",
+  "date": "2005-02-25T14:48:15+01:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "normal"
+}

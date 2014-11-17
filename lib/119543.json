@@ -1,0 +1,248 @@
+{
+  "comments": [
+    "Code and exception below.  \n\nSame result for HEAD and AspectJ 1.5.0.20051206103951 via AJDT.\n\n------------------------------- bugs/CachedToString.java\n\npackage bugs;\n\nimport java.lang.ref.SoftReference;\n\nimport junit.framework.TestCase;\n\npublic class CachedToString {\n\n    /**\n     * @param args\n     */\n    public static void main(String[] args) {\n        new CacheGetterTest().testToString();\n    }\n    public static class CacheGetterTest extends TestCase {\n        static boolean runAdvice;\n        public void testToString() {\n            RandomToString me \u003d new RandomToString ();\n            runAdvice \u003d false;\n            String one \u003d me.toString();\n            String two \u003d me.toString();\n            assertFalse(one.equals(two));\n            runAdvice \u003d true;\n            one \u003d me.toString();\n            two \u003d me.toString();\n            assertTrue(one.equals(two));\n        }\n        static class RandomToString {\n            static aspect CacheToString extends CachedItem\u003cString\u003e {\n                public pointcut context() : if(runAdvice);\n                public pointcut caching() :  \n                    execution(String RandomToString.toString());\n            }\n            Random random \u003d new Random(-1);\n            public String toString() {\n                return \"\" + random.nextFloat();\n            }\n        }\n    }\n\n    public abstract static aspect CachedItem\u003cResult\u003e pertarget(results()){\n        SoftReference\u003cResult\u003e cache;\n\n        boolean nullCache;\n\n        // CODE writing pointcut trifecta separate context if extended and errors\n        // getcode declaring-pointcuts-to-extend-with-caching START\n        /**\n         * Define join points to cache.\n         * Must override, with staticly-determinable pointcuts \n         * that pick out join points that are permitted.\n         */\n        protected abstract pointcut caching();\n            \n        /** ok to use Result field-get or return value */\n        private pointcut permitted() : get(Result *) || execution(Result *())\n            || call(Result *()) || call(Result.new(..));\n\n        /** Subaspects may add dynamic tests for the join points. */\n        pointcut context() : !disabled();\n\n        private pointcut disabled(); // fyi, undefined \u003d\u003d none\n\n        // getcode results START\n        /** the pointcut composed from the user, as permitted, with context */\n        pointcut results() : caching() \u0026\u0026 permitted() \u0026\u0026 context();\n        // getcode results END\n\n        Result around() :  results() {\n            // ... }\n            // getcode declaring-pointcuts-to-extend-with-caching END\n            Result result;\n            if (nullCache) {\n                result \u003d null;\n            } else if ((null \u003d\u003d cache) \n                    || (null \u003d\u003d (result \u003d cache.get()))){\n                result \u003d proceed();\n                if (null \u003d\u003d result) {\n                    nullCache \u003d true;\n                } else {\n                    cache \u003d new SoftReference(result);\n                }\n            }\n            return result;\n        }\n\n    }\n\n}\n\n\n------------------------------- exception\nC:\\home\\ws\\main-31\\my-ajbugs\\aspectj-src\\bugs\\CachedToString.java [error] Internal compiler error\njava.lang.StringIndexOutOfBoundsException: String index out of range: -2\n\tat java.lang.String.substring(String.java:1768)\n\tat org.aspectj.weaver.TypeFactory.createTypeFromSignature(TypeFactory.java:86)\n\tat org.aspectj.weaver.UnresolvedType.forSignature(UnresolvedType.java:426)\n\tat org.aspectj.weaver.UnresolvedType.getOutermostType(UnresolvedType.java:601)\n\tat org.aspectj.weaver.ResolvedType.isVisible(ResolvedType.java:1259)\n\tat org.aspectj.weaver.ResolvedType.addPointcutsResolvingConflicts(ResolvedType.java:1743)\n\tat org.aspectj.weaver.ResolvedType.getExposedPointcuts(ResolvedType.java:1716)\n\tat org.aspectj.weaver.ResolvedType.getExposedPointcuts(ResolvedType.java:1710)\n\tat org.aspectj.ajdt.internal.compiler.lookup.EclipseSourceType.checkPointcutDeclarations(EclipseSourceType.java:293)\n\tat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations(AjLookupEnvironment.java:414)\n\tat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations(AjLookupEnvironment.java:419)\n\tat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations(AjLookupEnvironment.java:419)\n\tat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations(AjLookupEnvironment.java:419)\n\tat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.completeTypeBindings(AjLookupEnvironment.java:231)\n\tat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.beginToCompile(Compiler.java:301)\n\tat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:315)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation(AjBuildManager.java:811)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:230)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild(AjBuildManager.java:156)\n\tat org.aspectj.ajdt.ajc.AjdtCommand.doCommand(AjdtCommand.java:112)\n\tat org.aspectj.ajdt.ajc.AjdtCommand.runCommand(AjdtCommand.java:60)\n\tat org.aspectj.tools.ajc.Main.run(Main.java:326)\n\tat org.aspectj.tools.ajc.Main.runMain(Main.java:240)\n\tat org.aspectj.tools.ajc.Main.main(Main.java:83)\n\n(no source information available)\nABORT\n\t\nException thrown from AspectJ DEVELOPMENT\n\nThis might be logged as a bug already -- find current bugs at\n  http://bugs.eclipse.org/bugs/buglist.cgi?product\u003dAspectJ\u0026component\u003dCompiler\n\nBugs for exceptions thrown have titles File:line from the top stack, \ne.g., \"SomeFile.java:243\"\n\nIf you don\u0027t find the exception below in a bug, please add a new bug\nat http://bugs.eclipse.org/bugs/enter_bug.cgi?product\u003dAspectJ\nTo make the bug a priority, please include a test program\nthat can reproduce this exception.\nString index out of range: -2\n\nwhen resolving pointcut declarations CachedToString\nwhen completing type bindings \nwhen batch building with classpath: c:\\home\\apps\\jdk15\\jre\\lib\\ext\\dnsns.jar;c:\\home\\apps\\jdk15\\jre\\lib\\ext\\localedata.jar;c:\\home\\apps\\jdk15\\jre\\lib\\ext\\sunjce_provider.jar;c:\\home\\apps\\jdk15\\jre\\lib\\ext\\sunpkcs11.jar;C:\\home\\ws\\main-31\\lib\\junit\\junit.jar;C:\\home\\wes\\dev\\tools\\aspectj-1.5\\lib\\aspectjrt.jar;\nString index out of range: -2\njava.lang.StringIndexOutOfBoundsException: String index out of range: -2\n\tat java.lang.String.substring(String.java:1768)\n\tat org.aspectj.weaver.TypeFactory.createTypeFromSignature(TypeFactory.java:86)\n\tat org.aspectj.weaver.UnresolvedType.forSignature(UnresolvedType.java:426)\n\tat org.aspectj.weaver.UnresolvedType.getOutermostType(UnresolvedType.java:601)\n\tat org.aspectj.weaver.ResolvedType.isVisible(ResolvedType.java:1259)\n\tat org.aspectj.weaver.ResolvedType.addPointcutsResolvingConflicts(ResolvedType.java:1743)\n\tat org.aspectj.weaver.ResolvedType.getExposedPointcuts(ResolvedType.java:1716)\n\tat org.aspectj.weaver.ResolvedType.getExposedPointcuts(ResolvedType.java:1710)\n\tat org.aspectj.ajdt.internal.compiler.lookup.EclipseSourceType.checkPointcutDeclarations(EclipseSourceType.java:293)\n\tat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations(AjLookupEnvironment.java:414)\n\tat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations(AjLookupEnvironment.java:419)\n\tat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations(AjLookupEnvironment.java:419)\n\tat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations(AjLookupEnvironment.java:419)\n\tat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.completeTypeBindings(AjLookupEnvironment.java:231)\n\tat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.beginToCompile(Compiler.java:301)\n\tat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:315)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation(AjBuildManager.java:811)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:230)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild(AjBuildManager.java:156)\n\tat org.aspectj.ajdt.ajc.AjdtCommand.doCommand(AjdtCommand.java:112)\n\tat org.aspectj.ajdt.ajc.AjdtCommand.runCommand(AjdtCommand.java:60)\n\tat org.aspectj.tools.ajc.Main.run(Main.java:326)\n\tat org.aspectj.tools.ajc.Main.runMain(Main.java:240)\n\tat org.aspectj.tools.ajc.Main.main(Main.java:83)\n\n\n1 fail|abort, 1 error\nSignal 127",
+    "Created an attachment (id\u003d31284)\ntestcase patch\n\nApply this patch to the tests project.\n\nThis patch contains a simplified testcase which recreates the problem. In order for the problem to manifest it needs:\n\n1. An inner generic aspect which contains more than one pointcut and some advice which uses all the pointcuts\n2. An inner aspect which extends the generic aspect",
+    "When there are two pointcuts UnresolvedType.getOuterMostType() is called on a ReferenceType with signature \"LPR119543$A\" and also with signature \"PPR119543$A\u003cLjava/lang/String;\u003e;\". Since there is a \"$\", this method returns UnresolvedType.forSigntaure(sig.substring(0,sig.indexOf(\"$\") + \";\") which in the second case is UnresolvedType.forSignature(\"PPR119543\"). Since \"PPR119543\" starts with a \"P\" this calls TypeFactory.createTypeFromSignature(\"PPR119543\"). Inside this method since we start with a \"P\" we assume this is parameterized and consequently look for the positions of \"\u003c\" and \"\u003e\" which in this case don\u0027t exist. The call signature.substring(1,startOfParams) becomes \"PPR119543\".substring(1,-1) which blows up with the StringOutOfBoundsException. \n\nIn the case where there is only one pointcut we never call UnresolvedType.getOuterMostType() on a ReferenceType with signature \"PPR119543$A\u003cLjava/lang/String;\u003e;\". Instead, it\u0027s only called on a ReferenceType with signature \"LPR119543$A\". ",
+    "In the case when there are two pointcuts, the method ResolvedType.addPointcutsResolvingConflicts(List acc,List added, boolean isOverriding) is called with the parameterrs:\n\nacc \u003d []\nadded \u003d [pointcut PR119543$A\u003cjava.lang.String\u003e.caching(), pointcut PR119543$A\u003cjava.lang.String\u003e.permitted()]\nisOverriding \u003d true\n\nThis method iterates over the \"added\" list checking to see if there are any conflicts. At the end of every iteration it adds the pointcut to the acc list so it can calcualate possible conflicts with the other pointcuts it hasn\u0027t looked at yet. If there\u0027s only one pointcut then there clearly aren\u0027t any conflicts. If there are two pointcuts, then it just places the first one in the \"acc\" list since it hasn\u0027t discovered any conflicts yet. When it comes to look at the permitted() pointcut the caching() pointcut is in the acc list so it gets hold of this and starts comparing it for conflicts. The first check is whether they are the same. They\u0027re not so we continue. The second check is a call to \n\nisVisible(existing.getModifiers(), existing.getDeclaringType().resolve(getWorld()),this)\n\nwhere existing.getDeclaringType().resolve(getWorld()) is the ResolvedType with signature \"PPR119543$A\u003cLjava/lang/String;\u003e;\" and this is the ResolvedType also with signature \"PPR119543$A\u003cLjava/lang/String;\u003e;\". It is the call getOutermostType() on these ResolvedType\u0027s which cause the StringOutOfBoundsException.",
+    "Created an attachment (id\u003d31298)\nimproved testcase patch\n\nApply this patch to the tests project.\n\nThis testcase replaces the previously attached one as it checks for the advice not applied anywhere warning.",
+    "Created an attachment (id\u003d31299)\npatch containing fix\n\nApply to the weaver project.\n\nThe fix is to use the erasureSignature rather than the signature when getting the outermost type. The erasureSignature doesn\u0027t know about \"P\"\u0027s and \"\u003c\"\u0027s and works with the raw type.",
+    "fixes checked in.",
+    "fix available"
+  ],
+  "commentCreationDates": [
+    "2005-12-07T02:14:23+01:00",
+    "2005-12-07T10:53:35+01:00",
+    "2005-12-07T13:22:29+01:00",
+    "2005-12-07T14:06:57+01:00",
+    "2005-12-07T14:59:49+01:00",
+    "2005-12-07T15:01:27+01:00",
+    "2005-12-07T17:21:29+01:00",
+    "2005-12-08T08:55:43+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StringIndexOutOfBoundsException",
+      "message": "String index out of range: -2",
+      "elements": [
+        {
+          "method": "java.lang.String.substring",
+          "source": "String.java:1768"
+        },
+        {
+          "method": "org.aspectj.weaver.TypeFactory.createTypeFromSignature",
+          "source": "TypeFactory.java:86"
+        },
+        {
+          "method": "org.aspectj.weaver.UnresolvedType.forSignature",
+          "source": "UnresolvedType.java:426"
+        },
+        {
+          "method": "org.aspectj.weaver.UnresolvedType.getOutermostType",
+          "source": "UnresolvedType.java:601"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.isVisible",
+          "source": "ResolvedType.java:1259"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.addPointcutsResolvingConflicts",
+          "source": "ResolvedType.java:1743"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getExposedPointcuts",
+          "source": "ResolvedType.java:1716"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getExposedPointcuts",
+          "source": "ResolvedType.java:1710"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.EclipseSourceType.checkPointcutDeclarations",
+          "source": "EclipseSourceType.java:293"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations",
+          "source": "AjLookupEnvironment.java:414"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations",
+          "source": "AjLookupEnvironment.java:419"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations",
+          "source": "AjLookupEnvironment.java:419"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations",
+          "source": "AjLookupEnvironment.java:419"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.completeTypeBindings",
+          "source": "AjLookupEnvironment.java:231"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.beginToCompile",
+          "source": "Compiler.java:301"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:315"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:811"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:230"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:156"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.doCommand",
+          "source": "AjdtCommand.java:112"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.runCommand",
+          "source": "AjdtCommand.java:60"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.run",
+          "source": "Main.java:326"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.runMain",
+          "source": "Main.java:240"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.main",
+          "source": "Main.java:83"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "119543",
+      "date": "2005-12-07T02:14:23+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.StringIndexOutOfBoundsException",
+      "message": "String index out of range: -2",
+      "elements": [
+        {
+          "method": "java.lang.String.substring",
+          "source": "String.java:1768"
+        },
+        {
+          "method": "org.aspectj.weaver.TypeFactory.createTypeFromSignature",
+          "source": "TypeFactory.java:86"
+        },
+        {
+          "method": "org.aspectj.weaver.UnresolvedType.forSignature",
+          "source": "UnresolvedType.java:426"
+        },
+        {
+          "method": "org.aspectj.weaver.UnresolvedType.getOutermostType",
+          "source": "UnresolvedType.java:601"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.isVisible",
+          "source": "ResolvedType.java:1259"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.addPointcutsResolvingConflicts",
+          "source": "ResolvedType.java:1743"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getExposedPointcuts",
+          "source": "ResolvedType.java:1716"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getExposedPointcuts",
+          "source": "ResolvedType.java:1710"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.EclipseSourceType.checkPointcutDeclarations",
+          "source": "EclipseSourceType.java:293"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations",
+          "source": "AjLookupEnvironment.java:414"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations",
+          "source": "AjLookupEnvironment.java:419"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations",
+          "source": "AjLookupEnvironment.java:419"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.resolvePointcutDeclarations",
+          "source": "AjLookupEnvironment.java:419"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.completeTypeBindings",
+          "source": "AjLookupEnvironment.java:231"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.beginToCompile",
+          "source": "Compiler.java:301"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:315"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:811"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:230"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:156"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.doCommand",
+          "source": "AjdtCommand.java:112"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.runCommand",
+          "source": "AjdtCommand.java:60"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.run",
+          "source": "Main.java:326"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.runMain",
+          "source": "Main.java:240"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.main",
+          "source": "Main.java:83"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "119543",
+      "date": "2005-12-07T02:14:23+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "119543",
+  "bugId": "119543",
+  "date": "2005-12-07T02:14:23+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

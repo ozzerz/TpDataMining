@@ -1,0 +1,64 @@
+{
+  "comments": [
+    "Local Shells \u003e Launch Shell\nSelect the launched shell, press F5 (Refresh)\n\n--\u003e An error dialog pops up saying \"Problem Occurred: Resource Changed... (Time of error: [...] Reason: Check the details\n\nError log shows an \"Unhandled Event Loop Exception\" with following cause:\nCaused by: java.lang.NullPointerException\n\tat org.eclipse.rse.ui.internal.model.SystemRegistry.findFilterReferencesFor(SystemRegistry.java:2751)\n\tat org.eclipse.rse.internal.ui.view.SystemView$ResourceChangedJob.runInUIThread(SystemView.java:2109)\n\tat org.eclipse.ui.progress.UIJob$1.run(UIJob.java:94)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\n\n-----------Enter bugs above this line-----------\nTM 2.0 Testing\ninstallation : eclipse-SDK-3.3\nRSE install  : workspace FREEZE R2_0\njava.runtime : Sun 1.6.0_01-b06\nos.name:     : Windows XP 5.1, Service Pack 1\n------------------------------------------------\nsystemtype   : Windows-local\n------------------------------------------------",
+    "Created an attachment (id\u003d73545)\nRefresh shell without NPE\n\nAfter some investigation.  When hitting F5 on the shell to refresh a null value is returned for the filterpoolreferencemanager as seen below:\n\nline of code where exception is found; SystemRegistry [line: 2843] - findFilterReferencesFor(Object, ISubSystem, boolean):\n\nISystemFilterReference[] refs \u003d subsystem.getFilterPoolReferenceManager().getSystemFilterReferences(subsystem);\n\nNow after checking to see if the value is null before executing the line above, simply has the method return an empty array.  No NPE is thrown but I have experimented with the shell and executed some simple bash commands then refreshed again.  What I got as a result is the attachment.\n\nAnother point I would like to add, what should happen when the F5 key is hit on the shell?  Would it be better if the key was disabled to the user?\n",
+    "I cannot see how you would disable a key? - In the context menu for shells, F5 is not there. Or did you think that the Refresh key would just not do anything in case the selection is a local shell?",
+    "Sorry... when I mentioned disabling I meant that the functionality of the F5 key would just do nothing.  At this point it seems to be firing of the wrong event if I am not mistaken in which it is attempting to retrieve a filterPoolReferenceManager for a shell throwing a NPE.",
+    "Yes the expected result of hitting F5 on a shell node in the RSE Tree is unclear -- what should be refreshed anyways? There is nothing to refresh.\n\nPersonally I\u0027m not sure how you could hook in a handler for the F5 key that would do nothing for shells specifically, especially if you have a multiselect that happens to include a shell.\n\nI think that both should be fixed:\n  * The symptom - since by our API we cannot avoid any external plugin firing \n    a refresh event against a shell, we should not NPE in that case.\n  * The root cause - avoiding the refresh event in our own code seems a good\n    idea.\n\nIf we cannot avoid the event for whatever reasons (e.g. as I mentioned above) it will not be a problem if the NPE is avoided in the event handler.",
+    "Seen the same problem when doing F5 on a dstore or ssh shell.\n\nIt\u0027s not just an NPE being logged to the log, but an actual dialog shows up. It\u0027s annoying because when I type \"exit\" in the shell, the \"running shell\" overlay in the SystemView is not updated; so I pressed F5 but ended up in the NPE.",
+    "The problem must be the way how the refresh event is created.\n\nBecause the fix for bug 197848 also sends an EVENT_REFRESH with the IServiceCommandShell as source, and the NPE is not seen with that one. \nSo the event handling in SystemView seems ok, but an incorrect event \nappears to be sent.",
+    "Created an attachment (id\u003d75339)\nPatch fixing the issue\n\nAttached patch fixes the issue.\n\nProblem was that when a subsystemConfiguration does not support filters, it has no FilterReferenceManager.  Consequently, when SystemRegistryis asked for the filterReferences, it must not try finding them if the subsystemConfiguration is known not to have filters.\n\nThe fix is a simple one-liner; I\u0027m not sure why Rupen got the remote output printed into the SystemView on his version of the fix, but mine version works fine.",
+    "Patch committed:\n\n[194898] Avoid NPE when doing EVENT_REFRESH_REMOTE on a subsys without filters\n   SystemRegistry.java"
+  ],
+  "commentCreationDates": [
+    "2007-06-29T13:09:16+02:00",
+    "2007-07-11T16:42:52+02:00",
+    "2007-07-11T16:56:09+02:00",
+    "2007-07-16T23:09:38+02:00",
+    "2007-07-18T15:42:39+02:00",
+    "2007-08-03T14:51:03+02:00",
+    "2007-08-03T16:33:02+02:00",
+    "2007-08-03T16:59:47+02:00",
+    "2007-08-03T17:00:40+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.rse.ui.internal.model.SystemRegistry.findFilterReferencesFor",
+          "source": "SystemRegistry.java:2751"
+        },
+        {
+          "method": "org.eclipse.rse.internal.ui.view.SystemView$ResourceChangedJob.runInUIThread",
+          "source": "SystemView.java:2109"
+        },
+        {
+          "method": "org.eclipse.ui.progress.UIJob$1.run",
+          "source": "UIJob.java:94"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:123"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "194898",
+      "date": "2007-06-29T13:09:16+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "194898",
+  "bugId": "194898",
+  "date": "2007-06-29T13:09:16+02:00",
+  "product": "Target Management",
+  "component": "RSE",
+  "severity": "normal"
+}

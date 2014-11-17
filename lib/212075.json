@@ -1,0 +1,87 @@
+{
+  "comments": [
+    "During my dev/testing of some new classpath publish/export support I all of a sudden got stuck in a situation where every attempt to execute publish (against a Tomcat 6.0 server in this case) hit the following OutOfMemoryError:\n\n!ENTRY org.eclipse.core.jobs 4 2 2007-12-05 16:33:37.921\n!MESSAGE An internal error occurred during: \"Publishing to Tomcat v6.0 Server at localhost...\".\n!STACK 0\njava.lang.OutOfMemoryError: Java heap space\n\tat org.eclipse.wst.server.core.internal.ModulePublishInfo.loadResource(ModulePublishInfo.java:191)\n\tat org.eclipse.wst.server.core.internal.ModulePublishInfo.load(ModulePublishInfo.java:186)\n\tat org.eclipse.wst.server.core.internal.ModulePublishInfo.\u003cinit\u003e(ModulePublishInfo.java:86)\n\tat org.eclipse.wst.server.core.internal.ServerPublishInfo.load(ServerPublishInfo.java:274)\n\tat org.eclipse.wst.server.core.internal.ServerPublishInfo.\u003cinit\u003e(ServerPublishInfo.java:56)\n\tat org.eclipse.wst.server.core.internal.PublishInfo.getServerPublishInfo(PublishInfo.java:75)\n\tat org.eclipse.wst.server.core.internal.Server.getServerPublishInfo(Server.java:856)\n\tat org.eclipse.wst.server.core.internal.Server.doPublish(Server.java:936)\n\tat org.eclipse.wst.server.core.internal.Server.publish(Server.java:887)\n\tat org.eclipse.wst.server.core.internal.PublishServerJob.run(PublishServerJob.java:73)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)\n\nI was getting this regardless of whether or not there was a module associated with the server instance and found that if I simply removed the current .metadata/.plugins/org.eclipse.wst.server.core/publish/publish0.dat file from that directory everything worked (a new publish0.dat file was generated).\n\nI\u0027m attaching the problematic file.\n\nDepending on how likely this is to occur under standard use cases, this may be a higher severity (my testing could have triggered a publish failure that corrupted that file...)",
+    "Created an attachment (id\u003d84570)\nProblematic file\n\n",
+    "What are your memory settings in eclipse.ini? Did you get the same error after a restart?\n\nDo you have any reason to think that this process was using a lot of memory, or could this just have been the tipping point over the edge?",
+    "The issue was odd, I launching that Eclipse from my dev instance using Sun\u0027s JVM (1.6.0_02) with the following memory settings:\n\n-Xms384m\n-Xmx768m\n-XX:MaxPermSize\u003d256m\n-XX:PermSize\u003d192m\n\nright before the error the javaw process was consuming about 120M of roughly 600M allocated to the process - so I was very surprised to be hitting this...\n\nhowever, it is definitely related to loading that publish0.dat file - removing it completely eliminated the issue.",
+    "and yes, I did get the same error after restarting that Eclipse instance\n\nwhat do you see if you try dropping that file into .metadata/.plugins/org.eclipse.wst.server.core/publish/?",
+    "Yup, I\u0027ve reproduced. The JVM I\u0027m using gives a slightly more helpful error message (java.lang.OutOfMemoryError: Requested array size exceeds VM limit), and tracking it down to the method below and debugging is looks like the publish0.dat is reporting that it contains a folder with 1181708078 resources.\n\nI need to do more debugging. Do you have any idea how to reproduce, or can you tell me about the 3 projects that were deployed to this server? Right now I don\u0027t know if it\u0027s just a corrupt file, or there is a case where it saves incorrectly.",
+    "*wow*. I found a bug in the saving of the file, and tracing back it has been there since we switched to a binary format for this file in mid WTP-2.0. Based on where the bug is, publish history has almost always been lost after workbench restart, causing a load failure in almost all cases when you publish to that server again.\n\nIn almost every case, the load failure would result in an IOException and be handled acceptably (any server that takes advantage of incremental publishing wouldn\u0027t get an advantage until the second publish), but you\u0027ve hit an odd case where the bits just happened to line up where an array size will be 1181708078 long and causes an OOME.\n\nI\u0027ve fixed the bug, and any new files will be saved correctly. I also put a limit of 1,000,000 files per directory - this hopefully shouldn\u0027t block anyone :), and hitting this trigger will avoid an OOME and throw an IOException, reverting to a full publish the first time.\n\nFix released to 3.0 M4 builds.",
+    "Note: no idea how to reproduce the original issue\n\nI\u0027ll sync to your fixes, continue testing with those and let you know if I see anything else.\n\nthanks for the quick response, Tim\n\n"
+  ],
+  "commentCreationDates": [
+    "2007-12-05T21:46:23+01:00",
+    "2007-12-05T21:47:08+01:00",
+    "2007-12-05T21:50:53+01:00",
+    "2007-12-05T22:02:49+01:00",
+    "2007-12-05T22:04:27+01:00",
+    "2007-12-06T02:11:47+01:00",
+    "2007-12-06T03:09:14+01:00",
+    "2007-12-06T13:36:16+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.OutOfMemoryError",
+      "message": "Java heap space",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.server.core.internal.ModulePublishInfo.loadResource",
+          "source": "ModulePublishInfo.java:191"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ModulePublishInfo.load",
+          "source": "ModulePublishInfo.java:186"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ModulePublishInfo.\u003cinit\u003e",
+          "source": "ModulePublishInfo.java:86"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ServerPublishInfo.load",
+          "source": "ServerPublishInfo.java:274"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ServerPublishInfo.\u003cinit\u003e",
+          "source": "ServerPublishInfo.java:56"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.PublishInfo.getServerPublishInfo",
+          "source": "PublishInfo.java:75"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.getServerPublishInfo",
+          "source": "Server.java:856"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.doPublish",
+          "source": "Server.java:936"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.publish",
+          "source": "Server.java:887"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.PublishServerJob.run",
+          "source": "PublishServerJob.java:73"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "212075",
+      "date": "2007-12-05T21:46:23+01:00",
+      "product": "Web Tools",
+      "component": "wst.server",
+      "severity": "major"
+    }
+  ],
+  "groupId": "212075",
+  "bugId": "212075",
+  "date": "2007-12-05T21:46:23+01:00",
+  "product": "Web Tools",
+  "component": "wst.server",
+  "severity": "major"
+}

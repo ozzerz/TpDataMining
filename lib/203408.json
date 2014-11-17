@@ -1,0 +1,70 @@
+{
+  "comments": [
+    "We get an error if we make any changes to classes that are being advised by AJ.\n\nThe details:\njava.lang.NullPointerException\nat org.aspectj.weaver.bcel.BcelWeaver.raiseUnboundFormalError(BcelWeaver.java:833)\nat org.aspectj.weaver.bcel.BcelWeaver.validateSingleBranch(BcelWeaver.java:688)\nat org.aspectj.weaver.bcel.BcelWeaver.validateBindings(BcelWeaver.java:627)\nat org.aspectj.weaver.bcel.BcelWeaver.rewritePointcuts(BcelWeaver.java:556)\nat org.aspectj.weaver.bcel.BcelWeaver.prepareForWeave(BcelWeaver.java:484)\nat org.aspectj.ajd ... oBuildJob.run(AutoBuildJob.java:235)\nat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)\n\nCompile error: NullPointerException thrown: null\n\n\nIs there any way of finding out what is causing the problem?\nPerhaps this is fixed in release 1.5.3? \nIf so will the plugin work with Europa 3.3.0?",
+    "This looks the same as bug 200652 and bug 193348.  I don\u0027t believe it is fixed in the most recent drivers - but you should always try and pick up the latest drivers to make sure you have any fixes we have committed.  I have no reason to believe the latest plugin won\u0027t work in Europa.",
+    "Created an attachment (id\u003d78498)\nPatched weaver class\n\nThis is a patch to the class that fails - it should give out more diagnostics about the problem - it may even start working...  please apply to the weaver jar in the AJDT weaver plugin (replacing the .class file in that jar).\n\nYou may have to run eclipse with the console to see the stderr come out - but I can\u0027t quite remember how to do that ;)\n\nlet me know what happens.",
+    "Andy,\nI replaced the class and now I get the error\n\nthe parameter thisJoinPoint is not bound in [all branches of] pointcut\n\nhere is the point cut definition\n\n@Before(\"execution(public (@javax.persistence.Entity de.spiconsult.vera.impl.domain..* || java.util.Set\u003c@javax.persistence.Entity de.spiconsult.vera.impl.domain..*\u003e) de.spiconsult.vera.impl.domain..get*()) \u0026\u0026 target(callee)\")\npublic void loadLazyEntity(JoinPoint thisJoinPoint, ObjectIdentity callee)\n\nAt runtime the join point works fine - any further ideas?\n",
+    "Very useful info - thanks for trying that out.  I didn\u0027t realise it might be the annotation style syntax that was to blame.  Looks just erroneous that we are complaining about thisJoinPoint at all.  Is your aspect coming from an aspect library or is everything being compiled from source in the project?",
+    "I am trying to replicate the problem, but this is fine:\npackage p;\nimport org.aspectj.lang.annotation.*;\nimport java.lang.annotation.*;\nimport org.aspectj.lang.*;\n\nimport java.util.*;\n\n@Retention(RetentionPolicy.RUNTIME)\n@interface A {}\n\n@Retention(RetentionPolicy.RUNTIME)\n@interface A2 {}\n\n@Aspect\npublic class Test {\n\n  @Before(\"execution(public (@A p..* || java.util.Set\u003c@A2 p..*\u003e) p..get*()) \u0026\u0026 target(callee)\")\n  public void loadLazyEntity(JoinPoint thisJoinPoint, Object callee) {}\n\n  public Foo get() {\n    return null;\n  }\n\n  @A static class Foo {}\n}\n\n\u003d\u003d\u003d\nCan you try splitting the pointcut in pieces? Like this:\n\n@Before(\"(execution(public (@javax.persistence.Entity\nde.spiconsult.vera.impl.domain..*) de.spiconsult.vera.impl.domain..get*()) || execution(public (java.util.Set\u003c@javax.persistence.Entity\nde.spiconsult.vera.impl.domain..*\u003e) de.spiconsult.vera.impl.domain..get*())) \u0026\u0026\ntarget(callee)\")\n\n",
+    "Andy - that did the trick!\nso to summarise you have to place the join point components in parentheses as follows (execution ( public(@.first-spec)) || (execution ( public(@.second-spec)) etc and not as \n(execution ( public(@.first-spec)|| ( public(@.second-spec))\n\nSeems like it is a bug but with a work around!\n\nMany thanks\n\nEddie  \n",
+    "Ok fixed one problem but still a problem with another point cut -we\u0027ve tried various combinations of parentheses but to no avail.\n\n@Before(\"   ((execution(public void de.spiconsult.vera.impl.domain..set*(! java.util.Set))) \" + \n\t\t\t\"    \u0026\u0026 ! (execution(public void de.spiconsult.vera.impl.domain..setDirty(..))) \" +\n\t\t\t\"    \u0026\u0026 ! (execution(public void de.spiconsult.vera.impl.domain..setVersion(..))) \" +\n\t\t\t\"    \u0026\u0026 ! (execution(public void de.spiconsult.vera.impl.domain..setChangedOn(..))) \" +\n\t\t\t\"    \u0026\u0026 ! (execution(public void de.spiconsult.vera.impl.domain..setChangedBy(..))) \" +\n\t\t\t\"    \u0026\u0026 ! (execution(public void de.spiconsult.vera.impl.domain..setCreatedOn(..))) \" +\n\t\t\t\"    \u0026\u0026 ! (execution(public void de.spiconsult.vera.impl.domain..setCreatedBy(..)))) \" +\n\t\t\t\"\u0026\u0026 target(de.spiconsult.vera.impl.domain.DomainObjectImpl) \" + \n\t\t\t\"\u0026\u0026 target(callee) \" +\n\t\t\t\"\u0026\u0026 args(arg)\")\npublic void setDirtyFlag(JoinPoint thisJoinPoint, DomainObject callee,\n\n",
+    "Created an attachment (id\u003d78547)\nReplacement BcelWeaver class\n\nHere is another variant of the replacement class, this one:\n\n- Doesnt report it as an error, so processing will continue.\n- Will print out not only the offending pointcut but also the normal form pointcut that it was rewritten into, that may give us more of a clue what the problem is as it will show any errors in the pointcut rewriting code.\n\nPlease try this replacement - let me know what the pointcut is rewritten as.",
+    "Andy,\n\nthe latest patched BcelWeaver.class fixed the remaining problem - no more errors!\nI don\u0027t see any output in the error log (or where would I find the printed output \u0027Normal form\u0027 you mentioned?)\nThanks\n\nEddie\n",
+    "Hi Eddie - well the error went away because I commented out the line that reports the error ;)  I do believe it is spurious in your case but obviously this needs fixing properly.  The normal form of pointcut should come out in stderr and I think that is reported in the console if you launch eclipse with java rather than javaw:\n\neclipse -vm c:\\jdks\\XXX\\jre\\bin\\java.exe\n\n",
+    "*** Bug 200652 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2007-09-14T09:34:58+02:00",
+    "2007-09-14T12:32:40+02:00",
+    "2007-09-15T17:09:16+02:00",
+    "2007-09-17T11:07:19+02:00",
+    "2007-09-17T11:16:11+02:00",
+    "2007-09-17T11:25:53+02:00",
+    "2007-09-17T11:59:46+02:00",
+    "2007-09-17T12:17:04+02:00",
+    "2007-09-17T16:05:34+02:00",
+    "2007-09-18T11:06:16+02:00",
+    "2007-09-18T11:17:21+02:00",
+    "2007-09-19T10:25:50+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.raiseUnboundFormalError",
+          "source": "BcelWeaver.java:833"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.validateSingleBranch",
+          "source": "BcelWeaver.java:688"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.validateBindings",
+          "source": "BcelWeaver.java:627"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.rewritePointcuts",
+          "source": "BcelWeaver.java:556"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.prepareForWeave",
+          "source": "BcelWeaver.java:484"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "203408",
+      "date": "2007-09-14T09:34:58+02:00",
+      "product": "AspectJ",
+      "component": "IDE",
+      "severity": "major"
+    }
+  ],
+  "groupId": "203408",
+  "bugId": "203408",
+  "date": "2007-09-14T09:34:58+02:00",
+  "product": "AspectJ",
+  "component": "IDE",
+  "severity": "major"
+}

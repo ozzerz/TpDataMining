@@ -1,0 +1,155 @@
+{
+  "comments": [
+    "This is basically the same defect that was entered for the Test.common plugin\n(bugzilla 63846), excepted that the code currently makes the (erroneous)\nassumption that the startup routine is always invoked in the same thread.\nThe remedy is however the same as for test.common.",
+    "I\u0027m not sure I understand the problem; in hyades.ui\u0027s startup() it is not \nassumed to be called from the UI thread (as documented in AbstractUIPlugin). \nThis is why we do a Display.syncExec(); to ensure that the portion of code is \nexecuted in the UI thread.\n\nAs for the deadlocks, I couldn\u0027t find this documented anywhere. I don\u0027t see how \nthis could happen; is the Display no longer processing events and requests?",
+    "Sorry, I was not specific enough: only TestUIPlugin makes the assumption that\nstartup() is invoked in the main thread. HyadesUIPlugin doesn\u0027t make this\nassumption.\nAs for the deadlock, it is documented in the javadoc for the Plugin class:\n\n\"The class loader typically has monitors acquired during invocation of this\nmethod. It is strongly recommended that this method avoid synchronized blocks or\nother thread locking mechanisms, as this would lead to deadlock vulnerability.\"\n\nHere\u0027s the deadlock scenario I observed : the user deletes a file in the\nworkspace, this action triggers a workspace incremental build. All builders are\nloaded, including one that has hyades.test.ui as a requirement. So the\nhyades.test.ui plugin is loaded in the build thread of Eclipse. This plug-in is\nwaiting for the main thread to execute some code (using Display.syncExec), but\nthe GUI thread is waiting for the build thread to complete before closing the\n\"Deleting resources...\" dialog. Hence the deadlock :-(",
+    "The documentation is talking about thread synchronization like synchronized\n(obj) {} blocks or waiting on monitors. I guess this might be indirectly done \nby the syncExec() method, although I don\u0027t think asyncExec is a solution since \nthere is no guarantee that it will be called in time for the image requests.\n\nWho provides the dialog you mentioned (deleting resources)? Is it the platform \nor your own? It seems strange that the UI thread would be waiting on a worker \nthread. It should be processing UI events...\n",
+    "Indeed, syncExec () blocks the current thread until the GUI thread performs the\nrunnable operation.\nThe deadlock occurs because this scenario involves the class loader: when the\ntest.ui plugin is starting (in the build thread), the class loader is loading\nthe classes it uses, including \"TestUIImages\". At the same time, the main thread\nis trying to run the runnable posted by TestUIPlugin.start() method, which\ninvolves the same classes that are already being loaded in the other thread. So\nan attempt is made to load the same class (TestUIImages) in both threads.\nIn recent versions of Eclipse, this deadlock is detected after a delay of 5\nseconds, and the following exception is logged:\n!MESSAGE Threads \"Thread[main,6,main]\" and \"Worker-5\" are concurrently trying to\nstart  bundle org.eclipse.hyades.test.ui. Thread \"Thread[main,6,main]\" was\ntrying to load \"org.eclipse.hyades.test.ui.TestUIImages\" which now may have\ninconsistent values.\n!STACK 0\njava.lang.Exception: Generated exception.\n\tat\norg.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass(EclipseClassLoader.java(Compiled\nCode))\n\tat\norg.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass(BundleLoader.java(Compiled\nCode))\n\tat\norg.eclipse.osgi.framework.internal.core.BundleLoader.findClass(BundleLoader.java(Compiled\nCode))\n\tat\norg.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass(AbstractClassLoader.java(Compiled\nCode))\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java(Compiled Code))\n\tat org.eclipse.hyades.test.ui.TestUIPlugin$1.run(TestUIPlugin.java:125)\n\tat org.eclipse.ui.internal.UILockListener.doPendingWork(UILockListener.java:107)\n\tat org.eclipse.ui.internal.UISynchronizer$1.run(UISynchronizer.java:33)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:106)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2702)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2394)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1353)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1324)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:243)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:90)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:298)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:249)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:126)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:84)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:57)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:59)\n\tat java.lang.reflect.Method.invoke(Method.java:389)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:269)\n\tat org.eclipse.core.launcher.Main.run(Main.java:722)\n\tat org.eclipse.core.launcher.Main.main(Main.java:706)\nAs a result, there are many problems in the test.ui plugin, most of them due to\nthe TestUIImages singleton class not being initialized.\nI admit that using asyncExec() instead of syncExec() is not the perfect answer,\nbut it creates less problems than syncExec() does. As I suggested in the code\nsnippet I provided previously, asyncExec is done *only* if the current thread is\nnot the main thread, otherwise, the runnable is executed synchronously.\nIMHO, the long-term fix is to initialize the TestUIImages singleton in a\nlazy-initialization way, by replacing the field TestUIImages.INSTANCE by a\ngetter method TestUIImages.getInstance() that initializes the singleton instance\nthe first time this method is invoked.",
+    "Ok. Since the INSTANCE field is already being used in several places I don\u0027t \nhave access to, I will go with the asyncExec(). However, can you open a \nseparate defect for the test.ui plugin? It\u0027s somewhat difficult to track this \non two different components with the same defect.",
+    "Fix ready and tested, awaiting approval..",
+    "Fix submitted for hyades.ui."
+  ],
+  "commentCreationDates": [
+    "2004-05-25T15:44:07+02:00",
+    "2004-05-25T16:55:24+02:00",
+    "2004-05-25T17:30:26+02:00",
+    "2004-05-25T17:50:22+02:00",
+    "2004-05-25T18:32:00+02:00",
+    "2004-05-25T23:18:01+02:00",
+    "2004-05-25T23:36:34+02:00",
+    "2004-05-27T00:33:16+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.Exception",
+      "message": "Generated exception.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseClassLoader.findLocalClass",
+          "source": "EclipseClassLoader.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findLocalClass",
+          "source": "BundleLoader.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.findClass",
+          "source": "BundleLoader.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.adaptor.core.AbstractClassLoader.loadClass",
+          "source": "AbstractClassLoader.java(Compiled Code)"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.hyades.test.ui.TestUIPlugin$1.run",
+          "source": "TestUIPlugin.java:125"
+        },
+        {
+          "method": "org.eclipse.ui.internal.UILockListener.doPendingWork",
+          "source": "UILockListener.java:107"
+        },
+        {
+          "method": "org.eclipse.ui.internal.UISynchronizer$1.run",
+          "source": "UISynchronizer.java:33"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2702"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2394"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1353"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1324"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:243"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:90"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:298"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:249"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:126"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:84"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:57"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:59"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:389"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:269"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:722"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:706"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "63850",
+      "date": "2004-05-25T18:32:00+02:00",
+      "product": "Hyades",
+      "component": "UI",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "63850",
+  "bugId": "63850",
+  "date": "2004-05-25T15:44:07+02:00",
+  "product": "Hyades",
+  "component": "UI",
+  "severity": "critical"
+}

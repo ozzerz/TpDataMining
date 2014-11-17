@@ -1,0 +1,154 @@
+{
+  "comments": [
+    "When I try to start eclipse, the splash screen appears, but a few seconds later \na dialog box informs me that \"An error has occured. See the log file \u0027xxx\u0027.\" \nand the process terminates.\n\nI attach the log file at the end of the message.\n\nNote: I entered \u0027Other\u0027 in the Platform field, as there was no option \u0027HP\u0027.\nNote: I am not sure about the Component, but as jface occurs in the stack trace \nin the log file and Jface is related to SWT, I choose SWT\n\nThe system is running HP-UX B.11.00 with CDE 2.1.0.\n\nThomas\n\n---\n\n!SESSION Oct 18, 2004 10:50:59.644 ---------------------------------------------\neclipse.buildId\u003dM200409161125\njava.version\u003d1.4.2.05\njava.vendor\u003dHewlett-Packard Co.\nBootLoader constants: OS\u003dhpux, ARCH\u003dPA_RISC, WS\u003dmotif, NL\u003den\n\n!ENTRY org.eclipse.osgi Oct 18, 2004 10:50:59.658\n!MESSAGE Application error\n!STACK 1\njava.lang.NullPointerException\n\tat org.eclipse.jface.resource.FontRegistry.bestData\n(FontRegistry.java:336)\n\tat org.eclipse.jface.resource.FontRegistry.bestDataArray\n(FontRegistry.java:369)\n\tat org.eclipse.jface.resource.FontRegistry.createFont\n(FontRegistry.java:389)\n\tat org.eclipse.jface.resource.FontRegistry.defaultFontRecord\n(FontRegistry.java:431)\n\tat org.eclipse.jface.resource.FontRegistry.getFontRecord\n(FontRegistry.java:519)\n\tat org.eclipse.jface.resource.FontRegistry.get(FontRegistry.java:472)\n\tat org.eclipse.jface.resource.JFaceResources.getDialogFont\n(JFaceResources.java:182)\n\tat org.eclipse.jface.dialogs.Dialog.initializeDialogUnits\n(Dialog.java:778)\n\tat org.eclipse.jface.dialogs.TitleAreaDialog.createContents\n(TitleAreaDialog.java:93)\n\tat org.eclipse.jface.window.Window.create(Window.java:348)\n\tat org.eclipse.jface.dialogs.Dialog.create(Dialog.java:925)\n\tat org.eclipse.jface.window.Window.open(Window.java:637)\n\tat org.eclipse.ui.internal.ide.ChooseWorkspaceDialog.prompt\n(ChooseWorkspaceDialog.java:65)\n\tat org.eclipse.ui.internal.ide.IDEApplication.promptForWorkspace\n(IDEApplication.java:314)\n\tat org.eclipse.ui.internal.ide.IDEApplication.checkInstanceLocation\n(IDEApplication.java:219)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run\n(IDEApplication.java:83)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:335)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:273)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:129)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n\tat org.eclipse.core.launcher.Main.run(Main.java:704)\n\tat org.eclipse.core.launcher.Main.main(Main.java:688)",
+    "Moving to UI since that is where jface lives.  If this is ultimately traced to \nbe an swt issue then please move it back, thanks.\n",
+    "I think the only way this can happen is if Font.getFontData() returns null.  We\ndon\u0027t check against this.  In the Font (for Motif) there are several cases in\nwhich null will be returned.  This doesn\u0027t happen on Windows, GTK or Carbon. \nShould this be the case?  The javadoc does not specify the possibility of a null\nreturn, only an array.",
+    "Do you know a work around so I could Eclipse make working???\n",
+    "You could patch your FontRegistry class with a null check in bestData...that\n/might/ get you going although I\u0027m not sure how the workbench would look.  We\nbase  many of the workbench fonts on the FontData returned from what we think is\nthe system font.  If that\u0027s returning null (or even empty data) I\u0027m not sure\nwhat would happen...",
+    "As you describe it, it seems that Eclipse chooses a wrong font as system font. \nAs other programs are properly running under the CDE, the setup of the fonts \nseems to be ok so far. Can I somehow influence how Eclipse chooses the system \nfont?",
+    "This looks similar to bug 33828, but on hpux instead of solaris.  Can you see \nthat report, in particular the comments starting at \nhttps://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d33828#c13 , and see if any of the \nsuggestions that helped the others get started will work for you as well?\n",
+    "I had a look the page https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d33828#c13\nyou mentioned.\n\nFirst I tried to compile and run the snippet at \nhttps://bugs.eclipse.org/bugs/attachment.cgi?id\u003d2294\u0026action\u003dview.\nI however got the following compile error:\n\nSystemFontTest.java:13: cannot resolve symbol\nsymbol  : method TopLevelShellWidgetClass ()\nlocation: class org.eclipse.swt.internal.motif.OS\n        int widgetClass \u003d OS.TopLevelShellWidgetClass ();\n                            ^\n1 error\n\nI then changed the font settings as suggested from\n  sun ibm hp dec 75dpi 100dpi misc\nto \n  100dpi 75dpi misc hp sun ibm dec\nand now Ecipse is up and running (and yes I\u0027am using\nReflection too, version 10.0.3)\n\nI\u0027am wondering however why the bugs\n- https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d19209#c9\n- https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d33828#c13\nare marked as resolved (and in one case \u0027user error\u0027 is noted).\n\nPlease consider the following:\n- I use Reflection with a default installation\n- All other applications are working fine\n- But Eclipse crashes when starting up - so it is the fault of\n  Eclipse or of the user?\n\nI think:\n- As this seems not to be the first case, he algorithm looking for\n  the system font must be more robust\n- And of course, the application should not crash, but at least\n  show a error message that no reasonable system font can be found\n  and may be the user has to change the font settings\nWhat do you think?\n",
+    "*** Bug 76985 has been marked as a duplicate of this bug. ***",
+    "*** Bug 85655 has been marked as a duplicate of this bug. ***",
+    "Font.getFontData() returning null when it\u0027s not spec\u0027d to is wrong, and the\nresulting NPE in jface is very misleading w.r.t. the real cause (the platform\ngiving us an invalid font xlfd).  Font.getFontData() will now throw an unchecked\nERROR_INVALID_FONT error instead of returning null, which gives a better\nindication of the real problem, and is consistent with how swt handles other\nplatform-level problems throughout, like ERROR_NO_HANDLES.\n",
+    "*** Bug 69106 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2004-10-18T11:39:17+02:00",
+    "2004-10-18T17:13:28+02:00",
+    "2004-10-21T16:39:41+02:00",
+    "2004-10-21T16:53:19+02:00",
+    "2004-10-21T17:09:08+02:00",
+    "2004-10-21T17:30:34+02:00",
+    "2004-10-21T21:42:22+02:00",
+    "2004-10-22T09:38:04+02:00",
+    "2004-10-26T15:48:46+02:00",
+    "2005-02-17T12:25:10+01:00",
+    "2005-04-14T15:46:13+02:00",
+    "2005-04-18T17:50:17+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.resource.FontRegistry.bestData",
+          "source": "FontRegistry.java:336"
+        },
+        {
+          "method": "org.eclipse.jface.resource.FontRegistry.bestDataArray",
+          "source": "FontRegistry.java:369"
+        },
+        {
+          "method": "org.eclipse.jface.resource.FontRegistry.createFont",
+          "source": "FontRegistry.java:389"
+        },
+        {
+          "method": "org.eclipse.jface.resource.FontRegistry.defaultFontRecord",
+          "source": "FontRegistry.java:431"
+        },
+        {
+          "method": "org.eclipse.jface.resource.FontRegistry.getFontRecord",
+          "source": "FontRegistry.java:519"
+        },
+        {
+          "method": "org.eclipse.jface.resource.FontRegistry.get",
+          "source": "FontRegistry.java:472"
+        },
+        {
+          "method": "org.eclipse.jface.resource.JFaceResources.getDialogFont",
+          "source": "JFaceResources.java:182"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.Dialog.initializeDialogUnits",
+          "source": "Dialog.java:778"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.TitleAreaDialog.createContents",
+          "source": "TitleAreaDialog.java:93"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.create",
+          "source": "Window.java:348"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.Dialog.create",
+          "source": "Dialog.java:925"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:637"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.ChooseWorkspaceDialog.prompt",
+          "source": "ChooseWorkspaceDialog.java:65"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.promptForWorkspace",
+          "source": "IDEApplication.java:314"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.checkInstanceLocation",
+          "source": "IDEApplication.java:219"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:83"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:335"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:129"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:704"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:688"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "76456",
+      "date": "2004-10-18T11:39:17+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "76456",
+  "bugId": "76456",
+  "date": "2004-10-18T11:39:17+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "critical"
+}

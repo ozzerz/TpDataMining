@@ -1,0 +1,43 @@
+{
+  "comments": [
+    "Using I20060912-0800, WinXP, j2re1.4.2_08\nI have two different cases where accessing a protected method from an inner class, an IAdaptable, behave inconsistently.  SCENARIO ONE causes an IllegalAccessError and the other does not.  I\u0027m not sure if the inconsistency itself is a problem, or if I\u0027m missing some subtle difference.  Note that the examples may not necessarily be released to HEAD, as we were working off patches in bug #154779.\n\nSCENARIO ONE:\nInside a class \"AddMarkerAction\" I create the following IAdaptable which is accessed and run from another class that was passed the adaptable:\n\nPlatformUI.getWorkbench().getOperationSupport().getOperationHistory().execute\n(op, null, new IAdaptable() {\n   public Object getAdapter(Class clazz) {\n      if (clazz \u003d\u003d Shell.class \u0026\u0026 getTextEditor() !\u003d null) {\n         return getTextEditor().getSite().getShell();\n      }\n      return null;\n   }\n});\n\nNote that the getAdapter method contains a reference to a protected method in the outer class.  The method is getTextEditor().  So when the\nadaptable\u0027s getAdapter(...) method is run, I get this stack trace:\n\n!ENTRY org.eclipse.ui 4 0 2006-09-13 11:38:46.315\n!MESSAGE tried to access method\norg.eclipse.ui.texteditor.TextEditorAction.getTextEditor()Lorg/eclipse/ui/texteditor/ITextEditor;\nfrom class org.eclipse.ui.texteditor.AddMarkerAction$1\n!STACK 0\njava.lang.IllegalAccessError: tried to access method\norg.eclipse.ui.texteditor.TextEditorAction.getTextEditor()Lorg/eclipse/ui/texteditor/ITextEditor;\nfrom class org.eclipse.ui.texteditor.AddMarkerAction$1\n        at\norg.eclipse.ui.texteditor.AddMarkerAction$1.getAdapter(AddMarkerAction.java:136)\n        at\norg.eclipse.ui.internal.operations.AdvancedValidationUserApprover.getShell(AdvancedValidationUserApprover.java:390)\n\nI can avoid this error by using the following code instead:\n\nfinal ITextEditor editor \u003d getTextEditor();\nPlatformUI.getWorkbench().getOperationSupport().getOperationHistory().execute\n(op, null, new IAdaptable() {\n   public Object getAdapter(Class clazz) {\n      if (clazz \u003d\u003d Shell.class \u0026\u0026 editor !\u003d null) {\n         return editor.getSite().getShell();\n      }\n      return null;\n   }\n});\n\n\nSCENARIO TWO:\nSimilar situation in a different class, MarkerRulerAction.  The code is as follows:\n\nPlatformUI.getWorkbench().getOperationSupport().getOperationHistory().execute\n(operation, null, new IAdaptable() {\n   public Object getAdapter(Class clazz) {\n      if (clazz \u003d\u003d Shell.class \u0026\u0026 getTextEditor() !\u003d null) {\n         return getTextEditor().getSite().getShell();\n      }\n      return null;\n   }\n});\n\nThe getTextEditor() method is also protected in this class.  However, when the adaptable is run, there is no IllegalAccessError.  I put breakpoints in the code in both cases and stepped through to make sure the code was reached.\n\nQuestions:\nQ1- If the first case is illegal, shouldn\u0027t the compiler have caught it?\nQ2- Why wouldn\u0027t the second case be illegal?\n\nThe only difference I can observe is that in case 1, the protected method is inherited from a superclass of the outer class creating the adaptable.  And in case 2, the protected method is directly implemented in the outer class creating the adaptable.",
+    "Are we dealing with split packages in either of these scenarios?  \n\nIn SCENARIO ONE is the super class org.eclipse.ui.texteditor.TextEditorAction\nin the same bundle as the out class org.eclipse.ui.texteditor.AddMarkerAction?\n\nIf the org.eclipse.ui.texteditor package is split then see bug 152568 for an explanation of why this can fail.",
+    "yes, this is exactly the case.\nThe package is split across  plug-ins.  AddMarkerAction is in the org.eclipse.ui.editors plugin and TextEditorAction is in the org.eclipse.ui.workbench.texteditor plug-in.\n\nI\u0027ll mark this as a duplicate of #152568 and add an annotation there about the time spent due to the lack of a compile error.\n\n(lesson learned, I could have saved the time spent writing this up by bugzilla searching on IllegalAccessError!)\n\n*** This bug has been marked as a duplicate of 152568 ***"
+  ],
+  "commentCreationDates": [
+    "2006-09-14T21:14:03+02:00",
+    "2006-09-14T23:12:10+02:00",
+    "2006-09-14T23:41:46+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalAccessError",
+      "message": "tried to access method org.eclipse.ui.texteditor.TextEditorAction.getTextEditor()Lorg/eclipse/ui/texteditor/ITextEditor; from class org.eclipse.ui.texteditor.AddMarkerAction$1",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.texteditor.AddMarkerAction$1.getAdapter",
+          "source": "AddMarkerAction.java:136"
+        },
+        {
+          "method": "org.eclipse.ui.internal.operations.AdvancedValidationUserApprover.getShell",
+          "source": "AdvancedValidationUserApprover.java:390"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "157381",
+      "duplicateId": "152568",
+      "date": "2006-09-14T21:14:03+02:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "152568",
+  "bugId": "157381",
+  "duplicateId": "152568",
+  "date": "2006-09-14T21:14:03+02:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "normal"
+}

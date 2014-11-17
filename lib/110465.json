@@ -1,0 +1,300 @@
+{
+  "comments": [
+    "See bug 88861.  That bug describes how the infrastructure is now in place for\nthe AspectJ AST (there is also an example in that bug).  This bug is to capture\nfuture work that needs doing, effectively a brain dump from me:\n\n1. LOADS more testcases.  See ASTVisitorTest in the org.aspectj.ajdt.core, there\nare loads more examples that could be written that include more sophisticated\nconstructs, it also seems incorrect that the pointcut expressions (the bit after\nthe \u0027pointcut p():\u0027) is ignored in the existing testcases.\n\n2. All \u0027basic\u0027 designators (e.g. call/execution/etc - all the ones that don\u0027t\nnext other designators) are captured at the moment as DefaultPointcut.  This\nisn\u0027t right, there should be a subtype of PointcutDesignator for *all* the\naspectj designators. (and possibly, going further than that with different nodes\nfor each piece of each pointcut too ... typepattern/etc)\n\n3. We need much more support in the AjASTRewriteAnalyzer if refactorings are\ngoing to be possible.  Unfortunately the analyzer requires more *stuff* to be\naround and so testcases for it have to be written in the AJDT core.tests plugin :(\n\nIf anyone has a particular use case that they need to get working, please\nmention it in this bug and we\u0027ll raise the priority of \u0027that piece\u0027 of the AST.",
+    "Another thought.  I\u0027m not sure the new AST support has been tested with Java5\nlanguage features in programs (annotations/enums/generics).",
+    "moved this to \"enhancement\" rather than bug",
+    "\n(In reply to comment #0)\n\u003e If anyone has a particular use case that they need to get working, please\n\u003e mention it in this bug and we\u0027ll raise the priority of \u0027that piece\u0027 of the  AST.\n\nHi,\n\nI could not find a way to check if an aspect is a privileged one using the\nASTVisitor. What I need is something like the code bellow:\n\nimport org.aspectj.org.eclipse.jdt.core.dom.AjASTVisitor;\nimport org.aspectj.org.eclipse.jdt.core.dom.AjTypeDeclaration;\nimport org.aspectj.org.eclipse.jdt.core.dom.AspectDeclaration;\nimport org.aspectj.org.eclipse.jdt.core.dom.TypeDeclaration;\n\npublic class PrivilegedAspectVisitor extends AjASTVisitor {\n   public boolean visit(TypeDeclaration node) {\n      if (((AjTypeDeclaration) node).isAspect()){\n         AspectDeclaration a \u003d (AspectDeclaration) node;\n         // the method isPrivileged does not exist\n         if (a.isPrivileged()) \n            System.out.println(\"Privileged aspect\");\n         }\t\n         return false;\n      }\n}\n\n\nIf this information is not available, the AjASTConverter could be modified to\naccomplish that.\nI attempted to find a suitable place to change this. Perhaps the following makes\nsense...\n\nInstead of:\n-------------------------------------------------------------------------------------------------------------------------\npublic ASTNode\nconvert(org.aspectj.org.eclipse.jdt.internal.compiler.ast.TypeDeclaration\ntypeDeclaration) {\n  ...\n      if (perClause \u003d\u003d null){\n         typeDecl \u003d new\norg.aspectj.org.eclipse.jdt.core.dom.AspectDeclaration(this.ast,null);\n      } else {\n         typeDecl \u003d new\norg.aspectj.org.eclipse.jdt.core.dom.AspectDeclaration(this.ast,convert(perClause));\n      }\n  ...\n}\n\nSomething like this (note that a constructor could be created to receive this\ninformation):\n-------------------------------------------------------------------------------------------------------------------------\npublic ASTNode\nconvert(org.aspectj.org.eclipse.jdt.internal.compiler.ast.TypeDeclaration\ntypeDeclaration) {\n  ...\n   boolean isPrivileged \u003d ((AspectDeclaration)typeDeclaration).isPrivileged;\n   if (perClause \u003d\u003d null){\n      typeDecl \u003d new\norg.aspectj.org.eclipse.jdt.core.dom.AspectDeclaration(this.ast,null, isPrivileged);\n   } else {\n      typeDecl \u003d new\norg.aspectj.org.eclipse.jdt.core.dom.AspectDeclaration(this.ast,convert(perClause),\nisPrivileged);\n  ...\n}\t\t\t}\n\nI don\u0027t know if this is the appropriate forum for this kind of question. Let me\nknow if the aspectj-users or aspectj-dev is the right choice.\n\nRegards,\nEduardo Piveta",
+    "this is the definetly the right place to post that kind of response - I\u0027ll try\nand get to look at your proposal soon, but it sounds reasonable and just the\nkind of feedback I was after.",
+    "(In reply to comment #0)\n\u003e 1. LOADS more testcases.  See ASTVisitorTest in the org.aspectj.ajdt.core, there\n\u003e are loads more examples that could be written that include more sophisticated\n\u003e constructs, it also seems incorrect that the pointcut expressions (the bit after\n\u003e the \u0027pointcut p():\u0027) is ignored in the existing testcases.\n\u003e \n\nHi,\n\nI was trying to parse some aspects and classes in an AspectJ GoF design patterns\nimplementation. In the\nca.ubc.cs.spl.aspectPatterns.patternLibrary.VisitorProtocol aspect a\nClassCastException was thrown. \nIt seems that an exception occurs whenever there is a comment before an ITD Method. \n\nI tried to reproduce the exception using a small example: \n----------------------------------------------------------------------\nimport java.util.HashMap;\n\nimport org.aspectj.org.eclipse.jdt.core.dom.AST;\nimport org.aspectj.org.eclipse.jdt.core.dom.ASTParser;\nimport org.aspectj.org.eclipse.jdt.core.dom.CompilationUnit;\n\npublic class Test {\n   public static void check(String source){\n      ASTParser parser \u003d ASTParser.newParser(AST.JLS2); \n      parser.setCompilerOptions(new HashMap());\n      parser.setSource(source.toCharArray());\n      CompilationUnit cu2 \u003d (CompilationUnit) parser.createAST(null);\n   }\n   public static void main(String arf[]){\n      Test.check(\"aspect A{ public void B.x(){} }\"); // This one works\n      Test.check(\"aspect A{ /** */ public void B.x(){} }\"); // This one raises\nan exception\n\t}\n}\n----------------------------------------------------------------------\n\nThe execution of the example leads to the following ClassCastException:\n\nException in thread \"main\" java.lang.ClassCastException:\norg.aspectj.org.eclipse.jdt.core.dom.DefaultCommentMapper$CommentMapperVisitor\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.InterTypeMethodDeclaration.accept0(InterTypeMethodDeclaration.java:71)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.AspectDeclaration.accept0(AspectDeclaration.java:94)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.CompilationUnit.accept0(CompilationUnit.java:299)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.DefaultCommentMapper.initialize(DefaultCommentMapper.java:242)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.CompilationUnit.initCommentMapper(CompilationUnit.java:483)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert(AjASTConverter.java:1025)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.CompilationUnitResolver.convert(CompilationUnitResolver.java:252)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.ASTParser.internalCreateAST(ASTParser.java:803)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTParser.createAST(ASTParser.java:591)\n\tat Test.check(Test.java:15)\n\tat Test.main(Test.java:20)\n\nLooking in the org.aspectj.org.eclipse.jdt.core.dom.InterTypeDeclarationMethod\nclass, the following code raises the exception:\n----------------------------------------------------------------------\nvoid accept0(ASTVisitor visitor) {\n   AjASTVisitor ajvis \u003d (AjASTVisitor)visitor;\n   ...\n   ajvis.endVisit(this);\n}\n----------------------------------------------------------------------\nAccording to the debugger, the visitor parameter is of type:\norg.aspectj.org.eclipse.jdt.core.dom.DefaultCommentMapper$CommentMapperVisitor@1a85d38\n\nWhich inheritance tree is: \n\nASTVisitor \n |\n |- DefaultASTVisitor\n     |\n     |- CommentMapperVisitor  \n\n\nPerhaps the accept0 method could be modified to:\n----------------------------------------------------------------------\nvoid accept0(ASTVisitor visitor) {\n   ASTVisitor ajvis \u003d visitor;\n   ...\n   ajvis.endVisit(this);\n}\n(Or the \u0027ajvis\u0027 variable renamed to \u0027visitor\u0027)\n----------------------------------------------------------------------\n\nAnd an endVisit method added to org.aspectj.org.eclipse.jdt.core.dom.ASTVisitor\nclass:\n----------------------------------------------------------------------\npublic abstract class ASTVisitor {\n   ...\n   public void endVisit(InterTypeMethodDeclaration node) { // default\nimplementation: do nothing }\n   ...\n}\n----------------------------------------------------------------------\n\nLet me know if you could reproduce this. I\u0027m using ajde 1.5.0.20051014142856.\n\nEduardo Piveta",
+    "I can recreate it with your test program, thanks.\n\nThe fix is not perhaps so straightforward.  The problem is that ASTVisitor is a\ncompiler class and knows only about Java entities - you won\u0027t see mention of an\nAspectJ type in there.  AjASTVisitor is the subclass that introduces the AspectJ\ntypes.  If (after spending a little while on it...) we can\u0027t work out a way to\nget visiting to work properly with this hierarchy and ideally without casts then\nmaybe we could look at merging the two...\n\n",
+    "Hi,\n\nCould you please add the following test method to the ASTVisitorTest? (It also\nraises a ClassCastException).\n\nbtw: This bug was initially an enhancement about the work in the AST features.\nDon\u0027t you think that it\u0027s better to split this bug (one for the\nClassCastException and another to the enhancements of AST) and give them\ndifferent priority and severity?\n\nBest Regards,\nEduardo Piveta\n----------------------------------------------------------------\npublic class ASTVisitorTest extends TestCase {\n\t\n// from bug 110465 - will currently break because of casts\n...\npublic void testAspectWithCommentThenPointcut() {\n   a.check(\"aspect A{ /** */ pointcut x(); }\");\n}\n}\n\nException in thread \"main\" java.lang.ClassCastException:\norg.aspectj.org.eclipse.jdt.core.dom.DefaultCommentMapper$CommentMapperVisitor\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.PointcutDeclaration.accept0(PointcutDeclaration.java:291)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.AspectDeclaration.accept0(AspectDeclaration.java:94)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTNode.acceptChildren(ASTNode.java:2520)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.CompilationUnit.accept0(CompilationUnit.java:299)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTNode.accept(ASTNode.java:2450)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.DefaultCommentMapper.initialize(DefaultCommentMapper.java:242)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.CompilationUnit.initCommentMapper(CompilationUnit.java:483)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert(AjASTConverter.java:1025)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.CompilationUnitResolver.convert(CompilationUnitResolver.java:252)\n\tat\norg.aspectj.org.eclipse.jdt.core.dom.ASTParser.internalCreateAST(ASTParser.java:803)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTParser.createAST(ASTParser.java:591)\n\tat br.ufrgs.inf.badSmells.BBB.check(BBB.java:15)\n\tat br.ufrgs.inf.badSmells.BBB.main(BBB.java:23)",
+    "I\u0027ve integrated the testcase - thanks.  This bug was raised to cover post 1.5.0\nactivity.  I didn\u0027t plan on doing any more on the AST for 1.5.0 until you began\ntesting it for me.  The stuff you are adding addresses point (1) in this request\njust fine - loads more testcases.  We won\u0027t hold up 1.5.0 because the AST isn\u0027t\nfully tested.\n\nThe only piece of work I definetly want to do for 1.5.0 is move the AST rewrite\nanalyzer into AJDT from AJ, and that is covered by a separate enhancement\nrequest, bug 111317.",
+    "Before you raise 20 similar bugs to do with classcastexceptions, I\u0027ve fixed them\nall (at least all the ones I could find) ;)",
+    "(In reply to comment #9)\n\nThanks,\n\nThe ClassCastException problems are not occurring anymore. It\u0027s working perfectly now. I applied successfully some AST visitors in the AO GoF design pattern implementations (http://www.cs.ubc.ca/~jan/AODPs/). \nNow, I\u0027m applying some AST stuff in the GlassBox Inspector (https://glassbox-inspector.dev.java.net/).\nIf everything works fine, the next step is using AspectJ examples, eclipse AspectJ book samples and AspectJ source code as test cases. Currently I\u0027m having a problem with after returning advice. An NPE is raised whenever this construction appears in an aspect.\n\nHere is the exception stack trace:\n--------------------------------------------------------------------------------------------------------------\nException in thread \"main\" java.lang.NullPointerException\n\tat org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.setModifiers(AjASTConverter.java:3647)\n\tat org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert(AjASTConverter.java:505)\n\tat org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert(AjASTConverter.java:79)\n\tat org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert(AjASTConverter.java:220)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTConverter.buildBodyDeclarations(ASTConverter.java:208)\n\tat org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert(AjASTConverter.java:2039)\n\tat org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert(AjASTConverter.java:998)\n\tat org.aspectj.org.eclipse.jdt.core.dom.CompilationUnitResolver.convert(CompilationUnitResolver.java:252)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTParser.internalCreateAST(ASTParser.java:803)\n\tat org.aspectj.org.eclipse.jdt.core.dom.ASTParser.createAST(ASTParser.java:591)\n\tat a.Test.check(Test.java:14)\n\tat a.Test.main(Test.java:18)\n\n\nHere is a test class:\n--------------------------------------------------------------------------------------------------------------\npackage a;\n\nimport java.util.HashMap;\n\nimport org.aspectj.org.eclipse.jdt.core.dom.AST;\nimport org.aspectj.org.eclipse.jdt.core.dom.ASTParser;\nimport org.aspectj.org.eclipse.jdt.core.dom.CompilationUnit;\n\npublic class Test {\n   public static void check(String source){\n      ASTParser parser \u003d ASTParser.newParser(AST.JLS2); \n      parser.setCompilerOptions(new HashMap());\n      parser.setSource(source.toCharArray());\n      CompilationUnit cu2 \u003d (CompilationUnit) parser.createAST(null);\n   }\n   public static void main(String arf[]){\n      Test.check(\"aspect A{ after() : call(* *.*(..)){}}\"); // this one works \n      Test.check(\"aspect A{ after() returning : call(* *.*(..)){}}\"); // this raises a NPE\n   }\n}\n--------------------------------------------------------------------------------------------------------------\nI\u0027m using AJDT 1.3.0.20051130095036\n\nRegards,\nEduardo",
+    "The reason the NPE is occuring is that currently because it\u0027s after returning advice we assume that there is an \"extra argument\". So, for example, changing\n\n\"aspect A{ after() returning : call(* *.*(..)){}}\"\n\nto be\n\n\"aspect A{ after() returning(String s) : call(* *.*(..)){}}\"\n\ndoesn\u0027t produce the NPE. Similarly with \"after() throwing\" and \"after() throwing(Exception e)\" - the first throws an NPE and the second doesn\u0027t. The fix is to check whether the extra argument is there or not.",
+    "Created an attachment (id\u003d31372)\ntestcase patch\n\nPatch containing testcase which shows the NPE reported in comment #10.\n\nApply to the org.aspectj.ajdt.core project.",
+    "Created an attachment (id\u003d31373)\nModified AjASTConverter.java\n\nThe attached file contains the changes to AjASTConverter.java which fix the NPE reported in comment #10.",
+    "(In reply to comment #0)\n\u003e ... \n\u003e If anyone has a particular use case that they need to get working, please\n\u003e mention it in this bug and we\u0027ll raise the priority of \u0027that piece\u0027 of the AST.\n\nHello, \n\nI was trying to get the name of an itmd and perform some actions when the itmd is an abstract one. In the first attempt (see code bellow), I got two issues:\n - The method \u0027getName()\u0027 of class \u0027InterTypeMethodDeclaration\u0027 is returning the mangled name (ex.: ajc$interType$interMethod$callRate66d). \n - I could not test if an itmd is an abstract one using the Modifier class (available in the java reflection api).\n\nAs a workaround, I changed my code to get the \u0027not mangled\u0027 name and to check if the itmd is abstract using the \u0027getBody\u0027 method (see \u0027Second Attempt\u0027). Perhaps these things could be provided as enhancements by the AST support (if they aren\u0027t already there).\n\nFirst attempt\n------------------------------------------------------------------\npublic class AVisitor extends AjASTVisitor {\n   public boolean visit(InterTypeMethodDeclaration node){ \n      String name \u003d node.getName().toString(); \n      if (Modifier.isAbstract(node.getModifiers())){\n         ...\n      }\n   }\n}\n\nSecond attempt \n------------------------------------------------------------------\npublic class AVisitor extends AjASTVisitor {\n   public boolean visit(InterTypeMethodDeclaration node){\n      String name \u003d node.getName().toString();\n      name \u003d name.substring(26, name.length()-3); \n      if (node.getBody() \u003d\u003d null){\n         ...\n      }\n   }\n}\n\nTest code\n-----------------------------------------------------------------\npublic aspect Billing {\n    ...\n    public abstract long Connection.callRate();\n    ...\n}\n\nI\u0027m using the 20051208103628 build + AjASTConverter.java modified by Helen.\n(btw 1: Thanks to Helen. The NPE reported in comment #10 is not occuring anymore.)\n(btw 2: Could you please add the modified AjASTConverter to the CVS?)\n\nRegards,\nEduardo",
+    "I\u0027ve just put in the first patches for the NPE with after returning.  For your latest situation, I don\u0027t think we should be hacking strings to get the name.  When the DOM AST node is built from the compiler AST node it should use the declared name and modifiers rather than those \u0027forced on it\u0027 during ITD processing.  These are available as declaredModifiers and declaredSelector in the ITD - want to look at this Helen?",
+    "Created an attachment (id\u003d31943)\npatch containing fix and testcase for problem raised in comment #14\n\nApply this patch to the org.aspectj.ajdt.core project.\n\nThis patch contains a proposed fix and testcase for the problem raised in comment #14, namely when the method is an ITD method, the name is the mangled name and the modifiers aren\u0027t correct. The fix is, as Andy says, to use declaredModifiers and declaredSelector in these cases within AjASTConverter.java.",
+    "Created an attachment (id\u003d32069)\npatch containing fix and testcase for problem raised in comment #14\n\nooops....my previous patch didn\u0027t add my new testcase ASTidtTest to AjcTests. This one does and this is the only difference between the two.",
+    "patch from comment #17 now integrated into HEAD.",
+    "A comment/request which has been brought up on the Newsgroup (http://www.eclipse.org/newsportal/article.php?id\u003d1408\u0026group\u003declipse.technology.ajdt#1408)\nis to be able to do something like\n\nast.newPointcutDeclaration()\n\nin much the same way as you can today do ast.newMethodDeclaration(). \n",
+    "Created an attachment (id\u003d32485)\nPatch containing enhancement raised in comment #3\n\nI added a method to see if an aspect is a privileged one (see comment #3). So I could do things like:\n\npublic class PrivilegedAspectVisitor extends AjASTVisitor {\n   public boolean visit(TypeDeclaration node) {\n      if (((AjTypeDeclaration) node).isAspect()){\n         AspectDeclaration a \u003d (AspectDeclaration) node;\n         if (a.isPrivileged()) { // Some action }\n      }\t\n      return false;\n   }\n}\n\nI also added a test case in ASTVisitorTest. The code seems to work, but I\u0027m not quite sure about the needed behavior regarding property descriptors. \n\nPlease take a carefull look at the AspectDeclaration class, more specifically on \u0027PRIVILEGED_PROPERTY\u0027 constant, the \u0027static initialization\u0027, and the methods: \u0027clone0\u0027, \u0027accept0\u0027, \u0027isPrivileged\u0027, \u0027setPrivileged\u0027 and \u0027internalGetSetBooleanProperty\u0027.\n",
+    "Created an attachment (id\u003d33584)\npatch containing enhancement raised in comment #19\n\nThis zip contains:\n\n* pr110465-ajdt-core-patch-comment19.txt - a patch to be applied to the org.aspectj.ajdt.core project. This contains \n    - new ASTNodes for the different declare statements plus new ASTNodes for \n      the weaver PatternNodes which are required in the declare statements, \n    - an AjAST which contains the methods to create a newXXXDeclaration\n    - an AjASTFactory which enables us to create an AjAST rather than an AST if \n      necessary,\n    - changes to AjASTConverter to do the right thing when converting a \n      DeclareDeclaration\n    - the required modifications to AjASTVisitor and AjASTMatcher due to the \n      introduction of the new ASTNodes\n    - a null check in the AndPointcut ASTNode\n    - tests for the new AjAST\n    - ammendments to the ASTVisitorTest due to the introduction of the new \n      ASTNodes (now getting extra output)\n\n* AST.java - the changes are (all marked AspectJ Extension):\n   - removes the final modifer from the class declaration\n   - changes \"private\" to \"protected\" in AST(int level) contstructor\n\n* ASTParser - the changes are (all marked AspectJ Extension):\n   - contains the logic to use the factory to create the AST\n   - uses this factory in the method internalCreateASTForKind()\n\n* CompilationUnitResolver - the changes are (all marked AspectJ Extension):\n  - uses the factory to create the ast in convert(...)\n  - uses the factory to create the ast in resolve(..)\n\nNote - for all the tests to pass, the fix for bug 125027 needs to be applied.",
+    "As a follow on from comment #21 and the supplied patch - more tests can be written for the other ASTNodes, for example, checking whether the clone0() methods do the right thing - in much the same way as the supplied tests for the Declare ASTNodes.",
+    "Helens *substantial* changes are in that make the AST 100% better - it knows much more than it used to and you can construct nodes in it (i.e. programmatically construct an AJ ast, rather than just asking the parser to process some text string that is your program).\n\nHelen is now going to look at Eduardos change in comment #20 - now she knows much more about the AST - and I hope we can commit it soon.",
+    "Created an attachment (id\u003d33695)\npatch containing enhancement raised in comment #20\n\nThis zip contains patchs that encorporates the patch supplied in comment #20 by Eduardo to be able to set whether an aspect is privileged or not plus fixes the getting/setting of the perClause in an AspectDeclaration.\n\nMore specifically, this zip contains:\n\n* pr110465-org-aspectj-ajdt-core-patch-comment20.txt - apply this patch to the org.aspectj.ajdt.core project. This contains:\n      * changes to AspectDeclaration:\n                - to add the isPrivileged property - as supplied by Eduardo\n                - the setting of the perclause property \n                - a new constructor which only takes the AjAST as an argument \n                  which can be used by the AjAST to create a new \n                  AspectDeclaration\n               - an implementation of internalGetSetChildProperty(..) for the \n                 perClause property\n     * updated AjAST to create a new AspectDeclaration using the newly created \n       constructor\n     * updated AjASTConverter to set the isPrivileged property if necessary (as \n       supplied in patch by Eduado)\n     * removed the \"final\" modifier from the \n       AjTypeDeclaration.internalGetSetBooleanProperty(..) to enable the \n       AspectDeclaration to override it and handle the isPrivileged property (as \n       supplied in patch by Eduado)\n     * updates to the AjASTTest  to test for the new properties and the use of \n       the clone0 and internalGetXX methods\n     * updates to the ASTVisitorTest to handle the introduction of a new test \n       for a privilged aspect (as supplied by Eduado) plus visiting the \n       perClause.\n\n* TypeDeclaration.java - this needs to be updated in the jdt core. The only  \n  change is to remove the \"final\" modifier from the \n  internalGetSetChildProperty(..) method so we can override it in the \n  AspectDeclaration to handle the perClause property.\n\n\nEduardo - thanks for supplying a nice patch with testcase :-)",
+    "/sigh - gotta love jdt core changes, i\u0027ll do this soon as I can.",
+    "yuckity yuck.\n\nIts all in now - I hit a slight hitch in that the dynamic class loading in the ASTParser class had an incorrect message in it when it failed (so I kept suspecting the TypeDeclaration factory dynamic class loading) and the name used for the class started with org.eclipse when we have to avoid that string since the build.xml in shadows transforms it.  The other factories live in an org.aspectj.ajdt package.  Anyway, I changed this one to follow the same pattern - rebuilt shadows and there is a new org.eclipse.jdt.core that includes the changes.\n\nThe ajdt.core patch is also applied.",
+    "As a note, whilst working on the last two enhancement requests, I noticed that there isn\u0027t currently an ASTNode to represent an inter-type constructor, plus there isn\u0027t one for all the perclauses.",
+    "Created an attachment (id\u003d34121)\nPatch to add parameters in pointcut declarations\n\n\nHi,\n\nAs reported in the aspectj-users mailing list, there is no way to get the arguments of a pointcut declaration:\n\nhttp://dev.eclipse.org/mhonarc/lists/aspectj-users/msg05069.html\n\nI tried to provide this capability in the AST support. \nI\u0027m sending you a patch (pr110465-org-aspectj-ajdt-core-patch-msg05069.txt) to be applied to the org.aspectj.ajdt.core project, containing changes to:\n - AjASTConverter, so the arguments are added to the dom pointcut declaration.\n - AjNaiveASTFlattener, to serialize the arguments\n - PointcutDeclaration\n    - to add the PARAMETERS_PROPERTY property\n    - to modify the static initialization\n    - to add a field named \u0027parameters\u0027\n    - to update the \u0027internalGetChildListProperty\u0027, \u0027clone0\u0027, \u0027memSize\u0027 and \u0027treeSize\u0027 methods\n    - to add a \u0027parameters()\u0027 method // I could have used \u0027getParameters\u0027 instead, but \u0027MethodDeclaration\u0027 class uses \u0027parameters\u0027 as the name ...\n - AjASTTest\n    - to add a \u0027testGetAndSetPointcutArguments\u0027 test method (I could not create a SingleVariableDeclaration instance, so the test is not complete)\n - ASTVisitorTest\n    - to add the methods: \u0027testPointcutWithoutArguments\u0027, \u0027testPointcutWithOnePrimitiveArgument\u0027, \u0027testPointcutWithTwoPrimitiveArguments\u0027, \u0027testPointcutWithOneTypedArgument\u0027, \u0027testPointcutWithTwoTypedArgument\u0027\n\n\nI coded a class to see the use of AjNaiveASTFlattener and if the parameters of a pointcut are ok, but I don\u0027t know for sure where in the CVS this kind of code belongs (if desirable):\n\nimport java.util.HashMap;\n\nimport org.aspectj.org.eclipse.jdt.core.dom.AST;\nimport org.aspectj.org.eclipse.jdt.core.dom.ASTParser;\nimport org.aspectj.org.eclipse.jdt.core.dom.AjNaiveASTFlattener;\nimport org.aspectj.org.eclipse.jdt.core.dom.CompilationUnit;\n\npublic class AjPointcutArgumentsTests {\n   private void check(String source){\n      ASTParser parser \u003d ASTParser.newParser(AST.JLS2);\n      parser.setCompilerOptions(new HashMap());\n      parser.setSource(source.toCharArray());\n      CompilationUnit cu2 \u003d (CompilationUnit) parser.createAST(null);\n      AjNaiveASTFlattener visitor \u003d new AjNaiveASTFlattener();\n      cu2.accept(visitor);\n      System.err.println(visitor.getResult());\n   }\n   public static void main(String arf[]){\n      AjPointcutArgumentsTests a \u003d new AjPointcutArgumentsTests();\n      a.check(\"public aspect A { pointcut y(): call(* *.*(..));}\");\n      a.check(\"public aspect A { pointcut y(int a): call(* *.*(..));}\");\n      a.check(\"public aspect A { pointcut y(int a, double b): call(* *.*(..));}\");\n      a.check(\"public aspect A { pointcut y(X a): call(* *.*(..));}\");\n      a.check(\"public aspect A { pointcut y(X a, X b): call(* *.*(..));}\");\n      a.check(\"public aspect A { pointcut y(X a, int b): call(* *.*(..));}\");\n      a.check(\"public aspect A { pointcut y(int a, X b): call(* *.*(..));}\");\n      a.check(\"public aspect A { pointcut y(int a, double b, Y c): call(* *.*(..));}\");\n   }\n\n}\n\n\nRegards,\nEduardo\n",
+    "Created an attachment (id\u003d34184)\npatch proposed in comment #28 plus more tests\n\nThanks Eduardo :-)\n\nI\u0027ve looked at your patch and have updated the tests side of it:\n\n* AjASTTest: testGetAndSetPointcutArguments - I finished this off by creating a SingleVariableDeclaration instance using ast.newSingleVariableDeclaration().\n* I added some other tests for the PointcutDeclaration in AjASTTest checking the clone0 and internal property methods (these include testing for the new parameters property, but should have been there anyway testing for the other properties.....)\n* I added your AjPointcutArgumentsTests class into the testsuite (same location as the AjASTTest class) calling it AjNaiveASTFlattenerTest and have split out the different checks into separate testcases.\n\nApply this patch to the org.aspectj.ajdt.core project.",
+    "patch committed.",
+    "ongoing, everything done that we plan to do for 1.5.1.  Changes in 3.2 compiler wrt to AST will make the next compiler merge interesting.",
+    "no more work scheduled in the 1.5.2 timeframe.  Next major updates should be contributions from a couple of students (ben/charles) - giving us the extensions they\u0027ve made in the area of the pointcut AST hierarchy.",
+    "I\u0027m going to close this one - we should open a new one for further enhancements, this contains quite enough!",
+    "Created an attachment (id\u003d55758)\nAjNaiveASTFlattener support for declare statements\n\nHi all,\n\nThis patch adds support in the AjNaiveASTFlattener to the declare-like statements. It contains changes to:\n\n- AjNaiveASTFlattener\n    - made the buffer attribute protected, so that others may extend it.\n    - created visit methods for: \n        - DeclareParentsDeclaration\n        - DeclareWarningDeclaration\n        - DeclareSoftDeclaration\n        - DeclareErrorDeclaration\n        - DeclarePrecedenceDeclaration.\n        - DefaultPointcut\n        - DefaultTypePattern\n\n- AjNaiveASTFlattenerTest.java\n    - added test methods for the new visit methods.\n\nPlease check if everything is fine. I look forward to finishing the necessary work on this class.\n\ncheers,\nDavi Pires",
+    "Thank you for your contribution Davi, I have committed it into the codebase.  However, if you want to supply more patches - please can you raise a new bug where we can track it, since this bug is closed and was intended to track work completed in the shipped 1.5.3.\n\n"
+  ],
+  "commentCreationDates": [
+    "2005-09-23T18:10:13+02:00",
+    "2005-09-24T15:09:21+02:00",
+    "2005-10-28T15:33:24+02:00",
+    "2005-11-03T23:51:36+01:00",
+    "2005-11-04T08:10:34+01:00",
+    "2005-11-05T01:22:09+01:00",
+    "2005-11-07T14:21:45+01:00",
+    "2005-11-11T01:33:21+01:00",
+    "2005-11-11T08:22:37+01:00",
+    "2005-11-11T08:33:50+01:00",
+    "2005-12-03T02:33:13+01:00",
+    "2005-12-08T12:32:00+01:00",
+    "2005-12-08T13:21:44+01:00",
+    "2005-12-08T13:23:50+01:00",
+    "2005-12-12T22:56:01+01:00",
+    "2005-12-13T08:49:57+01:00",
+    "2005-12-19T11:08:48+01:00",
+    "2005-12-21T09:05:59+01:00",
+    "2005-12-21T10:57:00+01:00",
+    "2006-01-04T08:24:58+01:00",
+    "2006-01-04T21:27:12+01:00",
+    "2006-01-25T10:46:01+01:00",
+    "2006-01-25T10:50:33+01:00",
+    "2006-01-26T11:05:30+01:00",
+    "2006-01-27T10:51:08+01:00",
+    "2006-01-27T12:05:15+01:00",
+    "2006-01-27T15:50:58+01:00",
+    "2006-02-01T09:42:58+01:00",
+    "2006-02-03T20:29:53+01:00",
+    "2006-02-06T11:23:02+01:00",
+    "2006-02-06T13:29:40+01:00",
+    "2006-04-04T20:17:33+02:00",
+    "2006-06-27T16:36:59+02:00",
+    "2006-09-12T17:36:41+02:00",
+    "2006-12-15T14:52:54+01:00",
+    "2006-12-16T16:15:33+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.aspectj.org.eclipse.jdt.core.dom.DefaultCommentMapper$CommentMapperVisitor",
+      "elements": [
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.InterTypeMethodDeclaration.accept0",
+          "source": "InterTypeMethodDeclaration.java:71"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.AspectDeclaration.accept0",
+          "source": "AspectDeclaration.java:94"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.CompilationUnit.accept0",
+          "source": "CompilationUnit.java:299"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.DefaultCommentMapper.initialize",
+          "source": "DefaultCommentMapper.java:242"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.CompilationUnit.initCommentMapper",
+          "source": "CompilationUnit.java:483"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert",
+          "source": "AjASTConverter.java:1025"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.CompilationUnitResolver.convert",
+          "source": "CompilationUnitResolver.java:252"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTParser.internalCreateAST",
+          "source": "ASTParser.java:803"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTParser.createAST",
+          "source": "ASTParser.java:591"
+        },
+        {
+          "method": "Test.check",
+          "source": "Test.java:15"
+        },
+        {
+          "method": "Test.main",
+          "source": "Test.java:20"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 5,
+      "bugId": "110465",
+      "date": "2005-11-05T01:22:09+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "enhancement"
+    },
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.aspectj.org.eclipse.jdt.core.dom.DefaultCommentMapper$CommentMapperVisitor",
+      "elements": [
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.PointcutDeclaration.accept0",
+          "source": "PointcutDeclaration.java:291"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.AspectDeclaration.accept0",
+          "source": "AspectDeclaration.java:94"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTNode.acceptChildren",
+          "source": "ASTNode.java:2520"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.CompilationUnit.accept0",
+          "source": "CompilationUnit.java:299"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTNode.accept",
+          "source": "ASTNode.java:2450"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.DefaultCommentMapper.initialize",
+          "source": "DefaultCommentMapper.java:242"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.CompilationUnit.initCommentMapper",
+          "source": "CompilationUnit.java:483"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert",
+          "source": "AjASTConverter.java:1025"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.CompilationUnitResolver.convert",
+          "source": "CompilationUnitResolver.java:252"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTParser.internalCreateAST",
+          "source": "ASTParser.java:803"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTParser.createAST",
+          "source": "ASTParser.java:591"
+        },
+        {
+          "method": "br.ufrgs.inf.badSmells.BBB.check",
+          "source": "BBB.java:15"
+        },
+        {
+          "method": "br.ufrgs.inf.badSmells.BBB.main",
+          "source": "BBB.java:23"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 7,
+      "bugId": "110465",
+      "date": "2005-11-11T01:33:21+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "enhancement"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.setModifiers",
+          "source": "AjASTConverter.java:3647"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert",
+          "source": "AjASTConverter.java:505"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert",
+          "source": "AjASTConverter.java:79"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert",
+          "source": "AjASTConverter.java:220"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTConverter.buildBodyDeclarations",
+          "source": "ASTConverter.java:208"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert",
+          "source": "AjASTConverter.java:2039"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.AjASTConverter.convert",
+          "source": "AjASTConverter.java:998"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.CompilationUnitResolver.convert",
+          "source": "CompilationUnitResolver.java:252"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTParser.internalCreateAST",
+          "source": "ASTParser.java:803"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.core.dom.ASTParser.createAST",
+          "source": "ASTParser.java:591"
+        },
+        {
+          "method": "a.Test.check",
+          "source": "Test.java:14"
+        },
+        {
+          "method": "a.Test.main",
+          "source": "Test.java:18"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 10,
+      "bugId": "110465",
+      "date": "2005-12-03T02:33:13+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "enhancement"
+    }
+  ],
+  "groupId": "110465",
+  "bugId": "110465",
+  "date": "2005-09-23T18:10:13+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "enhancement"
+}

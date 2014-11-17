@@ -1,0 +1,537 @@
+{
+  "comments": [
+    "1. Create a Web service client into a Java project:\n  - Web Services -\u003e Web service client\n2. On the first page:\n  - Paste in the URL under the service definition field:   http://www.xmethods.net/sd/2001/TemperatureService.wsdl\n  - move the client scale to the top (test).\n  - ensure that the server and runtime are specified\n  - Click the client project link and type a name for a new Java project \"JavaProj\".  Click the \n    project type combo and select Java Utility project.  Click OK.\n  - Click Finish.\n\nIf you repeat the above, sometimes the scenario would work OK and bring up the sample JSP but a number of times it would give the error:\n\nError occured when adding the module, JavaProjSample, to the server.\n\nThen I would also see this publish error:\n\nCould not publish to the server.\n    java.lang.NullPointerException\n    at org.eclipse.wst.server.core.internal.ServerPublishInfo.getKey(ServerPublishInfo.java:59)\n    at org.eclipse.wst.server.core.internal.ServerPublishInfo.hasModulePublishInfo(ServerPublishInfo.java:92)\n    at org.eclipse.wst.server.core.model.ServerBehaviourDelegate.hasBeenPublished(ServerBehaviourDelegate.java:705)\n    at org.eclipse.wst.server.core.model.ServerBehaviourDelegate.publish(ServerBehaviourDelegate.java:554)\n    at org.eclipse.wst.server.core.internal.Server.doPublish(Server.java:862)\n    at org.eclipse.wst.server.core.internal.Server.publish(Server.java:850)\n    at org.eclipse.jst.ws.internal.consumption.ui.command.StartServerCommand$1.run(StartServerCommand.java:129)\n    at org.eclipse.jface.operation.ModalContext$ModalContextThread.run(ModalContext.java:113)\n\nI would also noticed that the module JavaProjSample had not been added to the server.  If I try manually to add it to the server, it would work.\n\nThis is the command we use to add module to server in AddModuleToServerCommand.java (line 67) is:\n\n             IModule imodule \u003d ServerUtils.getModule(iproject);\n             if (!ServerUtil.containsModule(server, imodule, null))\n             {\n               IModule[] imodules \u003d new IModule[]{imodule};\n               serverwc \u003d server.createWorkingCopy();\n               ServerUtil.modifyModules(serverwc, imodules, null, null);\n             }\n\n              if (serverwc !\u003d null)\n               {\n                 serverwc.save(true, null);\n               }\nAfter some debugging, I fond that ServerUtils.getModule(iproject) returns null. This could be the cause of the problem.\n\nPlease Note: The problem is hard to reproduce in debug mode. You may need to repeat a number of times.",
+    "Affiliation : IBM\nRelease you want this bug to be fixed in : 1.5.1\nJustify why this is a hot bug and why it needs to be fixed in that release :\n This bug fails the Web service client scenario against a Java utility project.\n",
+    "The reason this is failing during publish appears to be because the server adapter delegate is returning a null entry in the array returned from ServerDelegate.getChildModules(). This trickles through all the way to ServerPublishInfo.getKey() where it causes the NPE. I can add an extra check here to ensure that the null isn\u0027t passed on, but that\u0027s not really where the problem is coming from, and this could still fail in other cases\n\n---\n\nReceived note from Elson Yuen. The IBM server adapter is pretty simple and appears to be returning a null entry in this case directly from the return value of org.eclipse.jst.server.core.IEnterpriseApplication.getModules(). IEnterpriseApplication is implemented in WTP by\norg.eclipse.jst.j2ee.internal.deployables.J2EEFlexProjDeployable. I\u0027ve taken a quick look at getModules() (implemented in org.eclipse.wst.web.internal.deployables.ComponentDeployable) and I don\u0027t see any way that this could return a null entry in the array.\n\nAt this point this bug is pointing to an error in ComponentDeployable that doesn\u0027t exist, and it has already involved three separate teams. We\u0027ll need to take another look at this tomorrow and may need some help from the teams involved to track this down.",
+    "Ian, does the JavaProjSample Web project already exist before beginning your scenario? For example, are you deleting the project each time you \"repeat\" the scenario, or does the problem seem to occur whether or not the project already exists?",
+    "Chris, At the begining, I start with a fresh new workspace without any project. After th escenario fails, I removed the project everytime I repeat the scenario. \n\n(In reply to comment #3)\n\u003e Ian, does the JavaProjSample Web project already exist before beginning your\n\u003e scenario? For example, are you deleting the project each time you \"repeat\" the\n\u003e scenario, or does the problem seem to occur whether or not the project already\n\u003e exists?\n\n",
+    "Current status:\nWeb Services is creating a new project and then calling server tools API (ServerUtil.getModule(iproject)) to get a reference to the module and add it to the server. See AddModuleToServerCommand.java above.\n\nThis method sometimes returns null, causing an array with a null entry to be created and passed to ServerUtil.modifyModules(). This fails correctly and the user receives an error, but the null entry still gets added and causes the server to fail during publishing later on.\n\nMy guess right now is that either the facet cache or the module cache is failing, out of order, or the resource change events aren\u0027t getting fired fast enough and causing neither to be updated and see the new module. See bug 124023 for another example of this.\n\nOne possible temporary fix is probably to put a delay or build in to ensure that the resource change events have finished, but it\u0027s not clear to me that this will work in all situations given the issues in bug 124023. We\u0027ll need to continue to investigate.",
+    "I\u0027m still running into this problem intermittently when trying to add module to server and during server publish.  Here are some traces found in .log file when it occurs:\n\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.jface\".\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.wst.server.ui.internal.view.servers.ServerTableLabelProvider.getColumnText(Unknown Source)\n\tat org.eclipse.jface.viewers.TreeViewer.doUpdateItem(Unknown Source)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer$UpdateItemSafeRunnable.run(Unknown Source)\n\tat org.eclipse.core.runtime.SafeRunner.run(Unknown Source)\n\tat org.eclipse.core.runtime.Platform.run(Unknown Source)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(Unknown Source)\n\tat org.eclipse.jface.util.SafeRunnable.run(Unknown Source)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem(Unknown Source)\n\tat org.eclipse.jface.viewers.StructuredViewer$UpdateItemSafeRunnable.run(Unknown Source)\n\tat org.eclipse.core.runtime.SafeRunner.run(Unknown Source)\n\tat org.eclipse.core.runtime.Platform.run(Unknown Source)\n\tat org.eclipse.ui.internal.JFaceUtil$1.run(Unknown Source)\n\tat org.eclipse.jface.util.SafeRunnable.run(Unknown Source)\n\tat org.eclipse.jface.viewers.StructuredViewer.updateItem(Unknown Source)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.createTreeItem(Unknown Source)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.updateChildren(Unknown Source)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.internalRefreshStruct(Unknown Source)\n\tat org.eclipse.jface.viewers.TreeViewer.internalRefreshStruct(Unknown Source)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh(Unknown Source)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh(Unknown Source)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh(Unknown Source)\n\tat org.eclipse.jface.viewers.StructuredViewer$7.run(Unknown Source)\n\tat org.eclipse.jface.viewers.StructuredViewer.preservingSelection(Unknown Source)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh(Unknown Source)\n\tat org.eclipse.wst.server.ui.internal.view.servers.ServerTableViewer$8.run(Unknown Source)\n\tat org.eclipse.swt.widgets.RunnableLock.run(Unknown Source)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Unknown Source)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Unknown Source)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Unknown Source)\n\tat org.eclipse.jface.window.Window.runEventLoop(Unknown Source)\n\tat org.eclipse.jface.window.Window.open(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.ui.dialog.MessageDialog.open(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.ui.dialog.MessageDialog.openError(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.ui.dialog.MessageDialog.openMessage(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.ui.eclipse.EclipseStatusHandler$3.run(Unknown Source)\n\tat org.eclipse.swt.widgets.Synchronizer.syncExec(Unknown Source)\n\tat org.eclipse.ui.internal.UISynchronizer.syncExec(Unknown Source)\n\tat org.eclipse.swt.widgets.Display.syncExec(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.ui.eclipse.EclipseStatusHandler.reportErrorStatus(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.ui.eclipse.EclipseStatusHandler.reportError(Unknown Source)\n\tat org.eclipse.jst.ws.internal.consumption.ui.extension.PreClientInstallCommand.execute(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.core.fragment.CommandFragmentEngine.runCommand(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.core.fragment.CommandFragmentEngine.visitTop(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.core.fragment.CommandFragmentEngine.moveForwardToNextStop(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.ui.widgets.SimpleCommandEngineManager$5.run(Unknown Source)\n\tat org.eclipse.jface.operation.ModalContext.runInCurrentThread(Unknown Source)\n\tat org.eclipse.jface.operation.ModalContext.run(Unknown Source)\n\tat org.eclipse.jface.wizard.WizardDialog.run(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.ui.widgets.SimpleCommandEngineManager.runForwardToNextStop(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.ui.widgets.WizardPageManager.runForwardToNextStop(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.ui.widgets.WizardPageManager.performFinish(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.ui.widgets.DynamicWizard.performFinish(Unknown Source)\n\tat org.eclipse.jface.wizard.WizardDialog.finishPressed(Unknown Source)\n\tat org.eclipse.jface.wizard.WizardDialog.buttonPressed(Unknown Source)\n\tat org.eclipse.jface.dialogs.Dialog$3.widgetSelected(Unknown Source)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(Unknown Source)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(Unknown Source)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Unknown Source)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Unknown Source)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Unknown Source)\n\tat org.eclipse.jface.window.Window.runEventLoop(Unknown Source)\n\tat org.eclipse.jface.window.Window.open(Unknown Source)\n\tat org.eclipse.wst.command.internal.env.ui.widgets.popup.DynamicPopupWizard.run(Unknown Source)\n\tat org.eclipse.ui.internal.PluginAction.runWithEvent(Unknown Source)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(Unknown Source)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2(Unknown Source)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(Unknown Source)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(Unknown Source)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Unknown Source)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Unknown Source)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Unknown Source)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Unknown Source)\n\tat org.eclipse.ui.internal.Workbench.runUI(Unknown Source)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Unknown Source)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(Unknown Source)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(Unknown Source)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(Unknown Source)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(Unknown Source)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(Unknown Source)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(Unknown Source)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(Unknown Source)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n\tat java.lang.reflect.Method.invoke(Unknown Source)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Unknown Source)\n\tat org.eclipse.core.launcher.Main.basicRun(Unknown Source)\n\tat org.eclipse.core.launcher.Main.run(Unknown Source)\n\tat org.eclipse.core.launcher.Main.main(Unknown Source)\n\n!ENTRY org.eclipse.wst.server.core 4 0 2006-09-20 23:30:16.041\n!MESSAGE Could not publish to the server.\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.wst.server.core.internal.ServerPublishInfo.getKey(Unknown Source)\n\tat org.eclipse.wst.server.core.internal.ServerPublishInfo.hasModulePublishInfo(Unknown Source)\n\tat org.eclipse.wst.server.core.model.ServerBehaviourDelegate.hasBeenPublished(Unknown Source)\n\tat org.eclipse.wst.server.core.model.ServerBehaviourDelegate.publish(Unknown Source)\n\tat org.eclipse.wst.server.core.internal.Server.doPublish(Unknown Source)\n\tat org.eclipse.wst.server.core.internal.Server.publish(Unknown Source)\n\tat org.eclipse.wst.server.core.internal.PublishServerJob.run(Unknown Source)\n\tat org.eclipse.core.internal.jobs.Worker.run(Unknown Source)\n\njava.lang.NullPointerException\n\tat org.eclipse.wst.server.core.internal.Server$2.visit(Unknown Source)\n\tat org.eclipse.wst.server.core.internal.Server.visitModule(Unknown Source)\n\tat org.eclipse.wst.server.core.internal.Server.visit(Unknown Source)\n\tat org.eclipse.wst.server.core.internal.Server$ResourceChangeJob.run(Unknown Source)\n\tat org.eclipse.core.internal.jobs.Worker.run(Unknown Source)\n",
+    "As above, these exceptions are all downstream problems based on \"IModule imodule \u003d ServerUtils.getModule(iproject);\". After it returns null, things go downhill b/c there is a problem adding \"null\" as a module to the server.\n\nThis was just discussed on the build call. Several people are still investigating this, but if it is a caching issue there may not be a good clean fix. An alternate option being investigated is calling an incremental project build if null is returned, which should allow the project creation and resource change events to coalesce.",
+    "Just a note that we put the workaround Tim suggested for the Web Services wizrad (calling incremental build when null is returned) in bug 158210 and we don\u0027t see the symptom reported in this defect anymore with that workaround.",
+    "I assume with the work around given by bug 158210 this bug would no longer be considered \"critical\"? So, I\u0027m changing to \u0027major\u0027, feel free to change back if I\u0027ve misunderstood. \n\n",
+    "Since the workaround is acceptable for 1.5.1 release, I am doing a brain dump of the investigation for this bug, so that we can come back later and fix the problem.\n\nThe problem is related to the ModuleFactory being out of date because the ResourceChanged events have not reached the Server.\n\nCallSequence:\n              (jst.ws) \nAddModuleToServerCommand.execute-\u003e\n  ServerUtils.getModules----------\u003e\n              (wst.server) \n   ServerUtil.getModule(IProject)--\u003e\n     ServerUtil.getModule()---------\u003e\n      ServerUtil.getModule()---------\u003e\n     ModuleFactory.getModules()-------\u003e (here is the problem)\n            \nBecause the ResourceChange events (happening in a different thread) have not reached the server, the modules that the ModuleFactory contains are invalid. \n\nBy using the suggested workaround, the AddModuleToServerCommand forces a clear of the cache in the ModuleFactory, allowing it to pickup the new modules. Thus, the causing the desired behaviour.\n\nFor 2.0 we need to re-think the strategy for clearing the cache. \n\nI will attach 2 traces showing the differences one with the workaround suggested, and one when not using the workaround. I will also add the code that I used to trace this problem.\n\n\n\n\n\n",
+    "+1 for WTP 1.5.1, but this sounds like a potential performance degradation. Pls look for a cleaner fix.",
+    "Ignore my previous comment. I misunderstood Kathy\u0027s request.\n\nShe was requesting for PMC approval for her defect in bug 158210, which is to apply the workaround for bug 156768\n",
+    "Removing hotbug_request since we have a workaround in place via bug 158210. Priority \u0026 severity are high so we\u0027ll keep looking at this for the next WTP update.",
+    "Returning as a dup of bug 205829. The workaround is still holding and works fine as a temporary solution, but we\u0027ll use this new bug to investigate new ways of caching module factory information.\n\n*** This bug has been marked as a duplicate of bug 205829 ***"
+  ],
+  "commentCreationDates": [
+    "2006-09-08T22:27:01+02:00",
+    "2006-09-08T23:11:56+02:00",
+    "2006-09-12T00:24:21+02:00",
+    "2006-09-12T15:49:35+02:00",
+    "2006-09-12T16:11:48+02:00",
+    "2006-09-12T19:55:16+02:00",
+    "2006-09-21T19:40:57+02:00",
+    "2006-09-21T20:16:34+02:00",
+    "2006-09-22T15:39:18+02:00",
+    "2006-09-22T15:46:21+02:00",
+    "2006-09-22T17:36:07+02:00",
+    "2006-09-22T20:59:07+02:00",
+    "2006-09-22T21:09:43+02:00",
+    "2006-09-25T23:02:16+02:00",
+    "2007-10-09T18:40:15+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.server.core.internal.ServerPublishInfo.getKey",
+          "source": "ServerPublishInfo.java:59"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ServerPublishInfo.hasModulePublishInfo",
+          "source": "ServerPublishInfo.java:92"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.model.ServerBehaviourDelegate.hasBeenPublished",
+          "source": "ServerBehaviourDelegate.java:705"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.model.ServerBehaviourDelegate.publish",
+          "source": "ServerBehaviourDelegate.java:554"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.doPublish",
+          "source": "Server.java:862"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.publish",
+          "source": "Server.java:850"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.consumption.ui.command.StartServerCommand$1.run",
+          "source": "StartServerCommand.java:129"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:113"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "156768",
+      "duplicateId": "205829",
+      "date": "2006-09-08T22:27:01+02:00",
+      "product": "Web Tools",
+      "component": "wst.server",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.server.ui.internal.view.servers.ServerTableLabelProvider.getColumnText",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TreeViewer.doUpdateItem",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer$UpdateItemSafeRunnable.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.doUpdateItem",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$UpdateItemSafeRunnable.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.JFaceUtil$1.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.util.SafeRunnable.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.updateItem",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.createTreeItem",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.updateChildren",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalRefreshStruct",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.TreeViewer.internalRefreshStruct",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.AbstractTreeViewer.internalRefresh",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer$7.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.preservingSelection",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.server.ui.internal.view.servers.ServerTableViewer$8.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.ui.dialog.MessageDialog.open",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.ui.dialog.MessageDialog.openError",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.ui.dialog.MessageDialog.openMessage",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.ui.eclipse.EclipseStatusHandler$3.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.syncExec",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.UISynchronizer.syncExec",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.syncExec",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.ui.eclipse.EclipseStatusHandler.reportErrorStatus",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.ui.eclipse.EclipseStatusHandler.reportError",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jst.ws.internal.consumption.ui.extension.PreClientInstallCommand.execute",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.core.fragment.CommandFragmentEngine.runCommand",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.core.fragment.CommandFragmentEngine.visitTop",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.core.fragment.CommandFragmentEngine.moveForwardToNextStop",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.ui.widgets.SimpleCommandEngineManager$5.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.runInCurrentThread",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.wizard.WizardDialog.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.ui.widgets.SimpleCommandEngineManager.runForwardToNextStop",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.ui.widgets.WizardPageManager.runForwardToNextStop",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.ui.widgets.WizardPageManager.performFinish",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.ui.widgets.DynamicWizard.performFinish",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.wizard.WizardDialog.finishPressed",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.wizard.WizardDialog.buttonPressed",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.Dialog$3.widgetSelected",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.command.internal.env.ui.widgets.popup.DynamicPopupWizard.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PluginAction.runWithEvent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 6,
+      "bugId": "156768",
+      "duplicateId": "205829",
+      "date": "2006-09-21T19:40:57+02:00",
+      "product": "Web Tools",
+      "component": "wst.server",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.server.core.internal.ServerPublishInfo.getKey",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.ServerPublishInfo.hasModulePublishInfo",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.model.ServerBehaviourDelegate.hasBeenPublished",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.model.ServerBehaviourDelegate.publish",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.doPublish",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.publish",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.PublishServerJob.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 6,
+      "bugId": "156768",
+      "duplicateId": "205829",
+      "date": "2006-09-21T19:40:57+02:00",
+      "product": "Web Tools",
+      "component": "wst.server",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server$2.visit",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.visitModule",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server.visit",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.wst.server.core.internal.Server$ResourceChangeJob.run",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 6,
+      "bugId": "156768",
+      "duplicateId": "205829",
+      "date": "2006-09-21T19:40:57+02:00",
+      "product": "Web Tools",
+      "component": "wst.server",
+      "severity": "major"
+    }
+  ],
+  "groupId": "205829",
+  "bugId": "156768",
+  "duplicateId": "205829",
+  "date": "2006-09-08T22:27:01+02:00",
+  "product": "Web Tools",
+  "component": "wst.server",
+  "severity": "major"
+}

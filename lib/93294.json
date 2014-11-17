@@ -1,0 +1,243 @@
+{
+  "comments": [
+    "The constructor of the attached class creates a display and a window. If we\ncreated just one thread creating one instance, everything is OK. If two threads\nare started, we get the following, even if display, shell and input event loop\nare all run by the same thread:\n\norg.eclipse.swt.SWTException: Invalid thread access\n\tat org.eclipse.swt.SWT.error(SWT.java:2691)\n\tat org.eclipse.swt.SWT.error(SWT.java:2616)\n\tat org.eclipse.swt.SWT.error(SWT.java:2587)\n\tat org.eclipse.swt.widgets.Display.error(Display.java:828)\n\tat org.eclipse.swt.widgets.Display.checkDevice(Display.java:575)\n\tat org.eclipse.swt.widgets.Display.getFocusControl(Display.java:1212)\n\tat org.eclipse.swt.widgets.Control.sendFocusEvent(Control.java:2263)\n\tat org.eclipse.swt.widgets.Control.gtk_event_after(Control.java:1747)\n\tat org.eclipse.swt.widgets.Widget.windowProc(Widget.java:1202)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:3098)\n\tat org.eclipse.swt.internal.gtk.OS.gtk_main_do_event(Native Method)\n\tat org.eclipse.swt.widgets.Display.eventProc(Display.java:879)\n\tat org.eclipse.swt.internal.gtk.OS.gtk_main_iteration(Native Method)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2297)\n\tat it.unimi.dsi.mat.lab.Bug.\u003cinit\u003e(Bug.java:16)\n\tat it.unimi.dsi.mat.lab.Bug$1.run(Bug.java:25)\norg.eclipse.swt.SWTException: Invalid thread access\n\tat org.eclipse.swt.SWT.error(SWT.java:2691)\n\tat org.eclipse.swt.SWT.error(SWT.java:2616)\n\tat org.eclipse.swt.SWT.error(SWT.java:2587)\n\tat org.eclipse.swt.widgets.Widget.error(Widget.java:376)\n\tat org.eclipse.swt.widgets.Widget.checkWidget(Widget.java:313)\n\tat org.eclipse.swt.widgets.Control.getShell(Control.java:1627)\n\tat org.eclipse.swt.widgets.Control.getPath(Control.java:1596)\n\tat org.eclipse.swt.widgets.Shell.setActiveControl(Shell.java:915)\n\tat org.eclipse.swt.widgets.Control.sendFocusEvent(Control.java:2250)\n\tat org.eclipse.swt.widgets.Control.gtk_event_after(Control.java:1747)\n\tat org.eclipse.swt.widgets.Widget.windowProc(Widget.java:1202)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:3098)\n\tat org.eclipse.swt.internal.gtk.OS.gtk_main_do_event(Native Method)\n\tat org.eclipse.swt.widgets.Display.eventProc(Display.java:879)\n\tat org.eclipse.swt.internal.gtk.OS.gtk_main_iteration(Native Method)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2297)\n\tat it.unimi.dsi.mat.lab.Bug.\u003cinit\u003e(Bug.java:16)\n\tat it.unimi.dsi.mat.lab.Bug$2.run(Bug.java:31)\n\n\n\n\nimport org.eclipse.swt.widgets.Display;\nimport org.eclipse.swt.widgets.Shell;\n\n\npublic class Bug {\n\n\tpublic Bug() {\n\t\tDisplay display \u003d new Display();\n\t\tShell shell \u003d new Shell( display );\n\t\tshell.setSize( 50, 50 );\n\t\tshell.open();\n\t\twhile ( ! shell.isDisposed() ) {\n\t\t\tif ( !display.readAndDispatch() ) {\n\t\t\t\tdisplay.sleep();\n\t\t\t}\n\t\t}\n\t}\n\t\n\tpublic static void main( String arg[] ) {\n\t\tnew Thread() {\n\t\t\tpublic void run() {\n\t\t\t\tnew Bug();\n\t\t\t}\n\t\t}.start();\n\t\t\n\t\tnew Thread() {\n\t\t\tpublic void run() {\n\t\t\t\tnew Bug();\n\t\t\t}\n\t\t}.start();\n\t}\n}",
+    "We discovered that, in fact, it is not guaranteed that it is possible to create\ntwo Display instances on all platform. The code we sent works perfectly on\nWindows, for instance.\n\nNonetheless, the kind of error returned is completely misleading, and\nfrustrating. Something like \"Too many displays\" or \"You cannot create two\ndisplays in the *** implementation of SWT\" would be definitely more appropriate...",
+    "SSQ and SN to give a better error message.  I thought we threw an error when \nthe display was created.  SSQ?",
+    "I released changes that will cause an appropiate exception to be thrown on \nplatforms were multiple displays is not supported yet.",
+    "We now give a better exception.  Downgrading to an enhancement.  We will not \nget to this for 3.1.",
+    "I had Eclipse 3.2M6 running for about 1 day on GTK using a dual-monitor configuration without any problem whatsoever (not being aware of this annoying limitation) and then, suddenly, after a routine restart of Eclipse (no change to my display configuration that I\u0027m aware of), I hit this problem and there\u0027s no  way to get Eclipse back up and running.  I have tried downgrading my display so that it only uses one of the screens (although I have to admit I\u0027m no huge expert in Linux/Gnome) but this doesn\u0027t sort me out.  The stack trace in .log is as follows:\n\n\n\norg.eclipse.swt.SWTError: Not implemented [multiple displays]\n        at org.eclipse.swt.SWT.error(SWT.java:3400)\n        at org.eclipse.swt.widgets.Display.checkDisplay(Display.java:662)\n        at org.eclipse.swt.widgets.Display.create(Display.java:775)\n        at org.eclipse.swt.graphics.Device.\u003cinit\u003e(Device.java:145)\n        at org.eclipse.swt.widgets.Display.\u003cinit\u003e(Display.java:452)\n        at org.eclipse.swt.widgets.Display.\u003cinit\u003e(Display.java:443)\n        at org.eclipse.ui.internal.Workbench.createDisplay(Workbench.java:448)\n        at org.eclipse.ui.PlatformUI.createDisplay(PlatformUI.java:155)\n\nMy OS is Red Hat 3.4.4-2 (kernel 2.6.9-22.0.1.ELsmp) and X is v6.8.2\n\nI think this bug definitely deserves some attention.  I work at a large US investment bank and I was about to suggest that we could move our development from Windows to Linux... not anymore.",
+    "Mutiple displays does not refer to dual monitors.  Multiple displays mean that you can have multiple SWT Display objects and multiple SWT event loops in the same process.\n\nCan you provide some code that shows the problem?",
+    "If you are seeing Eclipse crash in that way, please file a new bug\nagainst Platform UI.  It is likely a bug in some plugin you are\nusing and not related to this feature request.",
+    "(In reply to comment #6 \u0026 #7)\n\nYou are both right: the problem\u0027s got nothing to do with multiple monitors and it is indeed caused by a rogue plugin (none else than IBM\u0027s ClearCase plugin, courtesy of http://www-128.ibm.com/developerworks/rational/library/content/03July/2500/2834/ClearCase/clearcase_plugins.html) in its latest incarnation, dated 20060127.  I have found out that if I don\u0027t get the plugin to \"connect automatically to ClearCase on startup\", the problem no longer occurs (to be fair, the plugin is not officially supported on 3.2).  I gather this is therefore not an Eclipse bug.\n\nThanks for all your very diligent help!\nChristian",
+    "Ok, thanks for following up and letting us know what happened.  The Clear Case plugin seems to be creating multiple Displays which is not supported on GTK or the Mac.  There are already bug reports that are tracking these issues.",
+    "The Polarion Subversive subversion plugin also seems to be doing this when I right click on the project for some reason, too."
+  ],
+  "commentCreationDates": [
+    "2005-04-29T18:46:11+02:00",
+    "2005-05-02T16:43:46+02:00",
+    "2005-05-02T16:50:51+02:00",
+    "2005-05-02T22:44:15+02:00",
+    "2005-05-24T16:55:54+02:00",
+    "2006-04-07T21:32:09+02:00",
+    "2006-04-07T21:57:02+02:00",
+    "2006-04-08T06:27:35+02:00",
+    "2006-04-11T10:06:49+02:00",
+    "2006-04-11T17:04:44+02:00",
+    "2007-03-02T21:39:06+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Invalid thread access",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2691"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2616"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2587"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.error",
+          "source": "Display.java:828"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.checkDevice",
+          "source": "Display.java:575"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.getFocusControl",
+          "source": "Display.java:1212"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.sendFocusEvent",
+          "source": "Control.java:2263"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.gtk_event_after",
+          "source": "Control.java:1747"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.windowProc",
+          "source": "Widget.java:1202"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:3098"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.gtk_main_do_event",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.eventProc",
+          "source": "Display.java:879"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.gtk_main_iteration",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2297"
+        },
+        {
+          "method": "it.unimi.dsi.mat.lab.Bug.\u003cinit\u003e",
+          "source": "Bug.java:16"
+        },
+        {
+          "method": "it.unimi.dsi.mat.lab.Bug$1.run",
+          "source": "Bug.java:25"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "93294",
+      "date": "2005-04-29T18:46:11+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "enhancement"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Invalid thread access",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2691"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2616"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2587"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:376"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java:313"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.getShell",
+          "source": "Control.java:1627"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.getPath",
+          "source": "Control.java:1596"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.setActiveControl",
+          "source": "Shell.java:915"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.sendFocusEvent",
+          "source": "Control.java:2250"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.gtk_event_after",
+          "source": "Control.java:1747"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.windowProc",
+          "source": "Widget.java:1202"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:3098"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.gtk_main_do_event",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.eventProc",
+          "source": "Display.java:879"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.gtk_main_iteration",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2297"
+        },
+        {
+          "method": "it.unimi.dsi.mat.lab.Bug.\u003cinit\u003e",
+          "source": "Bug.java:16"
+        },
+        {
+          "method": "it.unimi.dsi.mat.lab.Bug$2.run",
+          "source": "Bug.java:31"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "93294",
+      "date": "2005-04-29T18:46:11+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "enhancement"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "Not implemented [multiple displays]",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.checkDisplay",
+          "source": "Display.java:662"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.create",
+          "source": "Display.java:775"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Device.\u003cinit\u003e",
+          "source": "Device.java:145"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.\u003cinit\u003e",
+          "source": "Display.java:452"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.\u003cinit\u003e",
+          "source": "Display.java:443"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createDisplay",
+          "source": "Workbench.java:448"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createDisplay",
+          "source": "PlatformUI.java:155"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 5,
+      "bugId": "93294",
+      "date": "2006-04-07T21:32:09+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "enhancement"
+    }
+  ],
+  "groupId": "93294",
+  "bugId": "93294",
+  "date": "2005-04-29T18:46:11+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "enhancement"
+}

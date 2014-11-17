@@ -1,0 +1,138 @@
+{
+  "comments": [
+    "build 20020517\n\nRunning Eclipse in Eclipse and executing an Ant script. The exception was \nwritten to the log and the second instance froze. Had to terminate the VM in \nthe debug perspective. Attaching log.",
+    "Created an attachment (id\u003d883)\nlog file\n",
+    "Can you please be a little more specific about what you were doing in your \nhost versus your target? Where were you running ant? Where did the exception \noccur? Also, were you running your target or debugging it?\n\nIt\u0027s unlikely that the debugger would freeze up Eclipse based on what\u0027s in \nyour log. We believe we handle TimeoutExceptions well.",
+    "I was running the Ant script in my target instance (the one I instantiate when \nI click on Run-\u003eRuntime Workspace). Not in debug mode. I\u0027ve got this more than \ntwice but I do not have a reproducible test case. Even when I killed the main \nthread, the VM stayed around and I had to kill it as well.",
+    "I\u0027ve got it again. This is on Windows XP Professional with the following VM:\n\njava version \"1.3.0\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.3.0)\nClassic VM (build 1.3.0, J2RE 1.3.0 IBM build cn130-20010925 (JIT enabled: \njitc)\n)\n\nAttaching the new log file.",
+    "Created an attachment (id\u003d904)\nlog file\n",
+    "I\u0027ve got it once more. This time I was just opening a text file (in Run mode \nand not Debug).",
+    "*** Bug 16498 has been marked as a duplicate of this bug. ***",
+    "Have either of you adjusted the \"Debugger timeout\" option under the \nJava-\u003eDebug preferences? The volume of TimeoutExceptions you\u0027re getting \nhints at the timeout being too low somehow.\n\nEither way, it\u0027s still unclear how these exceptions would cause your target \nto freeze. If you look at Rodrigo\u0027s first log, you\u0027ll see that we handle \nthe exception in JDIModelPresentation#getText().\n\nAlso, I\u0027ve realized that I asked a dumb question. You *have* to be running \nEclipse in Debug Mode or we wouldn\u0027t be trying to get threads. The fact \nthat the target freezes in Run mode for Rodrigo says that the errors in his \nlog must be from a previous instantiation of Eclipse. If the VM isn\u0027t \nrunning in Debug Mode, we couldn\u0027t suspend it even if we wanted to.\n\nMaybe there\u0027s another bug (somewhere else in the workbench) that\u0027s causing \nthe freeze-up and the TimeoutExceptions (while unfortunate) are unrelated.",
+    "I haven\u0027t change the timeout settings. It\u0027s at 3000ms for the debugger.\nI failed to mention in bug 16498 that my outer/runtime Eclipse hung, not just \nmy inner/target.",
+    "I haven\u0027t changed the timeout settings either. In my case, only the target \ninstance froze.",
+    "It\u0027s clear that there\u0027s a bug here, but I don\u0027t think it\u0027s related to the \ndebugger.\n\nEvidence:\n1. Eclipse freezes when you open an editor - the debugger doesn\u0027t do anything \nwhen editors open.\n2. Target Eclipse freezes in run mode - the debugger isn\u0027t even active.\n\nThe volume of TimeoutExceptions in the logs here is disturbing and we should \ninvestigate. We should make sure that our JDI client\u0027s packet managers (send \nand receive) are properly recovering from a timeout.",
+    "Although the debugger is not active when \"running\" a program (i.e. no way to \nproduce timeout exceptions), the console is active, and we are monitoring the \nrunning process.",
+    "Our console doesn\u0027t participate in running an Ant script.",
+    "The exception running the Ant script was found in my dev/host/outer Eclipse \nand I was running the script in my target/inner Eclipse. The timeout was not \nfound in the Ant console.",
+    "In the second log file attachment, we see that thread initialization failed:\n(1) could not determine if the thread is a \"system thread\"\n(2) could not determine if the thread was running\n\nIn this case the model thread would appear as \"suspended\" when it may not be, \nand never get updated properly to be \"running\".",
+    "Post 2.0, we need to consdier what action can be taken if creation of a \nbreakpoint request, or thread initialization fails due to a timeout. For now, \nwe recommend increasing the debugger timeout if this happens feqeuently, and to \nupdate the bug report with relevant stack traces/information.\n\nDeferred",
+    "The EventDispatcher should defend against unhandled events. If a breakpoint \nevent comes from the VM and the EventDispatcher finds no one to dispatch to, \nit should probably resume the thread.",
+    "I have the same TimeOutException with M4, Windows NT and JDK 1.3.1_03, too. But\nI only compiled the project with eclipe (and did\u0027nt execute an Ant script). When\nI debug and the debugger stops at a breakpoint I get often this Exception.\n\nHere is the part of the log:\n\n!ENTRY org.eclipse.jdt.debug 4 5010 Jan 23, 2003 14:30:23.297\n!MESSAGE org.eclipse.jdi.TimeoutException occurred determining if object has\nbeen garbage collected.\n!STACK 0\norg.eclipse.jdi.TimeoutException\n\tat\norg.eclipse.jdi.internal.connect.PacketReceiveManager.getReply(PacketReceiveManager.java:138)\n\tat\norg.eclipse.jdi.internal.connect.PacketReceiveManager.getReply(PacketReceiveManager.java:147)\n\tat org.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:167)\n\tat org.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:185)\n\tat org.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:200)\n\tat\norg.eclipse.jdi.internal.ObjectReferenceImpl.isCollected(ObjectReferenceImpl.java:372)\n\tat\norg.eclipse.jdt.internal.debug.core.model.JDIValue.isAllocated(JDIValue.java:278)\n\tat\norg.eclipse.jdt.internal.debug.core.model.JDIValue.getVariablesList(JDIValue.java:188)\n\tat\norg.eclipse.jdt.internal.debug.core.model.JDIStackFrame.findVariable(JDIStackFrame.java:577)\n\tat\norg.eclipse.jdt.internal.debug.core.model.JDIThread.findVariable(JDIThread.java:1431)\n\tat\norg.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.findVariable(JDIDebugTarget.java:1284)\n\tat\norg.eclipse.jdt.internal.debug.ui.JavaDebugHover.getHoverInfo(JavaDebugHover.java:91)\n\tat\norg.eclipse.jdt.internal.ui.text.java.hover.BestMatchHover.getHoverInfo(BestMatchHover.java:131)\n\tat\norg.eclipse.jdt.internal.ui.text.java.hover.JavaEditorTextHoverProxy.getHoverInfo(JavaEditorTextHoverProxy.java:132)\n\tat\norg.eclipse.jface.text.TextViewerHoverManager$2.run(TextViewerHoverManager.java:108)",
+    "Just noticed that a stack trace is dumped to the console of my outer Eclipse. I \ndon\u0027t have the complete stack, the top is missing:\n\n   org/eclipse/jdi/internal/connect/PacketReceiveManager.getReply(IJ)\nLorg/eclipse/jdi/internal/jdwp/JdwpReplyPacket;\n   org/eclipse/jdi/internal/connect/PacketReceiveManager.getReply\n(Lorg/eclipse/jdi/internal/jdwp/JdwpCommandPacket;)\nLorg/eclipse/jdi/internal/jdwp/JdwpReplyPacket;\n   org/eclipse/jdi/internal/MirrorImpl.requestVM(I[B)\nLorg/eclipse/jdi/internal/jdwp/JdwpReplyPacket;\n   org/eclipse/jdi/internal/MirrorImpl.requestVM(I)\nLorg/eclipse/jdi/internal/jdwp/JdwpReplyPacket;\n   org/eclipse/jdi/internal/VirtualMachineImpl.getCapabilities()V\n   org/eclipse/jdi/internal/VirtualMachineImpl.canPopFrames()Z\n   org/eclipse/jdt/internal/debug/core/model/JDIDebugTarget.canPopFrames()Z\n   \norg/eclipse/jdt/internal/debug/core/hcr/JavaHotCodeReplaceManager.doHotCodeRepla\nce(Ljava/util/List;Ljava/util/List;Ljava/util/List;)V\n   org/eclipse/jdt/internal/debug/core/hcr/JavaHotCodeReplaceManager.access$0\n(Lorg/eclipse/jdt/internal/debug/core/hcr/JavaHotCodeReplaceManager;Ljava/util/L\nist;Ljava/util/List;Ljava/util/List;)V\n   org/eclipse/jdt/internal/debug/core/hcr/JavaHotCodeReplaceManager$1.run(Lorg/\neclipse/core/runtime/IProgressMonitor;)V\n   org/eclipse/core/internal/resources/Workspace.run\n(Lorg/eclipse/core/resources/IWorkspaceRunnable;Lorg/eclipse/core/runtime/IProgr\nessMonitor;)V\n   org/eclipse/jdt/internal/debug/core/hcr/JavaHotCodeReplaceManager$3.run()V\n   java/lang/Thread.run()V",
+    "Created an attachment (id\u003d3519)\nLog file\n\nLog file for the session that dumped the above stack trace to the console.",
+    "Just to be clear, Knut... This stack trace was dumped to the console\nimmediately before Eclipse froze up?",
+    "I don\u0027t know. Eclipse only ever freezes for a little while (not more than a \nminute I\u0027d say). When it comes back I see the threads in the debugger marked \nwith \u003cnot responding\u003e. I just happened to check the console at some point.",
+    "That sounds like we\u0027re doing JDWP requests in the UI thread.",
+    "I saw this behavior again today (freeze and stack dump in the log) and there \nwas nothing in the console this time. So the two symptoms don\u0027t seem to be \nrelated.",
+    "Closing"
+  ],
+  "commentCreationDates": [
+    "2002-05-19T09:01:05+02:00",
+    "2002-05-19T09:01:47+02:00",
+    "2002-05-20T21:49:17+02:00",
+    "2002-05-20T22:07:25+02:00",
+    "2002-05-21T00:05:26+02:00",
+    "2002-05-21T00:05:46+02:00",
+    "2002-05-21T00:22:08+02:00",
+    "2002-05-21T14:45:29+02:00",
+    "2002-05-21T15:33:56+02:00",
+    "2002-05-22T16:58:38+02:00",
+    "2002-05-22T17:07:18+02:00",
+    "2002-05-22T17:32:39+02:00",
+    "2002-05-22T17:42:40+02:00",
+    "2002-05-22T17:59:58+02:00",
+    "2002-05-22T18:08:53+02:00",
+    "2002-06-13T18:02:28+02:00",
+    "2002-06-13T18:05:06+02:00",
+    "2002-06-13T19:10:07+02:00",
+    "2003-01-23T13:12:52+01:00",
+    "2003-02-17T01:27:57+01:00",
+    "2003-02-17T01:29:20+01:00",
+    "2003-02-17T15:13:11+01:00",
+    "2003-02-17T15:33:24+01:00",
+    "2003-02-17T17:26:17+01:00",
+    "2003-02-17T20:52:18+01:00",
+    "2004-08-26T16:11:38+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.jdi.TimeoutException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdi.internal.connect.PacketReceiveManager.getReply",
+          "source": "PacketReceiveManager.java:138"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.connect.PacketReceiveManager.getReply",
+          "source": "PacketReceiveManager.java:147"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+          "source": "MirrorImpl.java:167"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+          "source": "MirrorImpl.java:185"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+          "source": "MirrorImpl.java:200"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.ObjectReferenceImpl.isCollected",
+          "source": "ObjectReferenceImpl.java:372"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIValue.isAllocated",
+          "source": "JDIValue.java:278"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIValue.getVariablesList",
+          "source": "JDIValue.java:188"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIStackFrame.findVariable",
+          "source": "JDIStackFrame.java:577"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread.findVariable",
+          "source": "JDIThread.java:1431"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIDebugTarget.findVariable",
+          "source": "JDIDebugTarget.java:1284"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.ui.JavaDebugHover.getHoverInfo",
+          "source": "JavaDebugHover.java:91"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.hover.BestMatchHover.getHoverInfo",
+          "source": "BestMatchHover.java:131"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.text.java.hover.JavaEditorTextHoverProxy.getHoverInfo",
+          "source": "JavaEditorTextHoverProxy.java:132"
+        },
+        {
+          "method": "org.eclipse.jface.text.TextViewerHoverManager$2.run",
+          "source": "TextViewerHoverManager.java:108"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 18,
+      "bugId": "16383",
+      "date": "2003-01-23T13:12:52+01:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "16383",
+  "bugId": "16383",
+  "date": "2002-05-19T09:01:05+02:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

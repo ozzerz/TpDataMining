@@ -1,0 +1,366 @@
+{
+  "comments": [
+    "- Refactor-\u003eMove on \"loadImage\" below\n- Exception follows\n\n\n\n\nimport java.io.FileInputStream;\n\nimport org.eclipse.swt.SWT;\nimport org.eclipse.swt.graphics.ImageData;\nimport org.eclipse.swt.graphics.RGB;\nimport org.eclipse.swt.widgets.Button;\nimport org.eclipse.swt.widgets.Composite;\nimport org.eclipse.swt.widgets.Event;\nimport org.eclipse.swt.widgets.Listener;\n\npublic class Foo\n{\n\t\n\tprivate ImageData[] image;\n\n\tprivate RGB[] palette;\n\tpublic void createGUI(Composite composite)\n\t{\n\t\tButton rgbFun \u003d new Button(composite, SWT.NONE);\n\t\trgbFun.addListener(SWT.Selection, new Listener()\n\t\t{\n\t\t\tpublic void handleEvent(Event event)\n\t\t\t{\n\t}\n\t\t\tprivate void loadImage(FileInputStream stream)\n\t\t\t{\n\t\t\t}\n\t\t});\n\n\t}\n\n}\n\n\n!ENTRY org.eclipse.ui 4 4 mar 27, 2003 10:10:11.517\n!MESSAGE Unhandled exception caught in event loop.\n!ENTRY org.eclipse.ui 4 0 mar 27, 2003 10:10:11.527\n!MESSAGE assertion failed; \n!STACK 0\norg.eclipse.jdt.internal.corext.Assert$AssertionFailedException: assertion \nfailed; \n\tat org.eclipse.jdt.internal.corext.Assert.isTrue(Assert.java:136)\n\tat org.eclipse.jdt.internal.corext.Assert.isTrue(Assert.java:121)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.structure.InstanceMethodMover.getTyp\neBasedVariableName(InstanceMethodMover.java:1748)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.structure.InstanceMethodMover.\u003cinit\u003e\n(InstanceMethodMover.java:1742)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.structure.InstanceMethodMover.create\n(InstanceMethodMover.java:1732)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.structure.MoveInstanceMethodRefactor\ning.initializeMover(MoveInstanceMethodRefactoring.java:89)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.structure.MoveInstanceMethodRefactor\ning.checkActivation(MoveInstanceMethodRefactoring.java:76)\n\tat org.eclipse.jdt.ui.actions.MoveAction.tryMoveInstanceMethod\n(MoveAction.java:177)\n\tat org.eclipse.jdt.ui.actions.MoveAction.run(MoveAction.java:140)\n\tat org.eclipse.jdt.ui.actions.SelectionDispatchAction.dispatchRun\n(SelectionDispatchAction.java:193)\n\tat org.eclipse.jdt.ui.actions.SelectionDispatchAction.run\n(SelectionDispatchAction.java:169)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:842)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection\n(ActionContributionItem.java:456)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent\n(ActionContributionItem.java:403)\n\tat org.eclipse.jface.action.ActionContributionItem.access$0\n(ActionContributionItem.java:397)\n\tat \norg.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent\n(ActionContributionItem.java:72)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:81)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:840)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1842)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1549)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1402)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1385)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:845)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:291)\n\tat org.eclipse.core.launcher.Main.run(Main.java:747)\n\tat org.eclipse.core.launcher.Main.main(Main.java:583)",
+    "confirmed on 20030326\nit\u0027s because of the anonymous class\n\ni suggest deferring",
+    "Created an attachment (id\u003d5708)\nPatch.\n\nCurrent implementation swallowed the exception, giving no feedback at all. The\nproblem was that SelectionConverter.getElementAtOffset returned a wrong\nJavaElement, since there are no JavaElements for local types.\n\nThe patch uses SelectionConverter.codeResolve, which allows to reject the\nrefacoring on invalid selections.",
+    "Markus, i think this patch is for something else",
+    "Created an attachment (id\u003d5735)\nPatch\n\nSorry, here\u0027s the right one.",
+    "this is in conflict with bug 32896\n\nDirk, what do we do here?\nI suggest we detect such cases and issue an error dialog that these methods \ncannot be moved",
+    "To stay consistent move should use the eclosing element. \n\nShort term action:\n- use enclosing element, but make sure that the example doesn\u0027t throw an\n  exception.\n\nlong term action:\n- on run we should build a partial AST and pass it around so that the \n  refactorings don\u0027t rely on IJavaElement which don\u0027t exist for local\n  types.\n\nSorry for the confusion.",
+    "Created an attachment (id\u003d5791)\nPatch no.2 (short term action)\n\nTakes the enclosing JavaElement and informs the user if refactoring not\napplicable. In the example, Foo#createGUI is chosen, since jcore still has no\nJavaElements for local types.",
+    "I think bug 32896 shouldn\u0027t apply to the \"Move Method\" refactoring.\n\nWhen I select a method name in a MethodInvocation, I expect the *selection* to\nbe the target of the refactoring action (and not the enclosing element).\n\nWhat we should do is the following:\n- If the selection resolves (via SelectionConverter.codeResolve) to a valid\nrefactoring target, then use it.\n- Otherwise, look for an enclosing element which would be a valid target.\n\nThe problem with methods in local classes is +/- orthogonal to the above\nproblem. Perhaps, we\u0027d better wait until JavaElements are available for local\ntypes and then consistently deal with the problem in all refactorings.",
+    "Patch released. Fixed in I-build \u003e 20030901.\n\nLong term solution should be \"use AST\" or \"Java core has elements for local \ntypes\". Both action require a path over most of the refactorings and should \ntherefore not be covered by this PR.",
+    "start verifying...",
+    "Verified using I20031007 + plugin-export for I20031008\n\u003d\u003d\u003e not fixed, same assertion failure:\n\n!ENTRY org.eclipse.ui 4 4 Okt 08, 2003 12:11:28.156\n!MESSAGE Unhandled exception caught in event loop.\n!ENTRY org.eclipse.ui 4 0 Okt 08, 2003 12:11:28.186\n!MESSAGE assertion failed; \n!STACK 0\norg.eclipse.jdt.internal.corext.Assert$AssertionFailedException: assertion failed; \n\tat org.eclipse.jdt.internal.corext.Assert.isTrue(Assert.java:136)\n\tat org.eclipse.jdt.internal.corext.Assert.isTrue(Assert.java:121)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.structure.InstanceMethodMover.getTypeBasedVariableName(InstanceMethodMover.java:1794)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.structure.InstanceMethodMover.\u003cinit\u003e(InstanceMethodMover.java:1788)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.structure.InstanceMethodMover.create(InstanceMethodMover.java:1778)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.structure.MoveInstanceMethodRefactoring.initializeMover(MoveInstanceMethodRefactoring.java:99)\n\tat\norg.eclipse.jdt.internal.corext.refactoring.structure.MoveInstanceMethodRefactoring.checkActivation(MoveInstanceMethodRefactoring.java:86)\n\tat\norg.eclipse.jdt.internal.ui.refactoring.CheckConditionsOperation.run(CheckConditionsOperation.java:63)\n\tat\norg.eclipse.jdt.internal.ui.util.BusyIndicatorRunnableContext$BusyRunnable.internalRun(BusyIndicatorRunnableContext.java:113)\n\tat\norg.eclipse.jdt.internal.ui.util.BusyIndicatorRunnableContext$BusyRunnable.run(BusyIndicatorRunnableContext.java:80)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:84)\n\tat\norg.eclipse.jdt.internal.ui.util.BusyIndicatorRunnableContext.run(BusyIndicatorRunnableContext.java:126)\n\tat\norg.eclipse.jdt.internal.ui.refactoring.actions.RefactoringStarter.checkActivation(RefactoringStarter.java:66)\n\tat\norg.eclipse.jdt.internal.ui.refactoring.actions.RefactoringStarter.activate(RefactoringStarter.java:46)\n\tat\norg.eclipse.jdt.internal.ui.refactoring.actions.MoveInstanceMethodAction.run(MoveInstanceMethodAction.java:137)\n\tat\norg.eclipse.jdt.internal.ui.refactoring.actions.MoveInstanceMethodAction.run(MoveInstanceMethodAction.java:151)\n\tat\norg.eclipse.jdt.internal.ui.refactoring.actions.MoveInstanceMethodAction.run(MoveInstanceMethodAction.java:125)\n\tat org.eclipse.jdt.ui.actions.MoveAction.tryMoveInstanceMethod(MoveAction.java:208)\n\tat org.eclipse.jdt.ui.actions.MoveAction.run(MoveAction.java:141)\n\tat\norg.eclipse.jdt.ui.actions.SelectionDispatchAction.dispatchRun(SelectionDispatchAction.java:196)\n\tat\norg.eclipse.jdt.ui.actions.SelectionDispatchAction.run(SelectionDispatchAction.java:172)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:842)\n\tat\norg.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:543)\n\tat\norg.eclipse.jface.action.ActionContributionItem.access$4(ActionContributionItem.java:496)\n\tat\norg.eclipse.jface.action.ActionContributionItem$6.handleEvent(ActionContributionItem.java:468)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:847)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2173)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1863)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2315)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:2298)\n\tat\norg.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:858)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:298)\n\tat org.eclipse.core.launcher.Main.run(Main.java:764)\n\tat org.eclipse.core.launcher.Main.main(Main.java:598)\n",
+    "Markus, please comment. ",
+    "The exception looks the same but has a different cause.\n\nNow, there are JavaElements for anonymous types (and their methods, ...). Our\nrefactorings currently don\u0027t check whether the selection is inside an anonymous\ntype and have undefined behaviour on anonymous types.\n\nWe should disable most (all?) refactorings on anonymous types and display a\nproper error message. Not for M4.",
+    "We must also consider local types (named types inside method bodies). They cause\ntrouble as well.",
+    "Created an attachment (id\u003d6426)\nPatch 3\n\n- replace the offending ad-hoc name guessing to use\nNamingConventions.suggestArgumentNames(.)\n\n- disable MoveInstanceMethodRefactoring for methods in local types\n-\u003e in that case, ReorgMove is used as a fallback, which is consistent with\nother illegal moves (e.g. moving a constructor, ...)",
+    "Created an attachment (id\u003d6427)\nTests for patch 3\n",
+    "Fixed \u003e I20031023",
+    "start verifying",
+    "verified",
+    "Setting to verified"
+  ],
+  "commentCreationDates": [
+    "2003-03-27T09:14:36+01:00",
+    "2003-03-27T10:13:22+01:00",
+    "2003-08-11T16:24:41+02:00",
+    "2003-08-13T12:58:24+02:00",
+    "2003-08-13T13:10:30+02:00",
+    "2003-08-13T14:34:54+02:00",
+    "2003-08-13T15:02:05+02:00",
+    "2003-08-18T12:29:55+02:00",
+    "2003-08-18T12:39:49+02:00",
+    "2003-09-01T16:53:16+02:00",
+    "2003-10-08T11:18:34+02:00",
+    "2003-10-08T12:18:46+02:00",
+    "2003-10-08T12:47:28+02:00",
+    "2003-10-08T13:16:23+02:00",
+    "2003-10-08T16:08:40+02:00",
+    "2003-10-15T08:58:51+02:00",
+    "2003-10-15T09:01:48+02:00",
+    "2003-10-24T17:17:30+02:00",
+    "2003-11-19T11:28:57+01:00",
+    "2003-11-19T11:39:09+01:00",
+    "2003-11-19T14:09:04+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.jdt.internal.corext.Assert$AssertionFailedException",
+      "message": "assertion  failed;",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.corext.Assert.isTrue",
+          "source": "Assert.java:136"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.Assert.isTrue",
+          "source": "Assert.java:121"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.structure.InstanceMethodMover.getTypeBasedVariableName",
+          "source": "InstanceMethodMover.java:1748"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.structure.InstanceMethodMover.\u003cinit\u003e",
+          "source": "InstanceMethodMover.java:1742"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.structure.InstanceMethodMover.create",
+          "source": "InstanceMethodMover.java:1732"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.structure.MoveInstanceMethodRefactoring.initializeMover",
+          "source": "MoveInstanceMethodRefactoring.java:89"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.structure.MoveInstanceMethodRefactoring.checkActivation",
+          "source": "MoveInstanceMethodRefactoring.java:76"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.MoveAction.tryMoveInstanceMethod",
+          "source": "MoveAction.java:177"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.MoveAction.run",
+          "source": "MoveAction.java:140"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.SelectionDispatchAction.dispatchRun",
+          "source": "SelectionDispatchAction.java:193"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.SelectionDispatchAction.run",
+          "source": "SelectionDispatchAction.java:169"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:842"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:456"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent",
+          "source": "ActionContributionItem.java:403"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$0",
+          "source": "ActionContributionItem.java:397"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent",
+          "source": "ActionContributionItem.java:72"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:81"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:840"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:1842"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1549"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1402"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1385"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:845"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:291"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:747"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:583"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "35748",
+      "date": "2003-03-27T09:14:36+01:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.jdt.internal.corext.Assert$AssertionFailedException",
+      "message": "assertion failed;",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.corext.Assert.isTrue",
+          "source": "Assert.java:136"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.Assert.isTrue",
+          "source": "Assert.java:121"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.structure.InstanceMethodMover.getTypeBasedVariableName",
+          "source": "InstanceMethodMover.java:1794"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.structure.InstanceMethodMover.\u003cinit\u003e",
+          "source": "InstanceMethodMover.java:1788"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.structure.InstanceMethodMover.create",
+          "source": "InstanceMethodMover.java:1778"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.structure.MoveInstanceMethodRefactoring.initializeMover",
+          "source": "MoveInstanceMethodRefactoring.java:99"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.refactoring.structure.MoveInstanceMethodRefactoring.checkActivation",
+          "source": "MoveInstanceMethodRefactoring.java:86"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.CheckConditionsOperation.run",
+          "source": "CheckConditionsOperation.java:63"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.util.BusyIndicatorRunnableContext$BusyRunnable.internalRun",
+          "source": "BusyIndicatorRunnableContext.java:113"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.util.BusyIndicatorRunnableContext$BusyRunnable.run",
+          "source": "BusyIndicatorRunnableContext.java:80"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:84"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.util.BusyIndicatorRunnableContext.run",
+          "source": "BusyIndicatorRunnableContext.java:126"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.actions.RefactoringStarter.checkActivation",
+          "source": "RefactoringStarter.java:66"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.actions.RefactoringStarter.activate",
+          "source": "RefactoringStarter.java:46"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.actions.MoveInstanceMethodAction.run",
+          "source": "MoveInstanceMethodAction.java:137"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.actions.MoveInstanceMethodAction.run",
+          "source": "MoveInstanceMethodAction.java:151"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.actions.MoveInstanceMethodAction.run",
+          "source": "MoveInstanceMethodAction.java:125"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.MoveAction.tryMoveInstanceMethod",
+          "source": "MoveAction.java:208"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.MoveAction.run",
+          "source": "MoveAction.java:141"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.SelectionDispatchAction.dispatchRun",
+          "source": "SelectionDispatchAction.java:196"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.SelectionDispatchAction.run",
+          "source": "SelectionDispatchAction.java:172"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:842"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:543"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$4",
+          "source": "ActionContributionItem.java:496"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$6.handleEvent",
+          "source": "ActionContributionItem.java:468"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:847"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2173"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1863"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2315"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:2298"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:858"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:298"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:764"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:598"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 11,
+      "bugId": "35748",
+      "date": "2003-10-08T12:18:46+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "35748",
+  "bugId": "35748",
+  "date": "2003-03-27T09:14:36+01:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "normal"
+}

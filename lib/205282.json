@@ -1,0 +1,152 @@
+{
+  "comments": [
+    "Build ID: I20070921-0919\n\nThe new implementation of the BusyIndicator introduced in 3.4 M2 causes several exceptions, which, however, are swallowed in an empty catch block. You will catch these exceptions when Exception breakpoints for NPE and others are enabled.\n\nThe problem obviously occurs when setBusy is called frequently. I have a search text field in my form in which every ModifyEvent triggers a new search, i.e. every character typed in will cause an update an therefore setBusy will be called in quick succession.\n\nIf you have problems to reproduce the bug, I could try to cut my Forms code down to a small bug snippet.\n\n\nThe exceptions thrown are as follows:\n\norg.eclipse.swt.SWTError: No more handles\n\tat org.eclipse.swt.SWT.error(SWT.java:3717)\n\tat org.eclipse.swt.SWT.error(SWT.java:3609)\n\tat org.eclipse.swt.SWT.error(SWT.java:3580)\n\tat org.eclipse.swt.graphics.Image.createGdipImage(Image.java:870)\n\tat org.eclipse.swt.graphics.GC.drawImage(GC.java:897)\n\tat org.eclipse.swt.graphics.GC.drawImage(GC.java:891)\n\tat org.eclipse.ui.internal.forms.widgets.BusyIndicator$2.run(BusyIndicator.java:123)\n\njava.lang.NullPointerException\n\tat org.eclipse.swt.graphics.Image.dispose(Image.java:1038)\n\tat org.eclipse.ui.internal.forms.widgets.BusyIndicator.clearImages(BusyIndicator.java:303)\n\tat org.eclipse.ui.internal.forms.widgets.BusyIndicator.access$0(BusyIndicator.java:299)\n\tat org.eclipse.ui.internal.forms.widgets.BusyIndicator$2.run(BusyIndicator.java:188)\n\njava.lang.NullPointerException\n\tat org.eclipse.swt.graphics.Image.createGdipImage(Image.java:865)\n\tat org.eclipse.swt.graphics.GC.drawImage(GC.java:897)\n\tat org.eclipse.swt.graphics.GC.drawImage(GC.java:891)\n\tat org.eclipse.ui.internal.forms.widgets.BusyIndicator$2.run(BusyIndicator.java:123)\n\nException in thread \"Thread-72\" java.lang.OutOfMemoryError: Java heap space\n\tat org.eclipse.swt.graphics.Image.getImageData(Image.java:1440)\n\tat org.eclipse.ui.internal.forms.widgets.BusyIndicator$2.run(BusyIndicator.java:122)\n\n\n\tLine 176 in org.eclipse.ui.internal.forms.widgets.BusyIndicator\n\n\tprotected synchronized void createBusyThread() {\n\t\t...\n\t\tbusyThread \u003d new Thread() {\n\t\t\tprivate Image timage;\n\t\t\t\n\t\t\tpublic void run() {\n\t\t\t\ttry {\n\t\t\t\t\t...\n\n\t\t\t\t} catch (Exception e) {\t\t\u003c\u003c\u003c empty catch block swallows these exceptions\n\t\t\t\t} finally {\n\t\t\t\t\t...\n\t\t\t\t}\n\t\t\t}\n\t\t...\n\n\t}",
+    "See bug 179812 for clues - it appears that changes caused by it introduced this new problem.",
+    "This bug is caused by a concurrency problem. The problem is that the access to\nthe \u0027imageCache\u0027 is not properly synchronized. \u0027imageCache\u0027 is accessed\nby the busy thread. When a new busy thread is started, the old one\nmay still be running and disposing the images in the cache. That\u0027s the problem.\n\nThe last commit introduced method clearImages(). Before these changes, the images were not disposed between calls to setBusy(...).\n\nYou can reproduce the bug as follows:\n\n - Add the extension markup below to some plugin and paste the code below.\n\n - In Eclipse, add an exception breakpoint for NPE.\n\n - In the text field of the form, enter quickly some characters or hold down\n   a key; after a short while, an execption should be thrown.\n\n------------------------------------------------------------------------------\n\nThe following is one of several sequences that cause an exception:\n\n- setBusy(true) is called\n\n- setBusy(false) is called\n\n- the current \u0027busyThread\u0027 leaves its while loop and enters\n  its \u0027finally\u0027 block in order to call clearImages()\n\n- while the the old \u0027busyThead\u0027 is still executing its \u0027finally\u0027 block,\n  setBusy(true) is called again\n\n- a new busy thread is created\n  (the \u0027old\u0027 busy thread may still be running at this time)\n\n- the new busy thread enters its while loop\n  and calls getImage(...); it receives an image from the cache\n\n- now the \u0027old\u0027 busy thread, which is still executing its\n  \u0027finally\u0027 block, disposes the image which the new busy thread\n  just fetched from the cache\n\n- finally, the new busy thread tries to draw the image\n  from the cache on screen and causes an exception\n\n------------------------------------------------------------------------------\n\n   \u003cextension\n         point\u003d\"org.eclipse.ui.views\"\u003e\n      \u003cview\n            name\u003d\"BusyIndicatorBug\"\n            class\u003d\"bugs.BusyIndicatorBug\"\n            id\u003d\"bugs.BusyIndicatorBug\"/\u003e\n   \u003c/extension\u003e\n\n------------------------------------------------------------------------------\n\npackage bugs;\n\nimport java.util.Random;\n\nimport org.eclipse.core.runtime.IProgressMonitor;\nimport org.eclipse.core.runtime.IStatus;\nimport org.eclipse.core.runtime.Status;\nimport org.eclipse.core.runtime.jobs.Job;\nimport org.eclipse.swt.SWT;\nimport org.eclipse.swt.events.ModifyEvent;\nimport org.eclipse.swt.events.ModifyListener;\nimport org.eclipse.swt.layout.GridData;\nimport org.eclipse.swt.layout.GridLayout;\nimport org.eclipse.swt.widgets.Composite;\nimport org.eclipse.swt.widgets.Display;\nimport org.eclipse.swt.widgets.Text;\nimport org.eclipse.ui.forms.widgets.Form;\nimport org.eclipse.ui.forms.widgets.FormToolkit;\nimport org.eclipse.ui.part.ViewPart;\n\npublic class BusyIndicatorBugView extends ViewPart {\n\n\tprivate Form form;\n\tprivate Text text;\n\n\tpublic BusyIndicatorBugView() {\n\t}\n\n\t@Override\n\tpublic void createPartControl(Composite parent) {\n\t\tFormToolkit toolkit \u003d new FormToolkit(Display.getCurrent());\n\t\tform \u003d toolkit.createForm(parent);\n\t\tform.setText(\"Header\");\n\t\ttoolkit.decorateFormHeading(form);\n\t\tComposite body \u003d form.getBody();\n\t\ttoolkit.paintBordersFor(body);\n\t\tbody.setLayout(new GridLayout());\n\n\t\ttext \u003d toolkit.createText(body, \"Enter text here\");\n\t\ttext.addModifyListener(new ModifyListener() {\n\t\t\tpublic void modifyText(ModifyEvent e) {\n\t\t\t\tstartBackgroundJob();\n\t\t\t}\n\t\t});\n\t\ttext.setLayoutData(new GridData(SWT.FILL, SWT.BEGINNING, true, false));\n\t}\n\n\t@Override\n\tpublic void setFocus() {\n\t\ttext.setFocus();\n\t}\n\n\tprivate void startBackgroundJob() {\n\t\tJob job \u003d new Job(\"Bug Job\") {\n\t\t\t@Override\n\t\t\tprotected IStatus run(IProgressMonitor monitor) {\n\t\t\t\tsetBusy(true);\n\t\t\t\tdoSomeWork();\n\t\t\t\tsetBusy(false);\n\t\t\t\treturn Status.OK_STATUS;\n\t\t\t}\n\t\t\tprivate void doSomeWork() {\n\t\t\t\ttry {\n\t\t\t\t\tThread.sleep(20 + new Random().nextInt(200));\n\t\t\t\t} catch (InterruptedException e) {\n\t\t\t\t}\n\t\t\t}\n\t\t\tprivate void setBusy(final boolean b) {\n\t\t\t\tDisplay.getDefault().syncExec(new Runnable() {\n\t\t\t\t\tpublic void run() {\n\t\t\t\t\t\tform.setBusy(b);\n\t\t\t\t\t}\n\t\t\t\t});\n\t\t\t}\n\t\t};\n\t\tjob.schedule();\n\t}\n\n}\n",
+    "Created an attachment (id\u003d82347)\nPatch against HEAD to fix this bug\n\nThis patch fixes all problems described. The following changes were made:\n\n- added missing synchronization for access to the image cache\n- refactored the anonymous busy thread class into an internal class\n- moved field \u0027stop\u0027 to BusyThread class\n\nThe last mentioned change is necessary because otherwise it may happen that a thread is not actually stopped, namely, if in the meantime a new busy thread is created (and thus stop is reset to false). In this case, two busy threads draw at the same time, causing some strange flickering.\n\nThe patch has been thoroughly tested for some time. No further problems were encountered.\n\n",
+    "Providing patches for your own bugs! I like the way you operate.\n\nThanks Stefan, I\u0027ll test this out.",
+    "Thanks Stefan! Adam can you review this patch?",
+    "Created an attachment (id\u003d82441)\nPatch against HEAD to fix this bug (slightly updated)\n\nI had a quick glance at the code again. Before committing these changes, perhaps some \u0027final\u0027 keywords should be removed. These partly existed before because of the annonymous class, and partly resulted from the (automatic) refactoring. None of them is still necessary. Some \u0027private\u0027 keywords can also be removed.\n\nMoreover, I thought about moving the lines of code before \u0027new BusyThread(...)\u0027 directly into the BusyThread constructor; however, this does not work, since the code must run in the display thread. So these lines should not be moved.\n",
+    "Patch in comment 6 tested very well.\n\nThanks again Stefan!\n\n+1",
+    "I\u0027ll commit this next week.",
+    "Fixed in HEAD."
+  ],
+  "commentCreationDates": [
+    "2007-10-03T14:34:00+02:00",
+    "2007-10-10T13:23:03+02:00",
+    "2007-10-12T17:28:35+02:00",
+    "2007-11-07T18:10:31+01:00",
+    "2007-11-07T18:16:50+01:00",
+    "2007-11-07T18:26:50+01:00",
+    "2007-11-08T14:23:36+01:00",
+    "2007-11-30T19:06:12+01:00",
+    "2007-11-30T20:02:41+01:00",
+    "2007-12-03T19:35:45+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "No more handles",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3717"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3609"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3580"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.createGdipImage",
+          "source": "Image.java:870"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.GC.drawImage",
+          "source": "GC.java:897"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.GC.drawImage",
+          "source": "GC.java:891"
+        },
+        {
+          "method": "org.eclipse.ui.internal.forms.widgets.BusyIndicator$2.run",
+          "source": "BusyIndicator.java:123"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "205282",
+      "date": "2007-10-03T14:34:00+02:00",
+      "product": "Platform",
+      "component": "User Assistance",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.graphics.Image.dispose",
+          "source": "Image.java:1038"
+        },
+        {
+          "method": "org.eclipse.ui.internal.forms.widgets.BusyIndicator.clearImages",
+          "source": "BusyIndicator.java:303"
+        },
+        {
+          "method": "org.eclipse.ui.internal.forms.widgets.BusyIndicator.access$0",
+          "source": "BusyIndicator.java:299"
+        },
+        {
+          "method": "org.eclipse.ui.internal.forms.widgets.BusyIndicator$2.run",
+          "source": "BusyIndicator.java:188"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "205282",
+      "date": "2007-10-03T14:34:00+02:00",
+      "product": "Platform",
+      "component": "User Assistance",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.graphics.Image.createGdipImage",
+          "source": "Image.java:865"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.GC.drawImage",
+          "source": "GC.java:897"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.GC.drawImage",
+          "source": "GC.java:891"
+        },
+        {
+          "method": "org.eclipse.ui.internal.forms.widgets.BusyIndicator$2.run",
+          "source": "BusyIndicator.java:123"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 0,
+      "bugId": "205282",
+      "date": "2007-10-03T14:34:00+02:00",
+      "product": "Platform",
+      "component": "User Assistance",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.OutOfMemoryError",
+      "message": "Java heap space",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.graphics.Image.getImageData",
+          "source": "Image.java:1440"
+        },
+        {
+          "method": "org.eclipse.ui.internal.forms.widgets.BusyIndicator$2.run",
+          "source": "BusyIndicator.java:122"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 0,
+      "bugId": "205282",
+      "date": "2007-10-03T14:34:00+02:00",
+      "product": "Platform",
+      "component": "User Assistance",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "205282",
+  "bugId": "205282",
+  "date": "2007-10-03T14:34:00+02:00",
+  "product": "Platform",
+  "component": "User Assistance",
+  "severity": "normal"
+}

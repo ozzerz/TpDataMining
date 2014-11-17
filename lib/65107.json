@@ -1,0 +1,70 @@
+{
+  "comments": [
+    "Debugging some (horrible) code I got the following exception:\n\nError Jun 01, 2004 13:30:30.703 Exception processing async thread queue\njava.lang.ClassCastException\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.instructions.Instruction.popValue\n(Instruction.java:115)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.instructions.PushFieldVariable.execute\n(PushFieldVariable.java:49)\n\tat org.eclipse.jdt.internal.debug.eval.ast.engine.Interpreter.execute\n(Interpreter.java:50)\n\tat org.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$1\n$EvaluationRunnable.run(ASTEvaluationEngine.java:317)\n\tat org.eclipse.jdt.internal.debug.core.model.JDIThread.runEvaluation\n(JDIThread.java:659)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$EvalRunnable\n.run(ASTEvaluationEngine.java:351)\n\tat org.eclipse.jdt.internal.debug.core.model.JDIThread$ThreadJob.run\n(JDIThread.java:2510)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:66)\n\n\n\nSteps to reproduce...\n1 Debug this:\npublic class WatchpointTest {\n\tint total;\n\tpublic static void main(String[] args) {\n\t\tstartThread(\"T1!\");\n\t\tstartThread(\"T2!\");\n\t}\n\t\n\tprivate static void startThread(String threadName) {\n\t\tThread t \u003d new Thread(new Runnable() {\n\t\t\tpublic void run() {\n\t\t\t\tnew WatchpointTest().doHighschoolMath();\n\t\t\t}\n\t\t}, threadName);\n\t\tt.start();\n\t}\n\t\n\tprivate void doHighschoolMath() {\n\t\tfor (int i \u003d 0; i \u003c 30; i++) {\n\t\t\ttotal+\u003di;  // \u003c---------- breakpoint here!!\n\t\t}\n\t}\n}\n2. In DebugView switch stack frames a few times, alternating between \"T1!\" \nand \"T2!\"\n\nNote: I had watches on total and i when I discovered this bug.",
+    "The easiest way to reproduce this problem is to create the watch for total and \ni, although one is sufficient and just select a lower stack frame.\n\nThe ClassCastException is caused by a JDIClassType being placed on the stack \ndue to the evaluation of PushThis.execute (line 30) where thisInstance \u003d\u003d null.",
+    "Fixed.\n\nThe problem only appear when selecting the second stack frame. It\u0027s a synthetic\nmethod created to access a private method of the outer type from the anonymous type.\nThe generated source for the evaluation was not correct. The code to evaluate\nwas inserted in an instance method instead of a static method.\nWe were using the base source code to decide if the method should be static or\nnot, according to the location of the current stack frame. It fails in this case\nbecause the location of the synthetic method (static) is on the declaration of\nthe private method (instance).\n\nRemove the \u0027smart\u0027 code which was guessing whether to create a static method or\nnot. And using information from the stack frame instead.",
+    "Please verify, Darin W.",
+    "Verified",
+    "I get the same error in a different context, using Java 5.0:\n\npublic class MyFrame extends JFrame {\nprivate MyTableModel\u003c?\u003e tmodel;\n  public MyFrame(){\n    super(\"MY FRAME\");\n    // create panes with a JList\n    list \u003d new JList(m_list);\n    list.addMouseListener(new MouseAdapter() {\n\tpublic void mouseClicked(MouseEvent e) {\n        // the error occurs when double clicking an item\n        // in the list. I double click the list, the error is thrown. When\n        // clicking ok in the popup window, I end up at the following line,\n        // where I had a toggle point.\n\t  if(e.getClickCount()\u003d\u003d2){\n               // some action passing variable generic types\n               // tmodel declared above\n               tmodel \u003d new MyTableModel\u003cMyObject1\u003e(\"a value\");\n               // using it in a if .. else with for instance\n               // tmodel \u003d new MyTableModel\u003cMyObject2\u003e(\"a value\");\n          }\n\t}\n    });\n    // etc \n  }\n}"
+  ],
+  "commentCreationDates": [
+    "2004-06-01T20:38:06+02:00",
+    "2004-06-04T04:21:21+02:00",
+    "2004-06-05T00:21:11+02:00",
+    "2004-06-05T00:21:29+02:00",
+    "2004-06-08T23:45:26+02:00",
+    "2004-12-27T21:01:25+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.instructions.Instruction.popValue",
+          "source": "Instruction.java:115"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.instructions.PushFieldVariable.execute",
+          "source": "PushFieldVariable.java:49"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.Interpreter.execute",
+          "source": "Interpreter.java:50"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$1$EvaluationRunnable.run",
+          "source": "ASTEvaluationEngine.java:317"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread.runEvaluation",
+          "source": "JDIThread.java:659"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.ASTEvaluationEngine$EvalRunnable.run",
+          "source": "ASTEvaluationEngine.java:351"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread$ThreadJob.run",
+          "source": "JDIThread.java:2510"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:66"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "65107",
+      "date": "2004-06-01T20:38:06+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "65107",
+  "bugId": "65107",
+  "date": "2004-06-01T20:38:06+02:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

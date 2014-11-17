@@ -1,0 +1,95 @@
+{
+  "comments": [
+    "Scenario:\n\nPlugin A requires Plugin B and Plugin C\nPlugin B contains a pre-compiled library (jar) that was compiled against \nservlet.jar\nPlugin C contains servlet.jar, and exports it as a library\n\nIn Eclipse 2.1, when Plugin A referenced a class in Plugin B that in turn \nreferenced a class in servlet.jar, the class was loaded successfully.\n\nIn Eclipse 3.0 M6, with no other code changes, the same scenario does not work \nat all. The following is the stack trace:\n\nkathy@ca.ibm.com -...\tjava.lang.NoClassDefFoundError: \njavax/servlet/ServletContext\n\tat java.lang.Class.getDeclaredMethods0(Native Method)\n\tat java.lang.Class.privateGetDeclaredMethods(Class.java:1753)\n\tat java.lang.Class.getMethod1(Class.java:1878)\n\tat java.lang.Class.getDeclaredMethod(Class.java:1350)\n\tat \norg.apache.commons.discovery.tools.ClassUtils.findPublicStaticMethod(ClassUtils.\njava:112)\n\tat \norg.apache.axis.configuration.EngineConfigurationFactoryFinder.newFactory(Engine\nConfigurationFactoryFinder.java:214)\n\tat \norg.apache.axis.configuration.EngineConfigurationFactoryFinder.access$300(Engine\nConfigurationFactoryFinder.java:92)\n\tat \norg.apache.axis.configuration.EngineConfigurationFactoryFinder$1.run(EngineConfi\ngurationFactoryFinder.java:179)\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat \norg.apache.axis.configuration.EngineConfigurationFactoryFinder.newFactory(Engine\nConfigurationFactoryFinder.java:148)\n\tat \norg.apache.axis.configuration.EngineConfigurationFactoryFinder.newFactory(Engine\nConfigurationFactoryFinder.java:204)\n\tat org.apache.axis.client.Service.\u003cinit\u003e(Service.java:111)",
+    "Theory: there may be some code that sets/accesses the context class loader, \nsince it is referencing an apache library?? Could be an issue with Eclipse \ncompatibility class loader (IPluginDescriptor.getPluginClassLoader())?? Just \nspeculation...",
+    "In you scenario does Plugin B require Plugin C?  If not then it will not work \nin current Eclipse 3.0 because the classloader for Plugin B will not be able to \nload the classes from the servlet.jar in Plugin C.\n",
+    "No, B does not require C. It would work if servlet.jar is referenced using the \ncontext class loader, as long as the context class loader was set up properly",
+    "CC\u0027ing Pascal for comment.\n\nThe implementation of IPluginDescriptor.getPluginClassLoader() in \nPluginDescriptor is a bit strange.  It creates a PluginClassLoader that extents \nURLClassLoader and builds up a list of URL\u0027s to pass the URLClassLoader \nconstructor.  \n\nI\u0027m not sure what the motivation is behind this.  It seems like it should be a \nvery simple ClassLoader that just uses Bundle.loadClass() and Bundle.getResource\n().  Or it should be the actual BundleClassLoader, except there is currently no \neasy way to get a BundleClassLoader from a Bundle object.  Perhaps that will be \nnecessary?\n\nCan you verify if the context class loader is getting set to the \nPluginClassLoader?  Or can you give us access to the plugins that are causing \nthe problems?",
+    "The motivation behind the implementation of getPluginClassLoader is backward \ncompatibility !\nBasically, to encure backward compatibility on non-API stuffs (people casting \nClassLoader to URLClassloader) we made PluginClassLoader inherits from \nURLClassLoader (as it is in 2.1) and set the values as appropriate.\n\nOn the pb itself, like Tom I\u0027m wondering how it could work. A context \nclassloaders must be set somewhere since I do not understand how B can see \nservlet classes from C.",
+    "Note, I have not seen this scenario in person. Kathy may be able to give more \ndetails? The context loader case works like this:\n\nA sets the context loader to its own plugin class loader.\nA calls a library in plugin C.\nThe library in C uses the context loader to load the class from B.\n\nAgain, I\u0027m still not sure why this would work in 2.1 but not 3.0.  If there was \na simplified example it would be useful...",
+    "seems related to bug 45726",
+    "Created an attachment (id\u003d8934)\nContext ClassLoader test that works\n\nI attempted to recreate this bug by creating the attached testcase modeled\nafter comment 6, but it does not fail on the current code.  \n\nThe testcase has three Bundles.  BundleA requires BundleB and BundleC.\tWhen\nBundleA is started it sets the context classloader to the ClassLoader returned\nby getDescriptor().getPluginClassLoader().  It then calls a method from a class\nin BundleB.  This method then uses the context classloader to load a class from\nBundleC, creates an instance object of the class and invokes a method on it.\n\nThis all seems to work perfectly fine in the current code.",
+    "Returning as worksforme.  Please reopen if someone can come up with a testcase \nthat recreates the problem."
+  ],
+  "commentCreationDates": [
+    "2004-02-09T19:45:46+01:00",
+    "2004-02-09T19:47:22+01:00",
+    "2004-02-09T19:59:54+01:00",
+    "2004-02-09T21:02:24+01:00",
+    "2004-02-09T22:46:13+01:00",
+    "2004-02-10T15:25:40+01:00",
+    "2004-02-10T22:22:18+01:00",
+    "2004-03-22T22:24:35+01:00",
+    "2004-03-26T20:43:05+01:00",
+    "2004-03-26T20:45:08+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "javax/servlet/ServletContext",
+      "elements": [
+        {
+          "method": "java.lang.Class.getDeclaredMethods0",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.Class.privateGetDeclaredMethods",
+          "source": "Class.java:1753"
+        },
+        {
+          "method": "java.lang.Class.getMethod1",
+          "source": "Class.java:1878"
+        },
+        {
+          "method": "java.lang.Class.getDeclaredMethod",
+          "source": "Class.java:1350"
+        },
+        {
+          "method": "org.apache.commons.discovery.tools.ClassUtils.findPublicStaticMethod",
+          "source": "ClassUtils. java:112"
+        },
+        {
+          "method": "org.apache.axis.configuration.EngineConfigurationFactoryFinder.newFactory",
+          "source": "Engine ConfigurationFactoryFinder.java:214"
+        },
+        {
+          "method": "org.apache.axis.configuration.EngineConfigurationFactoryFinder.access$300",
+          "source": "Engine ConfigurationFactoryFinder.java:92"
+        },
+        {
+          "method": "org.apache.axis.configuration.EngineConfigurationFactoryFinder$1.run",
+          "source": "EngineConfi gurationFactoryFinder.java:179"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.apache.axis.configuration.EngineConfigurationFactoryFinder.newFactory",
+          "source": "Engine ConfigurationFactoryFinder.java:148"
+        },
+        {
+          "method": "org.apache.axis.configuration.EngineConfigurationFactoryFinder.newFactory",
+          "source": "Engine ConfigurationFactoryFinder.java:204"
+        },
+        {
+          "method": "org.apache.axis.client.Service.\u003cinit\u003e",
+          "source": "Service.java:111"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "51385",
+      "date": "2004-02-09T19:45:46+01:00",
+      "product": "Equinox",
+      "component": "Incubator",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "51385",
+  "bugId": "51385",
+  "date": "2004-02-09T19:45:46+01:00",
+  "product": "Equinox",
+  "component": "Incubator",
+  "severity": "normal"
+}

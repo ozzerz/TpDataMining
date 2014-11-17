@@ -1,0 +1,120 @@
+{
+  "comments": [
+    "An if() pointcut inside a perthis() causes the following dump:\n\nABORT\n\nException thrown from AspectJ 1.2rc2\n\nThis might be logged as a bug already -- find current bugs at\n  http://bugs.eclipse.org/bugs/buglist.cgi?product\u003dAspectJ\u0026component\u003dCompiler\n\nBugs for exceptions thrown have titles File:line from the top stack, \ne.g., \"SomeFile.java:243\"\n\nIf you don\u0027t find the exception below in a bug, please add a new bug\nat http://bugs.eclipse.org/bugs/enter_bug.cgi?product\u003dAspectJ\nTo make the bug a priority, please include a test program\nthat can reproduce this exception.\nnull\njava.lang.NullPointerException\n        at org.aspectj.weaver.patterns.IfPointcut.concretize1(IfPointcut.java:171)\n        at org.aspectj.weaver.patterns.IfPointcut.concretize(IfPointcut.java:143)\n        at org.aspectj.weaver.patterns.AndPointcut.concretize1(AndPointcut.java:88)\n        at org.aspectj.weaver.patterns.Pointcut.concretize(Pointcut.java:135)\n        at org.aspectj.weaver.patterns.Pointcut.concretize(Pointcut.java:122)\n        at org.aspectj.weaver.patterns.PerObject.concretize(PerObject.java:84)\n        at\norg.aspectj.weaver.CrosscuttingMembers.setPerClause(CrosscuttingMembers.java:207)\n        at\norg.aspectj.weaver.ResolvedTypeX.collectCrosscuttingMembers(ResolvedTypeX.java:329)\n        at\norg.aspectj.weaver.CrosscuttingMembersSet.addOrReplaceAspect(CrosscuttingMembersSet.java:57)\n        at org.aspectj.weaver.bcel.BcelWeaver.prepareForWeave(BcelWeaver.java:322)\n        at\norg.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave(AjCompilerAdapter.java:222)\n        at\norg.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling(AjCompilerAdapter.java:114)\n        at org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:376)\n        at\norg.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation(AjBuildManager.java:601)\n        at\norg.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:160)\n        at\norg.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild(AjBuildManager.java:94)\n        at org.aspectj.ajdt.ajc.AjdtCommand.doCommand(AjdtCommand.java:102)\n        at org.aspectj.ajdt.ajc.AjdtCommand.runCommand(AjdtCommand.java:53)\n        at org.aspectj.tools.ajc.Main.run(Main.java:280)\n        at org.aspectj.tools.ajc.Main.runMain(Main.java:217)\n        at org.aspectj.tools.ajc.Main.main(Main.java:79)\n\n\nHere is a small test program to demonstrate the bug.  Just try compiling it.\n\npublic class Main {\n\n  public static void main(String [] args) {\n    System.out.println(\"Hello World\");\n  }\n\n}\n\n// Note the use of an if inside a perthis, causes the ajc compiler to\n//    throw an exception\naspect Aspect perthis(call (* *(..))\n// if you comment out the following line, everything is ok,  so\n//   it seems tobe the use of if in the perthis that is not handled correctly \n                       \u0026\u0026 if(4\u003d\u003d3)\n                     )\n{ before () : call(* *..*(..)) \u0026\u0026 !within(Aspect*)\n  { System.out.println(\"Advice 1\");\n  }\n\n}",
+    "I\u0027m still working on this one, but if you put the if() into a pointcut \ndefinition, this will fix the problem:\n\naspect A perthis(definedPC()) {\n\n  pointcut definedPC(): call(* *(..)) \u0026\u0026 if(4\u003d\u003d3);\n...\n\nIt is to do with the \u0027scope\u0027 within which we are attempting to concretize the if\n().  The code seems to cope with two cases:\n1) The if() is directly specified against advice.\n2) The if() is in a declared pointcut definition.\n\nThis is a third case where there is no surrounding advice or pointcut def.",
+    "I managed to put a fix in that meant we did not blow up at compile time.  \n\nUnfortunately this then led to a situation where we crash at runtime.  It \nturns out that we generate the implementation of the if_0() method (which \ncontains the test you supplied in your if() PCD) when we do a postParse of the \nPointcutDeclaration (Driven through CompilationUnitScope.buildFieldsAndMethods\n()).  If the if() test is inlined in the per clause, we don\u0027t postparse the \npointcut and never generate the if_0() method.\n\n\n\n",
+    "Ensuring the if() test method is generated requires a significant change that \nI don\u0027t want to make between an RC and a final release of 1.2.  So, to prevent \nthe compilation failing with an NPE I have added a compilation check to see if \nyou are using if() in a per clause.  If you are, you will see:\n\n\"if() pointcut designator cannot be used directly in a per clause (compiler \nlimitation).  Create a named pointcut containing the if() and refer to it\"\n\nI\u0027ve added tests for all the various per clause types.\n\nI will then make this bug an enhancement request for post 1.2\n",
+    "The limitation that was the final resolution to this bug is not severe and easily worked around. No \nimmediate plans to do anything further to alleviate this restriction. I\u0027m marking as \"FIXED\" since that best \ndescribes the status of the main issue addressed by the bug report."
+  ],
+  "commentCreationDates": [
+    "2004-05-17T13:21:42+02:00",
+    "2004-05-17T15:23:43+02:00",
+    "2004-05-17T18:27:05+02:00",
+    "2004-05-18T18:08:15+02:00",
+    "2005-08-17T20:55:00+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.patterns.IfPointcut.concretize1",
+          "source": "IfPointcut.java:171"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.IfPointcut.concretize",
+          "source": "IfPointcut.java:143"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.AndPointcut.concretize1",
+          "source": "AndPointcut.java:88"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.concretize",
+          "source": "Pointcut.java:135"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.concretize",
+          "source": "Pointcut.java:122"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.PerObject.concretize",
+          "source": "PerObject.java:84"
+        },
+        {
+          "method": "org.aspectj.weaver.CrosscuttingMembers.setPerClause",
+          "source": "CrosscuttingMembers.java:207"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedTypeX.collectCrosscuttingMembers",
+          "source": "ResolvedTypeX.java:329"
+        },
+        {
+          "method": "org.aspectj.weaver.CrosscuttingMembersSet.addOrReplaceAspect",
+          "source": "CrosscuttingMembersSet.java:57"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.prepareForWeave",
+          "source": "BcelWeaver.java:322"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave",
+          "source": "AjCompilerAdapter.java:222"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling",
+          "source": "AjCompilerAdapter.java:114"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:376"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:601"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:160"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:94"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.doCommand",
+          "source": "AjdtCommand.java:102"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.runCommand",
+          "source": "AjdtCommand.java:53"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.run",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.runMain",
+          "source": "Main.java:217"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.main",
+          "source": "Main.java:79"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "62458",
+      "date": "2004-05-17T13:21:42+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "enhancement"
+    }
+  ],
+  "groupId": "62458",
+  "bugId": "62458",
+  "date": "2004-05-17T13:21:42+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "enhancement"
+}

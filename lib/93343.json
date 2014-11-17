@@ -1,0 +1,116 @@
+{
+  "comments": [
+    "There are NoClassDefFoundErrors reported in the performance tests for\nN20050429-0010 and N20050230-0010.  The one reported in N20050429-0010 in the\nfollowing:\n\njavax/naming/NamingException\n\njava.lang.NoClassDefFoundError: javax/naming/NamingException\nat com.ibm.db2.jcc.c.pb.a(pb.java:206)\nat com.ibm.db2.jcc.c.n.h(n.java:251)\nat com.ibm.db2.jcc.c.n.\u003cclinit\u003e(n.java:239)\nat com.ibm.db2.jcc.DB2Driver.\u003cclinit\u003e(DB2Driver.java:39)\nat java.lang.Class.forName0(Native Method)\nat java.lang.Class.forName(Class.java:141)\nat org.eclipse.test.internal.performance.db.DB.connect(DB.java:662)\nat org.eclipse.test.internal.performance.db.DB.getDefault(DB.java:257)\nat org.eclipse.test.internal.performance.db.DB.store(DB.java:225)\nat\norg.eclipse.test.internal.performance.InternalPerformanceMeter.commit(InternalPerformanceMeter.java:80)\n\nTo fix the above, I added a dependency on org.eclipse.osgi to the Cloudscape\nplugin used for performance testing.\n\nIn N20050430-0010, a different NoClassDefFoundError message is being reported:\n\n    \u003cerror message\u003d\"sun/io/ByteToCharConverter\"\ntype\u003d\"java.lang.NoClassDefFoundError\"\u003ejava.lang.NoClassDefFoundEr\nror: sun/io/ByteToCharConverter\n        at com.ibm.db2.jcc.c.r.a(r.java:151)\n        at com.ibm.db2.jcc.a.d.a(d.java:971)\n        at com.ibm.db2.jcc.a.db.a(db.java:1721)\n        at com.ibm.db2.jcc.a.db.a(db.java:1649)\n        at com.ibm.db2.jcc.a.db.n(db.java:569)\n        at com.ibm.db2.jcc.a.db.j(db.java:256)\n        at com.ibm.db2.jcc.a.db.c(db.java:56)\n        at com.ibm.db2.jcc.a.r.c(r.java:53)\n        at com.ibm.db2.jcc.a.sb.h(sb.java:166)\n        at com.ibm.db2.jcc.c.yc.n(yc.java:1129)\n        at com.ibm.db2.jcc.c.yc.a(yc.java:1765)\n        at com.ibm.db2.jcc.c.yc.a(yc.java:429)\n        at com.ibm.db2.jcc.c.yc.executeQuery(yc.java:413)\n        at org.eclipse.test.internal.performance.db.SQL.\u0026lt;init\u0026gt;(SQL.java:47)\n        at org.eclipse.test.internal.performance.db.DB.connect(DB.java:725)\n        at org.eclipse.test.internal.performance.db.DB.getDefault(DB.java:258)\n        at org.eclipse.test.internal.performance.db.DB.store(DB.java:226)\n        at\norg.eclipse.test.internal.performance.InternalPerformanceMeter.commit(InternalPerformanceMeter.java:82)\n        at\norg.eclipse.test.performance.PerformanceTestCase.commitMeasurements(PerformanceTestCase.java:151)\n--More--(87%)\n\nA Sun 1.4.2 08 vm is being used to run the tests.",
+    "Looks like using the class context to find out if delegation to the boot is \nnecessary is not adaquate.\n\nSonia, can you run the tests with the following VM system property set?\n\n-Dorg.osgi.framework.delegation\u003dsun.\n\n",
+    "Sonia, can you point me to some instructions on running the performance tests?",
+    "From comment 1 the correct property is the following:\n\n-Dorg.osgi.framework.bootdelegation\u003dsun.\n\nCan we find out if Cloudscape is using sun.io packages in their code?",
+    "If I run with the vm arg \"-Dorg.osgi.framework.bootdelegation\u003dsun.\" added to \nthe vm.properties file (see step 4 below), it fixes the problem.  Running with \nit removed reproduces the NoClassDef error.  (Please let me know if I should \nrun with this vm arg as a workaround for the weekend.)\n\nAs for Cloudscape using classes in sun.io, I cannot tell since I cannot find \nsource for the jars we use in our builds.  I did check Derby source and could \nnot find \"sun.io\" in any of the .java files.\n\nHere are instructions (Windows) if you would like to try running the tests \nlocally:\n\nNB.  You will need InfoZip zip/unzip installed on your system.\n\n1.  Get the Cloudscape plugin here if you have access:\n:pserver:anonymous@ottcvs1.ott.oti.com:/home/cvs/releng \nin \"eclipseInternalBuildTools/plugins\".  If you do not have access you will \nneed to create a Derby plugin as described in this document under heading \"\nGetting and installing Derby\": \nhttp://dev.eclipse.org/viewcvs/index.cgi/*checkout*/org.eclipse.test.performanc\ne/doc/Performance%20Tests%20HowTo.html?rev\u003d1.15\n\nPut the plugin in an \"eclipse/plugins\" directory structure.\n\n2.  Download http://download.eclipse.org/downloads/drops/N20050430-\n0010/download.php?dropFile\u003declipse-Automated-Tests-N20050430-0010.zip and \nextract to a directory.\n\n2a.  Download http://fullmoon/downloads/drops/N20050430-0010/download.php?\ndropFile\u003declipse-SDK-N20050430-0010-win32.zip to the eclipse-testing directory \ncreated in step 2 above.  Do not extract as it will be extracted as part of \nthe test run by the scripts.\n\n3. Add the \"eclipse\" directory created in step 1 above to the junit tests zip \nfile located in the eclipse-testing driectory created in step 2.\n\n4.  create a file called vm.properties in the \"eclipse-testing\" directory with \nthis content:\nextraVMargs\u003d-Declipse.perf.dbloc\u003dfoo -\nDeclipse.perf.config\u003dconfig\u003declipseperflnx2;build\u003dN20050430-0010;jvm\u003dsun1.4.2\n_08 -\nDeclipse.perf.assertAgainst\u003dconfig\u003declipseperflnx2;build\u003d3.0_200406251208_20050\n4291722;jvm\u003dsun1.4.2_08\n\n5.  Modify the \"all\" target in eclipse-testing/test.xml by commenting out all \nantcalls except that to \"pdeui\" or \"help\" (these run in a short period of \ntime).\n\n6.  execute \"runtests -os win32 -ws win32 -arch x86 -vm \u003cpath\u003e\\jdk1.4.2_08\n\\jre\\bin\\java -properties vm.properties -Dtest.target\u003dperf\normance\"\n\n7.  Look at xml files in eclipse-testing/results/xml for results of the test \nrun.\n\n",
+    "I have updated our scripts to use the property system property setting \"-\nDorg.osgi.framework.bootdelegation\u003dsun.\" for the time being.\n\n",
+    "Some session tests still failed because the property is not being passed along\nto the 2nd Eclipse instance. I hacked a quick fix for tonight\u0027s build.",
+    "I got derby in my workspace and I am able to succesfully write a database \nrunning the org.eclipse.osgi.tests.perf.AllTests testcases with self-hosting.  \nI assume the tests would fail self-hosting.  Is this true?\n\nI had to create the derby bundle from the latest (Cloudscape 10.0) downloaded \nfrom the site you indicated.  What version of derby/cloudscape do you use?  \nSonia, can you send me the version of the derby plugin you are using?\n\nI\u0027m running the testcases from the commandline using the instructions you gave \nbut I see the following error right away:\n\nC:\\eclipse-testing\u003eruntests.bat -os win32 -ws win32 -arch x86 -vm \nc:\\java\\jdk1.4.2_08\\jre\\bin\\java -properties vm.properties -\nDtest.target\u003dperformance\nUnknown argument: -Dtest.target performance\n\nNotice the Unknown argument.  Then the script continues and runs the regular \ntests, not the performance tests.",
+    "Thomas, do you have access \nto :pserver:anonymous@ottcvs1.ott.oti.com:/home/cvs/releng?  The Cloudscape \nplug-in we use is in eclipseInternalBuildTools/plugins.\n\nAs for the running of the tests on Windows, you will need double quotes around \nthe Ant property setting, ie.  \"-Dtest.target\u003dperformance\".\n\n",
+    "I did get access to :pserver:anonymous@ottcvs1.ott.oti.com:/home/cvs/releng \n(although the server changed \nto :pserver:anonymous@ottcvs1.ottawa.ibm.com:/home/cvs/releng, right? :).  \n\nThe database access works for me using both the old cloudscape plugin from CVS \nand the new derby plugin I created from the latest on the website.\n\nIt also is working as a self-hosted testcase and running from the command line \nusing the runtests scripts.  I will need some help from Rafael perhaps to \ndebug this on the build machine.  Or maybe someone else can reproduce this \nwith self-hosting?",
+    "Talked to Sonia about this. Tomorrow I will try to reproduce the problem with\nhelp from the RelEng team and try to understand what is triggering it.",
+    "Well, after many attempts to reproduce I was finally able to reproduce by \nconnecting to a remote DB.  That is the only way to get it to fail.  The code \nfor cloudscape is obfuscated so it is hard to tell, but it looks like \ncloudscape is using sun.io packages directly.  That is the only explaination \nfor the NoClassDefFoundError to occur like that in the stacktrace.  There is \ncurrently no other workaround besides using the bootdelegation property for \nthis.\n\nYou could do an Import-Package: sun.io but that would require the system \nbundle to export that package also.  Currently we only export java platform \nspec\u0027ed packages (sun.*, com.sun.* packages are not included).  If we export \nthe sun.* packages then requiring the system.bundle (org.eclipse.osgi) would \nbe have giving the cloudscape bundle access to the sun.io package.\n\nOne possible fix would be to do one final check if no class is found at the \nend of the OSGi delegation see if the bundle requires the system.bundle \n(org.eclipse.osgi), if it does then delegate to the parent.\n",
+    "the new buddy loading support should be interesting here.\n\nPerhaps Pascal can give you a patch?",
+    "I think I have a simple test case for this problem.\n\nOn N20050503-0010, create a new plug-in project using the \u0027Hello, World\u0027\ntemplate, replace SampleAction with:\n\npackage test.actions;\n\nimport org.eclipse.jface.action.IAction;\nimport org.eclipse.jface.viewers.ISelection;\nimport org.eclipse.ui.IWorkbenchWindow;\nimport org.eclipse.ui.IWorkbenchWindowActionDelegate;\n\nimport sun.jdbc.odbc.ee.DataSource;\n\npublic class SampleAction implements IWorkbenchWindowActionDelegate {\n  public void run(IAction action) {\n    DataSource source\u003d new DataSource();\n    System.out.println(source.toString());\n  }\n  public void selectionChanged(IAction action, ISelection selection) {\n  }\n  public void dispose() {\n  }\n  public void init(IWorkbenchWindow window) {\n  }\n}\n\nLaunch a runtime workbench, hit the new action -\u003e NoClassDefFoundError.\nsun.jdbc.odbc.ee.DataSource is part of rt.jar and should be available.\nI tried with sun 1.4.2, sun 1.5.0 and j9 1.4.2.\n\nI think bug 93496 is the same problem.\nThis makes Eclipse unusable to do any real development.",
+    "After moving to the N20050504 build, I\u0027ve started seeing NoClassDefFoundErrors\nin my Eclipse target. I tried adding the suggested VM args to my runtime\nworkbench launch config, but it didn\u0027t help.\n\nIf the suggested workaround doesn\u0027t work for me, does that mean that I\u0027ve found\na separate critical bug?",
+    "Jared, can you provide the log entries or stack traces?",
+    "Sorry, I can\u0027t share my test case. I was just asking whether the failure of the\nworkaround meant I\u0027m hitting a separate bug.\n\nIs the test case that Luc provided in comment #13 not sufficient to fix this\nbug? If it\u0027s not, I can try to boil my test case down to something I can share.\nBut I suspect it will end up looking a lot like Luc\u0027s.",
+    "We don\u0027t have problems reproducing this. It is expected that non API classes\ncoming from the boot classpath cannot be loaded by plug-ins. The reason and\nmerit of this is being discussed in the platform-core-dev list. The summary is\nthat Eclipse SDK plug-ins will be tweaked to work with this model, and existing\nplug-ins will work without any changes. Please see that list for more details.\n\nI asked for stack traces so I could tell you whether the problem you are facing\nis in fact related to this. You said the workaround provided in comment 4 didn\u0027t\nwork. What does the org.osgi.framework.bootdelegation property look like and\nwhat classes are failing to load?",
+    "I\u0027d rolled back to last week\u0027s build so I could proceed with my work, but I just\npushed on this some more and managed to make my problem go away on today\u0027s\nbuild. Just telling my PDE launch config to clean the configuration area\nmagically fixed the problem I was seeing. The changes that are being discussed\non the platform-core mailing list don\u0027t make any sense to me, but it looks like\nmy problem was unrelated (?).",
+    "The easy way to tell is: if the missing classes were supposed to come from the\nJRE (or the boot class path), it is likely related, otherwise (it is provided by\na plug-in/custom classloader) it is unrelated.",
+    "*** Bug 93732 has been marked as a duplicate of this bug. ***",
+    "For Eclipse 3.1, we have decided to always delegate to boot first.  This does \nnot strictly follow OSGi R4 delegation model (it is more like OSGi R3 for \nparent delegation).\n\nWe added some options to configure eclipse to use the OSGi R4 strict boot \ndelegation model.  See bug 77112 comment 16.\n\nThe performance tests should work without using any workarounds now that \nEclispe 3.1 delegates to boot be default.",
+    "The permformance tests failed last night because the workaround from comment 3 \ndoes not work anymore.  This is because the org.osgi.framework.bootdelegation \nproperty must use wildcards \"*\" to specify package stems (see bug 95001).  The \nperformance tests should NOT use any workarounds anymore while testing (i.e. \ndo not use -Dorg.osgi.framework.delegation\u003dsun.)\n\nI\u0027m marking this defect as fixed because we always delegate to boot first by \ndefault (comment 21).  This should solve all issues where \nNoClassDefFoundErrors and ClassNotFoundExceptions were thrown for classes from \nboot.",
+    "REALLY marking as FIXED ...",
+    "Thanks : )   I\u0027ve removed the workaround from our scripts."
+  ],
+  "commentCreationDates": [
+    "2005-04-30T13:16:54+02:00",
+    "2005-04-30T14:55:27+02:00",
+    "2005-04-30T15:00:03+02:00",
+    "2005-04-30T15:06:29+02:00",
+    "2005-04-30T16:20:53+02:00",
+    "2005-04-30T18:45:49+02:00",
+    "2005-05-02T04:26:42+02:00",
+    "2005-05-02T05:53:04+02:00",
+    "2005-05-02T13:59:09+02:00",
+    "2005-05-02T16:43:20+02:00",
+    "2005-05-02T22:40:58+02:00",
+    "2005-05-03T01:24:57+02:00",
+    "2005-05-03T03:10:07+02:00",
+    "2005-05-03T19:30:14+02:00",
+    "2005-05-04T20:41:51+02:00",
+    "2005-05-04T21:00:31+02:00",
+    "2005-05-04T22:45:00+02:00",
+    "2005-05-04T22:58:53+02:00",
+    "2005-05-04T23:08:12+02:00",
+    "2005-05-04T23:22:08+02:00",
+    "2005-05-05T00:33:09+02:00",
+    "2005-05-12T17:30:54+02:00",
+    "2005-05-13T17:32:00+02:00",
+    "2005-05-13T17:32:36+02:00",
+    "2005-05-13T17:41:22+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "javax.naming.NamingException",
+      "elements": [
+        {
+          "method": "com.ibm.db2.jcc.c.pb.a",
+          "source": "pb.java:206"
+        },
+        {
+          "method": "com.ibm.db2.jcc.c.n.h",
+          "source": "n.java:251"
+        },
+        {
+          "method": "com.ibm.db2.jcc.c.n.\u003cclinit\u003e",
+          "source": "n.java:239"
+        },
+        {
+          "method": "com.ibm.db2.jcc.DB2Driver.\u003cclinit\u003e",
+          "source": "DB2Driver.java:39"
+        },
+        {
+          "method": "java.lang.Class.forName0",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.Class.forName",
+          "source": "Class.java:141"
+        },
+        {
+          "method": "org.eclipse.test.internal.performance.db.DB.connect",
+          "source": "DB.java:662"
+        },
+        {
+          "method": "org.eclipse.test.internal.performance.db.DB.getDefault",
+          "source": "DB.java:257"
+        },
+        {
+          "method": "org.eclipse.test.internal.performance.db.DB.store",
+          "source": "DB.java:225"
+        },
+        {
+          "method": "org.eclipse.test.internal.performance.InternalPerformanceMeter.commit",
+          "source": "InternalPerformanceMeter.java:80"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "93343",
+      "date": "2005-04-30T13:16:54+02:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "93343",
+  "bugId": "93343",
+  "date": "2005-04-30T13:16:54+02:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "critical"
+}

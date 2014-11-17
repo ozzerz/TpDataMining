@@ -1,0 +1,78 @@
+{
+  "comments": [
+    "Using 20011114, when I try any evaluation in the debugger, I get the following \nNPE:\n\njava.lang.NullPointerException\n\tat \norg.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.createPackage\n(LookupEnvironment.java:320)\n\tat \norg.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope.buildTypeBindings\n(CompilationUnitScope.java:90)\n\tat \norg.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.buildTypeBindings\n(LookupEnvironment.java:110)\n\tat org.eclipse.jdt.internal.compiler.Compiler.beginToCompile\n(Compiler.java:224)\n\tat org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:247)\n\tat org.eclipse.jdt.internal.eval.Evaluator.getClasses\n(Evaluator.java:113)\n\tat org.eclipse.jdt.internal.eval.EvaluationContext.evaluateVariables\n(EvaluationContext.java:308)\n\tat org.eclipse.jdt.internal.eval.EvaluationContext.evaluate\n(EvaluationContext.java:191)\n\tat \norg.eclipse.jdt.internal.core.eval.EvaluationContextWrapper.evaluateCodeSnippet\n(EvaluationContextWrapper.java:158)\n\tat org.eclipse.jdt.internal.debug.eval.LocalEvaluationEngine$2.run\n(LocalEvaluationEngine.java:456)\n\tat java.lang.Thread.run(Thread.java:498)",
+    "This indicates the name environment which got passed to the \nIEvaluationContext.evaluate(...) call was null.\n\nThis reveals that the project has no built state (#getLastBuiltState), which is \nprobably true if using the new builder.\n\nSo turn off the new builder, and we will had support for it soon.",
+    "The evaluation context should create its own name environment using something \nlike the code below... it does not need to know a new build state since there \nis nothing in the state that it needs. It does not want to see source files so \ncreate binary classpath directories for every project. This code comes from \nJavaBuilder.initializeBuilder(), if it would be better in NameEnvironment then \nwe can move it.\n\nworkspaceRoot \u003d currentProject.getWorkspace().getRoot();\noutputFolder \u003d (IContainer) workspaceRoot.findMember\n(javaProject.getOutputLocation());\nif (outputFolder \u003d\u003d null) {\n\toutputFolder \u003d workspaceRoot.getFolder(javaProject.getOutputLocation());\n\tcreateFolder(outputFolder);\n}\n\nIClasspathEntry[] entries \u003d ((JavaProject) javaProject).getExpandedClasspath\n(true);\nint cpCount \u003d 0;\nint max \u003d entries.length;\nthis.classpath \u003d new ClasspathLocation[max];\n\nnextEntry : for (int i \u003d 0; i \u003c max; i++) {\n\tIClasspathEntry entry \u003d entries[i];\n\tObject target \u003d JavaModel.getTarget(workspaceRoot, entry.getPath(), \ntrue);\n\tif (target \u003d\u003d null) continue nextEntry;\n\n\tif (target instanceof IResource) {\n\t\tIResource resource \u003d (IResource) target;\n\t\tswitch(entry.getEntryKind()) {\n\t\t\tcase IClasspathEntry.CPE_SOURCE :\n\t\t\t\tif (!(resource instanceof IContainer)) continue \nnextEntry;\n\t\t\t\tclasspath[cpCount++] \u003d \nClasspathLocation.forRequiredProject(outputFolder.getLocation().toString());\n\t\t\t\tcontinue nextEntry;\n\n\t\t\tcase IClasspathEntry.CPE_PROJECT :\n\t\t\t\tif (!(resource instanceof IProject)) continue \nnextEntry;\n\t\t\t\tIProject prereqProject \u003d (IProject) resource;\n\t\t\t\tIPath outputLocation \u003d getJavaProject\n(prereqProject).getOutputLocation();\n\t\t\t\tIResource prereqOutputFolder;\n\t\t\t\tif (prereqProject.getFullPath().equals\n(outputLocation)) {\n\t\t\t\t\tprereqOutputFolder \u003d prereqProject;\n\t\t\t\t} else {\n\t\t\t\t\tprereqOutputFolder \u003d \nworkspaceRoot.findMember(outputLocation);\n\t\t\t\t\tif (prereqOutputFolder \u003d\u003d null || !\nprereqOutputFolder.exists() || !(prereqOutputFolder instanceof IFolder))\n\t\t\t\t\t\tcontinue nextEntry;\n\t\t\t\t}\n\t\t\t\tclasspath[cpCount++] \u003d \nClasspathLocation.forRequiredProject(prereqOutputFolder.getLocation().toString\n());\n\t\t\t\tcontinue nextEntry;\n\n\t\t\tcase IClasspathEntry.CPE_LIBRARY :\n\t\t\t\tif (resource instanceof IFile) {\n\t\t\t\t\tString extension \u003d entry.getPath\n().getFileExtension();\n\t\t\t\t\tif (!(JAR_EXTENSION.equalsIgnoreCase\n(extension) || ZIP_EXTENSION.equalsIgnoreCase(extension)))\n\t\t\t\t\t\tcontinue nextEntry;\n\t\t\t\t} else if (!(resource instanceof IFolder)) {\n\t\t\t\t\tcontinue nextEntry;\n\t\t\t\t}\n\t\t\t\tclasspath[cpCount++] \u003d \nClasspathLocation.forLibrary(resource.getLocation().toString());\n\t\t\t\tcontinue nextEntry;\n\t\t}\n\t} else if (target instanceof File) {\n\t\tString extension \u003d entry.getPath().getFileExtension();\n\t\tif (!(JAR_EXTENSION.equalsIgnoreCase(extension) || \nZIP_EXTENSION.equalsIgnoreCase(extension)))\n\t\t\tcontinue nextEntry;\n\t\tclasspath[cpCount++] \u003d ClasspathLocation.forLibrary\n(entry.getPath().toString());\n\t}\n}\nif (cpCount \u003c max)\n\tSystem.arraycopy(classpath, 0, (classpath \u003d new ClasspathLocation\n[cpCount]), 0, cpCount);\n",
+    "Fixed as indicated above."
+  ],
+  "commentCreationDates": [
+    "2001-11-15T15:37:42+01:00",
+    "2001-11-15T21:29:40+01:00",
+    "2001-11-16T15:06:39+01:00",
+    "2001-11-19T15:42:59+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.createPackage",
+          "source": "LookupEnvironment.java:320"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope.buildTypeBindings",
+          "source": "CompilationUnitScope.java:90"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.buildTypeBindings",
+          "source": "LookupEnvironment.java:110"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.beginToCompile",
+          "source": "Compiler.java:224"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:247"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.eval.Evaluator.getClasses",
+          "source": "Evaluator.java:113"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.eval.EvaluationContext.evaluateVariables",
+          "source": "EvaluationContext.java:308"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.eval.EvaluationContext.evaluate",
+          "source": "EvaluationContext.java:191"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.eval.EvaluationContextWrapper.evaluateCodeSnippet",
+          "source": "EvaluationContextWrapper.java:158"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.LocalEvaluationEngine$2.run",
+          "source": "LocalEvaluationEngine.java:456"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:498"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "5955",
+      "date": "2001-11-15T15:37:42+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "5955",
+  "bugId": "5955",
+  "date": "2001-11-15T15:37:42+01:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

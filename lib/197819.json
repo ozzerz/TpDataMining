@@ -1,0 +1,205 @@
+{
+  "comments": [
+    "Build ID: I20070621-1340\n\nSteps To Reproduce:\n1. Open Task repositories -\u003e new\n2. Select JIRA connector\n3. fill in fields and validate settings\n\n\nMore information:\nAn exception is thrown. javax.mail.internet.mimemultipart class not found.\nI added the required mail jars to my JRE endorsed dir, and then another exception appears :\n org.apache.axis.attachments.AttachmentsImpl cannot be cast to org.apache.axis.attachments.Attachments",
+    "Can you please post the complete stack trace for this exception as well as the Eclipse configuration details from the Help / About dialog?\n\nWe don\u0027t require any jars in the JRE\u0027s endorsed folders, because they all packaged with the plugins and should be installed automatically. However if you have some conflicting versions of these jars in the endorsed folder, I suspect it may be the cause of your error.\n\nYou can also enable debug tracing to see some more exceptions in the log. See http://wiki.eclipse.org/Mylyn_FAQ#Debug_tracing",
+    "Here is the full stack trace (the JRE endorsed dir is empty, vanilla JRE 1.6_02 being used)\n\nAn internal error occurred during: \"Downloading Filter Names\".\n\njava.lang.NoClassDefFoundError: javax.mail.internet.MimeMultipart\nat org.apache.axis.encoding.DefaultTypeMappingImpl.class$(DefaultTypeMappingImpl.java:120)\nat org.apache.axis.encoding.DefaultTypeMappingImpl.initMappings(DefaultTypeMappingImpl.java:308)\nat org.apache.axis.encoding.DefaultTypeMappingImpl.\u003cinit\u003e(DefaultTypeMappingImpl.java:91)\nat org.apache.axis.encoding.DefaultTypeMappingImpl.getSingletonDelegate(DefaultTypeMappingImpl.java:85)\nat org.apache.axis.encoding.TypeMappingRegistryImpl.\u003cinit\u003e(TypeMappingRegistryImpl.java:155)\nat org.apache.axis.encoding.TypeMappingRegistryImpl.\u003cinit\u003e(TypeMappingRegistryImpl.java:149)\nat org.apache.axis.deployment.wsdd.WSDDDeployment.\u003cinit\u003e(WSDDDeployment.java:449)\nat org.apache.axis.deployment.wsdd.WSDDDocument.setDocument(WSDDDocument.java:139)\nat org.apache.axis.deployment.wsdd.WSDDDocument.\u003cinit\u003e(WSDDDocument.java:65)\nat org.apache.axis.configuration.FileProvider.configureEngine(FileProvider.java:179)\nat org.apache.axis.AxisEngine.init(AxisEngine.java:172)\nat org.apache.axis.AxisEngine.\u003cinit\u003e(AxisEngine.java:156)\nat org.apache.axis.client.AxisClient.\u003cinit\u003e(AxisClient.java:52)\nat org.apache.axis.client.Service.getAxisClient(Service.java:104)\nat org.apache.axis.client.Service.\u003cinit\u003e(Service.java:144)\nat org.eclipse.mylyn.internal.jira.core.wsdl.soap.JiraSoapServiceServiceLocator.\u003cinit\u003e(JiraSoapServiceServiceLocator.java:25)\nat org.eclipse.mylyn.internal.jira.core.service.soap.GZipJiraSoapServiceServiceLocator.\u003cinit\u003e(GZipJiraSoapServiceServiceLocator.java:47)\nat org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.getSoapService(JiraRpcClient.java:123)\nat org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.access$0(JiraRpcClient.java:119)\nat org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient$19.run(JiraRpcClient.java:376)\nat org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient$19.run(JiraRpcClient.java:1)\nat org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.call(JiraRpcClient.java:534)\nat org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.call(JiraRpcClient.java:552)\nat org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.getNamedFilters(JiraRpcClient.java:374)\nat org.eclipse.mylyn.internal.jira.ui.wizards.JiraQueryWizardPage$3.run(JiraQueryWizardPage.java:191)\nat org.eclipse.core.internal.jobs.Worker.run(Worker.java:55)\n",
+    "I suppose we can\u0027t access your jira server? It seems from the stack trace like you are using 2.0 release and I\u0027d recommend to update to the latest dev build, though I don\u0027t recall any changes that can be related to your issue and it could be repository specific.\n\nI am shooting in the dark, but please answer the following: \nWhat locale you have on the server and on your machine? \nWhat jira server version you are using? \nDoes validate on repository configuration for JIRA pass? \nIs these named filters have any non English text in the names? \nCan you create jira query using query configuration dialog? \nCan you open any JIRA tasks in the task editor?",
+    "right, our JIRA server is corporate.\nEnglish locale on both machines.\nJira 3.8\nI get this exception on the validate repository action. So basically i m stuck validating the connection to JIRA",
+    "I had a further look into this and there seems to be some sort of an Axis library conflict, possibly 2 different versions used.\n\nI only get the exception in original description if I have JTest enabled and go and verify the JTest Team server connection before going and trying to verify the JIRA repository connection. If I verify JIRA repository first then it\u0027s fine and it\u0027s the JTest Team server connection which fails.",
+    "What is \"JTest Team server\"? It is really strange, because Mylyn plugins are using axis jars packaged inside and those should not be visible to the other plugins.",
+    "It\u0027s a testing product by Parasoft",
+    "I didn\u0027t know they have Eclipse plugin. Anyways, since it is a commercial product you should probably contact Parasoft about this issue.",
+    "One of our developers reports:\n\nWe have researched the reason of this bug for a while, here\u0027s what we have been able to determine:\n\n- Mylan plugin: org.eclipse.mylyn.jira.core contains axis 1.3 and no activation nor mail jars.\n\n- Our plugin com.parasoft.xtest.libs contains axis 1.2 RC3 and activation and mail jars.\n\n- Upgrading the axis version in Jtest doesn\u0027t solve the problem\n\nWhat happens:\n\nAxis checks for the availability of MimeMultipart/DataHandler classes to set itself in either attachment or no attachment support mode. To check availability it uses quite complicated algorithm that involves caching classloaders and using context classloader.\n\nBut later when it loads MimeMultipart/DataHandler it loads them in a \u0027normal\u0027 way.\n\nSo the base reason is that axis from mylan plugin assumes that MimeMultipart/DataHandler is available but it isn\u0027t.\nTo be more specific the context classloader - eclipse ContextFinder finds the\nMimeMultipart/DataHandler if JTest loaded them before - but later NoClassDefFound happens when code accesses MimeMultipart/DataHandler (or other classes that are assumed to be available in attachment\nsupport mode)\n\nSo there are actually 2 problems that cause this bug.\n\n1) axis using different code to check class availablility and different code later to access it (similar issue http://issues.apache.org/jira/browse/AXIS-2146)\n2) ContextFinder seems to behave incorrectly - when used from mylan side first it correctly fails to load MimeMultipart/DataHandler, but when JTest loads them first then the ContextFinder probably returns the previosuly loaded classes. \n\nWe didn\u0027t debug ContextFinder more throughly - so we don\u0027t know if it\u0027s behaviour is intentional and only axis is to blame for this bug, or both axis and ContextFinder are guilty.\n\nWe also didn\u0027t reproduce the other way around situation that client mentioned. If JIRA/mylan plugin was the first to access the axis - then JTest should fail to connect to TCM. In our workspace JTest worked OK.\n\nPossible workaround is to add activation.jar and javamail.jar to org.eclipse.mylyn.jira.core plugin so it truly have these classes accesible and attachment support enabled.",
+    "Roberto, thanks for the great summary! It is still confusing why we even have two Axis instances. Mylyn\u0027s org.eclipse.mylyn.jira.core plugin don\u0027t even export Axis classes, so it should be self contained and isolated, but it seems like there are another axis classes around. Can you please check if jtest plugins are exported any axis packages?\n\nAnyways, Mik, can you please check if we can include activation and javamail jars or they would have to pass IP clearance?",
+    "The thanks belong to our developer Maciek Datka from Krakow.\n\nThe Parasoft plugin com.parasoft.xtest.libs does export the axis and javamail, etc. jars, but in theory they should only be visible to other plugins that require com.parasoft.xtest.libs (i.e other Parasoft plugins), so I don\u0027t fully understand what is happening either. \n\nIn any case, if you can make an experimental version of the Mylyn Jira integration plugin with the javamail and activation jars included, we would be happy to test it and see if the problem goes away.",
+    "Exporting axis jars in eclipse plugins has always been a headache. My experience is that the only way to go around is to tag the version number of the export with something that only your own plugins will know and use.\ne.g. axis_JTEST so non-parasoft plugins who look for those libraries will not find it.\n",
+    "Plugin org.eclipse.mylyn.jira.core doesn\u0027t normally have access to JTest plugin jars. (like Roberto wrote)\nThis is why NoClassDefFound happens when it tries to use DataHandler/MimeMultipart for real.\n\nThe availability check of DataHandler/MimeMultipart class finds the previously loaded (by JTest axis calls) DataHandler/MimeMultipart.\n\nThe eclipse context class loader is the connection between both axis.\n\nI\u0027m not sure but this looks like our problem:\n\n\"\nOne bundle X uses ContextFinder to load a class with Class.forName and finds\nthe class in its private class space.  Another bundle Y uses ContextFinder to\nload the same class but it is not found in bundle Y\u0027s private class space. \nContextFinder then does a super.loadClass which then will find the cached\nversion of the class from bundle X even though bundle Y should not have access\nto the class from bundle X.\n\"\n\nthis is a quote from comment 7 from bug:\nhttps://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d127963\n\nThe bug is about different issue but there are proposed fixes that would fix the caching ContextFinder. I checked the 3.2 version of ContextFinder and it doesn\u0027t contain these changes. I am adding Thomas to CC list. \n\nThomas can you please have a look at this bug and confirm that ContextFinder class caching is making different axis \u0027instances\u0027 to think that they have DataHandler/MimeMultipart available?\n(while only one of the axis instances really have these classes available)\n\nAxis uses context classloader (well among others) to determine availability of classes then later in code tries to use these classes which obviously fails with NoClassDefFound",
+    "One possible solution is for both Jtest and Mylyn to use the prepackaged third-party bundles from the Eclipse Orbit project.\n\nSee: \n\nhttp://www.eclipse.org/orbit/\nhttp://download.eclipse.org/tools/orbit/downloads/drops/R200706192011/\n\njavamail, activation and axis are all represented.",
+    "If I recall correctly, the problem we had with shared axis bundle is that it require callback/handler classes and those won\u0027t be visible to axis when they live in the child bundle. That is why it lives in mylyn.jira.core plugin where all handlers are.",
+    "If I recall correctly, the problem we had with shared axis bundle is that it require callback/handler classes and those won\u0027t be visible to axis when they live in the child bundle. That is why it lives in mylyn.jira.core plugin where all handlers are.",
+    "any update from either side ? \nWould be nice to be able to use both plugins.\nWe currently have to disable JTest in order to use Mylyn",
+    "(In reply to comment #10)\n\u003e Anyways, Mik, can you please check if we can include activation and javamail\n\u003e jars or they would have to pass IP clearance?\n\nEugene: yup, we can use JavaMail 1.4 and Activation 1.1.  What approach do you propose that we take to handle this?\n\nRegarding consuming Axs via Orbit and handling the callbacks, see bug 188654.  ",
+    "We are currently working on temporary workaround version of mylyn jira plugin and parasoft plugin.",
+    "Maciej: please let me know if there are any changes on the Mylyn side that could make this easier.  Dzieki.",
+    "I am sending the workaround plugins to Irwin.\n(mylyn 2.0, JTest 8.1.47)\n\nAs soon as 3.4 M2 is released I will verify if the problem has been fixed by the fix of:\nhttps://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d127963",
+    "Any news on this?  You can get the latest Mylyn weekly build from: http://www.eclipse.org/mylyn/downloads/",
+    "I have downloaded 3.4 M2 with newest mylyn - the bug still reproduces.\n\nBefore I start debugging again - I asked for confirmation if the fix for https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d127963\nis in 3.4 M2.\n",
+    " (In reply to comment #18)\n\u003e (In reply to comment #10)\n\u003e \u003e Anyways, Mik, can you please check if we can include activation and javamail\n\u003e \u003e jars or they would have to pass IP clearance?\n\u003e \n\u003e Eugene: yup, we can use JavaMail 1.4 and Activation 1.1.  What approach do you\n\u003e propose that we take to handle this?\n\nSince it seems that this problem won\u0027t get resolved on a classloader level and this will affect all users of 3.3.1 that have plug-ins installed that bundle Axis with attachment support I suggest that we add the required jars to the Mylyn JIRA and XPlanner distribution for now. The additional overhead is around 400 kb for each feature. Objections?\n",
+    "I tried to attach those jars to mylyn JIRA connector but this did work for me.\n(class cast exception with AttachementsImpl)\n\nIt seems that after the first tool is used first, then the other tool somehow uses previously loaded class/interface from the caching eclipse classloader and \ntries to cast normally loaded class - and it fails becouse classloaders are \ndifferent (normally this cast is perfectly valid)\n\nBut please do try this - it would be good to confirm it. Also I might have done something wrong.\n\nAs for the classloading - it seems that axis uses Class.forName for context classloader so the fix of 127963 didn\u0027t help.\n(Explained in detail in 127963 - thank you very much for those explanations)\n\n",
+    "Yup, redistributing those JARs may be the best approach due to the call backs.  Also see bug 188654.",
+    "Sorry what I meant in comment 25 was:\n\n\"I tried to attach those jars to mylyn JIRA connector but this did NOT work for me\"\n\nSo unless I made a mistake trying to include attachment support jars in mylyn - redistribution doesn\u0027t fix the problem.\n\nI am trying to get attention of axis developers using axis-dev@ws.apache.org mailing list but with no success yet. ",
+    "I have the same problem as the description.  Now that we have two CollabNet Mylyn connectors, each of which use Axis, once one of them is loaded the other will get this error about:\n\n org.apache.axis.attachments.AttachmentsImpl cannot be cast to\norg.apache.axis.attachments.Attachments\n\nOur plugins already included mail.jar and activation.jar.\n\nI have tried a lot of different approaches but cannot get any that work.  It is obviously some kind of class loading issue.",
+    "We have finally found a solution to make this Axis work properly when it is distributed by multiple bundles. I\u0027ll try to summarize the cause of the problem before describing the changes that were made to the JIRA and XPlanner plug-ins. The scenario is that a bundle that contains axis.jar, mail.jar and activation.jar has been loaded prior to the JIRA connector:\n\nApache Axis uses the thread context classloader to lookup javax.activation.DataHandler and javax.mail.internet.MimeMultipart to determine if it has attachment support. If any loaded bundle contains these classes the _thread context_ classloader will return a valid class object (bug 127963). When the JIRA connector initializes Axis it will attempt to use the class using the _bundle_ classloader which causes a NoClassDefFoundError (comment 2) since the Mylyn plug-ins do not contain the javax jars.\n\nApparently the attempt to bundle the javax jars with the JIRA connector to solve this was not successful due to a classloader mismatch when the classes are used (comment 25). What is happening here is that the Attachment interface is loaded from the _bundle_ classloader whereas the AttachmentImpl class is loaded from the _thread context_ classloader. The lookup in ClassUtils.forName() asks the bootstrap classloader first, then falls back to thread context classloader which returns the class which it will find in any other bundle that contains an Axis implementation. It would attempt to load it from the bundle class loader last but does not get to that point. \n\nIf any Mylyn plug-in needed attachment support I suspect that this would make it work if called before the Axis engine is initialized, i.e. in plug-in start():\n\n ClassUtils.setClassLoader(\"org.apache.axis.attachments.AttachmentsImpl\", getClass().getClassLoader());\n\nIt would cause the ClassUtils class to query the bundle classloader first and get the attachments implementation from the correct Axis jar.\n\nFor JIRA and XPlanner we decided to bundle the javaxzombie.jar which is also part of the Axis Orbit bundle. It has fake implementations for javax.activation.DataHandler and javax.mail.internet.MimeMultipart. These will cause Axis to assume that it has attachment support during initialization and work as long as attachments are not actually used. This will still cause the ClassCastException described above if any other bundle contains Axis. To work around that we set the attachment implementation class to a non-existing class to make sure it fails when loaded causing Axis to disable attachment support when sending messages:\n\n AxisProperties.setProperty(AxisEngine.PROP_ATTACHMENT_IMPLEMENTATION, \"org.eclipse.mylyn.does.not.exist\");\n\nPlease note that Axis has two different methods to discover if attachment support is enabled, JavaUtils.isAttachmentSupported() which is used during initialization and Message.isAttachmentSupported() which is used during sending. The latter method differs from the first one in the respect that it also tries to instantiate the attachment implementation class.\n\nRelated: bug 209370 discussed details on how to consume Axis from Orbit with attachment support enabled. This is also discussed on bug 172264 in respect to Mylyn.",
+    "Created an attachment (id\u003d82588)\nmylyn/context/zip\n\n",
+    "Helen, it would be great if you could verify if the changes work for XPlanner when the next weekly build becomes available.",
+    "so this fix will be in Mylyn 2.2. Any idea when 2.2 will become available ? \nLast release seems to be 2.1 (http://www.eclipse.org/mylyn/) as of November 12",
+    "The fix will become available with this week\u0027s build on Wednesday:\n\n http://www.eclipse.org/mylyn/downloads/\n",
+    "Fantastic work Steffen.  Once this is all done please update the Integrator Reference with recommendations on how to make connectors that use Asix.",
+    "Thanks for the fix, Steffen -- I saw these exceptions with XPlanner before, but didn\u0027t realize there was already a bug tracking this.  I confirmed with the latest Mylyn source that these no longer appear when validating XPlanner credentials.  Will make sure with the actual build also, just in case.",
+    "Mylyn 2.2 will be released on December 19, 2007:\n\nhttp://wiki.eclipse.org/Mylyn_3.0_Plan"
+  ],
+  "commentCreationDates": [
+    "2007-07-25T17:18:36+02:00",
+    "2007-07-25T18:42:06+02:00",
+    "2007-07-26T16:47:50+02:00",
+    "2007-07-26T19:28:59+02:00",
+    "2007-07-27T00:00:42+02:00",
+    "2007-08-01T11:30:13+02:00",
+    "2007-08-01T16:23:49+02:00",
+    "2007-08-01T16:24:57+02:00",
+    "2007-08-01T16:29:49+02:00",
+    "2007-08-07T17:46:21+02:00",
+    "2007-08-07T18:23:01+02:00",
+    "2007-08-07T18:32:14+02:00",
+    "2007-08-07T19:13:51+02:00",
+    "2007-08-08T08:45:22+02:00",
+    "2007-08-08T19:53:10+02:00",
+    "2007-08-08T20:15:29+02:00",
+    "2007-08-08T20:21:20+02:00",
+    "2007-08-20T14:35:06+02:00",
+    "2007-08-23T01:07:05+02:00",
+    "2007-08-23T16:30:22+02:00",
+    "2007-08-23T22:50:25+02:00",
+    "2007-09-10T11:09:55+02:00",
+    "2007-10-12T02:15:43+02:00",
+    "2007-10-15T11:20:48+02:00",
+    "2007-10-22T22:54:04+02:00",
+    "2007-10-23T13:17:30+02:00",
+    "2007-10-31T20:02:47+01:00",
+    "2007-11-02T08:03:07+01:00",
+    "2007-11-08T04:02:12+01:00",
+    "2007-11-10T00:58:45+01:00",
+    "2007-11-10T01:00:19+01:00",
+    "2007-11-10T04:46:38+01:00",
+    "2007-11-12T13:48:05+01:00",
+    "2007-11-12T19:35:40+01:00",
+    "2007-11-13T02:37:08+01:00",
+    "2007-11-13T03:25:47+01:00",
+    "2007-11-14T04:15:03+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "javax.mail.internet.MimeMultipart",
+      "elements": [
+        {
+          "method": "org.apache.axis.encoding.DefaultTypeMappingImpl.class$",
+          "source": "DefaultTypeMappingImpl.java:120"
+        },
+        {
+          "method": "org.apache.axis.encoding.DefaultTypeMappingImpl.initMappings",
+          "source": "DefaultTypeMappingImpl.java:308"
+        },
+        {
+          "method": "org.apache.axis.encoding.DefaultTypeMappingImpl.\u003cinit\u003e",
+          "source": "DefaultTypeMappingImpl.java:91"
+        },
+        {
+          "method": "org.apache.axis.encoding.DefaultTypeMappingImpl.getSingletonDelegate",
+          "source": "DefaultTypeMappingImpl.java:85"
+        },
+        {
+          "method": "org.apache.axis.encoding.TypeMappingRegistryImpl.\u003cinit\u003e",
+          "source": "TypeMappingRegistryImpl.java:155"
+        },
+        {
+          "method": "org.apache.axis.encoding.TypeMappingRegistryImpl.\u003cinit\u003e",
+          "source": "TypeMappingRegistryImpl.java:149"
+        },
+        {
+          "method": "org.apache.axis.deployment.wsdd.WSDDDeployment.\u003cinit\u003e",
+          "source": "WSDDDeployment.java:449"
+        },
+        {
+          "method": "org.apache.axis.deployment.wsdd.WSDDDocument.setDocument",
+          "source": "WSDDDocument.java:139"
+        },
+        {
+          "method": "org.apache.axis.deployment.wsdd.WSDDDocument.\u003cinit\u003e",
+          "source": "WSDDDocument.java:65"
+        },
+        {
+          "method": "org.apache.axis.configuration.FileProvider.configureEngine",
+          "source": "FileProvider.java:179"
+        },
+        {
+          "method": "org.apache.axis.AxisEngine.init",
+          "source": "AxisEngine.java:172"
+        },
+        {
+          "method": "org.apache.axis.AxisEngine.\u003cinit\u003e",
+          "source": "AxisEngine.java:156"
+        },
+        {
+          "method": "org.apache.axis.client.AxisClient.\u003cinit\u003e",
+          "source": "AxisClient.java:52"
+        },
+        {
+          "method": "org.apache.axis.client.Service.getAxisClient",
+          "source": "Service.java:104"
+        },
+        {
+          "method": "org.apache.axis.client.Service.\u003cinit\u003e",
+          "source": "Service.java:144"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.wsdl.soap.JiraSoapServiceServiceLocator.\u003cinit\u003e",
+          "source": "JiraSoapServiceServiceLocator.java:25"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.GZipJiraSoapServiceServiceLocator.\u003cinit\u003e",
+          "source": "GZipJiraSoapServiceServiceLocator.java:47"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.getSoapService",
+          "source": "JiraRpcClient.java:123"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.access$0",
+          "source": "JiraRpcClient.java:119"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient$19.run",
+          "source": "JiraRpcClient.java:376"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient$19.run",
+          "source": "JiraRpcClient.java:1"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.call",
+          "source": "JiraRpcClient.java:534"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.call",
+          "source": "JiraRpcClient.java:552"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.core.service.soap.JiraRpcClient.getNamedFilters",
+          "source": "JiraRpcClient.java:374"
+        },
+        {
+          "method": "org.eclipse.mylyn.internal.jira.ui.wizards.JiraQueryWizardPage$3.run",
+          "source": "JiraQueryWizardPage.java:191"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:55"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "197819",
+      "date": "2007-07-26T16:47:50+02:00",
+      "product": "Mylyn",
+      "component": "Jira",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "197819",
+  "bugId": "197819",
+  "date": "2007-07-25T17:18:36+02:00",
+  "product": "Mylyn",
+  "component": "Jira",
+  "severity": "normal"
+}

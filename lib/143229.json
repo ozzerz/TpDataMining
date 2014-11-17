@@ -1,0 +1,131 @@
+{
+  "comments": [
+    "Opened for IBM (Daniel Berg) on 0512 WTP:\n\nWhen I start the workbench with the J2EE perspective open and Web projects in the workspace I get the following exception.\n\n!ENTRY org.eclipse.jst.j2ee.webservice.ui 4 0 2006-05-23 07:52:16.623\n!MESSAGE org.eclipse.emf.ecore.xmi.PackageNotFoundException: Package with uri \u0027h\nttp://java.sun.com/xml/ns/j2ee\u0027 not found. (platform:/resource/DC23Web/WebConten\nt/WEB-INF/web.xml, 2, 234)\n!STACK 0\norg.eclipse.emf.ecore.resource.impl.ResourceSetImpl$1$DiagnosticWrappedException\n: org.eclipse.emf.ecore.xmi.PackageNotFoundException: Package with uri \u0027http://j\nava.sun.com/xml/ns/j2ee\u0027 not found. (platform:/resource/DC23Web/WebContent/WEB-I\nNF/web.xml, 2, 234)\n        at org.eclipse.emf.ecore.resource.impl.ResourceSetImpl.handleDemandLoadE\nxception(ResourceSetImpl.java:307)\n        at org.eclipse.emf.ecore.resource.impl.ResourceSetImpl.demandLoadHelper(\nResourceSetImpl.java:268)\n        at org.eclipse.emf.ecore.resource.impl.ResourceSetImpl.getResource(Resou\nrceSetImpl.java:390)\n        at org.eclipse.jem.internal.util.emf.workbench.ProjectResourceSetImpl.ge\ntResource(ProjectResourceSetImpl.java:262)\n        at org.eclipse.wst.common.internal.emfworkbench.WorkbenchResourceHelper.\ngetOrCreateResource(WorkbenchResourceHelper.java:307)\n        at org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.ge\ntResource(EditModel.java:688)\n        at org.eclipse.wst.common.componentcore.internal.ArtifactEditModel.getRe\nsource(ArtifactEditModel.java:173)\n        at org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.ge\ntPrimaryResource(EditModel.java:1516)\n        at org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.ge\ntPrimaryRootObject(EditModel.java:1497)\n        at org.eclipse.wst.common.componentcore.ArtifactEdit.getContentModelRoot\n(ArtifactEdit.java:426)\n        at org.eclipse.jst.j2ee.internal.webservice.helper.WebServicesManager.ge\ntWorkspace14ServiceRefs(WebServicesManager.java:615)\n        at org.eclipse.jst.j2ee.internal.webservice.WebServicesNavigatorContentP\nrovider.indexWebServices(WebServicesNavigatorContentProvider.java:360)\n        at org.eclipse.jst.j2ee.internal.webservice.WebServicesNavigatorContentP\nrovider.access$0(WebServicesNavigatorContentProvider.java:345)\n        at org.eclipse.jst.j2ee.internal.webservice.WebServicesNavigatorContentP\nrovider$WebServiceIndexJob.run(WebServicesNavigatorContentProvider.java:403)\n        at org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)",
+    "*** Bug 142737 has been marked as a duplicate of this bug. ***",
+    "I am unable to reproduce this error consistently in my local environment. I believe that it related to some sort of timing issue with the parsing of the package registration extensions and the first request of the J2EE schema package. The error does not appear to hinder the further operation of any function, so it does not seem that severe. \n\nIn my local environment, I will normally get the error when my local firewall software blocks the request to load a schema over the network (web_2_4.xsd in this case). Running in Debug seemed to alter the timing or change the behavior enough to hide the error. I don\u0027t think I\u0027ve seen this when running in Debug at all; only when running normally (either from a development image or directly).\n\nDeferring to RC5 as a fix will not be available for RC4.",
+    "*** Bug 145100 has been marked as a duplicate of this bug. ***",
+    "This is being seen by a number of people.",
+    "*** Bug 145140 has been marked as a duplicate of this bug. ***",
+    "I don\u0027t have a proposed fix yet, but here\u0027s what I believe is happening:\n\nThis problem is a concurrency issue. It\u0027s taken some time to debug because the problem is intermittent, occurring somewhere between 25-40% of the time. \n\nThe root of the problem comes in ResourceSetImpl.createResource(URI), where a request is received to load \"META-INF/web.xml\", *BEFORE* the correct Resource.Factory has been registered. The createResource() method identifies the default global resource factory (ReferencedXMIFactoryImpl) (incorrectly) to create the Web DD resource (as an instance of ReferencedXMIResourceImpl). The correct behavior would be to locate an instance of WebAppResourceFactoryImpl that would then create a WebAppResourceImpl. \n\nBecause the wrong resource type is created, the Resource.load() method tries to use the EMF loading scheme (not the Translators). The resource sits quietly until load is called, when the PackageNotFoundException is thrown. \n\nIt took awhile, but I\u0027ve determined that the correct ResourceFactory*Registry* is registered correctly, and it doesn\u0027t look like the issue is in FileNameResourceFactory.registerLastFileSegment(), although this method is unsynchronized and open to concurrency issues. \n\nWhat I\u0027ve found recently is that the Java initialization tooling trips the load of the org.eclipse.jst.j2ee.web plugin for the JRE contaner defined there (the WebApp Library container), on its Java initialization worker thread. The call:\n\nWebAppResourceFactory.register(WTPResourceFactoryRegistry.INSTANCE);\n\nin WebPlugin.start(BundleContext) is required to properly register the WebAppResourceFactory as the factory for \"web.xml\" files. \n\nThe JRE container is tripping the load of org.eclipse.jst.j2ee.web plugin on its thread, and apparently before the line above is executed, the WebServicesNavigatorContentProvider\u0027s index job (on another thread) requests the \"META-INF/web.xml\" resource before this call to register can complete. The ResourceSetImpl.createResource() method on the WebServiceNavigatorContentProvider\u0027s thread finds no Resource.Factory registered for the \"web.xml\" segment, and consequently chooses ReferencedXMIResourceFactory as the default. The wrong resource is created, and silently the stage is set for the PackageNotFoundException later on. ",
+    "The only worthy fix here that I can see is the addition of an internal extension point that would declare:\n\n*the filename short segment (e.g. \"web.xml\")\n*the fully qualified classname of the Resource.Factory for the short segment.\n\nThen the WTPModulesResourceFactory would be re-implemented to take advantage of this extension point, instead of relying on plugin startup to register the file-name, resource factory pairs.",
+    "\"WTPResourceFactoryRegistry\", not \"WTPModulesResourceFactory\". ",
+    "After discussing these issues with Michael, we have determined that the\nregistry scheme that \"assumes\"  startup order is flawed, and a more direct\nregistration using extension points is required.\n\nThe ResourceFactoryRegistry (WTPResourceFactoryRegistry)  will use an extension\npoint mechanism that will be checked if no factory has been registered, thus\neliminating any \"timing\" issues of assumed plugin startup order.\n\nMichael will attach a patch when available.",
+    "Created an attachment (id\u003d43635)\nPatches several plugins to drive registration through an extension point\n\nThe patch applies to the following plugins:\n\norg.eclipse.jst.j2ee\norg.eclipse.jst.j2ee.core\norg.eclipse.jst.j2ee.ejb\norg.eclipse.jst.j2ee.web\norg.eclipse.jst.j2ee.webservice\norg.eclipse.wst.common.emf\norg.eclipse.wst.common.modulecore\n\nThe patch refactors FileNameResourceFactoryRegistry in org.eclipse.wst.common.emf to be a little more robust in tracking the association between short names and Resource.Factory\u0027s. \n\nA new extension point (for internal use only) is addded to org.eclipse.wst.common.modulecore that declares a registration for short-name to  resource factory pairs. The WTPResourceFactoryRegistry subclass of FileNameResourceFactory is updated to parse this extension point and create mappings in FileNameResourceFactoryRegistry, as if the old plugin.start() semantics were used. \n\nWTPResourceFactoryRegistry can also log invalid usages for those that are still calling FileNameResourceFactoryRegister.registerLastFileName() directly, rather than through the extension point. \n\nThe package that declares FileNameResourceFactoryRegistry in org.eclipse.wst.common.emf was added as a friend package for the org.eclipse.wst.common.modulecore plugin. The split here had to be made for various reasons, but it was required.\n\nThe Descriptor classes (that map short-names to Resource.Factory\u0027s) and the ext pt registry reader are coded defensively, so there shouldn\u0027t be alot of risk from extensions. \n\nThe remaining plugins required changes to (1) define no-arg constructors for the existing Resource.Factory subclasses and (2) declare the org.eclipse.wst.common.modulecore.resourceFactories extensions to take advantage of the new changes, and (3) remove the programmatic calls from Plugin.start() methods. \n\nWTPResourceFactoryRegistry will still support programmatic registration for any clients that cannot port, and supports a compile-time flag to turn on warning messages. ",
+    "Added to PMC for approval....",
+    "I was reproducing this bug reliably in I200606070737.  In order to do some testing, I built and applied this patch.  An FYI to save a build cycle, Thread.getStackTrace(), used by WTPResourceFactoryRegistry, is new for 1.5.  I substituted \"(new Throwable()).getStackTrace()\" for \"Thread.currentThread().getStackTrace()\".  As expected, with the patch I\u0027m no longer reproducing the problem.",
+    "+1 for WTP 1.5 RC5. \n\nTesting seems to verify the fix.",
+    "+1 1.5\n",
+    "\nIt might be wise (as comment 12 points out) to remove the \"Thread.currentThread().getStackTrace() line used to log warnings, if the build is not JRE 1.5 compliant. This was used to provide better context to locate places where programmatic registration was still used. Removing the logging logic will not affect the patch.",
+    "Released for WTP 1.5 RC5 060706 driver.",
+    "Created an attachment (id\u003d43835)\nport back to 1.4 compliance\n\nBuild Breaker #8 ... \nwho did not take Michael\u0027s advice? \nthread.getStackTrace() \nand \nstring.contains \nare not part of JRE 1.4! \n",
+    "You can blame me.  I use 1.4 compliance compiler settings and did not have any errors in my workspace, so that gave me false assurance it was resolved in the patch already.  Thanks David for that catch.",
+    "Bonus round! Who can spot the potential API breakage?\n\nAdopter usage reports show this class is being used by three IBM adopters and one BEA adopter. Running the API scan on the new class doesn\u0027t show any problems, but I don\u0027t see any indication that it was run either. However, making the constructor private broke at least one of the IBM adopters using this class.\n\nJust a reminder to developers and the PMC that reviewed this change to check for breakage and be very wary of making changes like this late in the cycle. I\u0027ll follow up with Jeffrey to figure out why the scan tool isn\u0027t working.",
+    "The problem is caused by out of date usage reports. After 1.5, I\u0027ll get in touch with the adopters regarding how to provide usage reports more often.",
+    "Verified on 061606."
+  ],
+  "commentCreationDates": [
+    "2006-05-23T16:57:25+02:00",
+    "2006-05-25T16:47:08+02:00",
+    "2006-05-26T21:12:00+02:00",
+    "2006-06-05T15:53:19+02:00",
+    "2006-06-05T15:54:08+02:00",
+    "2006-06-05T15:56:15+02:00",
+    "2006-06-06T16:08:59+02:00",
+    "2006-06-06T17:11:31+02:00",
+    "2006-06-06T17:13:43+02:00",
+    "2006-06-06T17:20:44+02:00",
+    "2006-06-06T21:30:30+02:00",
+    "2006-06-06T21:42:58+02:00",
+    "2006-06-07T22:02:25+02:00",
+    "2006-06-07T22:29:06+02:00",
+    "2006-06-07T22:30:20+02:00",
+    "2006-06-07T23:06:12+02:00",
+    "2006-06-07T23:44:52+02:00",
+    "2006-06-08T08:43:41+02:00",
+    "2006-06-08T15:17:55+02:00",
+    "2006-06-13T17:24:25+02:00",
+    "2006-06-14T16:35:01+02:00",
+    "2006-06-16T20:42:14+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.emf.ecore.xmi.PackageNotFoundException",
+      "message": "Package with uri \u0027http://j ava.sun.com/xml/ns/j2ee\u0027 not found. (platform:/resource/DC23Web/WebContent/WEB-I NF/web.xml, 2, 234)",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceSetImpl.handleDemandLoadException",
+          "source": "ResourceSetImpl.java:307"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceSetImpl.demandLoadHelper",
+          "source": " ResourceSetImpl.java:268"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceSetImpl.getResource",
+          "source": "Resou rceSetImpl.java:390"
+        },
+        {
+          "method": "org.eclipse.jem.internal.util.emf.workbench.ProjectResourceSetImpl.getResource",
+          "source": "ProjectResourceSetImpl.java:262"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.WorkbenchResourceHelper.getOrCreateResource",
+          "source": "WorkbenchResourceHelper.java:307"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getResource",
+          "source": "EditModel.java:688"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.internal.ArtifactEditModel.getResource",
+          "source": "ArtifactEditModel.java:173"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getPrimaryResource",
+          "source": "EditModel.java:1516"
+        },
+        {
+          "method": "org.eclipse.wst.common.internal.emfworkbench.integration.EditModel.getPrimaryRootObject",
+          "source": "EditModel.java:1497"
+        },
+        {
+          "method": "org.eclipse.wst.common.componentcore.ArtifactEdit.getContentModelRoot",
+          "source": "ArtifactEdit.java:426"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.webservice.helper.WebServicesManager.getWorkspace14ServiceRefs",
+          "source": "WebServicesManager.java:615"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.webservice.WebServicesNavigatorContentProvider.indexWebServices",
+          "source": "WebServicesNavigatorContentProvider.java:360"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.webservice.WebServicesNavigatorContentProvider.access$0",
+          "source": "WebServicesNavigatorContentProvider.java:345"
+        },
+        {
+          "method": "org.eclipse.jst.j2ee.internal.webservice.WebServicesNavigatorContentProvider$WebServiceIndexJob.run",
+          "source": "WebServicesNavigatorContentProvider.java:403"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "143229",
+      "date": "2006-05-23T16:57:25+02:00",
+      "product": "Web Tools",
+      "component": "jst.j2ee",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "143229",
+  "bugId": "143229",
+  "date": "2006-05-23T16:57:25+02:00",
+  "product": "Web Tools",
+  "component": "jst.j2ee",
+  "severity": "critical"
+}

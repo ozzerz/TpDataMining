@@ -1,0 +1,1362 @@
+{
+  "comments": [
+    "N20060405-0010 + plug-in export from HEAD including JDT Core code\n\nSorry no steps. The .log gets huge since the file is dumped each time. Could the logic be optimized to dump the same file just once?\n\n!SESSION 2006-04-06 16:14:00.628 -----------------------------------------------\neclipse.buildId\u003dN20060405-0010\njava.fullversion\u003dJ2RE 1.5.0 IBM J9 2.3 Windows XP x86-32 j9vmwi3223-20060222a (JIT enabled)\nJ9VM - 20060220_05389_lHdSMR\nJIT  - 20060220_2133_r8\nGC   - 20060214_AA\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003dde_CH\nFramework arguments:  -update -keyring c:\\eclipse\\.keyring -application org.eclipse.ui.ide.workbench -showlocation\nCommand-line arguments:  -update -keyring c:\\eclipse\\.keyring -application org.eclipse.ui.ide.workbench -showlocation -data c:\\eclipse\\workspaces\\Development_3_2\\plugins\n\n!ENTRY org.eclipse.jdt.core 4 4 2006-04-06 16:15:04.539\n!MESSAGE Exception occurred during problem detection:\n----------------------------------- SOURCE BEGIN -------------------------------------\n/*******************************************************************************\n * Copyright (c) 2000, 2006 IBM Corporation and others.\n * All rights reserved. This program and the accompanying materials\n * are made available under the terms of the Eclipse Public License v1.0\n * which accompanies this distribution, and is available at\n * http://www.eclipse.org/legal/epl-v10.html\n *\n * Contributors:\n *     IBM Corporation - initial API and implementation\n *******************************************************************************/\n package org.eclipse.jdt.internal.corext.util;\n\nimport java.util.ArrayList;\nimport java.util.Collection;\nimport java.util.Collections;\nimport java.util.Iterator;\nimport java.util.List;\nimport java.util.StringTokenizer;\n\nimport org.eclipse.core.runtime.IProgressMonitor;\nimport org.eclipse.core.runtime.IStatus;\nimport org.eclipse.core.runtime.OperationCanceledException;\nimport org.eclipse.core.runtime.Platform;\nimport org.eclipse.core.runtime.Status;\nimport org.eclipse.core.runtime.jobs.IJobChangeEvent;\nimport org.eclipse.core.runtime.jobs.Job;\nimport org.eclipse.core.runtime.jobs.JobChangeAdapter;\n\nimport org.eclipse.core.resources.ResourcesPlugin;\n\nimport org.eclipse.jdt.core.ElementChangedEvent;\nimport org.eclipse.jdt.core.ICompilationUnit;\nimport org.eclipse.jdt.core.IElementChangedListener;\nimport org.eclipse.jdt.core.IJavaElement;\nimport org.eclipse.jdt.core.IJavaElementDelta;\nimport org.eclipse.jdt.core.IType;\nimport org.eclipse.jdt.core.JavaCore;\nimport org.eclipse.jdt.core.JavaModelException;\nimport org.eclipse.jdt.core.search.IJavaSearchScope;\nimport org.eclipse.jdt.core.search.SearchEngine;\n\nimport org.eclipse.jdt.internal.corext.CorextMessages;\n\nimport org.eclipse.jdt.internal.ui.JavaPlugin;\n\nimport org.w3c.dom.Element;\n\n/**\n * History for the open type dialog. Object and keys are both {@link TypeInfo}s.\n */\npublic class 56 extends History {\n\t\n\tprivate static class TypeHistoryDeltaListener implements IElementChangedListener {\n\t\tpublic void elementChanged(ElementChangedEvent event) {\n\t\t\tif (processDelta(event.getDelta())) {\n\t\t\t\tOpenTypeHistory.getInstance().markAsInconsistent();\n\t\t\t}\n\t\t}\n\t\t\n\t\t/**\n\t\t * Computes whether the history needs a consistency check or not.\n\t\t * \n\t\t * @param delta the Java element delta\n\t\t * \n\t\t * @return \u003ccode\u003etrue\u003c/code\u003e if consistency must be checked \n\t\t *  \u003ccode\u003efalse\u003c/code\u003e otherwise.\n\t\t */\n\t\tprivate boolean processDelta(IJavaElementDelta delta) {\n\t\t\tIJavaElement elem\u003d delta.getElement();\n\t\t\t\n\t\t\tboolean isChanged\u003d delta.getKind() \u003d\u003d IJavaElementDelta.CHANGED;\n\t\t\tboolean isRemoved\u003d delta.getKind() \u003d\u003d IJavaElementDelta.REMOVED;\n\t\t\t\t\t\t\n\t\t\tswitch (elem.getElementType()) {\n\t\t\t\tcase IJavaElement.JAVA_PROJECT:\n\t\t\t\t\tif (isRemoved || (isChanged \u0026\u0026 \n\t\t\t\t\t\t\t(delta.getFlags() \u0026 IJavaElementDelta.F_CLOSED) !\u003d 0)) {\n\t\t\t\t\t\treturn true;\n\t\t\t\t\t}\n\t\t\t\t\treturn processChildrenDelta(delta);\n\t\t\t\tcase IJavaElement.PACKAGE_FRAGMENT_ROOT:\n\t\t\t\t\tif (isRemoved || (isChanged \u0026\u0026 (\n\t\t\t\t\t\t\t(delta.getFlags() \u0026 IJavaElementDelta.F_ARCHIVE_CONTENT_CHANGED) !\u003d 0 ||\n\t\t\t\t\t\t\t(delta.getFlags() \u0026 IJavaElementDelta.F_REMOVED_FROM_CLASSPATH) !\u003d 0))) {\n\t\t\t\t\t\treturn true;\n\t\t\t\t\t}\n\t\t\t\t\treturn processChildrenDelta(delta);\n\t\t\t\tcase IJavaElement.TYPE:\n\t\t\t\t\tif (isChanged \u0026\u0026 (delta.getFlags() \u0026 IJavaElementDelta.F_MODIFIERS) !\u003d 0) {\n\t\t\t\t\t\treturn true;\n\t\t\t\t\t}\n\t\t\t\t\t// type children can be inner classes: fall through\n\t\t\t\tcase IJavaElement.JAVA_MODEL:\n\t\t\t\tcase IJavaElement.PACKAGE_FRAGMENT:\n\t\t\t\tcase IJavaElement.CLASS_FILE:\n\t\t\t\t\tif (isRemoved) {\n\t\t\t\t\t\treturn true;\n\t\t\t\t\t}\t\t\t\t\n\t\t\t\t\treturn processChildrenDelta(delta);\n\t\t\t\tcase IJavaElement.COMPILATION_UNIT:\n\t\t\t\t\t// Not the primary compilation unit. Ignore it \n\t\t\t\t\tif (!JavaModelUtil.isPrimary((ICompilationUnit) elem)) {\n\t\t\t\t\t\treturn false;\n\t\t\t\t\t}\n\n\t\t\t\t\tif (isRemoved || (isChanged \u0026\u0026 isUnknownStructuralChange(delta.getFlags()))) {\n\t\t\t\t\t\treturn true;\n\t\t\t\t\t}\n\t\t\t\t\treturn processChildrenDelta(delta);\n\t\t\t\tdefault:\n\t\t\t\t\t// fields, methods, imports ect\n\t\t\t\t\treturn false;\n\t\t\t}\t\n\t\t}\n\t\t\n\t\tprivate boolean isUnknownStructuralChange(int flags) {\n\t\t\tif ((flags \u0026 IJavaElementDelta.F_CONTENT) \u003d\u003d 0)\n\t\t\t\treturn false;\n\t\t\treturn (flags \u0026 IJavaElementDelta.F_FINE_GRAINED) \u003d\u003d 0; \n\t\t}\n\n\t\t/*\n\t\tprivate boolean isPossibleStructuralChange(int flags) {\n\t\t\treturn (flags \u0026 (IJavaElementDelta.F_CONTENT | IJavaElementDelta.F_FINE_GRAINED)) \u003d\u003d IJavaElementDelta.F_CONTENT;\n\t\t}\n\t\t*/\t\t\n\t\t\n\t\tprivate boolean processChildrenDelta(IJavaElementDelta delta) {\n\t\t\tIJavaElementDelta[] children\u003d delta.getAffectedChildren();\n\t\t\tfor (int i\u003d 0; i \u003c children.length; i++) {\n\t\t\t\tif (processDelta(children[i])) {\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t}\n\t\t\treturn false;\n\t\t}\n\t}\n\t\n\tprivate static class UpdateJob extends Job {\n\t\tpublic static final String FAMILY\u003d UpdateJob.class.getName();\n\t\tpublic UpdateJob() {\n\t\t\tsuper(CorextMessages.TypeInfoHistory_consistency_check);\n\t\t}\n\t\tprotected IStatus run(IProgressMonitor monitor) {\n\t\t\tOpenTypeHistory history\u003d OpenTypeHistory.getInstance();\n\t\t\thistory.internalCheckConsistency(monitor);\n\t\t\treturn new Status(IStatus.OK, JavaPlugin.getPluginId(), IStatus.OK, \"\", null); //$NON-NLS-1$\n\t\t}\n\t\tpublic boolean belongsTo(Object family) {\n\t\t\treturn FAMILY.equals(family);\n\t\t}\n\t}\n\t\n\tprivate static class UpdateJobListener extends JobChangeAdapter {\n\t\tpublic void done(IJobChangeEvent event) {\n\t\t\tOpenTypeHistory history\u003d OpenTypeHistory.getInstance();\n\t\t\tevent.getJob().removeJobChangeListener(this);\n\t\t\thistory.clearUpdateJob(event.getJob());\n\t\t}\n\t}\n\t\n\tprivate boolean fNeedsConsistencyCheck;\n\tprivate final IElementChangedListener fDeltaListener;\n\tprivate UpdateJob fUpdateJob;\n\tprivate final TypeInfoFactory fTypeInfoFactory;\n\tprivate final UpdateJobListener fListener\u003d new UpdateJobListener();\n\t\n\tprivate static final String FILENAME\u003d \"OpenTypeHistory.xml\"; //$NON-NLS-1$\n\tprivate static final String NODE_ROOT\u003d \"typeInfoHistroy\"; //$NON-NLS-1$\n\tprivate static final String NODE_TYPE_INFO\u003d \"typeInfo\"; //$NON-NLS-1$\n\tprivate static final String NODE_NAME\u003d \"name\"; //$NON-NLS-1$\n\tprivate static final String NODE_PACKAGE\u003d \"package\"; //$NON-NLS-1$\n\tprivate static final String NODE_ENCLOSING_NAMES\u003d \"enclosingTypes\"; //$NON-NLS-1$\n\tprivate static final String NODE_PATH\u003d \"path\"; //$NON-NLS-1$\n\tprivate static final String NODE_MODIFIERS\u003d \"modifiers\";  //$NON-NLS-1$\n\tprivate static final char[][] EMPTY_ENCLOSING_NAMES\u003d new char[0][0];\n\t\n\tprivate static OpenTypeHistory fgInstance;\n\t\n\tpublic static synchronized OpenTypeHistory getInstance() {\n\t\tif (fgInstance \u003d\u003d null)\n\t\t\tfgInstance\u003d new OpenTypeHistory();\n\t\treturn fgInstance;\n\t}\n\t\n\tpublic static void shutdown() {\n\t\tif (fgInstance \u003d\u003d null)\n\t\t\treturn;\n\t\tfgInstance.doShutdown();\n\t}\n\t\n\tprivate OpenTypeHistory() {\n\t\tsuper(FILENAME, NODE_ROOT, NODE_TYPE_INFO);\n\t\tfTypeInfoFactory\u003d new TypeInfoFactory();\n\t\tload();\n\t\tfNeedsConsistencyCheck\u003d true;\n\t\tfDeltaListener\u003d new TypeHistoryDeltaListener();\n\t\tJavaCore.addElementChangedListener(fDeltaListener);\n\t}\n\t\n\tpublic synchronized void markAsInconsistent() {\n\t\tfNeedsConsistencyCheck\u003d true;\n\t\tif (fUpdateJob !\u003d null) {\n\t\t\tfUpdateJob.cancel();\n\t\t}\n\t\tfUpdateJob\u003d new UpdateJob();\n\t\tfUpdateJob.setPriority(Job.SHORT);\n\t\t// The update job might initialize parts of the Java model.\n\t\t// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d128399)\n\t\t// So we have to set a correct rule to avoid deadlocks.\n\t\tfUpdateJob.setRule(JavaCore.create(ResourcesPlugin.getWorkspace().getRoot()).getSchedulingRule());\n\t\tfUpdateJob.addJobChangeListener(fListener);\n\t\t// No need to sync with the old update job since we use\n\t\t// scheduling rules. The new job will run only if the old\n\t\t// one is finished since they have the same scheduling rule.\n\t\tfUpdateJob.schedule();\n\t}\n\t\n\tpublic synchronized boolean needConsistencyCheck() {\n\t\treturn fNeedsConsistencyCheck;\n\t}\n\n\tpublic void checkConsistency(IProgressMonitor monitor) throws OperationCanceledException {\n\t\tsynchronized (this) {\n\t\t\tif (!fNeedsConsistencyCheck)\n\t\t\t\treturn;\n\t\t}\n\t\t// When joining the update job make sure that we don\u0027t hold looks\n\t\t// Otherwise the update Job can\u0027t continue normally. As a result\n\t\t// the update job could have already finished before we join it.\n\t\t// However this isn\u0027t a problem since the join will then be a NOP.\n\t\tif (hasUpdateJob()) {\n\t\t\ttry {\n\t\t\t\tPlatform.getJobManager().join(UpdateJob.FAMILY, monitor);\n\t\t\t} catch (OperationCanceledException e) {\n\t\t\t\t// Ignore and do the consistency check without\n\t\t\t\t// waiting for the update job.\n\t\t\t} catch (InterruptedException e) {\n\t\t\t\t// Ignore and do the consistency check without\n\t\t\t\t// waiting for the update job.\n\t\t\t}\n\t\t}\n\t\t// Since we gave up the lock when joining the update job\n\t\t// we have to re check the fNeedsConsistencyCheck flag\n\t\tsynchronized(this) {\n\t\t\tif (!fNeedsConsistencyCheck)\n\t\t\t\treturn;\n\t\t\tinternalCheckConsistency(monitor);\n\t\t}\n\t}\n\t\n\tpublic synchronized boolean contains(TypeInfo type) {\n\t\treturn super.contains(type);\n\t}\n\n\tpublic synchronized void accessed(TypeInfo info) {\n\t\tsuper.accessed(info);\n\t}\n\n\tpublic synchronized TypeInfo remove(TypeInfo info) {\n\t\treturn (TypeInfo)super.remove(info);\n\t}\n\n\tpublic synchronized TypeInfo[] getTypeInfos() {\n\t\tCollection values\u003d getValues();\n\t\tint size\u003d values.size();\n\t\tTypeInfo[] result\u003d new TypeInfo[size];\n\t\tint i\u003d size - 1;\n\t\tfor (Iterator iter\u003d values.iterator(); iter.hasNext();) {\n\t\t\tresult[i]\u003d (TypeInfo)iter.next();\n\t\t\ti--;\n\t\t}\n\t\treturn result;\n\t}\n\n\tpublic synchronized TypeInfo[] getFilteredTypeInfos(TypeInfoFilter filter) {\n\t\tCollection values\u003d getValues();\n\t\tList result\u003d new ArrayList();\n\t\tfor (Iterator iter\u003d values.iterator(); iter.hasNext();) {\n\t\t\tTypeInfo type\u003d (TypeInfo)iter.next();\n\t\t\tif ((filter \u003d\u003d null || filter.matchesHistoryElement(type)) \u0026\u0026 !TypeFilter.isFiltered(type.getFullyQualifiedName()))\n\t\t\t\tresult.add(type);\n\t\t}\n\t\tCollections.reverse(result);\n\t\treturn (TypeInfo[])result.toArray(new TypeInfo[result.size()]);\n\t\t\n\t}\n\t\n\tprotected Object getKey(Object object) {\n\t\treturn object;\n\t}\n\n\tprivate synchronized void internalCheckConsistency(IProgressMonitor monitor) throws OperationCanceledException {\n\t\tIJavaSearchScope scope\u003d SearchEngine.createWorkspaceScope();\n\t\tList keys\u003d new ArrayList(getKeys());\n\t\tmonitor.beginTask(CorextMessages.TypeInfoHistory_consistency_check, keys.size());\n\t\tmonitor.setTaskName(CorextMessages.TypeInfoHistory_consistency_check);\n\t\tfor (Iterator iter\u003d keys.iterator(); iter.hasNext();) {\n\t\t\tTypeInfo type\u003d (TypeInfo)iter.next();\n\t\t\ttry {\n\t\t\t\tIType jType\u003d type.resolveType(scope);\n\t\t\t\tif (jType \u003d\u003d null || !jType.exists()) {\n\t\t\t\t\tremove(type);\n\t\t\t\t} else {\n\t\t\t\t\t// copy over the modifiers since they may have changed\n\t\t\t\t\ttype.setModifiers(jType.getFlags());\n\t\t\t\t}\n\t\t\t} catch (JavaModelException e) {\n\t\t\t\tremove(type);\n\t\t\t}\n\t\t\tif (monitor.isCanceled())\n\t\t\t\tthrow new OperationCanceledException();\n\t\t\tmonitor.worked(1);\n\t\t}\n\t\tmonitor.done();\n\t\tfNeedsConsistencyCheck\u003d false;\n\t}\n\t\n\tprivate synchronized void clearUpdateJob(Job toClear) {\n\t\tif (fUpdateJob \u003d\u003d toClear)\n\t\t\tfUpdateJob\u003d null;\n\t}\n\t\n\tprivate synchronized boolean hasUpdateJob() {\n\t\treturn fUpdateJob !\u003d null;\n\t}\n\t\n\tprivate void doShutdown() {\n\t\tJavaCore.removeElementChangedListener(fDeltaListener);\n\t}\n\t\n\tprotected Object createFromElement(Element type) {\n\t\tString name\u003d type.getAttribute(NODE_NAME);\n\t\tString pack\u003d type.getAttribute(NODE_PACKAGE);\n\t\tchar[][] enclosingNames\u003d getEnclosingNames(type);\n\t\tString path\u003d type.getAttribute(NODE_PATH);\n\t\tint modifiers\u003d 0;\n\t\ttry {\n\t\t\tmodifiers\u003d Integer.parseInt(type.getAttribute(NODE_MODIFIERS));\n\t\t} catch (NumberFormatException e) {\n\t\t\t// take zero\n\t\t}\n\t\tTypeInfo info\u003d fTypeInfoFactory.create(\n\t\t\tpack.toCharArray(), name.toCharArray(), enclosingNames, modifiers, path);\n\t\treturn info;\n\t}\n\n\tprotected void setAttributes(Object object, Element typeElement) {\n\t\tTypeInfo type\u003d (TypeInfo)object;\n\t\ttypeElement.setAttribute(NODE_NAME, type.getTypeName());\n\t\ttypeElement.setAttribute(NODE_PACKAGE, type.getPackageName());\n\t\ttypeElement.setAttribute(NODE_ENCLOSING_NAMES, type.getEnclosingName());\n\t\ttypeElement.setAttribute(NODE_PATH, type.getPath());\n\t\ttypeElement.setAttribute(NODE_MODIFIERS, Integer.toString(type.getModifiers()));\n\t}\n\n\tprivate char[][] getEnclosingNames(Element type) {\n\t\tString enclosingNames\u003d type.getAttribute(NODE_ENCLOSING_NAMES);\n\t\tif (enclosingNames.length() \u003d\u003d 0)\n\t\t\treturn EMPTY_ENCLOSING_NAMES;\n\t\tStringTokenizer tokenizer\u003d new StringTokenizer(enclosingNames, \".\"); //$NON-NLS-1$\n\t\tList names\u003d new ArrayList();\n\t\twhile(tokenizer.hasMoreTokens()) {\n\t\t\tString name\u003d tokenizer.nextToken();\n\t\t\tnames.add(name.toCharArray());\n\t\t}\n\t\treturn (char[][])names.toArray(new char[names.size()][]);\n\t}\n}\n\n----------------------------------- SOURCE END -------------------------------------\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.jdt.internal.compiler.problem.ProblemReporter.invalidField(ProblemReporter.java:2878)\n\tat org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.reportError(QualifiedNameReference.java:958)\n\tat org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.resolveType(QualifiedNameReference.java:1026)\n\tat org.eclipse.jdt.internal.compiler.ast.MessageSend.resolveType(MessageSend.java:344)\n\tat org.eclipse.jdt.internal.compiler.ast.Expression.resolve(Expression.java:884)\n\tat org.eclipse.jdt.internal.compiler.ast.Block.resolveUsing(Block.java:115)\n\tat org.eclipse.jdt.internal.compiler.ast.TryStatement.resolve(TryStatement.java:687)\n\tat org.eclipse.jdt.internal.compiler.ast.Block.resolve(Block.java:101)\n\tat org.eclipse.jdt.internal.compiler.ast.IfStatement.resolve(IfStatement.java:234)\n\tat org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolveStatements(AbstractMethodDeclaration.java:432)\n\tat org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.resolveStatements(MethodDeclaration.java:179)\n\tat org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolve(AbstractMethodDeclaration.java:403)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve(TypeDeclaration.java:1054)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve(TypeDeclaration.java:1101)\n\tat org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.resolve(CompilationUnitDeclaration.java:353)\n\tat org.eclipse.jdt.internal.compiler.Compiler.resolve(Compiler.java:687)\n\tat org.eclipse.jdt.internal.compiler.Compiler.resolve(Compiler.java:726)\n\tat org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process(CompilationUnitProblemFinder.java:174)\n\tat org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process(CompilationUnitProblemFinder.java:246)\n\tat org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.makeConsistent(ReconcileWorkingCopyOperation.java:152)\n\tat org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.executeOperation(ReconcileWorkingCopyOperation.java:71)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:720)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.runOperation(JavaModelOperation.java:779)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.reconcile(CompilationUnit.java:1120)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.reconcile(CompilationUnit.java:1092)\n\tat org.eclipse.jdt.internal.corext.util.JavaModelUtil.reconcile(JavaModelUtil.java:701)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.getElementAt(CompilationUnitEditor.java:1300)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedOffset.setOffset(CompilationUnitEditor.java:881)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedSelection.remember(CompilationUnitEditor.java:771)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.rememberSelection(CompilationUnitEditor.java:1832)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor$4.run(AbstractTextEditor.java:337)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.execute(AbstractTextEditor.java:486)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.elementContentAboutToBeReplaced(AbstractTextEditor.java:341)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider$FileBufferListener.bufferContentAboutToBeReplaced(TextFileDocumentProvider.java:252)\n\tat org.eclipse.core.internal.filebuffers.TextFileBufferManager$4.run(TextFileBufferManager.java:454)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.internal.filebuffers.TextFileBufferManager.fireBufferContentAboutToBeReplaced(TextFileBufferManager.java:452)\n\tat org.eclipse.core.internal.filebuffers.ResourceTextFileBuffer.handleFileContentChanged(ResourceTextFileBuffer.java:473)\n\tat org.eclipse.core.internal.filebuffers.ResourceFileBuffer.revert(ResourceFileBuffer.java:351)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider$1.execute(TextFileDocumentProvider.java:709)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider$DocumentProviderOperation.run(TextFileDocumentProvider.java:143)\n\tat org.eclipse.ui.actions.WorkspaceModifyDelegatingOperation.execute(WorkspaceModifyDelegatingOperation.java:68)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation$1.run(WorkspaceModifyOperation.java:101)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:113)\n\tat org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:73)\n\tat org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:63)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation(TextFileDocumentProvider.java:459)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider.resetDocument(TextFileDocumentProvider.java:727)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor.performRevert(AbstractTextEditor.java:3932)\n\tat org.eclipse.jdt.internal.ui.javaeditor.JavaEditor.performRevert(JavaEditor.java:3573)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor.doRevertToSaved(AbstractTextEditor.java:3912)\n\tat org.eclipse.ui.texteditor.StatusTextEditor.doRevertToSaved(StatusTextEditor.java:183)\n\tat org.eclipse.ui.texteditor.RevertToSavedAction.run(RevertToSavedAction.java:47)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:499)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:539)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:488)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:400)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:925)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3346)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2966)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1914)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1878)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:169)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:64)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n\tat java.lang.reflect.Method.invoke(Method.java:615)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)\n\n!ENTRY org.eclipse.jdt.core 4 1005 2006-04-06 16:15:04.549\n!MESSAGE java.lang.NullPointerException\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.jdt.internal.compiler.problem.ProblemReporter.invalidField(ProblemReporter.java:2878)\n\tat org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.reportError(QualifiedNameReference.java:958)\n\tat org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.resolveType(QualifiedNameReference.java:1026)\n\tat org.eclipse.jdt.internal.compiler.ast.MessageSend.resolveType(MessageSend.java:344)\n\tat org.eclipse.jdt.internal.compiler.ast.Expression.resolve(Expression.java:884)\n\tat org.eclipse.jdt.internal.compiler.ast.Block.resolveUsing(Block.java:115)\n\tat org.eclipse.jdt.internal.compiler.ast.TryStatement.resolve(TryStatement.java:687)\n\tat org.eclipse.jdt.internal.compiler.ast.Block.resolve(Block.java:101)\n\tat org.eclipse.jdt.internal.compiler.ast.IfStatement.resolve(IfStatement.java:234)\n\tat org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolveStatements(AbstractMethodDeclaration.java:432)\n\tat org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.resolveStatements(MethodDeclaration.java:179)\n\tat org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolve(AbstractMethodDeclaration.java:403)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve(TypeDeclaration.java:1054)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve(TypeDeclaration.java:1101)\n\tat org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.resolve(CompilationUnitDeclaration.java:353)\n\tat org.eclipse.jdt.internal.compiler.Compiler.resolve(Compiler.java:687)\n\tat org.eclipse.jdt.internal.compiler.Compiler.resolve(Compiler.java:726)\n\tat org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process(CompilationUnitProblemFinder.java:174)\n\tat org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process(CompilationUnitProblemFinder.java:246)\n\tat org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.makeConsistent(ReconcileWorkingCopyOperation.java:152)\n\tat org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.executeOperation(ReconcileWorkingCopyOperation.java:71)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:720)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.runOperation(JavaModelOperation.java:779)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.reconcile(CompilationUnit.java:1120)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.reconcile(CompilationUnit.java:1092)\n\tat org.eclipse.jdt.internal.corext.util.JavaModelUtil.reconcile(JavaModelUtil.java:701)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.getElementAt(CompilationUnitEditor.java:1300)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedOffset.setOffset(CompilationUnitEditor.java:881)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedSelection.remember(CompilationUnitEditor.java:771)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.rememberSelection(CompilationUnitEditor.java:1832)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor$4.run(AbstractTextEditor.java:337)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.execute(AbstractTextEditor.java:486)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.elementContentAboutToBeReplaced(AbstractTextEditor.java:341)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider$FileBufferListener.bufferContentAboutToBeReplaced(TextFileDocumentProvider.java:252)\n\tat org.eclipse.core.internal.filebuffers.TextFileBufferManager$4.run(TextFileBufferManager.java:454)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.internal.filebuffers.TextFileBufferManager.fireBufferContentAboutToBeReplaced(TextFileBufferManager.java:452)\n\tat org.eclipse.core.internal.filebuffers.ResourceTextFileBuffer.handleFileContentChanged(ResourceTextFileBuffer.java:473)\n\tat org.eclipse.core.internal.filebuffers.ResourceFileBuffer.revert(ResourceFileBuffer.java:351)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider$1.execute(TextFileDocumentProvider.java:709)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider$DocumentProviderOperation.run(TextFileDocumentProvider.java:143)\n\tat org.eclipse.ui.actions.WorkspaceModifyDelegatingOperation.execute(WorkspaceModifyDelegatingOperation.java:68)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation$1.run(WorkspaceModifyOperation.java:101)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:113)\n\tat org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:73)\n\tat org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:63)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation(TextFileDocumentProvider.java:459)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider.resetDocument(TextFileDocumentProvider.java:727)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor.performRevert(AbstractTextEditor.java:3932)\n\tat org.eclipse.jdt.internal.ui.javaeditor.JavaEditor.performRevert(JavaEditor.java:3573)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor.doRevertToSaved(AbstractTextEditor.java:3912)\n\tat org.eclipse.ui.texteditor.StatusTextEditor.doRevertToSaved(StatusTextEditor.java:183)\n\tat org.eclipse.ui.texteditor.RevertToSavedAction.run(RevertToSavedAction.java:47)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:499)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:539)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:488)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:400)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:925)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3346)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2966)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1914)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1878)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:169)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:64)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n\tat java.lang.reflect.Method.invoke(Method.java:615)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)\n\n!ENTRY org.eclipse.jdt.core 4 4 2006-04-06 16:15:04.730\n!MESSAGE Exception occurred during problem detection:\n----------------------------------- SOURCE BEGIN -------------------------------------\n/*******************************************************************************\n * Copyright (c) 2000, 2006 IBM Corporation and others.\n * All rights reserved. This program and the accompanying materials\n * are made available under the terms of the Eclipse Public License v1.0\n * which accompanies this distribution, and is available at\n * http://www.eclipse.org/legal/epl-v10.html\n *\n * Contributors:\n *     IBM Corporation - initial API and implementation\n *******************************************************************************/\n package org.eclipse.jdt.internal.corext.util;\n\nimport java.util.ArrayList;\nimport java.util.Collection;\nimport java.util.Collections;\nimport java.util.Iterator;\nimport java.util.List;\nimport java.util.StringTokenizer;\n\nimport org.eclipse.core.runtime.IProgressMonitor;\nimport org.eclipse.core.runtime.IStatus;\nimport org.eclipse.core.runtime.OperationCanceledException;\nimport org.eclipse.core.runtime.Platform;\nimport org.eclipse.core.runtime.Status;\nimport org.eclipse.core.runtime.jobs.IJobChangeEvent;\nimport org.eclipse.core.runtime.jobs.Job;\nimport org.eclipse.core.runtime.jobs.JobChangeAdapter;\n\nimport org.eclipse.core.resources.ResourcesPlugin;\n\nimport org.eclipse.jdt.core.ElementChangedEvent;\nimport org.eclipse.jdt.core.ICompilationUnit;\nimport org.eclipse.jdt.core.IElementChangedListener;\nimport org.eclipse.jdt.core.IJavaElement;\nimport org.eclipse.jdt.core.IJavaElementDelta;\nimport org.eclipse.jdt.core.IType;\nimport org.eclipse.jdt.core.JavaCore;\nimport org.eclipse.jdt.core.JavaModelException;\nimport org.eclipse.jdt.core.search.IJavaSearchScope;\nimport org.eclipse.jdt.core.search.SearchEngine;\n\nimport org.eclipse.jdt.internal.corext.CorextMessages;\n\nimport org.eclipse.jdt.internal.ui.JavaPlugin;\n\nimport org.w3c.dom.Element;\n\n/**\n * History for the open type dialog. Object and keys are both {@link TypeInfo}s.\n */\npublic class 56 extends History {\n\t\n\tprivate static class TypeHistoryDeltaListener implements IElementChangedListener {\n\t\tpublic void elementChanged(ElementChangedEvent event) {\n\t\t\tif (processDelta(event.getDelta())) {\n\t\t\t\tOpenTypeHistory.getInstance().markAsInconsistent();\n\t\t\t}\n\t\t}\n\t\t\n\t\t/**\n\t\t * Computes whether the history needs a consistency check or not.\n\t\t * \n\t\t * @param delta the Java element delta\n\t\t * \n\t\t * @return \u003ccode\u003etrue\u003c/code\u003e if consistency must be checked \n\t\t *  \u003ccode\u003efalse\u003c/code\u003e otherwise.\n\t\t */\n\t\tprivate boolean processDelta(IJavaElementDelta delta) {\n\t\t\tIJavaElement elem\u003d delta.getElement();\n\t\t\t\n\t\t\tboolean isChanged\u003d delta.getKind() \u003d\u003d IJavaElementDelta.CHANGED;\n\t\t\tboolean isRemoved\u003d delta.getKind() \u003d\u003d IJavaElementDelta.REMOVED;\n\t\t\t\t\t\t\n\t\t\tswitch (elem.getElementType()) {\n\t\t\t\tcase IJavaElement.JAVA_PROJECT:\n\t\t\t\t\tif (isRemoved || (isChanged \u0026\u0026 \n\t\t\t\t\t\t\t(delta.getFlags() \u0026 IJavaElementDelta.F_CLOSED) !\u003d 0)) {\n\t\t\t\t\t\treturn true;\n\t\t\t\t\t}\n\t\t\t\t\treturn processChildrenDelta(delta);\n\t\t\t\tcase IJavaElement.PACKAGE_FRAGMENT_ROOT:\n\t\t\t\t\tif (isRemoved || (isChanged \u0026\u0026 (\n\t\t\t\t\t\t\t(delta.getFlags() \u0026 IJavaElementDelta.F_ARCHIVE_CONTENT_CHANGED) !\u003d 0 ||\n\t\t\t\t\t\t\t(delta.getFlags() \u0026 IJavaElementDelta.F_REMOVED_FROM_CLASSPATH) !\u003d 0))) {\n\t\t\t\t\t\treturn true;\n\t\t\t\t\t}\n\t\t\t\t\treturn processChildrenDelta(delta);\n\t\t\t\tcase IJavaElement.TYPE:\n\t\t\t\t\tif (isChanged \u0026\u0026 (delta.getFlags() \u0026 IJavaElementDelta.F_MODIFIERS) !\u003d 0) {\n\t\t\t\t\t\treturn true;\n\t\t\t\t\t}\n\t\t\t\t\t// type children can be inner classes: fall through\n\t\t\t\tcase IJavaElement.JAVA_MODEL:\n\t\t\t\tcase IJavaElement.PACKAGE_FRAGMENT:\n\t\t\t\tcase IJavaElement.CLASS_FILE:\n\t\t\t\t\tif (isRemoved) {\n\t\t\t\t\t\treturn true;\n\t\t\t\t\t}\t\t\t\t\n\t\t\t\t\treturn processChildrenDelta(delta);\n\t\t\t\tcase IJavaElement.COMPILATION_UNIT:\n\t\t\t\t\t// Not the primary compilation unit. Ignore it \n\t\t\t\t\tif (!JavaModelUtil.isPrimary((ICompilationUnit) elem)) {\n\t\t\t\t\t\treturn false;\n\t\t\t\t\t}\n\n\t\t\t\t\tif (isRemoved || (isChanged \u0026\u0026 isUnknownStructuralChange(delta.getFlags()))) {\n\t\t\t\t\t\treturn true;\n\t\t\t\t\t}\n\t\t\t\t\treturn processChildrenDelta(delta);\n\t\t\t\tdefault:\n\t\t\t\t\t// fields, methods, imports ect\n\t\t\t\t\treturn false;\n\t\t\t}\t\n\t\t}\n\t\t\n\t\tprivate boolean isUnknownStructuralChange(int flags) {\n\t\t\tif ((flags \u0026 IJavaElementDelta.F_CONTENT) \u003d\u003d 0)\n\t\t\t\treturn false;\n\t\t\treturn (flags \u0026 IJavaElementDelta.F_FINE_GRAINED) \u003d\u003d 0; \n\t\t}\n\n\t\t/*\n\t\tprivate boolean isPossibleStructuralChange(int flags) {\n\t\t\treturn (flags \u0026 (IJavaElementDelta.F_CONTENT | IJavaElementDelta.F_FINE_GRAINED)) \u003d\u003d IJavaElementDelta.F_CONTENT;\n\t\t}\n\t\t*/\t\t\n\t\t\n\t\tprivate boolean processChildrenDelta(IJavaElementDelta delta) {\n\t\t\tIJavaElementDelta[] children\u003d delta.getAffectedChildren();\n\t\t\tfor (int i\u003d 0; i \u003c children.length; i++) {\n\t\t\t\tif (processDelta(children[i])) {\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t}\n\t\t\treturn false;\n\t\t}\n\t}\n\t\n\tprivate static class UpdateJob extends Job {\n\t\tpublic static final String FAMILY\u003d UpdateJob.class.getName();\n\t\tpublic UpdateJob() {\n\t\t\tsuper(CorextMessages.TypeInfoHistory_consistency_check);\n\t\t}\n\t\tprotected IStatus run(IProgressMonitor monitor) {\n\t\t\tOpenTypeHistory history\u003d OpenTypeHistory.getInstance();\n\t\t\thistory.internalCheckConsistency(monitor);\n\t\t\treturn new Status(IStatus.OK, JavaPlugin.getPluginId(), IStatus.OK, \"\", null); //$NON-NLS-1$\n\t\t}\n\t\tpublic boolean belongsTo(Object family) {\n\t\t\treturn FAMILY.equals(family);\n\t\t}\n\t}\n\t\n\tprivate static class UpdateJobListener extends JobChangeAdapter {\n\t\tpublic void done(IJobChangeEvent event) {\n\t\t\tOpenTypeHistory history\u003d OpenTypeHistory.getInstance();\n\t\t\tevent.getJob().removeJobChangeListener(this);\n\t\t\thistory.clearUpdateJob(event.getJob());\n\t\t}\n\t}\n\t\n\tprivate boolean fNeedsConsistencyCheck;\n\tprivate final IElementChangedListener fDeltaListener;\n\tprivate UpdateJob fUpdateJob;\n\tprivate final TypeInfoFactory fTypeInfoFactory;\n\tprivate final UpdateJobListener fListener\u003d new UpdateJobListener();\n\t\n\tprivate static final String FILENAME\u003d \"OpenTypeHistory.xml\"; //$NON-NLS-1$\n\tprivate static final String NODE_ROOT\u003d \"typeInfoHistroy\"; //$NON-NLS-1$\n\tprivate static final String NODE_TYPE_INFO\u003d \"typeInfo\"; //$NON-NLS-1$\n\tprivate static final String NODE_NAME\u003d \"name\"; //$NON-NLS-1$\n\tprivate static final String NODE_PACKAGE\u003d \"package\"; //$NON-NLS-1$\n\tprivate static final String NODE_ENCLOSING_NAMES\u003d \"enclosingTypes\"; //$NON-NLS-1$\n\tprivate static final String NODE_PATH\u003d \"path\"; //$NON-NLS-1$\n\tprivate static final String NODE_MODIFIERS\u003d \"modifiers\";  //$NON-NLS-1$\n\tprivate static final char[][] EMPTY_ENCLOSING_NAMES\u003d new char[0][0];\n\t\n\tprivate static OpenTypeHistory fgInstance;\n\t\n\tpublic static synchronized OpenTypeHistory getInstance() {\n\t\tif (fgInstance \u003d\u003d null)\n\t\t\tfgInstance\u003d new OpenTypeHistory();\n\t\treturn fgInstance;\n\t}\n\t\n\tpublic static void shutdown() {\n\t\tif (fgInstance \u003d\u003d null)\n\t\t\treturn;\n\t\tfgInstance.doShutdown();\n\t}\n\t\n\tprivate OpenTypeHistory() {\n\t\tsuper(FILENAME, NODE_ROOT, NODE_TYPE_INFO);\n\t\tfTypeInfoFactory\u003d new TypeInfoFactory();\n\t\tload();\n\t\tfNeedsConsistencyCheck\u003d true;\n\t\tfDeltaListener\u003d new TypeHistoryDeltaListener();\n\t\tJavaCore.addElementChangedListener(fDeltaListener);\n\t}\n\t\n\tpublic synchronized void markAsInconsistent() {\n\t\tfNeedsConsistencyCheck\u003d true;\n\t\tif (fUpdateJob !\u003d null) {\n\t\t\tfUpdateJob.cancel();\n\t\t}\n\t\tfUpdateJob\u003d new UpdateJob();\n\t\tfUpdateJob.setPriority(Job.SHORT);\n\t\t// The update job might initialize parts of the Java model.\n\t\t// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d128399)\n\t\t// So we have to set a correct rule to avoid deadlocks.\n\t\tfUpdateJob.setRule(JavaCore.create(ResourcesPlugin.getWorkspace().getRoot()).getSchedulingRule());\n\t\tfUpdateJob.addJobChangeListener(fListener);\n\t\t// No need to sync with the old update job since we use\n\t\t// scheduling rules. The new job will run only if the old\n\t\t// one is finished since they have the same scheduling rule.\n\t\tfUpdateJob.schedule();\n\t}\n\t\n\tpublic synchronized boolean needConsistencyCheck() {\n\t\treturn fNeedsConsistencyCheck;\n\t}\n\n\tpublic void checkConsistency(IProgressMonitor monitor) throws OperationCanceledException {\n\t\tsynchronized (this) {\n\t\t\tif (!fNeedsConsistencyCheck)\n\t\t\t\treturn;\n\t\t}\n\t\t// When joining the update job make sure that we don\u0027t hold looks\n\t\t// Otherwise the update Job can\u0027t continue normally. As a result\n\t\t// the update job could have already finished before we join it.\n\t\t// However this isn\u0027t a problem since the join will then be a NOP.\n\t\tif (hasUpdateJob()) {\n\t\t\ttry {\n\t\t\t\tPlatform.getJobManager().join(UpdateJob.FAMILY, monitor);\n\t\t\t} catch (OperationCanceledException e) {\n\t\t\t\t// Ignore and do the consistency check without\n\t\t\t\t// waiting for the update job.\n\t\t\t} catch (InterruptedException e) {\n\t\t\t\t// Ignore and do the consistency check without\n\t\t\t\t// waiting for the update job.\n\t\t\t}\n\t\t}\n\t\t// Since we gave up the lock when joining the update job\n\t\t// we have to re check the fNeedsConsistencyCheck flag\n\t\tsynchronized(this) {\n\t\t\tif (!fNeedsConsistencyCheck)\n\t\t\t\treturn;\n\t\t\tinternalCheckConsistency(monitor);\n\t\t}\n\t}\n\t\n\tpublic synchronized boolean contains(TypeInfo type) {\n\t\treturn super.contains(type);\n\t}\n\n\tpublic synchronized void accessed(TypeInfo info) {\n\t\tsuper.accessed(info);\n\t}\n\n\tpublic synchronized TypeInfo remove(TypeInfo info) {\n\t\treturn (TypeInfo)super.remove(info);\n\t}\n\n\tpublic synchronized TypeInfo[] getTypeInfos() {\n\t\tCollection values\u003d getValues();\n\t\tint size\u003d values.size();\n\t\tTypeInfo[] result\u003d new TypeInfo[size];\n\t\tint i\u003d size - 1;\n\t\tfor (Iterator iter\u003d values.iterator(); iter.hasNext();) {\n\t\t\tresult[i]\u003d (TypeInfo)iter.next();\n\t\t\ti--;\n\t\t}\n\t\treturn result;\n\t}\n\n\tpublic synchronized TypeInfo[] getFilteredTypeInfos(TypeInfoFilter filter) {\n\t\tCollection values\u003d getValues();\n\t\tList result\u003d new ArrayList();\n\t\tfor (Iterator iter\u003d values.iterator(); iter.hasNext();) {\n\t\t\tTypeInfo type\u003d (TypeInfo)iter.next();\n\t\t\tif ((filter \u003d\u003d null || filter.matchesHistoryElement(type)) \u0026\u0026 !TypeFilter.isFiltered(type.getFullyQualifiedName()))\n\t\t\t\tresult.add(type);\n\t\t}\n\t\tCollections.reverse(result);\n\t\treturn (TypeInfo[])result.toArray(new TypeInfo[result.size()]);\n\t\t\n\t}\n\t\n\tprotected Object getKey(Object object) {\n\t\treturn object;\n\t}\n\n\tprivate synchronized void internalCheckConsistency(IProgressMonitor monitor) throws OperationCanceledException {\n\t\tIJavaSearchScope scope\u003d SearchEngine.createWorkspaceScope();\n\t\tList keys\u003d new ArrayList(getKeys());\n\t\tmonitor.beginTask(CorextMessages.TypeInfoHistory_consistency_check, keys.size());\n\t\tmonitor.setTaskName(CorextMessages.TypeInfoHistory_consistency_check);\n\t\tfor (Iterator iter\u003d keys.iterator(); iter.hasNext();) {\n\t\t\tTypeInfo type\u003d (TypeInfo)iter.next();\n\t\t\ttry {\n\t\t\t\tIType jType\u003d type.resolveType(scope);\n\t\t\t\tif (jType \u003d\u003d null || !jType.exists()) {\n\t\t\t\t\tremove(type);\n\t\t\t\t} else {\n\t\t\t\t\t// copy over the modifiers since they may have changed\n\t\t\t\t\ttype.setModifiers(jType.getFlags());\n\t\t\t\t}\n\t\t\t} catch (JavaModelException e) {\n\t\t\t\tremove(type);\n\t\t\t}\n\t\t\tif (monitor.isCanceled())\n\t\t\t\tthrow new OperationCanceledException();\n\t\t\tmonitor.worked(1);\n\t\t}\n\t\tmonitor.done();\n\t\tfNeedsConsistencyCheck\u003d false;\n\t}\n\t\n\tprivate synchronized void clearUpdateJob(Job toClear) {\n\t\tif (fUpdateJob \u003d\u003d toClear)\n\t\t\tfUpdateJob\u003d null;\n\t}\n\t\n\tprivate synchronized boolean hasUpdateJob() {\n\t\treturn fUpdateJob !\u003d null;\n\t}\n\t\n\tprivate void doShutdown() {\n\t\tJavaCore.removeElementChangedListener(fDeltaListener);\n\t}\n\t\n\tprotected Object createFromElement(Element type) {\n\t\tString name\u003d type.getAttribute(NODE_NAME);\n\t\tString pack\u003d type.getAttribute(NODE_PACKAGE);\n\t\tchar[][] enclosingNames\u003d getEnclosingNames(type);\n\t\tString path\u003d type.getAttribute(NODE_PATH);\n\t\tint modifiers\u003d 0;\n\t\ttry {\n\t\t\tmodifiers\u003d Integer.parseInt(type.getAttribute(NODE_MODIFIERS));\n\t\t} catch (NumberFormatException e) {\n\t\t\t// take zero\n\t\t}\n\t\tTypeInfo info\u003d fTypeInfoFactory.create(\n\t\t\tpack.toCharArray(), name.toCharArray(), enclosingNames, modifiers, path);\n\t\treturn info;\n\t}\n\n\tprotected void setAttributes(Object object, Element typeElement) {\n\t\tTypeInfo type\u003d (TypeInfo)object;\n\t\ttypeElement.setAttribute(NODE_NAME, type.getTypeName());\n\t\ttypeElement.setAttribute(NODE_PACKAGE, type.getPackageName());\n\t\ttypeElement.setAttribute(NODE_ENCLOSING_NAMES, type.getEnclosingName());\n\t\ttypeElement.setAttribute(NODE_PATH, type.getPath());\n\t\ttypeElement.setAttribute(NODE_MODIFIERS, Integer.toString(type.getModifiers()));\n\t}\n\n\tprivate char[][] getEnclosingNames(Element type) {\n\t\tString enclosingNames\u003d type.getAttribute(NODE_ENCLOSING_NAMES);\n\t\tif (enclosingNames.length() \u003d\u003d 0)\n\t\t\treturn EMPTY_ENCLOSING_NAMES;\n\t\tStringTokenizer tokenizer\u003d new StringTokenizer(enclosingNames, \".\"); //$NON-NLS-1$\n\t\tList names\u003d new ArrayList();\n\t\twhile(tokenizer.hasMoreTokens()) {\n\t\t\tString name\u003d tokenizer.nextToken();\n\t\t\tnames.add(name.toCharArray());\n\t\t}\n\t\treturn (char[][])names.toArray(new char[names.size()][]);\n\t}\n}\n\n----------------------------------- SOURCE END -------------------------------------\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.jdt.internal.compiler.problem.ProblemReporter.invalidField(ProblemReporter.java:2878)\n\tat org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.reportError(QualifiedNameReference.java:958)\n\tat org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.resolveType(QualifiedNameReference.java:1026)\n\tat org.eclipse.jdt.internal.compiler.ast.MessageSend.resolveType(MessageSend.java:344)\n\tat org.eclipse.jdt.internal.compiler.ast.Expression.resolve(Expression.java:884)\n\tat org.eclipse.jdt.internal.compiler.ast.Block.resolveUsing(Block.java:115)\n\tat org.eclipse.jdt.internal.compiler.ast.TryStatement.resolve(TryStatement.java:687)\n\tat org.eclipse.jdt.internal.compiler.ast.Block.resolve(Block.java:101)\n\tat org.eclipse.jdt.internal.compiler.ast.IfStatement.resolve(IfStatement.java:234)\n\tat org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolveStatements(AbstractMethodDeclaration.java:432)\n\tat org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.resolveStatements(MethodDeclaration.java:179)\n\tat org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolve(AbstractMethodDeclaration.java:403)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve(TypeDeclaration.java:1054)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve(TypeDeclaration.java:1101)\n\tat org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.resolve(CompilationUnitDeclaration.java:353)\n\tat org.eclipse.jdt.internal.compiler.Compiler.resolve(Compiler.java:687)\n\tat org.eclipse.jdt.internal.compiler.Compiler.resolve(Compiler.java:726)\n\tat org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process(CompilationUnitProblemFinder.java:174)\n\tat org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process(CompilationUnitProblemFinder.java:246)\n\tat org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.makeConsistent(ReconcileWorkingCopyOperation.java:152)\n\tat org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.executeOperation(ReconcileWorkingCopyOperation.java:71)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:720)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.runOperation(JavaModelOperation.java:779)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.reconcile(CompilationUnit.java:1120)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.reconcile(CompilationUnit.java:1092)\n\tat org.eclipse.jdt.internal.corext.util.JavaModelUtil.reconcile(JavaModelUtil.java:701)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.getElementAt(CompilationUnitEditor.java:1300)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedOffset.setOffset(CompilationUnitEditor.java:881)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedSelection.remember(CompilationUnitEditor.java:772)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.rememberSelection(CompilationUnitEditor.java:1832)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor$4.run(AbstractTextEditor.java:337)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.execute(AbstractTextEditor.java:486)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.elementContentAboutToBeReplaced(AbstractTextEditor.java:341)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider$FileBufferListener.bufferContentAboutToBeReplaced(TextFileDocumentProvider.java:252)\n\tat org.eclipse.core.internal.filebuffers.TextFileBufferManager$4.run(TextFileBufferManager.java:454)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.internal.filebuffers.TextFileBufferManager.fireBufferContentAboutToBeReplaced(TextFileBufferManager.java:452)\n\tat org.eclipse.core.internal.filebuffers.ResourceTextFileBuffer.handleFileContentChanged(ResourceTextFileBuffer.java:473)\n\tat org.eclipse.core.internal.filebuffers.ResourceFileBuffer.revert(ResourceFileBuffer.java:351)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider$1.execute(TextFileDocumentProvider.java:709)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider$DocumentProviderOperation.run(TextFileDocumentProvider.java:143)\n\tat org.eclipse.ui.actions.WorkspaceModifyDelegatingOperation.execute(WorkspaceModifyDelegatingOperation.java:68)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation$1.run(WorkspaceModifyOperation.java:101)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:113)\n\tat org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:73)\n\tat org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:63)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation(TextFileDocumentProvider.java:459)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider.resetDocument(TextFileDocumentProvider.java:727)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor.performRevert(AbstractTextEditor.java:3932)\n\tat org.eclipse.jdt.internal.ui.javaeditor.JavaEditor.performRevert(JavaEditor.java:3573)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor.doRevertToSaved(AbstractTextEditor.java:3912)\n\tat org.eclipse.ui.texteditor.StatusTextEditor.doRevertToSaved(StatusTextEditor.java:183)\n\tat org.eclipse.ui.texteditor.RevertToSavedAction.run(RevertToSavedAction.java:47)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:499)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:539)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:488)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:400)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:925)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3346)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2966)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1914)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1878)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:169)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:64)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n\tat java.lang.reflect.Method.invoke(Method.java:615)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)\n\n!ENTRY org.eclipse.jdt.core 4 1005 2006-04-06 16:15:04.740\n!MESSAGE java.lang.NullPointerException\n!STACK 0\njava.lang.NullPointerException\n\tat org.eclipse.jdt.internal.compiler.problem.ProblemReporter.invalidField(ProblemReporter.java:2878)\n\tat org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.reportError(QualifiedNameReference.java:958)\n\tat org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.resolveType(QualifiedNameReference.java:1026)\n\tat org.eclipse.jdt.internal.compiler.ast.MessageSend.resolveType(MessageSend.java:344)\n\tat org.eclipse.jdt.internal.compiler.ast.Expression.resolve(Expression.java:884)\n\tat org.eclipse.jdt.internal.compiler.ast.Block.resolveUsing(Block.java:115)\n\tat org.eclipse.jdt.internal.compiler.ast.TryStatement.resolve(TryStatement.java:687)\n\tat org.eclipse.jdt.internal.compiler.ast.Block.resolve(Block.java:101)\n\tat org.eclipse.jdt.internal.compiler.ast.IfStatement.resolve(IfStatement.java:234)\n\tat org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolveStatements(AbstractMethodDeclaration.java:432)\n\tat org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.resolveStatements(MethodDeclaration.java:179)\n\tat org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolve(AbstractMethodDeclaration.java:403)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve(TypeDeclaration.java:1054)\n\tat org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve(TypeDeclaration.java:1101)\n\tat org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.resolve(CompilationUnitDeclaration.java:353)\n\tat org.eclipse.jdt.internal.compiler.Compiler.resolve(Compiler.java:687)\n\tat org.eclipse.jdt.internal.compiler.Compiler.resolve(Compiler.java:726)\n\tat org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process(CompilationUnitProblemFinder.java:174)\n\tat org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process(CompilationUnitProblemFinder.java:246)\n\tat org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.makeConsistent(ReconcileWorkingCopyOperation.java:152)\n\tat org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.executeOperation(ReconcileWorkingCopyOperation.java:71)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.run(JavaModelOperation.java:720)\n\tat org.eclipse.jdt.internal.core.JavaModelOperation.runOperation(JavaModelOperation.java:779)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.reconcile(CompilationUnit.java:1120)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.reconcile(CompilationUnit.java:1092)\n\tat org.eclipse.jdt.internal.corext.util.JavaModelUtil.reconcile(JavaModelUtil.java:701)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.getElementAt(CompilationUnitEditor.java:1300)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedOffset.setOffset(CompilationUnitEditor.java:881)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedSelection.remember(CompilationUnitEditor.java:772)\n\tat org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.rememberSelection(CompilationUnitEditor.java:1832)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor$4.run(AbstractTextEditor.java:337)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.execute(AbstractTextEditor.java:486)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.elementContentAboutToBeReplaced(AbstractTextEditor.java:341)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider$FileBufferListener.bufferContentAboutToBeReplaced(TextFileDocumentProvider.java:252)\n\tat org.eclipse.core.internal.filebuffers.TextFileBufferManager$4.run(TextFileBufferManager.java:454)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.internal.filebuffers.TextFileBufferManager.fireBufferContentAboutToBeReplaced(TextFileBufferManager.java:452)\n\tat org.eclipse.core.internal.filebuffers.ResourceTextFileBuffer.handleFileContentChanged(ResourceTextFileBuffer.java:473)\n\tat org.eclipse.core.internal.filebuffers.ResourceFileBuffer.revert(ResourceFileBuffer.java:351)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider$1.execute(TextFileDocumentProvider.java:709)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider$DocumentProviderOperation.run(TextFileDocumentProvider.java:143)\n\tat org.eclipse.ui.actions.WorkspaceModifyDelegatingOperation.execute(WorkspaceModifyDelegatingOperation.java:68)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation$1.run(WorkspaceModifyOperation.java:101)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n\tat org.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:113)\n\tat org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:73)\n\tat org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:63)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation(TextFileDocumentProvider.java:459)\n\tat org.eclipse.ui.editors.text.TextFileDocumentProvider.resetDocument(TextFileDocumentProvider.java:727)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor.performRevert(AbstractTextEditor.java:3932)\n\tat org.eclipse.jdt.internal.ui.javaeditor.JavaEditor.performRevert(JavaEditor.java:3573)\n\tat org.eclipse.ui.texteditor.AbstractTextEditor.doRevertToSaved(AbstractTextEditor.java:3912)\n\tat org.eclipse.ui.texteditor.StatusTextEditor.doRevertToSaved(StatusTextEditor.java:183)\n\tat org.eclipse.ui.texteditor.RevertToSavedAction.run(RevertToSavedAction.java:47)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:499)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:539)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:488)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent(ActionContributionItem.java:400)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:925)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3346)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2966)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1914)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1878)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:419)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:95)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:169)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:64)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n\tat java.lang.reflect.Method.invoke(Method.java:615)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n\tat org.eclipse.core.launcher.Main.run(Main.java:977)\n\tat org.eclipse.core.launcher.Main.main(Main.java:952)",
+    "I will investigate.",
+    "This might come from the fact that the class name is a number.",
+    "This is supposed to be the class OpenTypeHistory. I don\u0027t understand why the name of the class is 56.\nI\u0027ll investigate why we try to resolve fields for such a class.",
+    "I could imagine a bug in CVS update, or similar issue to cause the bogus scenario to occur.",
+    "I think I can explain the \u002756\u0027:\n\nI opened the type and quickly wanted to go to line 56 but due the key binding bug in Platform UI the \u002756\u0027 was written into the editor and replaced the class name with \u002756\u0027.",
+    "Simpler test case:\nclass 56 {\n\n\tprivate static class B {\n\t\tpublic static final String F \u003d \"\";\n\t}\n\n\tprivate static class C {\n\t}\n\t\n\tpublic void foo() {\n\t\tSystem.out.println(B.F);\n\t}\n}\n\nThe recovery retrieves this cu:\n\nprivate static class B {\n  public static final String F \u003d \"\";\n  private B() {\n    super();\n  }\n  \u003cclinit\u003e() {\n  }\n}\nprivate static class C {\n  {\n  }\n  private C() {\n    super();\n  }\n  public void foo() {\n    System.out.println(B.F);\n  }\n}\n\nSo foo is attached to C. The resolution of B.F fails because the binding for F is a problem binding that has no declaring class. And when we report the error, we expect the declaring class to be there. It seems that F has no declaring class because B is private.\nIf you remove the private modifier in front of B, then you don\u0027t get the NPE.\n",
+    "Problem comes from a problem field binding not carrying enough infor for error reporting.\nAdded LookupTest#test063.\nFixed",
+    "*** Bug 127251 has been marked as a duplicate of this bug. ***",
+    "Verified for 3.2 RC1 using Build id: I20060413-0010.\n\nThe NPE is fixed.\nDani, would you please open a separate bug for the log optimization suggestion?"
+  ],
+  "commentCreationDates": [
+    "2006-04-06T17:08:32+02:00",
+    "2006-04-06T17:15:53+02:00",
+    "2006-04-06T17:19:00+02:00",
+    "2006-04-06T17:27:29+02:00",
+    "2006-04-06T17:41:58+02:00",
+    "2006-04-06T17:46:48+02:00",
+    "2006-04-06T18:01:18+02:00",
+    "2006-04-07T15:00:32+02:00",
+    "2006-04-08T10:17:44+02:00",
+    "2006-04-13T21:51:14+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.problem.ProblemReporter.invalidField",
+          "source": "ProblemReporter.java:2878"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.reportError",
+          "source": "QualifiedNameReference.java:958"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.resolveType",
+          "source": "QualifiedNameReference.java:1026"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MessageSend.resolveType",
+          "source": "MessageSend.java:344"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Expression.resolve",
+          "source": "Expression.java:884"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Block.resolveUsing",
+          "source": "Block.java:115"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TryStatement.resolve",
+          "source": "TryStatement.java:687"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Block.resolve",
+          "source": "Block.java:101"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.IfStatement.resolve",
+          "source": "IfStatement.java:234"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolveStatements",
+          "source": "AbstractMethodDeclaration.java:432"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.resolveStatements",
+          "source": "MethodDeclaration.java:179"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolve",
+          "source": "AbstractMethodDeclaration.java:403"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve",
+          "source": "TypeDeclaration.java:1054"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve",
+          "source": "TypeDeclaration.java:1101"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.resolve",
+          "source": "CompilationUnitDeclaration.java:353"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.resolve",
+          "source": "Compiler.java:687"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.resolve",
+          "source": "Compiler.java:726"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process",
+          "source": "CompilationUnitProblemFinder.java:174"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process",
+          "source": "CompilationUnitProblemFinder.java:246"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.makeConsistent",
+          "source": "ReconcileWorkingCopyOperation.java:152"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.executeOperation",
+          "source": "ReconcileWorkingCopyOperation.java:71"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.run",
+          "source": "JavaModelOperation.java:720"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.runOperation",
+          "source": "JavaModelOperation.java:779"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.reconcile",
+          "source": "CompilationUnit.java:1120"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.reconcile",
+          "source": "CompilationUnit.java:1092"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.util.JavaModelUtil.reconcile",
+          "source": "JavaModelUtil.java:701"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.getElementAt",
+          "source": "CompilationUnitEditor.java:1300"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedOffset.setOffset",
+          "source": "CompilationUnitEditor.java:881"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedSelection.remember",
+          "source": "CompilationUnitEditor.java:771"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.rememberSelection",
+          "source": "CompilationUnitEditor.java:1832"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$4.run",
+          "source": "AbstractTextEditor.java:337"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.execute",
+          "source": "AbstractTextEditor.java:486"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.elementContentAboutToBeReplaced",
+          "source": "AbstractTextEditor.java:341"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$FileBufferListener.bufferContentAboutToBeReplaced",
+          "source": "TextFileDocumentProvider.java:252"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.TextFileBufferManager$4.run",
+          "source": "TextFileBufferManager.java:454"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.TextFileBufferManager.fireBufferContentAboutToBeReplaced",
+          "source": "TextFileBufferManager.java:452"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceTextFileBuffer.handleFileContentChanged",
+          "source": "ResourceTextFileBuffer.java:473"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceFileBuffer.revert",
+          "source": "ResourceFileBuffer.java:351"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$1.execute",
+          "source": "TextFileDocumentProvider.java:709"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$DocumentProviderOperation.run",
+          "source": "TextFileDocumentProvider.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyDelegatingOperation.execute",
+          "source": "WorkspaceModifyDelegatingOperation.java:68"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation$1.run",
+          "source": "WorkspaceModifyOperation.java:101"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:113"
+        },
+        {
+          "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+          "source": "WorkspaceOperationRunner.java:73"
+        },
+        {
+          "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+          "source": "WorkspaceOperationRunner.java:63"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation",
+          "source": "TextFileDocumentProvider.java:459"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.resetDocument",
+          "source": "TextFileDocumentProvider.java:727"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor.performRevert",
+          "source": "AbstractTextEditor.java:3932"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.JavaEditor.performRevert",
+          "source": "JavaEditor.java:3573"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor.doRevertToSaved",
+          "source": "AbstractTextEditor.java:3912"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.StatusTextEditor.doRevertToSaved",
+          "source": "StatusTextEditor.java:183"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.RevertToSavedAction.run",
+          "source": "RevertToSavedAction.java:47"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:499"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:539"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:488"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:925"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3346"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2966"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1914"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1878"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:169"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:64"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:43"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:615"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "135292",
+      "date": "2006-04-06T17:08:32+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.problem.ProblemReporter.invalidField",
+          "source": "ProblemReporter.java:2878"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.reportError",
+          "source": "QualifiedNameReference.java:958"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.resolveType",
+          "source": "QualifiedNameReference.java:1026"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MessageSend.resolveType",
+          "source": "MessageSend.java:344"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Expression.resolve",
+          "source": "Expression.java:884"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Block.resolveUsing",
+          "source": "Block.java:115"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TryStatement.resolve",
+          "source": "TryStatement.java:687"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Block.resolve",
+          "source": "Block.java:101"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.IfStatement.resolve",
+          "source": "IfStatement.java:234"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolveStatements",
+          "source": "AbstractMethodDeclaration.java:432"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.resolveStatements",
+          "source": "MethodDeclaration.java:179"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolve",
+          "source": "AbstractMethodDeclaration.java:403"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve",
+          "source": "TypeDeclaration.java:1054"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve",
+          "source": "TypeDeclaration.java:1101"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.resolve",
+          "source": "CompilationUnitDeclaration.java:353"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.resolve",
+          "source": "Compiler.java:687"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.resolve",
+          "source": "Compiler.java:726"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process",
+          "source": "CompilationUnitProblemFinder.java:174"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process",
+          "source": "CompilationUnitProblemFinder.java:246"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.makeConsistent",
+          "source": "ReconcileWorkingCopyOperation.java:152"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.executeOperation",
+          "source": "ReconcileWorkingCopyOperation.java:71"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.run",
+          "source": "JavaModelOperation.java:720"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.runOperation",
+          "source": "JavaModelOperation.java:779"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.reconcile",
+          "source": "CompilationUnit.java:1120"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.reconcile",
+          "source": "CompilationUnit.java:1092"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.util.JavaModelUtil.reconcile",
+          "source": "JavaModelUtil.java:701"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.getElementAt",
+          "source": "CompilationUnitEditor.java:1300"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedOffset.setOffset",
+          "source": "CompilationUnitEditor.java:881"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedSelection.remember",
+          "source": "CompilationUnitEditor.java:771"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.rememberSelection",
+          "source": "CompilationUnitEditor.java:1832"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$4.run",
+          "source": "AbstractTextEditor.java:337"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.execute",
+          "source": "AbstractTextEditor.java:486"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.elementContentAboutToBeReplaced",
+          "source": "AbstractTextEditor.java:341"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$FileBufferListener.bufferContentAboutToBeReplaced",
+          "source": "TextFileDocumentProvider.java:252"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.TextFileBufferManager$4.run",
+          "source": "TextFileBufferManager.java:454"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.TextFileBufferManager.fireBufferContentAboutToBeReplaced",
+          "source": "TextFileBufferManager.java:452"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceTextFileBuffer.handleFileContentChanged",
+          "source": "ResourceTextFileBuffer.java:473"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceFileBuffer.revert",
+          "source": "ResourceFileBuffer.java:351"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$1.execute",
+          "source": "TextFileDocumentProvider.java:709"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$DocumentProviderOperation.run",
+          "source": "TextFileDocumentProvider.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyDelegatingOperation.execute",
+          "source": "WorkspaceModifyDelegatingOperation.java:68"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation$1.run",
+          "source": "WorkspaceModifyOperation.java:101"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:113"
+        },
+        {
+          "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+          "source": "WorkspaceOperationRunner.java:73"
+        },
+        {
+          "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+          "source": "WorkspaceOperationRunner.java:63"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation",
+          "source": "TextFileDocumentProvider.java:459"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.resetDocument",
+          "source": "TextFileDocumentProvider.java:727"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor.performRevert",
+          "source": "AbstractTextEditor.java:3932"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.JavaEditor.performRevert",
+          "source": "JavaEditor.java:3573"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor.doRevertToSaved",
+          "source": "AbstractTextEditor.java:3912"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.StatusTextEditor.doRevertToSaved",
+          "source": "StatusTextEditor.java:183"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.RevertToSavedAction.run",
+          "source": "RevertToSavedAction.java:47"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:499"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:539"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:488"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:925"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3346"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2966"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1914"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1878"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:169"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:64"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:43"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:615"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "135292",
+      "date": "2006-04-06T17:08:32+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.problem.ProblemReporter.invalidField",
+          "source": "ProblemReporter.java:2878"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.reportError",
+          "source": "QualifiedNameReference.java:958"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.resolveType",
+          "source": "QualifiedNameReference.java:1026"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MessageSend.resolveType",
+          "source": "MessageSend.java:344"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Expression.resolve",
+          "source": "Expression.java:884"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Block.resolveUsing",
+          "source": "Block.java:115"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TryStatement.resolve",
+          "source": "TryStatement.java:687"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Block.resolve",
+          "source": "Block.java:101"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.IfStatement.resolve",
+          "source": "IfStatement.java:234"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolveStatements",
+          "source": "AbstractMethodDeclaration.java:432"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.resolveStatements",
+          "source": "MethodDeclaration.java:179"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolve",
+          "source": "AbstractMethodDeclaration.java:403"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve",
+          "source": "TypeDeclaration.java:1054"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve",
+          "source": "TypeDeclaration.java:1101"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.resolve",
+          "source": "CompilationUnitDeclaration.java:353"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.resolve",
+          "source": "Compiler.java:687"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.resolve",
+          "source": "Compiler.java:726"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process",
+          "source": "CompilationUnitProblemFinder.java:174"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process",
+          "source": "CompilationUnitProblemFinder.java:246"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.makeConsistent",
+          "source": "ReconcileWorkingCopyOperation.java:152"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.executeOperation",
+          "source": "ReconcileWorkingCopyOperation.java:71"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.run",
+          "source": "JavaModelOperation.java:720"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.runOperation",
+          "source": "JavaModelOperation.java:779"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.reconcile",
+          "source": "CompilationUnit.java:1120"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.reconcile",
+          "source": "CompilationUnit.java:1092"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.util.JavaModelUtil.reconcile",
+          "source": "JavaModelUtil.java:701"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.getElementAt",
+          "source": "CompilationUnitEditor.java:1300"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedOffset.setOffset",
+          "source": "CompilationUnitEditor.java:881"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedSelection.remember",
+          "source": "CompilationUnitEditor.java:772"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.rememberSelection",
+          "source": "CompilationUnitEditor.java:1832"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$4.run",
+          "source": "AbstractTextEditor.java:337"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.execute",
+          "source": "AbstractTextEditor.java:486"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.elementContentAboutToBeReplaced",
+          "source": "AbstractTextEditor.java:341"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$FileBufferListener.bufferContentAboutToBeReplaced",
+          "source": "TextFileDocumentProvider.java:252"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.TextFileBufferManager$4.run",
+          "source": "TextFileBufferManager.java:454"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.TextFileBufferManager.fireBufferContentAboutToBeReplaced",
+          "source": "TextFileBufferManager.java:452"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceTextFileBuffer.handleFileContentChanged",
+          "source": "ResourceTextFileBuffer.java:473"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceFileBuffer.revert",
+          "source": "ResourceFileBuffer.java:351"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$1.execute",
+          "source": "TextFileDocumentProvider.java:709"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$DocumentProviderOperation.run",
+          "source": "TextFileDocumentProvider.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyDelegatingOperation.execute",
+          "source": "WorkspaceModifyDelegatingOperation.java:68"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation$1.run",
+          "source": "WorkspaceModifyOperation.java:101"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:113"
+        },
+        {
+          "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+          "source": "WorkspaceOperationRunner.java:73"
+        },
+        {
+          "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+          "source": "WorkspaceOperationRunner.java:63"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation",
+          "source": "TextFileDocumentProvider.java:459"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.resetDocument",
+          "source": "TextFileDocumentProvider.java:727"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor.performRevert",
+          "source": "AbstractTextEditor.java:3932"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.JavaEditor.performRevert",
+          "source": "JavaEditor.java:3573"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor.doRevertToSaved",
+          "source": "AbstractTextEditor.java:3912"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.StatusTextEditor.doRevertToSaved",
+          "source": "StatusTextEditor.java:183"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.RevertToSavedAction.run",
+          "source": "RevertToSavedAction.java:47"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:499"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:539"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:488"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:925"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3346"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2966"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1914"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1878"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:169"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:64"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:43"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:615"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 0,
+      "bugId": "135292",
+      "date": "2006-04-06T17:08:32+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.problem.ProblemReporter.invalidField",
+          "source": "ProblemReporter.java:2878"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.reportError",
+          "source": "QualifiedNameReference.java:958"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference.resolveType",
+          "source": "QualifiedNameReference.java:1026"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MessageSend.resolveType",
+          "source": "MessageSend.java:344"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Expression.resolve",
+          "source": "Expression.java:884"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Block.resolveUsing",
+          "source": "Block.java:115"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TryStatement.resolve",
+          "source": "TryStatement.java:687"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.Block.resolve",
+          "source": "Block.java:101"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.IfStatement.resolve",
+          "source": "IfStatement.java:234"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolveStatements",
+          "source": "AbstractMethodDeclaration.java:432"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.resolveStatements",
+          "source": "MethodDeclaration.java:179"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration.resolve",
+          "source": "AbstractMethodDeclaration.java:403"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve",
+          "source": "TypeDeclaration.java:1054"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.resolve",
+          "source": "TypeDeclaration.java:1101"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.resolve",
+          "source": "CompilationUnitDeclaration.java:353"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.resolve",
+          "source": "Compiler.java:687"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.resolve",
+          "source": "Compiler.java:726"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process",
+          "source": "CompilationUnitProblemFinder.java:174"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnitProblemFinder.process",
+          "source": "CompilationUnitProblemFinder.java:246"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.makeConsistent",
+          "source": "ReconcileWorkingCopyOperation.java:152"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.ReconcileWorkingCopyOperation.executeOperation",
+          "source": "ReconcileWorkingCopyOperation.java:71"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.run",
+          "source": "JavaModelOperation.java:720"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModelOperation.runOperation",
+          "source": "JavaModelOperation.java:779"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.reconcile",
+          "source": "CompilationUnit.java:1120"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.CompilationUnit.reconcile",
+          "source": "CompilationUnit.java:1092"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.util.JavaModelUtil.reconcile",
+          "source": "JavaModelUtil.java:701"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.getElementAt",
+          "source": "CompilationUnitEditor.java:1300"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedOffset.setOffset",
+          "source": "CompilationUnitEditor.java:881"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor$RememberedSelection.remember",
+          "source": "CompilationUnitEditor.java:772"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.rememberSelection",
+          "source": "CompilationUnitEditor.java:1832"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$4.run",
+          "source": "AbstractTextEditor.java:337"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.execute",
+          "source": "AbstractTextEditor.java:486"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor$ElementStateListener.elementContentAboutToBeReplaced",
+          "source": "AbstractTextEditor.java:341"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$FileBufferListener.bufferContentAboutToBeReplaced",
+          "source": "TextFileDocumentProvider.java:252"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.TextFileBufferManager$4.run",
+          "source": "TextFileBufferManager.java:454"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.TextFileBufferManager.fireBufferContentAboutToBeReplaced",
+          "source": "TextFileBufferManager.java:452"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceTextFileBuffer.handleFileContentChanged",
+          "source": "ResourceTextFileBuffer.java:473"
+        },
+        {
+          "method": "org.eclipse.core.internal.filebuffers.ResourceFileBuffer.revert",
+          "source": "ResourceFileBuffer.java:351"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$1.execute",
+          "source": "TextFileDocumentProvider.java:709"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider$DocumentProviderOperation.run",
+          "source": "TextFileDocumentProvider.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyDelegatingOperation.execute",
+          "source": "WorkspaceModifyDelegatingOperation.java:68"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation$1.run",
+          "source": "WorkspaceModifyOperation.java:101"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:113"
+        },
+        {
+          "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+          "source": "WorkspaceOperationRunner.java:73"
+        },
+        {
+          "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+          "source": "WorkspaceOperationRunner.java:63"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation",
+          "source": "TextFileDocumentProvider.java:459"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.resetDocument",
+          "source": "TextFileDocumentProvider.java:727"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor.performRevert",
+          "source": "AbstractTextEditor.java:3932"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.JavaEditor.performRevert",
+          "source": "JavaEditor.java:3573"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor.doRevertToSaved",
+          "source": "AbstractTextEditor.java:3912"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.StatusTextEditor.doRevertToSaved",
+          "source": "StatusTextEditor.java:183"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.RevertToSavedAction.run",
+          "source": "RevertToSavedAction.java:47"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:499"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:539"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:488"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:925"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3346"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2966"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1914"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1878"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:95"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:78"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:92"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:68"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:169"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:64"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:43"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:615"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:336"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:280"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:977"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:952"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 0,
+      "bugId": "135292",
+      "date": "2006-04-06T17:08:32+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "major"
+    }
+  ],
+  "groupId": "135292",
+  "bugId": "135292",
+  "date": "2006-04-06T17:08:32+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "major"
+}

@@ -1,0 +1,226 @@
+{
+  "comments": [
+    "During startup when the initial workbench window is being created, I\u0027m \noccasionally running into a situation where a ViewPart in one plugin is able \nto call into a class hosted in another plugin before that plugin\u0027s \nBundleActivator class is created.  This should not be possible since it is \nguaranteed that a plugin will be started before any of its classes are \naccessed (although I couldn\u0027t find the spec to back this up).\n\nFor example:\n--------------------------------------------------------------\n**** PLUGIN A ****\npublic class PluginA {\n\tprivate static PluginA instance;\n\tpublic PluginA() {\n\t\tPluginA.instance \u003d this;\n\t}\n\tpublic static PluginA getDefault() {\n\t\treturn PluginA.instance;\n\t}\n\tpublic void foo() {\n\t\t//...\n\t}\n}\npublic class AClass {\n\tpublic static void foo() {\n\t\tPluginA.getDefault().foo();\n\t}\n}\n\t\t\n\n**** PLUGIN B **** (depends on PLUGIN A)\npublic class ViewB {\n\tpublic void createPartControl(Composite parent) {\n\t\tAClass.foo(); //NullPointerException because PluginA.instance \nis not set!!!\n\t}\n}\n-----------------------------------------------------\n\nThis results sometimes in the following:\n\njava.lang.NullPointerException\n\tat com.myapp.pluginA.AClass.foo(AClass.java:3)\n\tat com.myapp.pluginB.GenericViewPart.createPartControl\n(GenericViewPart.java:3)\n\tat org.eclipse.ui.internal.ViewReference.createPartHelper\n(ViewReference.java:305)\n\tat org.eclipse.ui.internal.ViewReference.createPart\n(ViewReference.java:180)\n\tat org.eclipse.ui.internal.WorkbenchPartReference.getPart\n(WorkbenchPartReference.java:552)\n\tat org.eclipse.ui.internal.PartPane.setVisible(PartPane.java:283)\n\tat org.eclipse.ui.internal.ViewPane.setVisible(ViewPane.java:512)\n\tat org.eclipse.ui.internal.presentations.PresentablePart.setVisible\n(PresentablePart.java:126)\n\tat \norg.eclipse.ui.internal.presentations.util.PresentablePartFolder.select\n(PresentablePartFolder.java:268)\n\tat \norg.eclipse.ui.internal.presentations.util.LeftToRightTabOrder.select\n(LeftToRightTabOrder.java:65)\n\tat \norg.eclipse.ui.internal.presentations.util.TabbedStackPresentation.selectPart\n(TabbedStackPresentation.java:391)\n\tat org.eclipse.ui.internal.PartStack.refreshPresentationSelection\n(PartStack.java:1102)\n\tat org.eclipse.ui.internal.PartStack.setSelection(PartStack.java:1051)\n\tat org.eclipse.ui.internal.PartStack.showPart(PartStack.java:1256)\n\tat org.eclipse.ui.internal.PartStack.createControl(PartStack.java:576)\n\tat org.eclipse.ui.internal.PartStack.createControl(PartStack.java:528)\n\tat org.eclipse.ui.internal.PartSashContainer.createControl\n(PartSashContainer.java:485)\n\tat org.eclipse.ui.internal.PerspectiveHelper.activate\n(PerspectiveHelper.java:230)\n\tat org.eclipse.ui.internal.Perspective.onActivate(Perspective.java:813)\n\tat org.eclipse.ui.internal.WorkbenchPage.onActivate\n(WorkbenchPage.java:2161)\n\tat org.eclipse.ui.internal.WorkbenchWindow$5.run\n(WorkbenchWindow.java:2358)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile\n(BusyIndicator.java:69)\n\tat org.eclipse.ui.internal.WorkbenchWindow.setActivePage\n(WorkbenchWindow.java:2340)\n\tat org.eclipse.ui.internal.WorkbenchWindow.busyOpenPage\n(WorkbenchWindow.java:681)\n\tat org.eclipse.ui.internal.Workbench.busyOpenWorkbenchWindow\n(Workbench.java:669)\n\tat org.eclipse.ui.internal.Workbench.doOpenFirstTimeWindow\n(Workbench.java:1282)\n\tat org.eclipse.ui.internal.Workbench.openFirstTimeWindow\n(Workbench.java:1223)\n\tat org.eclipse.ui.internal.WorkbenchConfigurer.openFirstTimeWindow\n(WorkbenchConfigurer.java:190)\n\tat org.eclipse.ui.application.WorkbenchAdvisor.openWindows\n(WorkbenchAdvisor.java:706)\n\tat org.eclipse.ui.internal.Workbench.init(Workbench.java:1034)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1636)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.java:367)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat com.myapp.application.Application.run(Application.java:96)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:226)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:163)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n\tat java.lang.reflect.Method.invoke(Unknown Source)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:334)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:278)\n\tat org.eclipse.core.launcher.Main.run(Main.java:973)\n\tat org.eclipse.core.launcher.Main.main(Main.java:948)",
+    "Please attach you sample projects, thanks.",
+    "I\u0027ve just found the following: \nhttp://dev.eclipse.org/newslists/news.eclipse.platform/msg40947.html.\n\nIn my example PLUGIN A did not have Eclipse-AutoStart: true.  Would this be \nthe cause?",
+    "Re comment 2\n\nYes that will cause this situation to occur.  If you add \n\nEclipse-AutoStart: true \n\nto your bundle manifest then the the BundleActivator#start method will be \ncalled before any class is loaded from your bundle.  I\u0027m going to close as \ninvalid.  Please reopen if adding this header to your manifest does not fix \nyour problem. Thanks.",
+    "Thanks.  That seems to have been the issue.  I get the feeling I should have \nknown about that attribute, but it disappeared from the manifest editor (at \nleast I think it used to be there).  This was a departure from how plugins \nused to work pre-3.0, right?  I\u0027m not sure if there\u0027s a way to make people \nmore aware of these types of things.  It certainly took a lot of searching to \nfinally come up with the answer.",
+    "I believe PDE is making improvements in this area for Eclipse 3.2.  PDE should \ngive some kind of error or add the header automatically if you bundle defines \nan extension/extension point.  Wassim is this correct?",
+    "Tom, PDE adds the singleton directive when the user adds an \nextension/extension point via the editor.  Should we also automatically add \nthe autostart/lazystart header too? should we flag an error too?",
+    "Actually, I\u0027m not so sure we want to automatically do anything here.  At most \nwe would post a warning.  But even that is a bit overboard.  There are plenty \nof scenarios where not having Eclipse-AutoStart is valid even when you have \nextension/extension points.\n\nIt is only when the bundle actually depends on the auto-start behavior that it \nis needed.  But I cannot think of any automated way PDE could determine this.  \nUnfortunately this may have to stay in the hands of the developer.",
+    "Fair enough.  I think have the Autostart checkbox or even a properties-style \nlist of the more esoteric OSGi/Eclipse manifest attributes would go a long way \n(although I think Eclipse-Autostart is a pretty important one).  Otherwise, \nit\u0027s depending on the developer keeping up-to-date with the documentation, \nwhich is not always so straight forward.",
+    "the AutoStart/LazyStart header has recently been exposed in the editor UI \n(3.2M3)"
+  ],
+  "commentCreationDates": [
+    "2005-10-20T00:31:51+02:00",
+    "2005-10-20T17:54:50+02:00",
+    "2005-10-21T19:12:11+02:00",
+    "2005-10-21T19:23:36+02:00",
+    "2005-10-21T20:03:07+02:00",
+    "2005-10-21T20:45:26+02:00",
+    "2005-10-21T22:42:49+02:00",
+    "2005-10-21T23:01:42+02:00",
+    "2005-10-21T23:10:43+02:00",
+    "2005-10-21T23:13:30+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "com.myapp.pluginA.AClass.foo",
+          "source": "AClass.java:3"
+        },
+        {
+          "method": "com.myapp.pluginB.GenericViewPart.createPartControl",
+          "source": "GenericViewPart.java:3"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPartHelper",
+          "source": "ViewReference.java:305"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewReference.createPart",
+          "source": "ViewReference.java:180"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPartReference.getPart",
+          "source": "WorkbenchPartReference.java:552"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.setVisible",
+          "source": "PartPane.java:283"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ViewPane.setVisible",
+          "source": "ViewPane.java:512"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.PresentablePart.setVisible",
+          "source": "PresentablePart.java:126"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.PresentablePartFolder.select",
+          "source": "PresentablePartFolder.java:268"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.LeftToRightTabOrder.select",
+          "source": "LeftToRightTabOrder.java:65"
+        },
+        {
+          "method": "org.eclipse.ui.internal.presentations.util.TabbedStackPresentation.selectPart",
+          "source": "TabbedStackPresentation.java:391"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.refreshPresentationSelection",
+          "source": "PartStack.java:1102"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.setSelection",
+          "source": "PartStack.java:1051"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.showPart",
+          "source": "PartStack.java:1256"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.createControl",
+          "source": "PartStack.java:576"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartStack.createControl",
+          "source": "PartStack.java:528"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartSashContainer.createControl",
+          "source": "PartSashContainer.java:485"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PerspectiveHelper.activate",
+          "source": "PerspectiveHelper.java:230"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Perspective.onActivate",
+          "source": "Perspective.java:813"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.onActivate",
+          "source": "WorkbenchPage.java:2161"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow$5.run",
+          "source": "WorkbenchWindow.java:2358"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.setActivePage",
+          "source": "WorkbenchWindow.java:2340"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.busyOpenPage",
+          "source": "WorkbenchWindow.java:681"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.busyOpenWorkbenchWindow",
+          "source": "Workbench.java:669"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.doOpenFirstTimeWindow",
+          "source": "Workbench.java:1282"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.openFirstTimeWindow",
+          "source": "Workbench.java:1223"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchConfigurer.openFirstTimeWindow",
+          "source": "WorkbenchConfigurer.java:190"
+        },
+        {
+          "method": "org.eclipse.ui.application.WorkbenchAdvisor.openWindows",
+          "source": "WorkbenchAdvisor.java:706"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.init",
+          "source": "Workbench.java:1034"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1636"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:367"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "com.myapp.application.Application.run",
+          "source": "Application.java:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:226"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:163"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:334"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:278"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:973"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:948"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "113170",
+      "date": "2005-10-20T00:31:51+02:00",
+      "product": "Platform",
+      "component": "Runtime",
+      "severity": "major"
+    }
+  ],
+  "groupId": "113170",
+  "bugId": "113170",
+  "date": "2005-10-20T00:31:51+02:00",
+  "product": "Platform",
+  "component": "Runtime",
+  "severity": "major"
+}

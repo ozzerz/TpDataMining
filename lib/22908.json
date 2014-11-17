@@ -1,0 +1,126 @@
+{
+  "comments": [
+    "1. Create a breakpoint in the following program where indicated. Put a \ncondition of \"i \u003d\u003d 23\" on the breakpoint. Set the breakpoint\u0027s suspend \npolicy to SUSPEND VM.\npublic class HelloWorld {\n  public static void main(String[] args) {\n    for (int i \u003d 0; i \u003c 100; i++) {\n      System.out.println(i); // BREAKPOINT HERE\n    }\n  }\n}\n2. Debug the program until it suspends at the breakpoint.\n3. Resume the program. The following exception is logged:\n\njava.lang.ClassCastException\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.instructions.EqualEqualOperator.getBooleanResult(EqualEqualOperator.java:35)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.instructions.BinaryOperator.executeBinary(BinaryOperator.java:95)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.instructions.BinaryOperator.execute(BinaryOperator.java:32)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.Interpreter.execute(Interpreter.java:44)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread$1$EvaluationRunnable.run(EvaluationThread.java:159)\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIThread.runEvaluation(JDIThread.java:561)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread.doEvaluation(EvaluationThread.java:181)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread.access$2(EvaluationThread.java:143)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread$1.run(EvaluationThread.java:117)\n\tat java.lang.Thread.run(Thread.java:536)\n!ENTRY org.eclipse.jdt.debug 4 120 Aug 27, 2002 13:50:10.501\n!MESSAGE Internal error logged from JDI Debug: \n!STACK 0\njava.lang.ClassCastException\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.instructions.EqualEqualOperator.getBooleanResult(EqualEqualOperator.java:35)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.instructions.BinaryOperator.executeBinary(BinaryOperator.java:95)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.instructions.BinaryOperator.execute(BinaryOperator.java:32)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.Interpreter.execute(Interpreter.java:44)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread$1$EvaluationRunnable.run(EvaluationThread.java:159)\n\tat \norg.eclipse.jdt.internal.debug.core.model.JDIThread.runEvaluation(JDIThread.java:561)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread.doEvaluation(EvaluationThread.java:181)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread.access$2(EvaluationThread.java:143)\n\tat \norg.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread$1.run(EvaluationThread.java:117)\n\tat java.lang.Thread.run(Thread.java:536)",
+    "Seems to be a problem updating the model. We resume the VM and the breakpoint \nis hit, but when we go to get the value of the local variable \"i\" for the \nevaluation, we get an exception saying that the thread is not suspended.\n\nThe class cast exception comes later when we try to pop the value of \"i\" from \nthe stack and we get a JDINullValue instead of a JDIPrimitiveValue.\n\nThe timing problem could either be caused by the fix to Bug 22482 or it could \njust be exposed by fixing that problem.",
+    "The problem here wasn\u0027t really related to conditional breakpoints or \nevaluation per se. JDIDebugTarget was resuming the underlying VM before \nupdating the state of its threads to \"running\" like so:\n  getVM().resume();\n  resumeThreads();\n\nHowever, if we hit a breakpoint immediately, the event dispatch thread \nwould update the underlying threads and you\u0027d actually end up with the \nfollowing execution (across multiple threads):\n  getVM().resume();\n  JDIThread.handleSuspendForBreakpoint() (thread.fRunning\u003d false)\n  resumeThreads() (thread.fRunning\u003d true)\nSo when the breakpoint tried to perform an evaluation, it found that the \nthread was running (not suspended).",
+    "Fixed by setting the model state *before* resuming the VM.\n\nPlease verify, Luc."
+  ],
+  "commentCreationDates": [
+    "2002-08-27T20:48:51+02:00",
+    "2002-08-27T22:05:30+02:00",
+    "2002-09-03T17:19:50+02:00",
+    "2002-09-03T17:31:43+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.instructions.EqualEqualOperator.getBooleanResult",
+          "source": "EqualEqualOperator.java:35"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.instructions.BinaryOperator.executeBinary",
+          "source": "BinaryOperator.java:95"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.instructions.BinaryOperator.execute",
+          "source": "BinaryOperator.java:32"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.Interpreter.execute",
+          "source": "Interpreter.java:44"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread$1$EvaluationRunnable.run",
+          "source": "EvaluationThread.java:159"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread.runEvaluation",
+          "source": "JDIThread.java:561"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread.doEvaluation",
+          "source": "EvaluationThread.java:181"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread.access$2",
+          "source": "EvaluationThread.java:143"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread$1.run",
+          "source": "EvaluationThread.java:117"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:536"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "22908",
+      "date": "2002-08-27T20:48:51+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.instructions.EqualEqualOperator.getBooleanResult",
+          "source": "EqualEqualOperator.java:35"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.instructions.BinaryOperator.executeBinary",
+          "source": "BinaryOperator.java:95"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.instructions.BinaryOperator.execute",
+          "source": "BinaryOperator.java:32"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.Interpreter.execute",
+          "source": "Interpreter.java:44"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread$1$EvaluationRunnable.run",
+          "source": "EvaluationThread.java:159"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIThread.runEvaluation",
+          "source": "JDIThread.java:561"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread.doEvaluation",
+          "source": "EvaluationThread.java:181"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread.access$2",
+          "source": "EvaluationThread.java:143"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.eval.ast.engine.EvaluationThread$1.run",
+          "source": "EvaluationThread.java:117"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:536"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "22908",
+      "date": "2002-08-27T20:48:51+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "22908",
+  "bugId": "22908",
+  "date": "2002-08-27T20:48:51+02:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

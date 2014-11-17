@@ -1,0 +1,188 @@
+{
+  "comments": [
+    "Under some circumstances there is an NPE in error log thrown while\nDetailedLabelFigure got validated. This figure has no font and is unable to get\nit from the parents since parent Group figure was not added to the hierarchy.\nThis happens only when flyout palette is collapsed.\n\njava.lang.NullPointerException\n\tat org.eclipse.draw2d.FigureUtilities.setFont(FigureUtilities.java:365)\n\tat org.eclipse.draw2d.FigureUtilities.getFontMetrics(FigureUtilities.java:56)\n\tat org.eclipse.draw2d.text.FlowUtilities.getTextForSpace(FlowUtilities.java:58)\n\tat org.eclipse.draw2d.text.ParagraphTextLayout.layout(ParagraphTextLayout.java:109)\n\tat org.eclipse.draw2d.text.FlowFigureLayout.layout(FlowFigureLayout.java:80)\n\tat org.eclipse.draw2d.Figure.layout(Figure.java:928)\n\tat org.eclipse.draw2d.Figure.validate(Figure.java:1604)\n\tat\norg.eclipse.draw2d.text.FlowContainerLayout.layoutChildren(FlowContainerLayout.java:98)\n\tat org.eclipse.draw2d.text.FlowContainerLayout.layout(FlowContainerLayout.java:85)\n\tat org.eclipse.draw2d.text.FlowFigureLayout.layout(FlowFigureLayout.java:80)\n\tat org.eclipse.draw2d.Figure.layout(Figure.java:928)\n\tat org.eclipse.draw2d.Figure.validate(Figure.java:1604)\n\tat org.eclipse.draw2d.text.FlowPage.validate(FlowPage.java:138)\n\tat\norg.eclipse.draw2d.DeferredUpdateManager.validateFigures(DeferredUpdateManager.java:237)\n\tat\norg.eclipse.draw2d.DeferredUpdateManager.performUpdate(DeferredUpdateManager.java:137)\n\tat\norg.eclipse.draw2d.DeferredUpdateManager$UpdateRequest.run(DeferredUpdateManager.java:62)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:106)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2749)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2434)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1377)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1348)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:254)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:96)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:335)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:273)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:129)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n\tat org.eclipse.core.launcher.Main.run(Main.java:704)\n\tat org.eclipse.core.launcher.Main.main(Main.java:688)",
+    "Can you provide any more details?  Can you reproduce this in the logic example.\n\nA figure should not be laying out if it\u0027s not part of a figure hierarchy.  \nWhat caused the figure to be removed from its hierarchy?  Did you hide \nsomething on the palette?  Or change the layout mode?",
+    "Pratik, Font is probably inherited from the Canvas, in which case the canvas \nmight be disposed??  But GraphicalViewerImpl hooks dispose and deactivates the \nupdatemanager to avoid any outstanding layouts.",
+    "I don\u0027t know how to reproduce it in LogicExample though I\u0027ve managed to avoid it\nin my code. What happens:\n1. Diagram model was changed.\n2. I reload the diagram palette in response (paletteRoot.setChildren(...)). At\nthis moment (just before reloading) there is a pending draw2d update to validate\npalette figures (tool labels); I don\u0027t know why it\u0027s there.\n3. When palette draw2d update got executed tool labels are disconnected from\ndraw2d hierarchy and they can\u0027t retreive font to calculate their size, resulting\nin exception.\nMy fix was to flush palette draw2d updates queue (calling performUpdate() on\npalette UpdateManager) before I reload the palette.",
+    "It sounds like one of the figures in the palette is a validation root, meaning \nit doesn\u0027t pass calls to revalidate() all the way up to the real root figure.  \nIf that\u0027s true, then it gets added to the list of invalid figures, to be \nvalidated() during the next update.  Then if that figure gets removed, it is \nsitting around still in the list of figures to-be-validated.\n\nIn step 1., did you use the palette to create something in your diagram?  That \nwould mean that palette buttons are pressing/unpressing, but I think that just \ncauses a repaint not layout.\n\nIt would help if you could put a conditional breakpoint in \nDeferredUpdateManager#addInvalidFigure(), and see if/when a figure other than \nthe RootFigure is added to that list.  There may be a few more figures added \nwhich you\u0027ll have to ignore to find the real culprit.\n\nThanks.",
+    "1. I do not use palette tool; diagram model is changed externally (file has\nmoved). Palette is collapsed; layout mode is default - the list.\n\n2. Faulty figure seems to be the\norg.eclipse.gef.internal.ui.palette.editparts.DetailedLabelFigure$FocusableFlowPage.\nIt is added while validation is in progress and sits in the queue just like\nyou\u0027ve said - see the stack trace below:\n\n\tat org.eclipse.draw2d.text.FlowPage.getPreferredSize(FlowPage.java:89)\n\tat org.eclipse.draw2d.BorderLayout.calculatePreferredSize(BorderLayout.java:155)\n\tat org.eclipse.draw2d.AbstractLayout.getPreferredSize(AbstractLayout.java:93)\n\tat\norg.eclipse.draw2d.AbstractHintLayout.getPreferredSize(AbstractHintLayout.java:86)\n\tat org.eclipse.draw2d.Figure.getPreferredSize(Figure.java:648)\n\tat org.eclipse.draw2d.StackLayout.calculatePreferredSize(StackLayout.java:71)\n\tat org.eclipse.draw2d.AbstractLayout.getPreferredSize(AbstractLayout.java:93)\n\tat\norg.eclipse.draw2d.AbstractHintLayout.getPreferredSize(AbstractHintLayout.java:86)\n\tat org.eclipse.draw2d.Figure.getPreferredSize(Figure.java:648)\n\tat\norg.eclipse.gef.internal.ui.palette.editparts.DrawerFigure.getMinimumSize(DrawerFigure.java:313)\n\tat org.eclipse.draw2d.ToolbarLayout.calculateChildrenSize(ToolbarLayout.java:96)\n\tat org.eclipse.draw2d.ToolbarLayout.calculateMinimumSize(ToolbarLayout.java:131)\n\tat org.eclipse.draw2d.AbstractHintLayout.getMinimumSize(AbstractHintLayout.java:69)\n\tat org.eclipse.draw2d.Figure.getMinimumSize(Figure.java:620)\n\tat org.eclipse.draw2d.StackLayout.calculateMinimumSize(StackLayout.java:44)\n\tat org.eclipse.draw2d.AbstractHintLayout.getMinimumSize(AbstractHintLayout.java:69)\n\tat org.eclipse.draw2d.Figure.getMinimumSize(Figure.java:620)\n\tat org.eclipse.draw2d.ViewportLayout.layout(ViewportLayout.java:110)\n\tat org.eclipse.draw2d.Figure.layout(Figure.java:928)\n\tat org.eclipse.draw2d.Figure.validate(Figure.java:1604)\n\tat org.eclipse.draw2d.Viewport.validate(Viewport.java:357)\n\tat org.eclipse.draw2d.Figure.validate(Figure.java:1606)\n\tat\norg.eclipse.draw2d.DeferredUpdateManager.validateFigures(DeferredUpdateManager.java:237)\n\tat\norg.eclipse.draw2d.DeferredUpdateManager.performUpdate(DeferredUpdateManager.java:137)\n\tat\norg.eclipse.draw2d.DeferredUpdateManager$UpdateRequest.run(DeferredUpdateManager.java:62)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:106)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2749)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2434)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1377)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1348)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:254)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:96)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:335)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:273)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:129)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n\tat org.eclipse.core.launcher.Main.run(Main.java:704)\n\tat org.eclipse.core.launcher.Main.main(Main.java:688)\n",
+    "Going to add UpdateManager.removeInvalidFigure(IFigure) and call it from\nFlowPage#removeNotify().",
+    "*** Bug 103732 has been marked as a duplicate of this bug. ***",
+    "This may be the best fix for now. Pratik to review and approve fix:\n\nIndex: FlowPage.java\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\nRCS file: /home/tools/org.eclipse.draw2d/src/org/eclipse/draw2d/text/FlowPage.java,v\nretrieving revision 1.23\ndiff -u -r1.23 FlowPage.java\n--- FlowPage.java\t29 Mar 2005 23:58:02 -0000\t1.23\n+++ FlowPage.java\t7 Sep 2005 21:45:49 -0000\n@@ -34,6 +34,11 @@\n private int pageSizeCacheKeys[] \u003d new int[3];\n private Dimension pageSizeCacheValues[] \u003d new Dimension[3];\n \n+public void addNotify() {\n+\tsuper.addNotify();\n+\tsetValid(false);\n+}\n+\n /**\n  * @see org.eclipse.draw2d.text.BlockFlow#createDefaultFlowLayout()\n  */\n@@ -102,6 +107,15 @@\n }\n \n /**\n+ * Overridden to set valid.\n+ * @see org.eclipse.draw2d.IFigure#removeNotify()\n+ */\n+public void removeNotify() {\n+\tsuper.removeNotify();\n+\tsetValid(true);\n+}\n+\n+/**\n  * @see FlowFigure#setBounds(Rectangle)\n  */\n public void setBounds(Rectangle r) {\n",
+    "approved",
+    "committed to HEAD"
+  ],
+  "commentCreationDates": [
+    "2004-11-05T13:33:22+01:00",
+    "2004-11-05T18:05:36+01:00",
+    "2004-11-05T18:22:26+01:00",
+    "2004-11-09T08:26:14+01:00",
+    "2004-11-09T15:38:38+01:00",
+    "2004-11-10T12:59:03+01:00",
+    "2005-05-31T21:21:12+02:00",
+    "2005-08-08T17:29:18+02:00",
+    "2005-09-07T23:47:08+02:00",
+    "2005-09-08T17:36:50+02:00",
+    "2005-09-09T21:09:22+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.draw2d.FigureUtilities.setFont",
+          "source": "FigureUtilities.java:365"
+        },
+        {
+          "method": "org.eclipse.draw2d.FigureUtilities.getFontMetrics",
+          "source": "FigureUtilities.java:56"
+        },
+        {
+          "method": "org.eclipse.draw2d.text.FlowUtilities.getTextForSpace",
+          "source": "FlowUtilities.java:58"
+        },
+        {
+          "method": "org.eclipse.draw2d.text.ParagraphTextLayout.layout",
+          "source": "ParagraphTextLayout.java:109"
+        },
+        {
+          "method": "org.eclipse.draw2d.text.FlowFigureLayout.layout",
+          "source": "FlowFigureLayout.java:80"
+        },
+        {
+          "method": "org.eclipse.draw2d.Figure.layout",
+          "source": "Figure.java:928"
+        },
+        {
+          "method": "org.eclipse.draw2d.Figure.validate",
+          "source": "Figure.java:1604"
+        },
+        {
+          "method": "org.eclipse.draw2d.text.FlowContainerLayout.layoutChildren",
+          "source": "FlowContainerLayout.java:98"
+        },
+        {
+          "method": "org.eclipse.draw2d.text.FlowContainerLayout.layout",
+          "source": "FlowContainerLayout.java:85"
+        },
+        {
+          "method": "org.eclipse.draw2d.text.FlowFigureLayout.layout",
+          "source": "FlowFigureLayout.java:80"
+        },
+        {
+          "method": "org.eclipse.draw2d.Figure.layout",
+          "source": "Figure.java:928"
+        },
+        {
+          "method": "org.eclipse.draw2d.Figure.validate",
+          "source": "Figure.java:1604"
+        },
+        {
+          "method": "org.eclipse.draw2d.text.FlowPage.validate",
+          "source": "FlowPage.java:138"
+        },
+        {
+          "method": "org.eclipse.draw2d.DeferredUpdateManager.validateFigures",
+          "source": "DeferredUpdateManager.java:237"
+        },
+        {
+          "method": "org.eclipse.draw2d.DeferredUpdateManager.performUpdate",
+          "source": "DeferredUpdateManager.java:137"
+        },
+        {
+          "method": "org.eclipse.draw2d.DeferredUpdateManager$UpdateRequest.run",
+          "source": "DeferredUpdateManager.java:62"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2749"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2434"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1377"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1348"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:254"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:335"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:129"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:704"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:688"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "77941",
+      "date": "2004-11-05T13:33:22+01:00",
+      "product": "GEF",
+      "component": "GEF",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "77941",
+  "bugId": "77941",
+  "date": "2004-11-05T13:33:22+01:00",
+  "product": "GEF",
+  "component": "GEF",
+  "severity": "normal"
+}

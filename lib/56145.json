@@ -1,0 +1,134 @@
+{
+  "comments": [
+    "build I20040324-0800\n\nWe are not getting selection callbacks for Combos on the Mac.\nThis will not be fixed in SWT for M8, so we need to work around it in the UI.\nThe solution is to get the text from the combo when OK is pressed, not from the\ncallback.\n\nSee bug 43396 for more details.",
+    "If this is not addressed you get the following behaviour on first use:\n- dialog comes up with a default workspace dir\n- user chooses a different directory\n- OK\n- it ignores what\u0027s shown and uses the default workspace dir\n",
+    "Created an attachment (id\u003d8879)\nadd conditional behaviour for carbon only\n\nThis patch changes the behaviour on carbon to update the current selection\ndirectly, rather than relying on the selection event to go through the swt\ncombo.",
+    "chris could you test and if it is good please commit this patch as the mac in \nthe lab is not usable right now.\n\nAndre, could you try this also if you don\u0027t mind",
+    "launching Eclipse from with Eclipse with \"-data @noDefault\" results in this:\n\njava.lang.NullPointerException\n\tat \norg.eclipse.ui.internal.ide.ChooseWorkspaceDialog.createDialogArea(ChooseWorkspaceDialog.java:93)\n\tat org.eclipse.jface.dialogs.TitleAreaDialog.createContents(TitleAreaDialog.java:128)\n\tat org.eclipse.jface.window.Window.create(Window.java:350)\n\tat org.eclipse.jface.dialogs.Dialog.create(Dialog.java:859)\n\tat org.eclipse.jface.window.Window.open(Window.java:639)\n\tat org.eclipse.ui.internal.ide.ChooseWorkspaceDialog.prompt(ChooseWorkspaceDialog.java:66)\n\tat org.eclipse.ui.internal.ide.IDEApplication.promptForWorkspace(IDEApplication.java:296)\n\tat org.eclipse.ui.internal.ide.IDEApplication.checkInstanceLocation(IDEApplication.java:201)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:77)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:288)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:232)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:116)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:315)\n\tat org.eclipse.core.launcher.Main.run(Main.java:740)\n\tat org.eclipse.core.launcher.Main.main(Main.java:724)\n",
+    "Created an attachment (id\u003d8883)\naddress comment 4\n\nThe applicable code wasn\u0027t changed by the previous patch so I think this is\nactually a newly discovered problem.  Also, I wasn\u0027t able to reproduce this on\nwindows, so perhaps it is mac specific as well.\n\nThe problem is that Platform.getProduct() returned null, I\u0027m not sure which\nconditions would lead to this behaviour.  In any case, it is spec\u0027ed to\npossibly return null, so the workspace launch dialog should be checking for it.\n This patch adds that check.",
+    "Created an attachment (id\u003d8885)\nreplace prev. patch\n\nAfter starting to use the previous patch I\u0027ve found that the subsquent call to\nproduct.getName() is also returning null.  This doesn\u0027t lead to an NPE, but\ndoes cause the text in the dialog to use the string \"null\".\n\nThis patch replaces the text with the default value, if the is null.  I\u0027ll\ninvestigate why the product is giving a null name and raise a new bug if\nneeded.",
+    "The missing product name that I observed early was cause by running with not \nenough plugin\u0027s enabled in my test env.  When I added enough for the org.\neclipse.product bundle to get properly loaded, then the product name was \nproperly found.  This is the expected behaviour.",
+    "I\u0027ve committed the first and third patch, with a minor modification to the \nthird patch.  The third patch now ensures the the product name is *never* null.  \n(Previously, if the product was null, then the product name would be null.) \n \nMike, Andre: please verify from head or in I200403252000 or later. ",
+    "does not appear to be fixed, but I might be doing something wrong on the MAC, will ask others to \ndouble check",
+    "adding Mcq, perhaps we can look at this in the morning Mar 26",
+    "Does not work in 200403260010.\n\nThe problem is that the Mac-specific workaround is only triggered when the Browse button was used.\nBut this is not the place where the error is.\n\nThe real problem is that selecting some item from the Combo\u0027s drop down menu doesn\u0027t send out a \nselection change event. If subsequently \"OK\" is pressed, a stale value in \"currentSelection\" is used.\n\nA platform independent fix would be to eliminate the inst var \"currentSelection\" (and avoid any out-of-\nsynch errors) and change \"okPressed\" to something like this (modulo some error checking):\n\n\tprotected void okPressed() {\n\t\tlaunchData.workspaceSelected(fCombo.getText());\n\t\tsuper.okPressed();\n\t}\n\n\n",
+    "Created an attachment (id\u003d8909)\nplatform independant fix described in comment 11\n\nAs suggested in comment 11, this patch makes the combo a private member of the\ndialog, and always uses its value for the current selection.  The\ncurrentSelection member is removed.\n\nThis solution makes more sense anyhow since it doesn\u0027t duplicate the data\nbetween the combo and the currentSelection string.  I made the change for all\nplatforms, but if people think it is too risky I could go back and wrap the few\nsections of code in mac specific conditionals.\tI think its safer this way\nthough since its much easier to read that it would be if there were many\nconditionals.",
+    "we are getting the following exception was printed to the console, nothing in the .log after opening \nthe workspace... need to investigate, however patch #4 seems to be working: \n\nUnhandled Exception\nReason:\nUnable to execute early startup code for an extension\nUnhandled event loop exception\nReason:\nFailed to execute runnable (java.lang.NoClassDefFoundError: org/eclipse/swt/internal/carbon/OS)\n*** SWT nested exception\nReason:\norg/eclipse/swt/internal/carbon/OS",
+    "committed and tested patch #4 seems to work.\nNOTE: used -data @noDefault to test and did not have NPE as it was fixed in patch #3.",
+    "logged a new bug 56349  for the exception.  After reverting all changes made here the exception \nwas still occuring therefore it was not due to this fix.\n\nmarking as fixed"
+  ],
+  "commentCreationDates": [
+    "2004-03-25T15:07:42+01:00",
+    "2004-03-25T15:09:05+01:00",
+    "2004-03-25T15:49:08+01:00",
+    "2004-03-25T16:18:25+01:00",
+    "2004-03-25T17:18:44+01:00",
+    "2004-03-25T17:47:47+01:00",
+    "2004-03-25T17:55:40+01:00",
+    "2004-03-25T18:13:24+01:00",
+    "2004-03-25T21:54:02+01:00",
+    "2004-03-25T22:37:07+01:00",
+    "2004-03-26T02:14:55+01:00",
+    "2004-03-26T10:44:01+01:00",
+    "2004-03-26T13:52:46+01:00",
+    "2004-03-26T14:33:41+01:00",
+    "2004-03-26T14:39:40+01:00",
+    "2004-03-26T14:47:17+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.ide.ChooseWorkspaceDialog.createDialogArea",
+          "source": "ChooseWorkspaceDialog.java:93"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.TitleAreaDialog.createContents",
+          "source": "TitleAreaDialog.java:128"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.create",
+          "source": "Window.java:350"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.Dialog.create",
+          "source": "Dialog.java:859"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:639"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.ChooseWorkspaceDialog.prompt",
+          "source": "ChooseWorkspaceDialog.java:66"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.promptForWorkspace",
+          "source": "IDEApplication.java:296"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.checkInstanceLocation",
+          "source": "IDEApplication.java:201"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:77"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:288"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:232"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:116"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:315"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:740"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:724"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "56145",
+      "date": "2004-03-25T17:18:44+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "56145",
+  "bugId": "56145",
+  "date": "2004-03-25T15:07:42+01:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "critical"
+}

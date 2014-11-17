@@ -1,0 +1,163 @@
+{
+  "comments": [
+    "I am not sure if it is Mylar or Callisto issue, but Jira plugin does not work after after installing WTP from Callisto update site. I am getting the following error when synchronizing Jira repository.\n\n!ENTRY org.eclipse.core.jobs 4 2 2006-04-23 13:00:08.692\n!MESSAGE An internal error occurred during: \"Synchronizing queries: jira\".\n!STACK 0\njava.lang.NoClassDefFoundError: org/apache/commons/httpclient/HttpConnectionManager\n\tat java.lang.Class.forName0(Native Method)\n\tat java.lang.Class.forName(Class.java:242)\n\tat org.apache.axis.utils.ClassUtils$2.run(ClassUtils.java:183)\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat org.apache.axis.utils.ClassUtils.loadClass(ClassUtils.java:160)\n\tat org.apache.axis.utils.ClassUtils.forName(ClassUtils.java:100)\n\tat org.apache.axis.deployment.wsdd.WSDDTargetedChain.makeNewInstance(WSDDTargetedChain.java:157)\n\tat org.apache.axis.deployment.wsdd.WSDDDeployableItem.getNewInstance(WSDDDeployableItem.java:274)\n\tat org.apache.axis.deployment.wsdd.WSDDDeployableItem.getInstance(WSDDDeployableItem.java:260)\n\tat org.apache.axis.deployment.wsdd.WSDDDeployment.getTransport(WSDDDeployment.java:410)\n\tat org.apache.axis.configuration.FileProvider.getTransport(FileProvider.java:257)\n\tat org.apache.axis.AxisEngine.getTransport(AxisEngine.java:332)\n\tat org.apache.axis.client.AxisClient.invoke(AxisClient.java:163)\n\tat org.apache.axis.client.Call.invokeEngine(Call.java:2784)\n\tat org.apache.axis.client.Call.invoke(Call.java:2767)\n\tat org.apache.axis.client.Call.invoke(Call.java:2443)\n\tat org.apache.axis.client.Call.invoke(Call.java:2366)\n\tat org.apache.axis.client.Call.invoke(Call.java:1812)\n\tat com.contegix.atlassian01.rpc.soap.jirasoapservice_v2.JirasoapserviceV2SoapBindingStub.login(JirasoapserviceV2SoapBindingStub.java:1551)\n\tat org.tigris.jira.internal.core.service.soap.SoapJiraService.login(SoapJiraService.java:119)\n\tat org.tigris.jira.core.service.CachedRpcJiraServer.login(CachedRpcJiraServer.java:123)\n\tat org.eclipse.mylar.internal.jira.JiraServerFacade.getJiraServer(JiraServerFacade.java:60)\n\tat org.eclipse.mylar.internal.jira.JiraRepositoryConnector.performQuery(JiraRepositoryConnector.java:157)\n\tat org.eclipse.mylar.provisional.tasklist.SynchronizeQueryJob.run(SynchronizeQueryJob.java:73)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)",
+    "It is working again after I uninstalled WTP.\nI also noticed that WTP has Axis packaged as a feature, so that could be where conflict is coming from.",
+    "Brock: this is the concern I had about making Axis a seperate plug-in.  I\u0027ll try to diagnose this by tomorrow, in the meantime, have you tried using JIRA Dashboard with the latest Callisto?",
+    "(In reply to comment #2)\n\u003e Brock: this is the concern I had about making Axis a seperate plug-in.  I\u0027ll\n\u003e try to diagnose this by tomorrow, in the meantime, have you tried using JIRA\n\u003e Dashboard with the latest Callisto?\n\nIt probably would work, if jira core would package Axis as a feature, to mimic Callisto layout. But it will not guarantee that there will be no conflicts in the future, so perhaps it is better to have axis and commons http client packaged with jira core plugin.\n\n",
+    "If they have packaged the axis jar correctly, it should work no matter which one is present.  My guess is that the WTP feature doesn\u0027t have an optional dependency on http client (which it should).  You can fix the problem by removing the WTP version of the axis feature and using the Jira one instead.  I will download the rc1 version of WTP today and see if i can prove it.\n\nAdding the commons and axis jars back into the core plugin would work, but it increases the dowload size by a few meg.  Since the axis and commons version rarely changes, this is very wasteful.\n\nbtw, I plan on releasing the next version with axis 1.4 which should be out soon.",
+    "Brock, jira core 0.8 used by Mylar does not have Axis feature. As far as I can see Axis plugin is packaged within org.tigris.jira.core feature.\n\nI\u0027ve had bad experience with multiple plugin version avialalbe in the runtime. While OSGi claim to support that, Update Manager is going crazy in some cases when multiple versions avaialable.",
+    "I can confirm that it is caused by a missing require-bundle tag.  The bundle specification we need looks like this:\n\norg.apache.commons.httpclient;bundle-version\u003d\"[3.0.0,4.0.0)\";resolution:\u003doptional\n\nThere is a bigger problem here though.  It looks like none of the plugins that depend on axis specify which version they need.  This means that if Jira is upgraded to 1.4, it is possible that it will break WTP again.  WTP will need to put version ranged on their require bundle directives.",
+    "I filled a bug against WTP. Not sure how long it will take to get that fixed. But in a mean time, can we have a temporary fix on Mylar side? Either include ajax jars or package ajax as a feature, so it would be possible to not install feature packaged with WTP.",
+    "Yes, we definitely have to do something by this Friday\u0027s 0.5.1 release, which needs to work properly with Callisto.  Eugene\u0027s point of the update manager getting confused with multiple versions being available from multiple update sites is also a serious concern, because I\u0027ve seen the update manager simply fail in that scenario.\n\nBrock: could you try to make JIRA Core Services depend on the *exact* version that you\u0027re re-distributing, and in both plug-in and feature dependencies specify that the match should be \"Perfect\".  That may ensure that the correct version is used, and that both can co-exist.\n\nI actually have a slight preference to having JIRA Core Services bundle the Apache libraries.  I don\u0027t see the smaller download size as a benefit when you consider the time users end up wasting trying to diagnose these install/update failures.  Long-term we should move to getting Apache dependencies from apache, and in the interim the Update Manager is just not robust enough to have them come from varios other update sites.",
+    "Making the version match \"exact\" would solve the problem for now, but you will run into problems when WTP goes GA and removes the qualifier from their version number.\n\nThe only thing that will definitely work is to move the axis, common http client and related jars into the core plugin.  However, this is *not* the recommended way of doing things.  Where possible, common code is supposed to be shared using library plugins.\n\nThis is not going to be a problem just for mylar/jira.  Any other plugin provider that uses axis from a named bundle will also encounter the same problem.  We *really* need a repository of third party bundles so this sort of thing doesn\u0027t happen again.\n\nAnother thing i noticed about the WTP versino of the axis bundle is that they include other third party libraries such as log4j, commons logging and an implementation of the java mail specification (javaxzombie).  Technically, these should all be using require bundle directives (except for javaxzombie, which should be a package import).\n\nMik, would it be possible to bring up this third party bundle dependency problem with the PMC?  It is a problem that needs to be solved from the top and guidelines should be put in place so everyone knows what is required when creating a third party jar bundle.\n\nFor now, do you want me to roll axis and commons-http client back into the core.soap plugin?  They can be moved back out when the dependency problem is solved.",
+    "Brock: unless we or WTP can come up with a reasonable solution by tomorrow then yes, I think that we should move the dependencies back in.  But definitely with the intention of this being temporary and moving to solution you suggest.  I can also post a summary of the problem to the Callisto cross-project dependencies mailing list since it could affect others (https://dev.eclipse.org/mailman/listinfo/cross-project-issues-dev), but let\u0027s see how this goes first.",
+    "*** Bug 138529 has been marked as a duplicate of this bug. ***",
+    "Eugene, I can\u0027t reproduce this problem with the latest Mylar dev build and the latest Callisto from the update site (which doesn\u0027t have the fix Brock suggested).  Could you try it again with the dev build?\n\nBrock: you may as well hold off changing JIRA Core Services until we can determin if this fix resolves the problem.",
+    "I just installed and checked against the latest WTP release (linked from bug 138298), which contains Brock\u0027s suggested fix, and had no problems wih creating JIRA queries.\n\nSo I assume that this is fixed for now.  It would be great if someone else could verify by tomorrow since we plan be putting 0.5.1 out early evening.",
+    "(In reply to comment #13)\n\u003e I just installed and checked against the latest WTP release (linked from bug\n\u003e 138298), which contains Brock\u0027s suggested fix, and had no problems wih creating\n\u003e JIRA queries.\n\u003e \n\u003e So I assume that this is fixed for now.  It would be great if someone else\n\u003e could verify by tomorrow since we plan be putting 0.5.1 out early evening.\n\nDo they have that on the update site or it is necesary to manually download wtp?\n\n",
+    "It has to be manually downloaded.  So what I did is installed all of Callisto via update site, and then copied those plug-ins in.  It would be better if you could coppy the latest into a configuration that this was broken in if that\u0027s still possible.",
+    "(In reply to comment #15)\n\u003e It has to be manually downloaded.  So what I did is installed all of Callisto\n\u003e via update site, and then copied those plug-ins in.  It would be better if you\n\u003e could coppy the latest into a configuration that this was broken in if that\u0027s\n\u003e still possible.\n\nStrange thing, that jira plugin is working for me even with broken WTP. However it was failing when I launch Eclipse app with Mylar from PDE (while working on Jira query wizard yesterday). It seems OSGi just take whichever first available plugin, but then PDE create different configuration for launching. Weird...\n",
+    "Yes, I\u0027ve noticed that kind of wierdness when debugging plug-in loading problems.  Perhaps there is more \u0027strictness\u0027 regarding resolution when PDE is doing it, and more error tolerance with normal launch.  But I assume that with the corrected dependency it should work either way now."
+  ],
+  "commentCreationDates": [
+    "2006-04-23T19:18:36+02:00",
+    "2006-04-23T19:25:31+02:00",
+    "2006-04-24T18:36:45+02:00",
+    "2006-04-24T18:40:20+02:00",
+    "2006-04-25T00:32:57+02:00",
+    "2006-04-25T00:40:09+02:00",
+    "2006-04-25T01:51:17+02:00",
+    "2006-04-25T02:46:13+02:00",
+    "2006-04-25T02:53:18+02:00",
+    "2006-04-25T04:13:52+02:00",
+    "2006-04-25T17:35:47+02:00",
+    "2006-04-26T17:24:23+02:00",
+    "2006-04-27T04:03:02+02:00",
+    "2006-04-28T01:49:17+02:00",
+    "2006-04-28T01:59:51+02:00",
+    "2006-04-28T02:03:45+02:00",
+    "2006-04-28T02:09:14+02:00",
+    "2006-04-28T02:13:51+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "org/apache/commons/httpclient/HttpConnectionManager",
+      "elements": [
+        {
+          "method": "java.lang.Class.forName0",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.Class.forName",
+          "source": "Class.java:242"
+        },
+        {
+          "method": "org.apache.axis.utils.ClassUtils$2.run",
+          "source": "ClassUtils.java:183"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.apache.axis.utils.ClassUtils.loadClass",
+          "source": "ClassUtils.java:160"
+        },
+        {
+          "method": "org.apache.axis.utils.ClassUtils.forName",
+          "source": "ClassUtils.java:100"
+        },
+        {
+          "method": "org.apache.axis.deployment.wsdd.WSDDTargetedChain.makeNewInstance",
+          "source": "WSDDTargetedChain.java:157"
+        },
+        {
+          "method": "org.apache.axis.deployment.wsdd.WSDDDeployableItem.getNewInstance",
+          "source": "WSDDDeployableItem.java:274"
+        },
+        {
+          "method": "org.apache.axis.deployment.wsdd.WSDDDeployableItem.getInstance",
+          "source": "WSDDDeployableItem.java:260"
+        },
+        {
+          "method": "org.apache.axis.deployment.wsdd.WSDDDeployment.getTransport",
+          "source": "WSDDDeployment.java:410"
+        },
+        {
+          "method": "org.apache.axis.configuration.FileProvider.getTransport",
+          "source": "FileProvider.java:257"
+        },
+        {
+          "method": "org.apache.axis.AxisEngine.getTransport",
+          "source": "AxisEngine.java:332"
+        },
+        {
+          "method": "org.apache.axis.client.AxisClient.invoke",
+          "source": "AxisClient.java:163"
+        },
+        {
+          "method": "org.apache.axis.client.Call.invokeEngine",
+          "source": "Call.java:2784"
+        },
+        {
+          "method": "org.apache.axis.client.Call.invoke",
+          "source": "Call.java:2767"
+        },
+        {
+          "method": "org.apache.axis.client.Call.invoke",
+          "source": "Call.java:2443"
+        },
+        {
+          "method": "org.apache.axis.client.Call.invoke",
+          "source": "Call.java:2366"
+        },
+        {
+          "method": "org.apache.axis.client.Call.invoke",
+          "source": "Call.java:1812"
+        },
+        {
+          "method": "com.contegix.atlassian01.rpc.soap.jirasoapservice_v2.JirasoapserviceV2SoapBindingStub.login",
+          "source": "JirasoapserviceV2SoapBindingStub.java:1551"
+        },
+        {
+          "method": "org.tigris.jira.internal.core.service.soap.SoapJiraService.login",
+          "source": "SoapJiraService.java:119"
+        },
+        {
+          "method": "org.tigris.jira.core.service.CachedRpcJiraServer.login",
+          "source": "CachedRpcJiraServer.java:123"
+        },
+        {
+          "method": "org.eclipse.mylar.internal.jira.JiraServerFacade.getJiraServer",
+          "source": "JiraServerFacade.java:60"
+        },
+        {
+          "method": "org.eclipse.mylar.internal.jira.JiraRepositoryConnector.performQuery",
+          "source": "JiraRepositoryConnector.java:157"
+        },
+        {
+          "method": "org.eclipse.mylar.provisional.tasklist.SynchronizeQueryJob.run",
+          "source": "SynchronizeQueryJob.java:73"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "138144",
+      "date": "2006-04-23T19:18:36+02:00",
+      "product": "Mylyn",
+      "component": "Jira",
+      "severity": "blocker"
+    }
+  ],
+  "groupId": "138144",
+  "bugId": "138144",
+  "date": "2006-04-23T19:18:36+02:00",
+  "product": "Mylyn",
+  "component": "Jira",
+  "severity": "blocker"
+}

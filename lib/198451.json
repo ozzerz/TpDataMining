@@ -1,0 +1,229 @@
+{
+  "comments": [
+    "Build ID: I20070621-1340\n\nSteps To Reproduce:\n1.Edit the EMF Example Library model to add an EAttribute idNumber with a dataType of ELong to the Library class.\n2. Regenerate the model code.\n3. Run the generated model instance following the \"OCL Interpreter Example\"\n4. In the generated editor add a value to a Library idNumber.\n5. Select the Library that contains an idNumber attribute with a value and from the OCL Interpreter attempt a query on the idNumber\n   example: idNumber \u003c 1\n\n\nMore information:\nFrom Error Log:\n\nError\nTue Jul 31 13:57:20 CDT 2007\nEvaluation failed with an exception\n\njava.lang.ClassCastException: java.lang.Integer\nat java.lang.Long.compareTo(Long.java:34)\nat org.eclipse.ocl.internal.evaluation.EvaluationVisitorImpl.visitOperationCallExp(EvaluationVisitorImpl.java:1067)\nat org.eclipse.ocl.ecore.impl.OperationCallExpImpl.accept(OperationCallExpImpl.java:336)\nat org.eclipse.ocl.AbstractEvaluationVisitor.visitExpression(AbstractEvaluationVisitor.java:223)\nat org.eclipse.ocl.internal.evaluation.QueryImpl.evaluate(QueryImpl.java:120)\nat org.eclipse.emf.ocl.examples.interpreter.console.OCLConsolePage.evaluate(OCLConsolePage.java:418)\nat org.eclipse.emf.ocl.examples.interpreter.console.OCLConsolePage$InputKeyListener.keyPressed(OCLConsolePage.java:591)\nat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:154)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1101)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1125)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:1110)\nat org.eclipse.swt.widgets.Widget.sendKeyEvent(Widget.java:1137)\nat org.eclipse.swt.widgets.Widget.gtk_key_press_event(Widget.java:663)\nat org.eclipse.swt.widgets.Control.gtk_key_press_event(Control.java:2533)\nat org.eclipse.swt.widgets.Composite.gtk_key_press_event(Composite.java:679)\nat org.eclipse.swt.widgets.Widget.windowProc(Widget.java:1486)\nat org.eclipse.swt.widgets.Control.windowProc(Control.java:4234)\nat org.eclipse.swt.widgets.Display.windowProc(Display.java:3973)\nat org.eclipse.swt.internal.gtk.OS._gtk_main_do_event(Native Method)\nat org.eclipse.swt.internal.gtk.OS.gtk_main_do_event(OS.java:5593)\nat org.eclipse.swt.widgets.Display.eventProc(Display.java:1192)\nat org.eclipse.swt.internal.gtk.OS._g_main_context_iteration(Native Method)\nat org.eclipse.swt.internal.gtk.OS.g_main_context_iteration(OS.java:1487)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2969)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2389)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2353)\nat org.eclipse.ui.internal.Workbench.access$4(Workbench.java:2219)\nat org.eclipse.ui.internal.Workbench$4.run(Workbench.java:466)\nat org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:289)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:461)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\nat org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:106)\nat org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:153)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:106)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:76)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:363)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:176)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\nat java.lang.reflect.Method.invoke(Method.java:585)\nat org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:504)\nat org.eclipse.equinox.launcher.Main.basicRun(Main.java:443)\nat org.eclipse.equinox.launcher.Main.run(Main.java:1169)\nat org.eclipse.equinox.launcher.Main.main(Main.java:1144)",
+    "(fixed the version number; EMF is at version 2.3, but OCL is at 1.1)\n\nWhatever we do with this problem should mesh nicely with the resolution of (or plan for) bug 164795.",
+    "Hi,\n\nI have looked into the OCL plugin and especially into EvaluationVisitorImpl, and I developed a simple workaround for this \u0027bug\u0027. The workaround allows you to evaluate expressions containing variables of \u0027type\u0027:\n- java.lang.Byte (not tested)\n- java.lang.Short\n- java.lang.Integer (of course)\n- java.lang.Long\n- java.lang.Float\n- java.lang.Double (of course)\n\nMy approach is to cast any of these types to Double or Integer respectively, before doing an evaluation. A cast will only be done, if the casted value is the same as before the cast. An example where this may not be the case is, when you want to cast a Long number to Integer, but it is too large for Integer, then the value of the casted number is not equal to the original number. In the latter case no cast occurs, and the plugin behaves like without the workaround, what will end up with a exception. \n\nThe code for this casting stuff is implemented in a new util class \u0027NumberUtil\u0027. It is called in EvaluationVisitorImpl#visitOperationCallExp() after every initialisation of \u0027sourceVal\u0027 and \u0027argVal\u0027. I created a new class (\u0027NumberEvaluationVisitorImpl\u0027), which extends EvaluationVisitorImpl and overrides the method. To use the workaround one has to change AbstractEnvironmentFactory#createEvaluationVisitor(). Perhaps this is not optimal?\n\nI attached both classes, so anybody might test the workaround. \nSome comments?\n\nAndreas",
+    "Created an attachment (id\u003d80152)\nA util class to do some casting on a given number.\n\n",
+    "Created an attachment (id\u003d80153)\nExtension of the EvaluationVisitorImpl\n\n",
+    "Fix committed to CVS HEAD (1.2 branch).\n\nThanks, Andreas, for the starting point of NumberUtil and the changes to the evaluation visitor.  I actually decided to go a step further and perform computations on the highest precision possible of the integer (Long) or real (Double) type, as appropriate.  As a result, intermediate values are in high precision and the results are coerced to the lower (Integer) precision if possible.  Thus, clients may now find that they get Long values where before they had OclInvalid or other problems with underflows or overflows.  Getting a Long isn\u0027t worse than getting the wrong Integer, OclInvalid, or null.\n\nBigDecimals and BigIntegers still aren\u0027t supported. I don\u0027t think they are interesting in modeling (if someone needs support, they will presumably let us know).  There are probably other problems, too.  For example, values from ELong attributes passed as operation parameters aren\u0027t coerced to Integer to match int parameters, but then that didn\u0027t happen before, either.  The original requirement of being able to do comparisons and arithmetic with ELong values is implemented.",
+    "Christian, I\u0027m glad to hear that my proposed solution was of some value. \nWhen I will have finished my diploma thesis, perhaps I can provide some more help for the project. ",
+    "Forgot to assign to contributor",
+    "Fixed in the MDT OCL 1.2.0 I200710171533 build."
+  ],
+  "commentCreationDates": [
+    "2007-07-31T22:06:02+02:00",
+    "2007-07-31T22:50:35+02:00",
+    "2007-10-11T17:47:14+02:00",
+    "2007-10-11T17:48:49+02:00",
+    "2007-10-11T17:49:43+02:00",
+    "2007-10-12T20:13:05+02:00",
+    "2007-10-13T13:16:52+02:00",
+    "2007-10-17T22:16:52+02:00",
+    "2007-10-17T22:17:29+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "java.lang.Integer",
+      "elements": [
+        {
+          "method": "java.lang.Long.compareTo",
+          "source": "Long.java:34"
+        },
+        {
+          "method": "org.eclipse.ocl.internal.evaluation.EvaluationVisitorImpl.visitOperationCallExp",
+          "source": "EvaluationVisitorImpl.java:1067"
+        },
+        {
+          "method": "org.eclipse.ocl.ecore.impl.OperationCallExpImpl.accept",
+          "source": "OperationCallExpImpl.java:336"
+        },
+        {
+          "method": "org.eclipse.ocl.AbstractEvaluationVisitor.visitExpression",
+          "source": "AbstractEvaluationVisitor.java:223"
+        },
+        {
+          "method": "org.eclipse.ocl.internal.evaluation.QueryImpl.evaluate",
+          "source": "QueryImpl.java:120"
+        },
+        {
+          "method": "org.eclipse.emf.ocl.examples.interpreter.console.OCLConsolePage.evaluate",
+          "source": "OCLConsolePage.java:418"
+        },
+        {
+          "method": "org.eclipse.emf.ocl.examples.interpreter.console.OCLConsolePage$InputKeyListener.keyPressed",
+          "source": "OCLConsolePage.java:591"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:154"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1101"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1125"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:1110"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendKeyEvent",
+          "source": "Widget.java:1137"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.gtk_key_press_event",
+          "source": "Widget.java:663"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.gtk_key_press_event",
+          "source": "Control.java:2533"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.gtk_key_press_event",
+          "source": "Composite.java:679"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.windowProc",
+          "source": "Widget.java:1486"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:4234"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:3973"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS._gtk_main_do_event",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.gtk_main_do_event",
+          "source": "OS.java:5593"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.eventProc",
+          "source": "Display.java:1192"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS._g_main_context_iteration",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.gtk.OS.g_main_context_iteration",
+          "source": "OS.java:1487"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2969"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2389"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2353"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:2219"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$4.run",
+          "source": "Workbench.java:466"
+        },
+        {
+          "method": "org.eclipse.core.databinding.observable.Realm.runWithDefault",
+          "source": "Realm.java:289"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:461"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.application.IDEApplication.start",
+          "source": "IDEApplication.java:106"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:153"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:106"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:76"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:363"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:176"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:504"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:443"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1169"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.main",
+          "source": "Main.java:1144"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "198451",
+      "date": "2007-07-31T22:06:02+02:00",
+      "product": "MDT",
+      "component": "OCL",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "198451",
+  "bugId": "198451",
+  "date": "2007-07-31T22:06:02+02:00",
+  "product": "MDT",
+  "component": "OCL",
+  "severity": "normal"
+}

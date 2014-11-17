@@ -1,0 +1,152 @@
+{
+  "comments": [
+    "Hi again :-)\n\nI\u0027m trying to use loadtime weaving and getting an exception. Please look at the \ntestcase:\n\nJava code:\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\npublic class Test\u003cT\u003e {\n\n\tSet\u003cT\u003e intsSet;\n\n\tpublic Test() {\n\t\tthis.intsSet \u003d new HashSet\u003cT\u003e();\n\t}\n\n\tpublic \u003cT\u003e T[] getObjs(T[] a) {\n\t\treturn intsSet.toArray(a);\n\t}\n\n\tpublic static void main(String[] args) {\n\t\tSystem.out.println(\"AAA :-)\");\n\t\tnew TTT().foo();\n\t}\n}\n\nclass TTT {\n\tpublic void foo() {\n\t\tTest\u003cObject\u003e mt \u003d new Test\u003cObject\u003e();\n\t\tObject[] arr \u003d mt.getObjs(new Object[]{});\n\t}\n}\n\nAspect:\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\npublic privileged aspect TestAspect {\n\n      pointcut TestToArray(Test mt) :\n                target(mt) \u0026\u0026\n                !within(TestAspect);\n\n\n    Object[] around(Test mt, Object[] objs) :\n            TestToArray(mt) \u0026\u0026\n            args(objs) \u0026\u0026\n            execution(Object[] com.mprv.secsph.Test.getObjs(Object[])) {\n\n        objs \u003d proceed(mt, objs);\n        System.out.println(\"GO Aspects!\");\n        return objs;\n    }\n}\n\naop.xml\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\u003caspectj\u003e\n\t\u003caspects\u003e\n\t\t\u003caspect name\u003d\"com.mprv.secsph.TestAspect\"/\u003e\n\t\u003c/aspects\u003e\n\n\t\u003cweaver options\u003d\"-verbose -XlazyTjp -showWeaveInfo\"\u003e\n\t\t\u003cinclude within\u003d\"com.mprv.*\"/\u003e\n\t\u003c/weaver\u003e\n\u003c/aspectj\u003e\n\nProgram output:\n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\nAAA :-)\ninfo weaving \u0027com/mprv/secsph/TestAspect\u0027\njava.lang.NullPointerException\n\tat \norg.aspectj.weaver.tools.WeavingAdaptor$WeavingClassFileProvider.getBytes\n(WeavingAdaptor.java:390)\n\tat org.aspectj.weaver.tools.WeavingAdaptor.getAtAspectJAspectBytes\n(WeavingAdaptor.java:259)\n\tat org.aspectj.weaver.tools.WeavingAdaptor.weaveClass\n(WeavingAdaptor.java:181)\n\tat org.aspectj.weaver.loadtime.Aj.preProcess(Aj.java:66)\n\tat org.aspectj.weaver.loadtime.ClassPreProcessorAgentAdapter.transform\n(ClassPreProcessorAgentAdapter.java:52)\n\tat sun.instrument.TransformerManager.transform\n(TransformerManager.java:122)\n\tat sun.instrument.InstrumentationImpl.transform\n(InstrumentationImpl.java:155)\n\tat java.lang.ClassLoader.defineClass1(Native Method)\n\tat java.lang.ClassLoader.defineClass(ClassLoader.java:620)\n\tat java.security.SecureClassLoader.defineClass\n(SecureClassLoader.java:124)\n\tat java.net.URLClassLoader.defineClass(URLClassLoader.java:260)\n\tat java.net.URLClassLoader.access$100(URLClassLoader.java:56)\n\tat java.net.URLClassLoader$1.run(URLClassLoader.java:195)\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat java.net.URLClassLoader.findClass(URLClassLoader.java:188)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:306)\n\tat sun.misc.Launcher$AppClassLoader.loadClass(Launcher.java:268)\n\tat java.lang.ClassLoader.loadClass(ClassLoader.java:251)\n\tat java.lang.ClassLoader.loadClassInternal(ClassLoader.java:319)\n\tat com.mprv.secsph.Test.getObjs(Test.java:1)\n\tat com.mprv.secsph.TTT.foo(Test.java:34)\n\tat com.mprv.secsph.Test.main(Test.java:27)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke\n(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke\n(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat com.intellij.rt.execution.application.AppMain.main(AppMain.java:86)\nGO Aspects!\n\n\u003d\u003d\u003d\u003d\n\nThis exception doesn\u0027t happen all the time ... but if you will try a few times, \nyou will probably get it. May you can understand what is the problem event \nwithout running the test case. \n\nAnyway, I took a look at your code, and have a guess (but it\u0027s only the guess) -\nMy aspect is in the application classpath. Actually it\u0027s in the same package, \nso may be you are trying to weave the aspect with itself somehow ...\n\nThanks!\nMisha.",
+    "Matthew, can you take a look at recreating this?",
+    "This bug is a result of the ?fix? to bug 113587. When an aspect is not \nincluded in the weave it now gets a second chance if it is an @AspectJ aspect \n(see WeavingAdaptor.weaveClass()). However the test in \nBcelWorld.isAnnotationStyleAspect() called from \nshouldWeaveAnnotationStyleAspect() is unreliable because it only looks for the \norg/aspectj/lang/annotation/Aspect annotation which for Java 5 is also added \nto code-style aspects. The trouble happens later in BcelWeaver.weaver() where \nwe use the right test so the aspect is not ?munged?. This means no new bytes \nare generated and WeavingClassFileProvider.getBytes() throws an NPE. The \nsolution is to return the unwoven bytes if there are no woven bytes.\n\nHere are some things I spotted:\n1.\tThe aop.xml is wrong and the TestAspect is no included. It should be \n\u003cinclude within\u003d\"com.mprv..*\"/\u003e (two dots).\n2.\tThe aspect is loaded and weaving is attempted despite its exclusion.\n3.\tThe application and aspect run correctly.\n\nWhat is missing from the testcase is how it was built. It has already been \nwoven. If it had not been of the aspect had been included correctly the bug \nwould not have occurred.\n",
+    "Created an attachment (id\u003d30073)\nTestcase\n\nFailing user testcase integrated into harness.",
+    "Created an attachment (id\u003d30080)\nFix\n\nWeavingClassFileProvider.getBytes() returns original unwoven bytes if no\nweaving takes place.",
+    "While this change solves the user\u0027s problem I am not happy with the fix. In \nfact I don\u0027t think any changes should have been made for bug 113587 in the \nfirst place. When using annotation-style aspects the Aspects.aspectOf() \ninterface should be used not try to fix it up in the run-time.\n\nI have a couple issues with the current implementation:\n1. The BcelWorld.isAnnotationStyleAspect() seems to be bogus on Java 5.\n2. More seriously the else clause in WeavingAdaptor.weaveClass() ignores \nthe \"enabled\" flag used in shouldWeave() thereby partially invalidating the \nperformance improvement in Bug 113511: we create and parse a BCEL JavaClass \nfor _every_ excluded class.\n\nI will raise a separate bug to deal with this.",
+    "fix integrated, waiting on build.  thanks Matthew.  Oh, and to the original\nraiser: you dont need to specify XlazyTjp - its the default now.",
+    "Fix available for the NPE.",
+    "*** Bug 117160 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2005-11-16T08:54:11+01:00",
+    "2005-11-16T08:56:10+01:00",
+    "2005-11-16T16:16:55+01:00",
+    "2005-11-16T16:37:21+01:00",
+    "2005-11-16T17:03:40+01:00",
+    "2005-11-16T17:48:00+01:00",
+    "2005-11-18T09:07:05+01:00",
+    "2005-11-18T12:10:47+01:00",
+    "2005-11-22T05:24:12+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.tools.WeavingAdaptor$WeavingClassFileProvider.getBytes",
+          "source": "WeavingAdaptor.java:390"
+        },
+        {
+          "method": "org.aspectj.weaver.tools.WeavingAdaptor.getAtAspectJAspectBytes",
+          "source": "WeavingAdaptor.java:259"
+        },
+        {
+          "method": "org.aspectj.weaver.tools.WeavingAdaptor.weaveClass",
+          "source": "WeavingAdaptor.java:181"
+        },
+        {
+          "method": "org.aspectj.weaver.loadtime.Aj.preProcess",
+          "source": "Aj.java:66"
+        },
+        {
+          "method": "org.aspectj.weaver.loadtime.ClassPreProcessorAgentAdapter.transform",
+          "source": "ClassPreProcessorAgentAdapter.java:52"
+        },
+        {
+          "method": "sun.instrument.TransformerManager.transform",
+          "source": "TransformerManager.java:122"
+        },
+        {
+          "method": "sun.instrument.InstrumentationImpl.transform",
+          "source": "InstrumentationImpl.java:155"
+        },
+        {
+          "method": "java.lang.ClassLoader.defineClass1",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.lang.ClassLoader.defineClass",
+          "source": "ClassLoader.java:620"
+        },
+        {
+          "method": "java.security.SecureClassLoader.defineClass",
+          "source": "SecureClassLoader.java:124"
+        },
+        {
+          "method": "java.net.URLClassLoader.defineClass",
+          "source": "URLClassLoader.java:260"
+        },
+        {
+          "method": "java.net.URLClassLoader.access$100",
+          "source": "URLClassLoader.java:56"
+        },
+        {
+          "method": "java.net.URLClassLoader$1.run",
+          "source": "URLClassLoader.java:195"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.net.URLClassLoader.findClass",
+          "source": "URLClassLoader.java:188"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:306"
+        },
+        {
+          "method": "sun.misc.Launcher$AppClassLoader.loadClass",
+          "source": "Launcher.java:268"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClass",
+          "source": "ClassLoader.java:251"
+        },
+        {
+          "method": "java.lang.ClassLoader.loadClassInternal",
+          "source": "ClassLoader.java:319"
+        },
+        {
+          "method": "com.mprv.secsph.Test.getObjs",
+          "source": "Test.java:1"
+        },
+        {
+          "method": "com.mprv.secsph.TTT.foo",
+          "source": "Test.java:34"
+        },
+        {
+          "method": "com.mprv.secsph.Test.main",
+          "source": "Test.java:27"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "com.intellij.rt.execution.application.AppMain.main",
+          "source": "AppMain.java:86"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "116626",
+      "date": "2005-11-16T08:54:11+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "116626",
+  "bugId": "116626",
+  "date": "2005-11-16T08:54:11+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "critical"
+}

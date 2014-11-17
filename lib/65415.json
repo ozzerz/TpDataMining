@@ -1,0 +1,190 @@
+{
+  "comments": [
+    "I got this exception using RC1 during refresh branches.\n\njava.lang.NullPointerException\nat\norg.eclipse.ui.internal.progress.AnimationManager$1.runInUIThread(AnimationManager.java:70)\nat org.eclipse.ui.progress.UIJob$1.run(UIJob.java:87)\nat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:106)\nat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:2693)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2385)\nat org.eclipse.jface.window.Window.runEventLoop(Window.java:668)\nat org.eclipse.jface.window.Window.open(Window.java:648)\nat\norg.eclipse.team.internal.ccvs.ui.repo.RefreshRemoteProjectWizard.execute(RefreshRemoteProjectWizard.java:68)\nat\norg.eclipse.team.internal.ccvs.ui.repo.RefreshTagsAction.execute(RefreshTagsAction.java:26)\nat org.eclipse.team.internal.ccvs.ui.actions.CVSAction.run(CVSAction.java:70)\nat org.eclipse.ui.actions.ActionDelegate.runWithEvent(ActionDelegate.java:71)\nat org.eclipse.ui.internal.PluginAction.runWithEvent(PluginAction.java:266)\nat\norg.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:915)\nat\norg.eclipse.jface.action.ActionContributionItem.access$2(ActionContributionItem.java:866)\nat\norg.eclipse.jface.action.ActionContributionItem$7.handleEvent(ActionContributionItem.java:785)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:796)\nat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2716)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2382)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1363)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1334)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:253)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:141)\nat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:96)\nat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:334)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:273)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:128)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\nat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\nat java.lang.reflect.Method.invoke(Method.java:324)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\nat org.eclipse.core.launcher.Main.run(Main.java:638)\nat org.eclipse.core.launcher.Main.main(Main.java:622)\n\n\nSTEPS TO REPRODUCE:\n1) Start a fresh workspace\n2) Create a CVS location to dev.eclipse.org pserver anonymous to /home/eclipse\n3) Select branches and run Refresh Branches...\n4) Select all projects and do not use any working set\n5) Clikc on Finish.\n6) At the end of the process, you will get this error.",
+    "moving to UI.\nAnimationManager has a null progress monitor and isn\u0027t checking.  I\u0027m not sure\nhow this is spec\u0027d but you should maybe protect against this case. BTW, the\nsteps will always dupe the problem.\n\npublic IStatus runInUIThread(IProgressMonitor monitor) {\n\t\t\t\tif(monitor.isCanceled())  \u003c\u003d\u003d\u003d\n\t\t\t\t\treturn Status.CANCEL_STATUS;\n\t\t\t\tanimationProcessor.animationStarted();",
+    "Should address for RC2",
+    "The problem we are having is that it is possible for the monitor sent to a job \nto be null. I have checked progressFor() in ProgressManager and I could not \nhave sent that without a ClassCastException.\n\nNote that the worker count will hit 300 easily with this operation and that \nthe progress region gets updated constantly as a result.\n\nMoving to Core as this is a problem the progressMonitor caching.",
+    "Did it not occur to anyone that 300 simultaneous worker threads was a sign of\nbad things happening?\n\nHere is what happens:\n\nThe refresh wizard has a loop to refresh each project in the repository:\n\nfor (int i \u003d 0; i \u003c selectedFolders.length; i++) {\n  ICVSRemoteResource resource \u003d selectedFolders[i];\n  if (resource instanceof ICVSFolder) {\n    manager.refreshDefinedTags((ICVSFolder)resource, true /* replace */, true, \n      Policy.subMonitorFor(monitor, 100));\n  }\n}\n\nAfter each project is refreshed, a syncExec is fired to refresh the Repositories\nview. Each node in the repository view does the fetching of its children using\nIProgressService.run(true, true, runnable).\n\nEach invocation of IProgressService.run causes a UI job to be scheduled that is\nresponsible for opening a progress dialog\n(ProgressManager.scheduleProgressMonitorJob). This job looks like this:\n\npublic IStatus runInUIThread(IProgressMonitor monitor) {\n  setUserInterfaceActive(true);\n  if (ProgressManagerUtil.rescheduleIfModalShellOpen(this))\n    return Status.CANCEL_STATUS;\n  dialog.open();\n  return Status.OK_STATUS;\n}\n\nThe interesting line is the one that reschedules the job if there is a modal\nshell open. Of course, there *is* a modal shell open in this example: the\nrefresh branches dialog.\n\nWhen I tried this, there were over 1,600 of these \"open progress dialog\" jobs\nscheduled (number of projects times number of children to refresh in repo view).\nEvery one of them is repeatedly rescheduling itself in a loop for the duration\nof the refresh operation. I did see the NPE mentioned above, but I also saw\ndozens of other errors in the progress view code (I will attach a log). I\nsuspect this is causing a complete overload that is revealing timing bugs all\nover the place.\n\nSome possible areas of improvement:\n\n - The CVS refresh operation could just fire a single syncExec at the end of the\nrefresh to update the repositories view, rather than one refresh per project.\n - IProgressService.run should use a singleton job to open the progress dialog,\nto avoid thousands of jobs from being stuck in this rescheduling loop.\n\nI will leave this bug in core until the NPE is understood, but this is a serious\nbug in the progress manager code as well.",
+    "Created an attachment (id\u003d11622)\nLog file showing various errors (out of handles, NPE, etc)\n",
+    "Added Bug 65950 and Bug 65951 for the issues John is talking about",
+    "*** Bug 66553 has been marked as a duplicate of this bug. ***",
+    "The NullPointerException no longer occurs in build I20040609. I suspect the\nmassive flooding of jobs described in comment #4 was causing all kinds of\nproblems (see my attached log), of which the NPE was just one. The\nProgressManager code has been improved to no longer repeatedly reschedule the\njobs responsible for opening the progress dialog.\n\nHowever, I will move this bug to CVS because this test case still causes far\nmore work than necessary. Steps:\n\n1) Create an anonymous connection to dev.eclipse.org\n2) Expand HEAD\n3) Refresh Branches\n4) Select All\n5) Finish\n\nYou can see the repository view in the background flashing madly as the\noperation progresses. This should be fixed to refresh the tree only at the end\nof the operation. Since the operation runs in a modal dialog, the user can\u0027t\nbrowse any of the results until the entire refresh completes anyway, so these\nrefreshes are all wasted.",
+    "Fixed",
+    "*** Bug 66621 has been marked as a duplicate of this bug. ***",
+    "*** Bug 68185 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2004-06-02T20:29:13+02:00",
+    "2004-06-02T21:31:33+02:00",
+    "2004-06-04T17:31:30+02:00",
+    "2004-06-04T22:53:47+02:00",
+    "2004-06-05T00:09:48+02:00",
+    "2004-06-05T00:10:31+02:00",
+    "2004-06-07T14:11:08+02:00",
+    "2004-06-10T20:56:52+02:00",
+    "2004-06-10T22:21:34+02:00",
+    "2004-06-10T22:51:27+02:00",
+    "2004-06-11T14:12:56+02:00",
+    "2004-06-22T19:13:21+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.progress.AnimationManager$1.runInUIThread",
+          "source": "AnimationManager.java:70"
+        },
+        {
+          "method": "org.eclipse.ui.progress.UIJob$1.run",
+          "source": "UIJob.java:87"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:35"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:2693"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2385"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:668"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:648"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.repo.RefreshRemoteProjectWizard.execute",
+          "source": "RefreshRemoteProjectWizard.java:68"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.repo.RefreshTagsAction.execute",
+          "source": "RefreshTagsAction.java:26"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.actions.CVSAction.run",
+          "source": "CVSAction.java:70"
+        },
+        {
+          "method": "org.eclipse.ui.actions.ActionDelegate.runWithEvent",
+          "source": "ActionDelegate.java:71"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PluginAction.runWithEvent",
+          "source": "PluginAction.java:266"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:915"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:866"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$7.handleEvent",
+          "source": "ActionContributionItem.java:785"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:796"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2716"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2382"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1363"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1334"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:253"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:141"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:96"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:334"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:128"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:638"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:622"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "65415",
+      "date": "2004-06-02T20:29:13+02:00",
+      "product": "Platform",
+      "component": "CVS",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "65415",
+  "bugId": "65415",
+  "date": "2004-06-02T20:29:13+02:00",
+  "product": "Platform",
+  "component": "CVS",
+  "severity": "critical"
+}

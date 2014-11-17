@@ -1,0 +1,150 @@
+{
+  "comments": [
+    "SWTException stores the \"cause\" exception in a public field named \"throwable\". \nThis prevents access to the causing exception in a standard way, the\nException.getCause method. SWT.error should call initCause to set this up.",
+    "Throwable.getCause() and the whole cause thing is new to JDK 1.4.  SWT runs on \nJDK 1.1.x and up.  This means that we probably can\u0027t use it.  We could \nconsider reimplementing getCause().  Chrix to decide what to do with VI, SN \nand SSQ, taking into account PocketPC, J2ME etc.",
+    "Created an attachment (id\u003d16817)\nPatch against SWT.java\n\nPatch that utilizes reflection to determine if the method can be safely called\nand if so again uses reflection to call it.\n\n(This one has been bugging me for some time... )",
+    "oops... by method I mean initCause(Throwable).",
+    "Er...I\u0027ve been looking at other bug reports that suggest that SWT also runs on\nCLDC platforms.  If this is the case, then this patch wont work - it requires\nMethod, which was only introduced in 1.1.",
+    "Created an attachment (id\u003d16818)\nPatch against org.eclipse.swt\n\nReplacement patch.  Adds J2ME/J2SE specific code to the Compatibility class. \nIn the J2ME case the code is a non-op.\tIn the J2SE case reflection is used to\nsee if the initClause() method is available and uses it if it is.",
+    "After discussion with Steve regardin other possible solutions:\n\nSWTException overrides printStackTrace() to include its own version of the\nnested but not printStackTrace(PrintStream/Writer) (because PrintStream/Writer\nare not available in J2ME).  \n\nSince we in workbench land write to a log and not the system console this causes\nus grief.  At the bowels of our code we catch Exceptions and cast to\nSWTException to log the nested throwable, but we don\u0027t do this at higher levels\ncausing loss of data in some cases.  We really don\u0027t want to have to cast all\nover the place.  Even if we do this doesn\u0027t help the developer writing code on\ntop of Eclipse that does it\u0027s own error logging.  They too have to do the cast\ndance.\n\nOverriding getCause()(and possibly initCause to be consistant) will help those\nwho manually call getCause() and muck around with the exception but /may/ not\nwork for the above print methods.  I\u0027ll give it a try and see if it does.",
+    "Overriding getCause()/initCause() SHOULD be sufficient.  It works for the Sun\nimplementation of Throwable but I havn\u0027t been able to confirm against other VMs.\n For any sensible implementation it should work.  The only way to test is to\ncreate an SWT exception with a nested throwable and visually examine the results\nof printStackTrace(*) and ensure that they contain frames from both exceptions.",
+    "Created an attachment (id\u003d17132)\nPatch for org.eclipse.swt\n\nMinimal implementation of getCause/initCause for SWTError/SWTException.  There\nshould probaby error checking for initCause() similar to that found in Suns\nThrowable implementation.  Ie:\tonce the cause has been set it cant be changed,\nan exception can\u0027t be it\u0027s own cause, etc.",
+    "Chrix, please fix this.",
+    "Looking at it.",
+    "Since it is API change, we will discuss tomorrow with the team about adding \ngetCause. Maybe we can delay adding initCause since it should only be used by \nthe implementation of SWT.error - currently directly assigning the field - and \ndoes not bring any value.",
+    "Please add the methods to SWTError and SWTException.  The 1.4 Javadoc \nexplictly says that subclasses can do this.",
+    "v\u003e20050113\nReleased getCause inSWTException and SWTError.\nPlease let us know if this does not fix the original problem.",
+    "The reason I removed your implementations of printStackTrace() is that the\nimplementation in throwable makes use of getCause() to print the nested stack. \nYou\u0027re now printing the nested stack twice.  Ie:\n\norg.eclipse.swt.SWTException: Unspecified error (java.lang.NullPointerException)\n\tat SWTExceptionTest.doStuff(SWTExceptionTest.java:35)\n\tat SWTExceptionTest.main(SWTExceptionTest.java:21)\nCaused by: java.lang.NullPointerException\n\tat SWTExceptionTest.doMoreStuff(SWTExceptionTest.java:45)\n\tat SWTExceptionTest.doStuff(SWTExceptionTest.java:32)\n\t... 1 more\n*** Stack trace of contained exception ***\njava.lang.NullPointerException\n\tat SWTExceptionTest.doMoreStuff(SWTExceptionTest.java:45)\n\tat SWTExceptionTest.doStuff(SWTExceptionTest.java:32)\n\tat SWTExceptionTest.main(SWTExceptionTest.java:21)\n\nChosing not to implement initCause() may be dangerous.  When people see that\nyou\u0027ve got a working getCause() they\u0027re going to expect a working initCause(). \nYou may only create SWTExceptions in SWT.error but the class and constructors\nare public - people may be using it elsewhere for errors generated within their\nown custom widgets.\n\nReopening for the first problem, nagging for the second.",
+    "So the main problem is that\n.on 1.4 we don\u0027t need to override printStackTrace() - the default one now \ndisplays the correct \u0027cause\u0027 since we override getCause\n.on CLDC and \u003c1.4 we need to override it.\n.The same class implementation is used on all versions.",
+    "That\u0027s how the output looks like on 1.4 and 1.2 VMs.\n\n**1.4\n\norg.eclipse.swt.SWTError: NOT GOOD (java.lang.Throwable: NPE)\n\tat PR80608.main(PR80608.java:8)\nCaused by: java.lang.Throwable: NPE\n\tat PR80608.main(PR80608.java:6)\n*** Stack trace of contained error ***\njava.lang.Throwable: NPE\n\tat PR80608.main(PR80608.java:6)\n\n**1.2.2\norg.eclipse.swt.SWTError: NOT GOOD (java.lang.Throwable: NPE)\n\tat PR80608.main(PR80608.java:8)\n*** Stack trace of contained error ***\njava.lang.Throwable: NPE\n\tat PR80608.main(PR80608.java:6)",
+    "Throwing an exception is an error case. I don\u0027t see why it is so important to\nget rid of the second \"duplicate\" error message. Nothing is wrong with the error\nmessage.\nAre you analysing the stack trace? If not, then getting the log with the stack\ntrace in comment 14 doesn\u0027t prevent the developer from understanding what is\nwrong with the code. So I don\u0027t see the purpose of wasting time to fix such an\nissue that could only be fixed by checking if the environment is 1.4 or above.\nDoing this requires to use the reflection or System properties. The first\nsolution won\u0027t work for CLDC which means that it requires a special handling\nfrom SWT standpoint. The second solution would be based on an unspecified format\nof System properties. This means it might not work in the future. And all this\nto simply get rid of duplicated information in a stack trace!",
+    "You guys have a compatibility layer whose use is to (presumably) take care of\ndifferences between J2ME and J2SE such as this.  For simple stacks that are only\na few frames long the current solution is fine, but the stacks in Eclipse can be\nmiles long.  Duplicating them will not help clarify issues to the user when he\u0027s\nexamining the log or to us when we get new bug reports.  \n\nFundementally I objected to the closure because the solution is incomplete.  If\nyou guys are happy with that, then fine.  Close it.  ",
+    "Since as UI reported more and more people will use JRE\u0027s \u003e\u003d 1.4, we will \naddress the double stack issue. Keeping PR open - to be fixed soon - until SWT \nagrees which implementation we prefer with Silenio who just came back.",
+    "double stack issue fixed v\u003e20050117"
+  ],
+  "commentCreationDates": [
+    "2004-12-09T16:45:18+01:00",
+    "2004-12-21T18:20:55+01:00",
+    "2004-12-23T00:45:14+01:00",
+    "2004-12-23T00:46:38+01:00",
+    "2004-12-23T01:01:07+01:00",
+    "2004-12-23T01:44:10+01:00",
+    "2005-01-12T16:09:30+01:00",
+    "2005-01-13T14:10:22+01:00",
+    "2005-01-13T14:14:06+01:00",
+    "2005-01-13T20:38:51+01:00",
+    "2005-01-13T22:31:47+01:00",
+    "2005-01-13T23:00:50+01:00",
+    "2005-01-13T23:18:29+01:00",
+    "2005-01-13T23:20:31+01:00",
+    "2005-01-14T14:17:18+01:00",
+    "2005-01-14T14:50:01+01:00",
+    "2005-01-14T15:08:26+01:00",
+    "2005-01-14T15:58:12+01:00",
+    "2005-01-14T16:34:08+01:00",
+    "2005-01-17T17:31:06+01:00",
+    "2005-01-17T21:57:29+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Unspecified error (java.lang.NullPointerException)",
+      "elements": [
+        {
+          "method": "SWTExceptionTest.doStuff",
+          "source": "SWTExceptionTest.java:35"
+        },
+        {
+          "method": "SWTExceptionTest.main",
+          "source": "SWTExceptionTest.java:21"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.NullPointerException",
+        "elements": [
+          {
+            "method": "SWTExceptionTest.doMoreStuff",
+            "source": "SWTExceptionTest.java:45"
+          },
+          {
+            "method": "SWTExceptionTest.doStuff",
+            "source": "SWTExceptionTest.java:32"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 14,
+      "bugId": "80608",
+      "date": "2005-01-14T14:17:18+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "SWTExceptionTest.doMoreStuff",
+          "source": "SWTExceptionTest.java:45"
+        },
+        {
+          "method": "SWTExceptionTest.doStuff",
+          "source": "SWTExceptionTest.java:32"
+        },
+        {
+          "method": "SWTExceptionTest.main",
+          "source": "SWTExceptionTest.java:21"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 14,
+      "bugId": "80608",
+      "date": "2005-01-14T14:17:18+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "NOT GOOD (java.lang.Throwable: NPE)",
+      "elements": [
+        {
+          "method": "PR80608.main",
+          "source": "PR80608.java:8"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 16,
+      "bugId": "80608",
+      "date": "2005-01-14T15:08:26+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "org.eclipse.swt.SWTError",
+      "message": "NOT GOOD (java.lang.Throwable: NPE)",
+      "elements": [
+        {
+          "method": "PR80608.main",
+          "source": "PR80608.java:8"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 16,
+      "bugId": "80608",
+      "date": "2005-01-14T15:08:26+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "80608",
+  "bugId": "80608",
+  "date": "2004-12-09T16:45:18+01:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

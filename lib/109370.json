@@ -1,0 +1,177 @@
+{
+  "comments": [
+    "I\u0027ve been trying to run the DesignEngine examples (\"SalesReport\" \nand \"StockReport\") as standalone and Eclipse applications, and get a \nClassCastException error when run as a plugin.\n\nThe exception occurs within the BIRT file\n  \"org.eclipse.birt.report.model.metadata.PeerExtensionLoader.java\"\nin the method called \"loadElement\".\n\nThe casting exception occurs in the following line:\nfactory \u003d\n   (IReportItemFactory)elementTag.createExecutableExtension(CLASS_ATTRIB);\n\n---------------------------------------------------------------------\n---------------------------- WORK AROUND ----------------------------\n\nWhilst trying to diagnose this problem I split the failing line into\nthe following lines:\n\n  Object anObject \u003d elementTag.createExecutableExtension(CLASS_ATTRIB);\n  System.out.println(\"ClassName: \"+anObject.getClass().getName());\n  System.out.println(\"InstanceOf: \"+(anObject instanceof IReportItemFactory));\n  factory \u003d(IReportItemFactory)anObject;\n\nThis code prints the same \"ClassName\" under standalone and Eclipse tests,\nbut \"InstanceOf\" is \"true\" for standalone and \"false\" under Eclipse tests.\n\nThe problem appears to be within the \"createExecutableExtension\",\nfurther investigation shows that this is implemented differently in standalone\nand Eclipse code, my workaround is to instruct BIRT to use the standalone\ncode in both environments.\n\n   ...\n   System.setproperty(\"BIRT_HOME\",\"C:\\\\tools\\\\eclipse\"); //path to plugins\n   System.setProperty(\"RUN_UNDER_ECLIPSE\",\"false\");      //use standalone loader\n   ...\n   SessionHandle session \u003d DesignEngine.newSession(null);//Parse and load.\n\n   \n\n---------------------------------------------------------------------",
+    "Would you please provide the trace stack and the report file you opened? Does \nthe standalone mean the tool running without Eclipse environment?\nAs you said, the problem might be instancing the class in \norg.eclipse.birt.core.framework.",
+    "(In reply to comment #1)\n\n\u003eWould you please provide the trace stack\n\nSee below:\n\njava.lang.ClassCastException: \norg.eclipse.birt.chart.reportitem.ChartReportItemFactoryImpl\n\tat \norg.eclipse.birt.report.model.metadata.PeerExtensionLoader$PeerExtensionElement\nLoader.loadElement(PeerExtensionLoader.java:129)\n\tat \norg.eclipse.birt.report.model.metadata.PeerExtensionLoader.loadExtension\n(PeerExtensionLoader.java:74)\n\tat org.eclipse.birt.report.model.metadata.ExtensionLoader.doLoad\n(ExtensionLoader.java:112)\n\tat org.eclipse.birt.report.model.metadata.ExtensionLoader.load\n(ExtensionLoader.java:63)\n\tat org.eclipse.birt.report.model.metadata.ExtensionManager.initialize\n(ExtensionManager.java:39)\n\tat org.eclipse.birt.report.model.api.DesignEngine.initialize\n(DesignEngine.java:107)\n\tat org.eclipse.birt.report.model.api.DesignEngine.newSession\n(DesignEngine.java:148)\n\tat birtTestPlugin.actions.SalesReport.createReport(SalesReport.java:98)\n\tat birtTestPlugin.actions.SalesReport.run(SalesReport.java:83)\n\tat birtTestPlugin.actions.SampleAction.run(SampleAction.java:37)\n\tat org.eclipse.ui.internal.PluginAction.runWithEvent\n(PluginAction.java:246)\n\tat org.eclipse.ui.internal.WWinPluginAction.runWithEvent\n(WWinPluginAction.java:223)\n\tat \norg.eclipse.jface.action.ActionContributionItem.handleWidgetSelection\n(ActionContributionItem.java:538)\n\tat org.eclipse.jface.action.ActionContributionItem.access$2\n(ActionContributionItem.java:488)\n\tat org.eclipse.jface.action.ActionContributionItem$5.handleEvent\n(ActionContributionItem.java:400)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:843)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:3080)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2713)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1699)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1663)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(Workbench.java:367)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run\n(IDEApplication.java:103)\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:226)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:163)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n\tat java.lang.reflect.Method.invoke(Unknown Source)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:334)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:278)\n\tat org.eclipse.core.launcher.Main.run(Main.java:973)\n\tat org.eclipse.core.launcher.Main.main(Main.java:948)\n\n\u003eand the report file you opened?\n\nNo report is opened, the \"SalesReport\" is an example of\nprogrammatically creating a report.\n\n\u003eDoes the standalone mean the tool running without Eclipse environment?\n\nYes - I used the Eclipse java development environment\nto create and run a standalone \"java application\" outside Eclipse.\nBelow are some outtakes from my modified code to add a static \"main\" method,\nwhich is where the application starts.\n\n---------\nSTANDALONE CODE OUTTAKES\n\n\n //NB: Ensure that org.eclipse.birt.chart.reportitem_1.0.1 is in the plugin \ndirectory.\n\n public class SalesReport {\n   ...\n   public static void main(String[] args){\n     run();\n   }\n\n   public static void run(){\n     try{\n       new SalesReport().createReport();\n     }catch(Exception theE){\n     }\n   }\n\t\n   void createReport() throws SemanticException, IOException {\t\n     System.setProperty(\"BIRT_HOME\",\"c:\\\\tools\\\\eclipse\");\n     //System.setProperty(\"RUN_UNDER_ECLIPSE\",\"false\");\t\n     //A session handle for all open reports\n     SessionHandle session \u003d DesignEngine.newSession(null);//works OK - chart \nfound.\n     ...\n   }\n }\n\n---------\n\nWhen I try to run the example within an Eclipse extension\nI used the PDE wisard to create the simple \"HelloWorld\" plugin,\nthen modifed the menu invoked action to run the same code.\nThis fails within newSession call when it tries to cast the \nChartReportItemFactoryImp,\nbut does not when I preceed the call with \"System.setProperty\n(\"RUN_UNDER_ECLIPSE\",\"false\");\",\nsee below:\n\n---------\nPLUGIN EXTENSION CODE OUTTAKES\n\n //NB: Ensure that org.eclipse.birt.chart.reportitem_1.0.1 is in the plugin \ndirectory.\n\n  public class SampleAction implements IWorkbenchWindowActionDelegate {\n    ...\n    public void run(IAction action) {\n      SalesReport.run();\n    }\n    ...\n  }\n\n  public class SalesReport {\n    ...\n    public static void main(String[] args){\n      run();\n    }\n\n    public static void run(){\n      try{\n        new SalesReport().createReport();\n      }catch(Exception theE){\n      }\n    }\n\t\n    void createReport() throws SemanticException, IOException {\t\t\n      System.setProperty(\"BIRT_HOME\",\"c:\\\\tools\\\\eclipse\");\n      //System.setProperty(\"RUN_UNDER_ECLIPSE\",\"false\");\t\n      //A session handle for all open reports\n      SessionHandle session \u003d DesignEngine.newSession(null);// exception \noccurs in here !.\n      ...\n    }\n  }\n\n---------\n\n\u003eAs you said,\n\u003ethe problem might be instancing the class in org.eclipse.birt.core.framework.\n\n\n",
+    "I suspect that this casting error may have been caused by the plugin.xml\nnot including a \"requires\" section that includes the \nIReportItemFactory\u0027s jar.\n\nWithin the PDE I\u0027ve found it useful to peridocially export a \nprototype plugin design as this highlights dependancy problems\nthat are not caught by the normal build process,\nor which are apparently fixed by including\nthe required jar in the build path.\n\n",
+    "To run as standalone application, BIRT_HOME must be set to a directory where\norg.eclipse.birt.chart.reportitem must be resides.\nI my configuration, I set BIRT_HOME to D:\\BIRT_HOME, and there is a plugins\ndirectory in it. In the plugins directory, there are:\norg.eclipse.birt.chart.reportitem\norg.eclipse.birt.core\norg.eclipse.birt.data\norg.eclipse.birt.data.oda\norg.eclipse.birt.report.data.oda.jdbc\nEach of these plugins should be package into jar.\n\nIn standalone application, SalesReport.rptdesign is produced. \n\nTo run as \u0027hello, world\u0027 plugin, I run PDE wizard too and modified the code\naccording to what the reporter wrote. Note here the BIRT_HOME should also be\nset. And there is no error message outputed.\n"
+  ],
+  "commentCreationDates": [
+    "2005-09-13T11:40:36+02:00",
+    "2005-09-16T08:49:07+02:00",
+    "2005-09-16T22:15:41+02:00",
+    "2005-10-04T15:33:54+02:00",
+    "2005-10-19T09:53:01+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.eclipse.birt.chart.reportitem.ChartReportItemFactoryImpl",
+      "elements": [
+        {
+          "method": "org.eclipse.birt.report.model.metadata.PeerExtensionLoader$PeerExtensionElementLoader.loadElement",
+          "source": "PeerExtensionLoader.java:129"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.metadata.PeerExtensionLoader.loadExtension",
+          "source": "PeerExtensionLoader.java:74"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.metadata.ExtensionLoader.doLoad",
+          "source": "ExtensionLoader.java:112"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.metadata.ExtensionLoader.load",
+          "source": "ExtensionLoader.java:63"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.metadata.ExtensionManager.initialize",
+          "source": "ExtensionManager.java:39"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.api.DesignEngine.initialize",
+          "source": "DesignEngine.java:107"
+        },
+        {
+          "method": "org.eclipse.birt.report.model.api.DesignEngine.newSession",
+          "source": "DesignEngine.java:148"
+        },
+        {
+          "method": "birtTestPlugin.actions.SalesReport.createReport",
+          "source": "SalesReport.java:98"
+        },
+        {
+          "method": "birtTestPlugin.actions.SalesReport.run",
+          "source": "SalesReport.java:83"
+        },
+        {
+          "method": "birtTestPlugin.actions.SampleAction.run",
+          "source": "SampleAction.java:37"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PluginAction.runWithEvent",
+          "source": "PluginAction.java:246"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WWinPluginAction.runWithEvent",
+          "source": "WWinPluginAction.java:223"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:538"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$2",
+          "source": "ActionContributionItem.java:488"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$5.handleEvent",
+          "source": "ActionContributionItem.java:400"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:843"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:3080"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2713"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1699"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1663"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:367"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:103"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:226"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:163"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:334"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:278"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:973"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:948"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "109370",
+      "date": "2005-09-16T22:15:41+02:00",
+      "product": "BIRT",
+      "component": "Report Engine",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "109370",
+  "bugId": "109370",
+  "date": "2005-09-13T11:40:36+02:00",
+  "product": "BIRT",
+  "component": "Report Engine",
+  "severity": "normal"
+}

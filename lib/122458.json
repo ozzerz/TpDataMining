@@ -1,0 +1,150 @@
+{
+  "comments": [
+    "This exception occurs using the ajdt eclipse plugin when compiling a project the first time I add the ajdt nature. There are no aspects defined in the project.\nI suppose the exception occurs when compiling a class (sorry I can\u0027t post the entire source code) with this signature: \n\npublic class FixedWidthParser\u003cT\u003e extends TabularDataParser\u003cT\u003e\n\nThe only noticeable things about this class are the presence of an inherited type parameter (and redefined with same name) some custom annotations on methods and a varags on a method parameter, but all of this things are present on other classes in the same project that AspectJ apprently compiles well (I\u0027m not sure about the fact it compiles them).\n\nHope I helped you with this clues, here\u0027s the complete stacktrace.\n\njava.lang.StringIndexOutOfBoundsException\nat java.lang.String.substring(Unknown Source)\nat org.aspectj.weaver.TypeFactory.createTypeFromSignature(TypeFactory.java:86)\nat org.aspectj.weaver.TypeFactory.createTypeFromSignature(TypeFactory.java:116)\nat org.aspectj.weaver.UnresolvedType.forSignature(UnresolvedType.java:430)\nat org.aspectj.weaver.UnresolvedType.makeArray(UnresolvedType.java:286)\nat org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.fromBinding(EclipseFactory.java:214)\nat org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.makeResolvedMember(EclipseFactory.java:516)\nat org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.makeResolvedMember(EclipseFactory.java:494)\nat org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.makeResolvedMember(EclipseFactory.java:451)\nat org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.genBytecodeInfo(AsmHierarchyBuilder.java:525)\nat org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.visit(AsmHierarchyBuilder.java:400)\nat org.aspectj.org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.traverse(MethodDeclaration.java:185)\nat org.aspectj.org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.traverse(TypeDeclaration.java:1195)\nat org.aspectj.org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.traverse(CompilationUnitDeclaration.java:339)\nat org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.internalBuild(AsmHierarchyBuilder.java:142)\nat org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.buildStructureForCompilationUnit(AsmHierarchyBuilder.java:82)\nat org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.finishedCompilationUnit(EclipseFactory.java:926)\nat org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterProcessing(AjCompilerAdapter.java:195)\nat org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspectj_ajdt_internal_compiler_CompilerAdapter$4$6b855184(CompilerAdapter.aj:89)\nat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.process(Compiler.java:528)\nat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:329)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation(AjBuildManager.java:811)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:230)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild(AjBuildManager.java:156)\nat org.aspectj.ajde.internal.CompilerAdapter.compile(CompilerAdapter.java:122)\nat org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run(AspectJBuildManager.java:191)\n\nStringIndexOutOfBoundsException thrown: String index out of range: -2",
+    "I tried to debug the aspectj weaver code and I found that the signature generating the error is:\n\nPcom/lynxit/parsers/fixedwidth/FixedWidthParser$Column;\n\nIt seems that the lack of \u0027\u003c\u0027 character is the problem.\nInvestigating a little more I discovered that a inner class (even static) of a generic class inherits the type parameters, I don\u0027t know if this is in the Java language specs or an eclipse bug but this is surely the cause of the bug I submitted since extracting the inner class to a new type file I\u0027m able to compile the project.\n\nHope this helps.\nMany thanks in advance.",
+    "Can I ask the ID of the AJDT build that is the problem?  (Its somewhere in the eclipse about menus), something like 1.3.0.XXXXX.\n\nI fixed a problem similar to this near to completion of 1.5.0.  The problem was that a generic signature was being put out for a type that included a \u0027P\u0027 prefixed type signature.  \u0027P\u0027 signatures should never be included in the output bytecode, they are our AJ internal representation for a parameterized type, enabling us to quickly determine if something is parameterized without digging round for the \u0027\u003c\u0027.",
+    "The ajdt build number is:\n\n1.3.0.20051220093604",
+    "Ok, thats 1.5.0 final - so there is something lurking here. but I just can\u0027t seem to tease it out and recreate it.  My current attempts look something like:\n\n\u003d\u003d\u003d\nimport java.util.*;\n\nclass A\u003cT\u003e { }\n\nclass B\u003cT\u003e extends A\u003cT\u003e {\n  static class C { T t;}\n  class D extends C {}\n  List\u003cC\u003e  lcs;\n  C[] csArray;\n}\n\u003d\u003d\u003d\n\nbut that works fine.\n\nWere you able to determine where the P signature originated from?  Was it a signature attribute on some other type or declaration?  Where/How is the Column member type used?  \n\nIf you could send me the \"javap -verbose -private\" output for the problem class that would help ... are you able to send it me privately if you can\u0027t append it here?",
+    "I eventually succeded in producing a test case that can really isolate the problem:\n\npublic class TestCase\u003cT, V\u003e\n{\n    public void setInnerClasses(InnerClass[] classes){};\n    \n    public static class InnerClass {}\n}\n\nCompiling this class alone (using ajdt) I get the error.",
+    "aha... it was being used as a parameter, I see.  Thanks for taking the time to create a smaller failing case.  I can now recreate it on the command line with:\n\najc -1.5 Testcase.java -emacssym\n\n(-emaccsym is required to ensure that from the command line we drive the structure model building code that AJDT drives - and thats where it is failing)\n\nI\u0027ll get to work on a fix.",
+    "I\u0027m glad I helped you guys.\nMy little contribute to your great job!",
+    "testcases and fix checked in.",
+    "fix is in latest AJ - will be in AJDT in a few days."
+  ],
+  "commentCreationDates": [
+    "2006-01-02T17:16:49+01:00",
+    "2006-01-03T08:56:15+01:00",
+    "2006-01-09T12:24:43+01:00",
+    "2006-01-09T12:40:42+01:00",
+    "2006-01-09T15:51:52+01:00",
+    "2006-01-09T16:52:32+01:00",
+    "2006-01-09T16:59:59+01:00",
+    "2006-01-09T17:27:01+01:00",
+    "2006-01-10T10:21:56+01:00",
+    "2006-01-11T08:57:51+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StringIndexOutOfBoundsException",
+      "elements": [
+        {
+          "method": "java.lang.String.substring",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.aspectj.weaver.TypeFactory.createTypeFromSignature",
+          "source": "TypeFactory.java:86"
+        },
+        {
+          "method": "org.aspectj.weaver.TypeFactory.createTypeFromSignature",
+          "source": "TypeFactory.java:116"
+        },
+        {
+          "method": "org.aspectj.weaver.UnresolvedType.forSignature",
+          "source": "UnresolvedType.java:430"
+        },
+        {
+          "method": "org.aspectj.weaver.UnresolvedType.makeArray",
+          "source": "UnresolvedType.java:286"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.fromBinding",
+          "source": "EclipseFactory.java:214"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.makeResolvedMember",
+          "source": "EclipseFactory.java:516"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.makeResolvedMember",
+          "source": "EclipseFactory.java:494"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.makeResolvedMember",
+          "source": "EclipseFactory.java:451"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.genBytecodeInfo",
+          "source": "AsmHierarchyBuilder.java:525"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.visit",
+          "source": "AsmHierarchyBuilder.java:400"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.traverse",
+          "source": "MethodDeclaration.java:185"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.traverse",
+          "source": "TypeDeclaration.java:1195"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.traverse",
+          "source": "CompilationUnitDeclaration.java:339"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.internalBuild",
+          "source": "AsmHierarchyBuilder.java:142"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.buildStructureForCompilationUnit",
+          "source": "AsmHierarchyBuilder.java:82"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.finishedCompilationUnit",
+          "source": "EclipseFactory.java:926"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterProcessing",
+          "source": "AjCompilerAdapter.java:195"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspectj_ajdt_internal_compiler_CompilerAdapter$4$6b855184",
+          "source": "CompilerAdapter.aj:89"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.process",
+          "source": "Compiler.java:528"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:329"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:811"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:230"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:156"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:122"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:191"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "122458",
+      "date": "2006-01-02T17:16:49+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "122458",
+  "bugId": "122458",
+  "date": "2006-01-02T17:16:49+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

@@ -1,0 +1,112 @@
+{
+  "comments": [
+    "My directory contains:\n\nE:\\eclipse\\configuration\\org.eclipse.osgi\\.state.1\n\nWhen I run my program:\n\nPlatformAdmin aPlatformAdmin \u003d Platform.getPlatformAdmin();\n\t\t\tStateObjectFactory aStateObjectfactory \u003d aPlatformAdmin.getFactory();\n\t\t\tState aState \u003d aStateObjectfactory.readState(new File(\"E:\\\\eclipse\\\\configuration\\\\org.eclipse.osgi\"));\n\nI get\n\n\njava.io.FileNotFoundException: E:\\eclipse\\configuration\\org.eclipse.osgi\\.state (The system cannot find the file specified)\n\tat java.io.FileInputStream.open(Native Method)\n\tat java.io.FileInputStream.\u003cinit\u003e(FileInputStream.java:129)\n\tat org.eclipse.osgi.framework.util.SecureAction.getFileInputStream(SecureAction.java:99)\n\tat org.eclipse.osgi.internal.resolver.StateReader.readState(StateReader.java:73)\n\tat org.eclipse.osgi.internal.resolver.StateReader.loadState(StateReader.java:523)\n\tat org.eclipse.osgi.internal.resolver.StateObjectFactoryImpl.internalReadState(StateObjectFactoryImpl.java:288)\n\tat org.eclipse.osgi.internal.resolver.StateObjectFactoryImpl.readState(StateObjectFactoryImpl.java:274)\n\tat org.eclipse.support.validation.Validator.getValidation(RationalCaspianValidator.java:20)\n\tat \n\nI put it as blocker for me, but it may be a RTFM :)",
+    "Tried:\n\naManager \u003d new StorageManager(new File(path),\"none\",true);\nState aState \u003d aStateObjectfactory.readState(aManager.lookup(\".state\", false));\n\njava.io.FileNotFoundException: E:\\eclipse\\configuration\\org.eclipse.osgi\\.state.1\\.state (The system cannot find the path specified)\nat java.io.FileInputStream.open(Native Method)\n\n\nTried\n\nState aState \u003d aStateObjectfactory.readState(aManager.getInputStream(\".state.1\"));\n\njava.lang.NullPointerException\nat java.io.FilterInputStream.close(FilterInputStream.java:179)\nat org.eclipse.osgi.internal.resolver.StateReader.loadStateDeprecated(StateReader.java:514)\n\n",
+    "Hi Christophe,\n\nThe StateObjectFacotry#readState(File stateDirectory) method expects to read state data which is saved using the StateObjectFactory#writeState(State state, File stateDirectory) method.  Unfortunately the Framework does not use the StateObjectFactory to write state data out because it needs to use the StorageManager to save data so that it does not collide with other running instances of eclipse which use the same configuration.  This is why you see files with numbered extensions (.state.1, .state.2 etc.).  The StateObjectFactory only looks for the files .state and .lazy.  If it does not find them then it fails.\n\nAs a workaround you should use the StorageManager to findout what the latest numbered names of the .state and .lazy files are using the StorageManager#lookup method.  Then you will need to copy these files to your own temporary directory and rename the files to .state and .lazy in your own directory.  You can then use StateObjectFactory to read the state data from this directory.\n\nWe should look into using the StorageManager in StateObjectFactory#readState to lookup the numbered state files under the covers if we cannot find .state and .lazy files first.\n\nReducing severity with the workaround.  Leaving open to consider a better way to do this.",
+    "Hey Tom,\n\nYeah ... Ugly coding ... but working :)\nSo I am ok with P3\n\nPS: maybe te ugly coding is mine :)\n\n\n\t\t\tStateObjectFactory aStateObjectfactory \u003d StateObjectFactory.defaultFactory;\n\t\t\taManager \u003d new StorageManager(new File(path),\"none\",true);\n\t\t\taManager.open(true);\n\t\t\tFile state \u003d aManager.lookup(STATE_NAME, false);\n\t\t\t\n\t\t\t\t// HACK: 143255 \n\t\t\t\tString tmpDir \u003d \n                                  System.getProperty(\"java.io.tmpdir\");\n\t\t\t\tFile lazy \u003d aManager.lookup(LAZY_NAME, false);\n\t\t\t\tFile tempState \u003d new File(tmpDir,STATE_NAME);\n\t\t\t\tFile tempLazy \u003d new File(tmpDir,LAZY_NAME);\n\t\t\t\ttempState.createNewFile(); // What if the file already exist ?\n\t\t\t\ttempLazy.createNewFile();  // need to test\n\t\t\t\ttempState.deleteOnExit();\n\t\t\t\ttempLazy.deleteOnExit();\n\t\t\t\tcopy(state,tempState);\n\t\t\t\tcopy(lazy, tempLazy);\n\t\t\t\tstate\u003dtempState.getParentFile();\n\t\t\t\t//HACK: 143255 \n\t\t\t\t\n\t\t\tState aState \u003d aStateObjectfactory.readState(state);\n\t\t\tBundleDescription[] descs \u003d aState.getBundles();\n\t\t\tSystem.out.println(\"found \"+descs.length+\" bundle(s)\");",
+    "It is ugly!! :)\n\nI would not want this to be the long term solution, but for now that is all we can do for 3.2.\n",
+    "Fixed for 3.3 M1.",
+    "What is the fix here?",
+    "Opps, I thought I had attached a patch earlier ...\n\nThe fix is to make sure the .state and .lazy files exist before reading the state.  If they do not exist then try opening a read-only StorageManager on the specified directory and lookup the managed .state and .lazy files.  If they exist as managed files (e.g .state.1 and .lazy.1) then use them to read the state from.\n\nThis fix went into StateObjectFactoryImpl."
+  ],
+  "commentCreationDates": [
+    "2006-05-23T18:38:38+02:00",
+    "2006-05-23T19:08:06+02:00",
+    "2006-05-23T19:30:36+02:00",
+    "2006-05-23T23:07:48+02:00",
+    "2006-05-23T23:27:31+02:00",
+    "2006-06-14T22:19:28+02:00",
+    "2006-06-14T22:40:32+02:00",
+    "2006-06-14T22:58:52+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.FileNotFoundException",
+      "message": "E:\\eclipse\\configuration\\org.eclipse.osgi\\.state (The system cannot find the file specified)",
+      "elements": [
+        {
+          "method": "java.io.FileInputStream.open",
+          "source": "Native Method"
+        },
+        {
+          "method": "java.io.FileInputStream.\u003cinit\u003e",
+          "source": "FileInputStream.java:129"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.util.SecureAction.getFileInputStream",
+          "source": "SecureAction.java:99"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.resolver.StateReader.readState",
+          "source": "StateReader.java:73"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.resolver.StateReader.loadState",
+          "source": "StateReader.java:523"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.resolver.StateObjectFactoryImpl.internalReadState",
+          "source": "StateObjectFactoryImpl.java:288"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.resolver.StateObjectFactoryImpl.readState",
+          "source": "StateObjectFactoryImpl.java:274"
+        },
+        {
+          "method": "org.eclipse.support.validation.Validator.getValidation",
+          "source": "RationalCaspianValidator.java:20"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "143255",
+      "date": "2006-05-23T18:38:38+02:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.io.FileNotFoundException",
+      "message": "E:\\eclipse\\configuration\\org.eclipse.osgi\\.state.1\\.state (The system cannot find the path specified)",
+      "elements": [
+        {
+          "method": "java.io.FileInputStream.open",
+          "source": "Native Method"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 1,
+      "bugId": "143255",
+      "date": "2006-05-23T19:08:06+02:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "java.io.FilterInputStream.close",
+          "source": "FilterInputStream.java:179"
+        },
+        {
+          "method": "org.eclipse.osgi.internal.resolver.StateReader.loadStateDeprecated",
+          "source": "StateReader.java:514"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 1,
+      "bugId": "143255",
+      "date": "2006-05-23T19:08:06+02:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "143255",
+  "bugId": "143255",
+  "date": "2006-05-23T18:38:38+02:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "normal"
+}

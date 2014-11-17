@@ -1,0 +1,78 @@
+{
+  "comments": [
+    "Note: This could be just a doc thing, where we need to document the limitations that annotation style around advice has compared to code style.\n\nA user raised an issue on the list, here is \n\nHe looked at this documentation:\n\nhttp://www.eclipse.org/aspectj/doc/released/adk15notebook/ataspectj-pcadvice.html\n\nand was looking how to use around advice and ProceedingJoinPoint.  I just tried the same aspect too:\n\nimport org.aspectj.lang.*;\nimport org.aspectj.lang.annotation.*;\n\n@Aspect\n     public class ProceedAspect {\n\n       @Pointcut(\"call(* setAge(..)) \u0026\u0026 args(i)\")\n       void setAge(int i) {}\n\n       @Around(\"setAge(i)\")\n       public Object twiceAsOld(ProceedingJoinPoint thisJoinPoint, int i) {\n         System.err.println(\"advice running\");\n         return thisJoinPoint.proceed(new Object[]{i*2}); \n       }\n\n}\n\n\npublic class Foo {\n  int a;\n  public void setAge(int i) {\n     System.err.println(\"Setting age to \"+i);\n     a\u003di;\n  }\n\n  public static void main(String[]argv) {\n    new Foo().setAge(5);\n  }\n}\n\n\u003e java Foo\nadvice running\nException in thread \"main\" java.lang.ClassCastException: java.lang.Integer\n        at Foo.setAge_aroundBody1$advice(Foo.java:112)\n        at Foo.main(Foo.java:8)\n\nBefore it will work, you need to supply the target in the proceed call array in the advice:\n\n@Around(\"setAge(i)\")\n       public Object twiceAsOld(ProceedingJoinPoint thisJoinPoint, int i) {\n         return thisJoinPoint.proceed(new Object[]{thisJoinPoint.getTarget(),i*2}); //using Java 5 autoboxing\n       }\n\n\u003ejava Foo\nadvice running\nSetting age to 10\n\nMaybe thats just something to document... but then let\u0027s change the pointcut from call to execution:\n\n@Aspect\npublic class ProceedAspect {\n\n  @Pointcut(\"execution(* setAge(..)) \u0026\u0026 args(i)\")\n  void setAge(int i) {}\n\n @Around(\"setAge(i)\")\n public Object twiceAsOld(ProceedingJoinPoint thisJoinPoint, int i) {\n   System.err.println(\"advice running\");\n   return thisJoinPoint.proceed(new Object[]{thisJoinPoint.getTarget(),i*2});\n }\n}\n\n\u003ejava Foo\nException in thread \"main\" java.lang.ClassCastException: Foo can not be converted to int\n        at org.aspectj.runtime.internal.Conversions.intValue(Conversions.java:57)\n        at Foo.setAge_aroundBody1$advice(Foo.java:113)\n        at Foo.setAge(Foo.java:1)\n        at Foo.main(Foo.java:11)\n\noh ... let\u0027s now remove that getTarget() call we put in the advice:\n\n\u003ejava Foo\nadvice running\nSetting age to 10\n\n\nI know many of the problems here are that we can\u0027t do compile time type checking of the object array passed to proceed in the source - we would have to generate sophisticated code to handle it at runtime.  There are numerous combinations, all failing in different ways so I tried to rationalise it and coded 11 testcases in code style and @AJ style to see what happens.  It seems in all but the most basic cases, we get into trouble.  I\u0027m particularly worried about cases like those above where the code in the advice depends directly on the matched join point kind...\n\nAnyway, the tests are all checked in, see AtAroundTests.",
+    "I\u0027ve also run into a number of situations where proceeding with arguments in @AJ style does not behave correctly.\n\nThis needs to be addressed for 1.5.2.",
+    "just a crazy thought (must be the heat stroke I got on my run...) - if replacing the target type for the proceed, perhaps we should have a second proceed method on PJP, so we have\n\nproceed(Object[])\nand\nproceed(Object newtarget,Object[])\n\n... just wondering if that might make processing easier - it will be more explicit in the advice what the programmer is trying to achieve...",
+    "I\u0027m trying to decide the best thing to do here.  At the moment it looks like you have to supply the target if the joinpoint you match on has a \u0027this\u0027 regardless of whether the pointcut related to your advice uses \u0027this()\u0027.  \n\nThe explosion in the example code in the first example in this bug are (i believe) consequences of this/target being equivalent at the execution join point.\n\nIt would seem to make sense that the new this/target have to be supplied if they are used in the pointcut (i.e. you might be wanting to replace them).\n\nI thought I liked the idea of the two argument proceed() for these kinds of cases as it will allow us some rudimentary checking in the compiler - but is it unnecessarily coupling the pointcut and the advice?  For example (pseudocode... half code style, have @AJ style...)\n\npointcut p(Object o,int i): call(* something(..)) \u0026\u0026 this(o) \u0026\u0026 args(i);\n\nvoid around(Object o,int i): p(o,i) {\n  proceed(o,37);\n}\n\nthe two arg variant is only in use there because p() uses this() - if p() was changed to:\n\npointcut p(Object o,int i): call(* something(..)) \u0026\u0026 args(o,i);\n\nthen proceed() taking two arguments is an error - we have tightly coupled the pointcut and the advice.\n\nThis suggests the single Object array form of proceed is still the best thing to do.\n\nThe decision then is whether the arguments to the proceed are based on what is available at the joinpoint or based on what was bound in the pointcut.\n\nFrom the developers notebook, the intent seems to have been the latter, but based on the current implementation it is the former.\n",
+    "Adrian - what particular use case do you think causes problems?  I have fixed all the problems I\u0027ve highlighted in this bug and examples in the developers notebook, is there something else?\n\nAs I mentioned, sensible rules are:\n\n1. if you bind \u0027this()\u0027 you must supply it (the same or unchanged) as the first entry in the object array\n2. if you bind \u0027target()\u0027 you must supply it (the same or unchanged) as the next entry in the object array\n3. you need to then supply all the arguments expected at the join point.\n\nSubsetting the arguments (like with code style) can be \u0027banned\u0027 (it may work, it may not but its unreliable) and reordering their sequence because you reordered them in the advice signature can be \u0027banned\u0027 (bunch of missing infrastructure).\n\nI think that gives us a sensible definition of how to use it... any more elaborate and we may end up being forced to generate all the tedious bytecode that verifies the object array at runtime and produces nice errors...",
+    "all committed.  Doc changes are in, 30 new testcases.  I think all the original confusion and complexity arose because of this:\n\n- whether you had to supply this/target in the object array to proceed was based on whether the matched join point had a this/target and whether this/target were the same (they are for execution jps for example).  It made no difference whether you bound them or not in your pointcut...\n\nIf you didn\u0027t know these rules, you might be failing to supply the extra parameter when it was needed or supplying an extra one when it wasnt required, causing the rest of the arguments you supply to be out of step with what is expected at the join point...   even worse, if you matched a \u0027selection\u0027 of join points that did or did not have a this/target, it\u0027d be tough to get the proceed call correct\n\nIt\u0027s much more predictable now!",
+    "done all I plan to do with this for 1.5.2 - future problems we can cover with new bugs."
+  ],
+  "commentCreationDates": [
+    "2006-02-02T11:29:17+01:00",
+    "2006-05-04T09:41:37+02:00",
+    "2006-05-04T17:00:17+02:00",
+    "2006-06-21T15:48:07+02:00",
+    "2006-06-22T18:02:07+02:00",
+    "2006-06-23T15:39:14+02:00",
+    "2006-06-26T10:23:39+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "java.lang.Integer",
+      "elements": [
+        {
+          "method": "Foo.setAge_aroundBody1$advice",
+          "source": "Foo.java:112"
+        },
+        {
+          "method": "Foo.main",
+          "source": "Foo.java:8"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "126167",
+      "date": "2006-02-02T11:29:17+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "critical"
+    },
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "Foo can not be converted to int",
+      "elements": [
+        {
+          "method": "org.aspectj.runtime.internal.Conversions.intValue",
+          "source": "Conversions.java:57"
+        },
+        {
+          "method": "Foo.setAge_aroundBody1$advice",
+          "source": "Foo.java:113"
+        },
+        {
+          "method": "Foo.setAge",
+          "source": "Foo.java:1"
+        },
+        {
+          "method": "Foo.main",
+          "source": "Foo.java:11"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "126167",
+      "date": "2006-02-02T11:29:17+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "126167",
+  "bugId": "126167",
+  "date": "2006-02-02T11:29:17+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "critical"
+}

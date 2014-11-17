@@ -1,0 +1,195 @@
+{
+  "comments": [
+    "I was making some minor changes to some Java code, when all of a sudden I got an error popup.  Clicking OK simply resulted in a never-ending chain of errors, so there was no way to exit the application except to kill the process.\n\nI will attach an error log showing the whole sequence.  The initial error seems to be this one:\n\n!ENTRY org.eclipse.jdt.core 4 4 2007-04-05 16:39:14.947\n!MESSAGE Could not retrieve declared methods\n!STACK 0\njava.lang.ArrayIndexOutOfBoundsException: 15\n\tat org.eclipse.jdt.internal.compiler.util.HashtableOfPackage.get(HashtableOfPackage.java:56)\n\tat org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getPackage0(LookupEnvironment.java:874)\n\tat org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getCachedType(LookupEnvironment.java:856)\n\tat org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getTypeFromCompoundName(LookupEnvironment.java:976)\n\tat org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getTypeFromConstantPoolName(LookupEnvironment.java:1002)\n\tat org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getTypeFromSignature(LookupEnvironment.java:1056)\n\tat org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.createFields(BinaryTypeBinding.java:336)\n\tat org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.cachePartsFrom(BinaryTypeBinding.java:313)\n\tat org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.createBinaryTypeFrom(LookupEnvironment.java:599)\n\tat org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.createBinaryTypeFrom(LookupEnvironment.java:578)\n\tat org.eclipse.jdt.internal.compiler.Compiler.accept(Compiler.java:275)\n\tat org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.askForType(LookupEnvironment.java:102)\n\tat org.eclipse.jdt.internal.compiler.lookup.UnresolvedReferenceBinding.resolve(UnresolvedReferenceBinding.java:43)\n\tat org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.resolveType(BinaryTypeBinding.java:97)\n\tat org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding.resolve(ParameterizedTypeBinding.java:818)\n\tat org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.resolveType(BinaryTypeBinding.java:111)\n\tat org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.resolveTypesFor(BinaryTypeBinding.java:891)\n\tat org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.methods(BinaryTypeBinding.java:874)\n\tat org.eclipse.jdt.core.dom.TypeBinding.getDeclaredMethods(TypeBinding.java:266)\n\tat org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInType(Bindings.java:423)\n\tat org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy(Bindings.java:440)\n\tat org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethod(Bindings.java:474)\n\tat org.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.findInHierarchyWithAST(OverrideIndicatorLabelDecorator.java:179)\n\tat org.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.getOverrideIndicators(OverrideIndicatorLabelDecorator.java:154)\n\tat org.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.computeAdornmentFlags(OverrideIndicatorLabelDecorator.java:129)\n\tat org.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.decorate(OverrideIndicatorLabelDecorator.java:261)\n\tat org.eclipse.ui.internal.decorators.LightweightDecoratorDefinition.decorate(LightweightDecoratorDefinition.java:259)\n\tat org.eclipse.ui.internal.decorators.LightweightDecoratorManager$LightweightRunnable.run(LightweightDecoratorManager.java:71)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:850)\n\tat org.eclipse.ui.internal.decorators.LightweightDecoratorManager.decorate(LightweightDecoratorManager.java:336)\n\tat org.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecorations(LightweightDecoratorManager.java:322)\n\tat org.eclipse.ui.internal.decorators.DecorationScheduler$1.ensureResultCached(DecorationScheduler.java:363)\n\tat org.eclipse.ui.internal.decorators.DecorationScheduler$1.run(DecorationScheduler.java:325)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n\n\nThe errors in the log after that reflect various other threads and tasks running into the same underlying array bounds exception.  That is, the deepest two levels of stack are the same in all the exceptions, but the top of the stack varies.\n\nThe reason for the endless string of exceptions seems to be that when a message box is dismissed, the editor window gets reactivated, resulting in a call to JavaEditor.updateOccurrenceAnnotations(), which tries to read the AST and encounters the error again, putting up another message box ad infinitum.\n\nI\u0027m marking this \"major\" because it rendered the app unusable and I had to kill it with the task manager.  However, I doubt it is easily reproducible.",
+    "Created an attachment (id\u003d63129)\nzipped log file\n\n",
+    "Forgot to say: this is being reported against I20070403-1110.",
+    "This would indicate a case where keyTable and valueTable are out of sync. Looking at the code I don\u0027t see this being possible, unless some concurrency is occurring.\n\nFeels like possible is shared DOM AST is being used by various threads, and are lazily populated, as implied by:\n\norg.eclipse.jdt.core.dom.TypeBinding.getDeclaredMethods(TypeBinding.java:266)",
+    "First thinking is that the DOM AST should be synchronized.",
+    "Olivier - please look into protecting the DOM calls to prevent concurrent accesses to Binary type bindings.",
+    "Feels like in 3.4, we want to allow compiler to use concurrency (to exploit multicore processors), so some synchronization may occur at that level.\nUntil so, we have this weakness (which we had since day-1).\n\nNeed to be careful to avoid introducing deadlocks.",
+    "I propose to synchronize the getDeclaredMethods(), getDeclaredFields(), ... methods.",
+    "Created an attachment (id\u003d64309)\nProposed patch\n\nJ?r?me, what do you think?",
+    "Just being paranoid: are we certain that we don\u0027t call out from any synchronized methods ?",
+    "I could not find a case where we do.",
+    "Then the patch looks good to me.",
+    "Released for 3.3M7.\n",
+    "Verified for 3.3 M7 using source code v_751.\nChecked that the patch was applied."
+  ],
+  "commentCreationDates": [
+    "2007-04-06T01:54:22+02:00",
+    "2007-04-06T01:55:30+02:00",
+    "2007-04-06T01:57:07+02:00",
+    "2007-04-06T13:01:08+02:00",
+    "2007-04-06T13:03:12+02:00",
+    "2007-04-09T18:58:54+02:00",
+    "2007-04-10T13:12:05+02:00",
+    "2007-04-19T15:45:36+02:00",
+    "2007-04-19T15:48:03+02:00",
+    "2007-04-19T16:08:53+02:00",
+    "2007-04-19T16:17:26+02:00",
+    "2007-04-19T16:18:43+02:00",
+    "2007-04-19T16:21:29+02:00",
+    "2007-04-27T17:37:55+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ArrayIndexOutOfBoundsException",
+      "message": "15",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.compiler.util.HashtableOfPackage.get",
+          "source": "HashtableOfPackage.java:56"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getPackage0",
+          "source": "LookupEnvironment.java:874"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getCachedType",
+          "source": "LookupEnvironment.java:856"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getTypeFromCompoundName",
+          "source": "LookupEnvironment.java:976"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getTypeFromConstantPoolName",
+          "source": "LookupEnvironment.java:1002"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.getTypeFromSignature",
+          "source": "LookupEnvironment.java:1056"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.createFields",
+          "source": "BinaryTypeBinding.java:336"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.cachePartsFrom",
+          "source": "BinaryTypeBinding.java:313"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.createBinaryTypeFrom",
+          "source": "LookupEnvironment.java:599"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.createBinaryTypeFrom",
+          "source": "LookupEnvironment.java:578"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.Compiler.accept",
+          "source": "Compiler.java:275"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment.askForType",
+          "source": "LookupEnvironment.java:102"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.UnresolvedReferenceBinding.resolve",
+          "source": "UnresolvedReferenceBinding.java:43"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.resolveType",
+          "source": "BinaryTypeBinding.java:97"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding.resolve",
+          "source": "ParameterizedTypeBinding.java:818"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.resolveType",
+          "source": "BinaryTypeBinding.java:111"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.resolveTypesFor",
+          "source": "BinaryTypeBinding.java:891"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding.methods",
+          "source": "BinaryTypeBinding.java:874"
+        },
+        {
+          "method": "org.eclipse.jdt.core.dom.TypeBinding.getDeclaredMethods",
+          "source": "TypeBinding.java:266"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInType",
+          "source": "Bindings.java:423"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethodInHierarchy",
+          "source": "Bindings.java:440"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.corext.dom.Bindings.findOverriddenMethod",
+          "source": "Bindings.java:474"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.findInHierarchyWithAST",
+          "source": "OverrideIndicatorLabelDecorator.java:179"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.getOverrideIndicators",
+          "source": "OverrideIndicatorLabelDecorator.java:154"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.computeAdornmentFlags",
+          "source": "OverrideIndicatorLabelDecorator.java:129"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.OverrideIndicatorLabelDecorator.decorate",
+          "source": "OverrideIndicatorLabelDecorator.java:261"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorDefinition.decorate",
+          "source": "LightweightDecoratorDefinition.java:259"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager$LightweightRunnable.run",
+          "source": "LightweightDecoratorManager.java:71"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:850"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager.decorate",
+          "source": "LightweightDecoratorManager.java:336"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.LightweightDecoratorManager.getDecorations",
+          "source": "LightweightDecoratorManager.java:322"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.DecorationScheduler$1.ensureResultCached",
+          "source": "DecorationScheduler.java:363"
+        },
+        {
+          "method": "org.eclipse.ui.internal.decorators.DecorationScheduler$1.run",
+          "source": "DecorationScheduler.java:325"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "181349",
+      "date": "2007-04-06T01:54:22+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "major"
+    }
+  ],
+  "groupId": "181349",
+  "bugId": "181349",
+  "date": "2007-04-06T01:54:22+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "major"
+}

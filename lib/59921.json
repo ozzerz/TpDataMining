@@ -1,0 +1,185 @@
+{
+  "comments": [
+    "I am a newbie of AspectJ. I use examples in order to learn the language \nbetter. Some of the examples don\u0027t work when I use the new patch of BCEL. I \nguess the problem lies in the new version of BCEL. Because when I use the old \nversion of BCEL it works fine. \n\nspacewar didn\u0027t work. The error it produced was:\n\norg.apache.bcel.generic.InstructionFactory.createNewArray\n(Lorg/apache/bcel/generic/Type;S)\nLorg/apache/bcel/generic/AllocationInstruction;\norg.apache.bcel.generic.InstructionFactory.createNewArray\n(Lorg/apache/bcel/generic/Type;S)\nLorg/apache/bcel/generic/AllocationInstruction;\njava.lang.NoSuchMethodError: \norg.apache.bcel.generic.InstructionFactory.createNewArray\n(Lorg/apache/bcel/generic/Type;S)\nLorg/apache/bcel/generic/AllocationInstruction;\n\tat org.aspectj.weaver.bcel.BcelShadow.makeArgsObjectArray\n(BcelShadow.java:849)\n\tat org.aspectj.weaver.bcel.BcelShadow.getThisJoinPointBcelVar\n(BcelShadow.java:797)\n\tat org.aspectj.weaver.bcel.BcelShadow.getThisJoinPointVar\n(BcelShadow.java:771)\n\tat org.aspectj.weaver.bcel.BcelAdvice.specializeOn(BcelAdvice.java:95)\n\tat org.aspectj.weaver.bcel.BcelShadow.prepareForMungers\n(BcelShadow.java:254)\n\tat org.aspectj.weaver.Shadow.implement(Shadow.java:312)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.implement\n(BcelClassWeaver.java:1006)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.weave\n(BcelClassWeaver.java:299)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.weave\n(BcelClassWeaver.java:77)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:417)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:390)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:327)\n\tat \norg.aspectj.ajdt.internal.core.builder.AjBuildManager.weaveAndGenerateClassFile\ns(AjBuildManager.java:256)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild\n(AjBuildManager.java:156)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild\n(AjBuildManager.java:70)\n\tat org.aspectj.ajdt.ajc.AjdtCommand.doCommand(AjdtCommand.java:99)\n\tat org.aspectj.ajdt.ajc.AjdtCommand.runCommand(AjdtCommand.java:53)\n\tat org.aspectj.tools.ajc.Main.run(Main.java:217)\n\tat org.aspectj.tools.ant.taskdefs.Ajc10.spoon(Ajc10.java:598)\n\tat org.aspectj.tools.ant.taskdefs.Ajc10.execute(Ajc10.java:484)\n\tat org.apache.tools.ant.UnknownElement.execute(UnknownElement.java:193)\n\tat org.apache.tools.ant.Task.perform(Task.java:341)\n\tat org.apache.tools.ant.Target.execute(Target.java:309)\n\tat org.apache.tools.ant.Target.performTasks(Target.java:336)\n\tat org.apache.tools.ant.Project.executeTarget(Project.java:1339)\n\tat org.apache.tools.ant.taskdefs.Ant.execute(Ant.java:397)\n\tat org.apache.tools.ant.taskdefs.CallTarget.execute\n(CallTarget.java:143)\n\tat org.apache.tools.ant.Task.perform(Task.java:341)\n\tat org.apache.tools.ant.Target.execute(Target.java:309)\n\tat org.apache.tools.ant.Target.performTasks(Target.java:336)\n\tat org.apache.tools.ant.Project.executeTarget(Project.java:1339)\n\tat org.apache.tools.ant.Project.executeTargets(Project.java:1255)\n\tat org.apache.tools.ant.Main.runBuild(Main.java:609)\n\tat org.apache.tools.ant.Main.start(Main.java:196)\n\tat org.apache.tools.ant.Main.main(Main.java:235)\n\tat com.intellij.rt.ant.execution.AntMain2.main(Unknown Source)\n\nI am using java 1.4.2 and Win XP.\n\nThe examples, that didn\u0027t work are: spacewar, tjp and maybe some others too...\n\nBut observer, telecom work fine.",
+    "I\u0027ve seen related issues about the BCEL version on the lists/etc.  Can I ask - \nit looks like you are building the project with ANT, are you using the ANT \nsettings that we suggest?\n\nFrom the stack trace it looks like you are using class Ajc10 (ant task \u0027ajc\u0027) \nwhich is the older variant of the ANT task for AspectJ.  It would be better to \nuse the \u0027iajc\u0027 ANT task (which is implemented by the class AjcTask)\n\nThen when you do that, there are some subtleties to avoid picking up the wrong \nversions of some classes.  Typically you need to fork the call to iajc:\n\n     \u003ciajc\n         fork\u003d\"true\"\n         forkclasspath\u003d\"${aspectjtools.jar}\"\n         destDir\u003d\"${dir.compile.source}\"\n         classpath\u003d\"${jar.aspectjrt}\"\u003e\n         ...\n\nIncidentally, you mention the old and new versions of BCEL, where are these \ncoming from?",
+    "I\u0027ve seen several people hit this and I want to track my findings.\n\nWith AspectJ1.2 we have moved to a new version of BCEL - an easy way to \nidentify the new version is through the signature for the method described in \nthis bug as causing us problems.\n\nIn AspectJ1.2 the signature is:\n    public org.apache.bcel.generic.Instruction createNewArray\n(org.apache.bcel.generic.Type,short);\n\nIn AspectJ1.1 the signature was:\n    public org.apache.bcel.generic.AllocationInstruction createNewArray\n(org.apache.bcel.generic.Type, short);\n\nThere was an error in the packaging of recent versions of AJDT that caused the \nold BCEL to be included in the distribution.  This could (on some systems) \nmanifest itself as NoSuchMethodError at runtime when doing a weave *if* you \nare weaving a method join point that has \u003e 2 parameters *and* you use \nthisJoinPoint in your advice.\n",
+    "I see what the problem is.\n\nCertain levels of certain JVMs include BCEL classes in some of the core JVM \njar files.  For example I have an old version of an IBM jvm that includes bcel \nclasses.  You can check if this is the problem you are seeing by going to the \ncommand line, unsetting your classpath and running:\n\njavap org.apache.bcel.generic.InstructionFactory\n\nIf that runs, you have a JVM that includes BCEL.  If the version of BCEL \nis \u0027old\u0027 then the return type of the createNewArray method in the javap output \nwill be AllocationInstruction.\n\nIf this is happening to you, upgrade your JVM to a more recent version and it \nshould be fixed - i.e. the javap command above should *fail*!  Whilst you have \na JVM with that old version of BCEL in, aspectj will never be able to load its \nmore recent versions of the bcel classes.\n\n",
+    "Enhancement request 61374 is tracking the proper fix for this bug (version or\nrename the BCEL libraries in AJ).\n\n*** This bug has been marked as a duplicate of 61374 ***",
+    "Fix released as part of AspectJ 1.2.1"
+  ],
+  "commentCreationDates": [
+    "2004-04-26T13:06:59+02:00",
+    "2004-04-26T16:42:52+02:00",
+    "2004-05-24T12:57:59+02:00",
+    "2004-05-24T17:53:11+02:00",
+    "2004-07-26T09:30:19+02:00",
+    "2004-10-21T10:32:12+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoSuchMethodError",
+      "message": "org.apache.bcel.generic.InstructionFactory.createNewArray (Lorg/apache/bcel/generic/Type;S) Lorg/apache/bcel/generic/AllocationInstruction;",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.bcel.BcelShadow.makeArgsObjectArray",
+          "source": "BcelShadow.java:849"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelShadow.getThisJoinPointBcelVar",
+          "source": "BcelShadow.java:797"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelShadow.getThisJoinPointVar",
+          "source": "BcelShadow.java:771"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelAdvice.specializeOn",
+          "source": "BcelAdvice.java:95"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelShadow.prepareForMungers",
+          "source": "BcelShadow.java:254"
+        },
+        {
+          "method": "org.aspectj.weaver.Shadow.implement",
+          "source": "Shadow.java:312"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.implement",
+          "source": "BcelClassWeaver.java:1006"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:299"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:77"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:417"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:390"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:327"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.weaveAndGenerateClassFiles",
+          "source": "AjBuildManager.java:256"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:156"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:70"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.doCommand",
+          "source": "AjdtCommand.java:99"
+        },
+        {
+          "method": "org.aspectj.ajdt.ajc.AjdtCommand.runCommand",
+          "source": "AjdtCommand.java:53"
+        },
+        {
+          "method": "org.aspectj.tools.ajc.Main.run",
+          "source": "Main.java:217"
+        },
+        {
+          "method": "org.aspectj.tools.ant.taskdefs.Ajc10.spoon",
+          "source": "Ajc10.java:598"
+        },
+        {
+          "method": "org.aspectj.tools.ant.taskdefs.Ajc10.execute",
+          "source": "Ajc10.java:484"
+        },
+        {
+          "method": "org.apache.tools.ant.UnknownElement.execute",
+          "source": "UnknownElement.java:193"
+        },
+        {
+          "method": "org.apache.tools.ant.Task.perform",
+          "source": "Task.java:341"
+        },
+        {
+          "method": "org.apache.tools.ant.Target.execute",
+          "source": "Target.java:309"
+        },
+        {
+          "method": "org.apache.tools.ant.Target.performTasks",
+          "source": "Target.java:336"
+        },
+        {
+          "method": "org.apache.tools.ant.Project.executeTarget",
+          "source": "Project.java:1339"
+        },
+        {
+          "method": "org.apache.tools.ant.taskdefs.Ant.execute",
+          "source": "Ant.java:397"
+        },
+        {
+          "method": "org.apache.tools.ant.taskdefs.CallTarget.execute",
+          "source": "CallTarget.java:143"
+        },
+        {
+          "method": "org.apache.tools.ant.Task.perform",
+          "source": "Task.java:341"
+        },
+        {
+          "method": "org.apache.tools.ant.Target.execute",
+          "source": "Target.java:309"
+        },
+        {
+          "method": "org.apache.tools.ant.Target.performTasks",
+          "source": "Target.java:336"
+        },
+        {
+          "method": "org.apache.tools.ant.Project.executeTarget",
+          "source": "Project.java:1339"
+        },
+        {
+          "method": "org.apache.tools.ant.Project.executeTargets",
+          "source": "Project.java:1255"
+        },
+        {
+          "method": "org.apache.tools.ant.Main.runBuild",
+          "source": "Main.java:609"
+        },
+        {
+          "method": "org.apache.tools.ant.Main.start",
+          "source": "Main.java:196"
+        },
+        {
+          "method": "org.apache.tools.ant.Main.main",
+          "source": "Main.java:235"
+        },
+        {
+          "method": "com.intellij.rt.ant.execution.AntMain2.main",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "59921",
+      "duplicateId": "61374",
+      "date": "2004-04-26T13:06:59+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "61374",
+  "bugId": "59921",
+  "duplicateId": "61374",
+  "date": "2004-04-26T13:06:59+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

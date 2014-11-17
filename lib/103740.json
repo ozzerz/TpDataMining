@@ -1,0 +1,139 @@
+{
+  "comments": [
+    "I\u0027m using the ajc embedded in the latest dev build of AJDT (build \n20050713163417)\n\nThis small example illustrates the problem:\npublic abstract aspect AbstractRequestMonitor {\n\n    public pointcut requestExecution(RequestContext requestContext) :\n        execution(* RequestContext.execute(..)) \u0026\u0026 this(requestContext);\n\n    public abstract class RequestContext {\n        public abstract Object execute();\n    }\n    \n    after(RequestContext requestContext) throwing (Throwable t) : \nrequestExecution(requestContext) {\n    }\n    \n}\n\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\n\n@Retention(RetentionPolicy.RUNTIME)\npublic @interface AroundAdvice {\n\n}\n\npublic aspect ErrorHandling {\n\n    declare soft: Exception: !@annotation(AroundAdvice) \u0026\u0026 !withincode(* *\n(..));\n    \n    Object around() : adviceexecution() \u0026\u0026 !@annotation(AroundAdvice) {\n        try {\n            return proceed();\n        } catch (Exception e) {\n            return null;\n        }\n    }\n\n}\n\nHere\u0027s the stack trace I get:\n\norg.aspectj.weaver.BCException: bad\n\tat org.aspectj.weaver.bcel.BcelRenderer.visit(BcelRenderer.java:228)\n\tat org.aspectj.weaver.ast.Literal.accept(Literal.java:29)\n\tat org.aspectj.weaver.bcel.BcelRenderer.recur(BcelRenderer.java:151)\n\tat org.aspectj.weaver.bcel.BcelRenderer.renderTest\n(BcelRenderer.java:117)\n\tat org.aspectj.weaver.bcel.BcelAdvice.getTestInstructions\n(BcelAdvice.java:445)\n\tat org.aspectj.weaver.bcel.BcelShadow.weaveAroundClosure\n(BcelShadow.java:2585)\n\tat org.aspectj.weaver.bcel.BcelAdvice.implementOn(BcelAdvice.java:182)\n\tat org.aspectj.weaver.Shadow.implementMungers(Shadow.java:480)\n\tat org.aspectj.weaver.Shadow.implement(Shadow.java:358)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.implement\n(BcelClassWeaver.java:1703)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.weave\n(BcelClassWeaver.java:389)\n\tat org.aspectj.weaver.bcel.BcelClassWeaver.weave\n(BcelClassWeaver.java:94)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:1362)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weaveWithoutDump\n(BcelWeaver.java:1327)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify\n(BcelWeaver.java:1106)\n\tat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:981)\n\tat org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave\n(AjCompilerAdapter.java:286)\n\tat org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling\n(AjCompilerAdapter.java:165)\n\tat \norg.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspec\ntj_ajdt_internal_compiler_CompilerAdapter$2$f9cc9ca0(CompilerAdapter.aj:70)\n\tat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile\n(Compiler.java:368)\n\tat \norg.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation\n(AjBuildManager.java:727)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild\n(AjBuildManager.java:206)\n\tat org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild\n(AjBuildManager.java:140)\n\tat org.aspectj.ajde.internal.CompilerAdapter.compile\n(CompilerAdapter.java:121)\n\tat org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run\n(AspectJBuildManager.java:191)",
+    "One for Andy... ;)",
+    "for M4",
+    "Heres my reduced program that also fails:\n\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\n\n@Retention(RetentionPolicy.RUNTIME)\npublic @interface AroundAdvice { }\n\naspect ErrorHandling {\n  before(): !@annotation(AroundAdvice) { }\n}\n\nthe \u0027!\u0027 is causing the problem.",
+    "Fix checked in.  We were always returning \u0027Literal.TRUE\u0027 from\nfindResidueInternal for the annotation pointcut type which became a\n\u0027Literal.FALSE\u0027 due to the NOT.  We always blow up if attempting to visit\n(generate) a test that is Literal.FALSE (since we shouldn\u0027t have gotten to this\npoint claiming it was ever a match).  \n\nThe fix is to make findResidueInternal() return either TRUE or FALSE depending\non whether the shadow actually matched the pointcut.  In the case where a join\npoint does *not* have the annotation, it will now return FALSE, which will\nbecome TRUE due to the ! and this is a valid test.\n\nwaiting on build before closing bug.",
+    "Fix available now."
+  ],
+  "commentCreationDates": [
+    "2005-07-14T01:09:31+02:00",
+    "2005-07-14T09:29:35+02:00",
+    "2005-08-26T17:53:11+02:00",
+    "2005-09-12T12:44:10+02:00",
+    "2005-09-12T15:41:33+02:00",
+    "2005-09-12T18:20:52+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.aspectj.weaver.BCException",
+      "message": "bad",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.bcel.BcelRenderer.visit",
+          "source": "BcelRenderer.java:228"
+        },
+        {
+          "method": "org.aspectj.weaver.ast.Literal.accept",
+          "source": "Literal.java:29"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelRenderer.recur",
+          "source": "BcelRenderer.java:151"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelRenderer.renderTest",
+          "source": "BcelRenderer.java:117"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelAdvice.getTestInstructions",
+          "source": "BcelAdvice.java:445"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelShadow.weaveAroundClosure",
+          "source": "BcelShadow.java:2585"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelAdvice.implementOn",
+          "source": "BcelAdvice.java:182"
+        },
+        {
+          "method": "org.aspectj.weaver.Shadow.implementMungers",
+          "source": "Shadow.java:480"
+        },
+        {
+          "method": "org.aspectj.weaver.Shadow.implement",
+          "source": "Shadow.java:358"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.implement",
+          "source": "BcelClassWeaver.java:1703"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:389"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:94"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:1362"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveWithoutDump",
+          "source": "BcelWeaver.java:1327"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify",
+          "source": "BcelWeaver.java:1106"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:981"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave",
+          "source": "AjCompilerAdapter.java:286"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling",
+          "source": "AjCompilerAdapter.java:165"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspectj_ajdt_internal_compiler_CompilerAdapter$2$f9cc9ca0",
+          "source": "CompilerAdapter.aj:70"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:368"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:727"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:206"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.batchBuild",
+          "source": "AjBuildManager.java:140"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:121"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:191"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "103740",
+      "date": "2005-07-14T01:09:31+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "103740",
+  "bugId": "103740",
+  "date": "2005-07-14T01:09:31+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

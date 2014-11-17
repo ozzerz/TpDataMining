@@ -1,0 +1,131 @@
+{
+  "comments": [
+    "We are a team provider using the Team IMoveDeleteHook interface.  We want the \nability to allow the user to cancel a local move/rename operation if the action \nfails in the repository.  If we do that from the package explorer view, there \nare numerous exceptions that get thrown from the JDT code.  If we cancel when \nwe move/rename from the navigator view, everything works correctly.  We signify \ncancellation by calling tree.failed in our code (as opposed to \ntree.standardMove when commands are successful in the repository).  It appears \nthat the JDT code assumes that the move always happens successfully.  This does \nnot appear to be a problem when using the delete hooks either.  More detail \nfollows below.\n_____________________________________________________________________________\nIt seems like the navigator view and the package explorer view handle moving \nresources differently. \n\nLet us assume my package structure is defined as the following: \n\nNavigator View: \n+ src\n  + com\n       + ibm\n           + package1\n                     Test1.java\n                     Test2.java\n                     + innerPackage\n                              Test3.java  \n\nPackage Explorer View:\n+ src \n      + com.ibm.package1\n               Test1.java\n               Test2.java\n      + com.ibm.package1.innerPackage\n                Test3.java   \n\nIf I try to rename the folder package1 inside navigator view, a moveFolder is \ncalled on package1. But if we try to rename the package package1 to package2 \ninside package explorer, the jdt does a real good job of calling the moveFile\n(Test1.java) and moveFile(Test2.java) rather than renaming outer and inner \npackage com.ibm.package1.innerPackge. ( This seems to make sense because jdt \ndoes not want to rename all the inner package structures Solved Bug: \nhttp://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d22458). \n\nTo acomplish the above mentioned scenario, jdt does the following: \n1. Create a package com.ibm.package2\n2. Move the filesTest1.java and Test2.java from package1 to package2.\n3. My move delete hooks for the files get called. The user chose not to rename \nthe file in CMVC as well as locally.  Since the user had requested to cancel \nthe operation, I set the status to IStatus.OK.\n4. Since the source package com.ibm.package1 is not empty, jdt tries to delete \nthe file Test1.java and Test2.java from com.ibm.package1. ( Interestingly jdt \ndoes not check whether the move operation  was successful or not... Does it \nmean I need to set the status to ERROR rather than OK to make jdt realize that \nmove delete hooks were called but the move did not happen ( setting it to INFO \ndoes not change the behavior. setting it to ERROR will abort the operation \nwhich I don\u0027t need. I want to provide users with an option to rename all the \nfiles under the package in the repository and if successful want to mirror the \noperation locally) ). \n\nShould the jdt not check the return codes ( or atleast the existense of the \nresource in source package ) and do the operations appropriately. if I cancel \nmy individual renames of all files and the deletes on all the files, I get a \ninternal error exception \"Resource Test1.java not found in package \ncom.ibm.package2\". \n\nNote: The package com.ibm.package2 is not deleted too after the operation is \ncompleted. \n\nAnother example:\n----------------\nWeird behavior when folder is renamed... \n\nTo recreate: \n1. Create a project Test1. Share with CMVC.\n2. Create a folder src, 2 files c4test1.txt , c4test2.txt\n3. Move the folder src to src1. Move Hook gets called.. It displays Test1/src - \n\u003e Test1/src1\n4. I cancelled the operation.\n5. Proceed with local move... Press No.\n6. Delete dialog comes up with c4test1.txt\n7. Cancel.. Press no for proceed with local move operation\n8. Do the same for 2nd file\n9. I get a new delete dialog ( the 3rd dialog ) with both c4test1.txt and \nc4test2.txt on it. \n10. Cancel... Press no for local delete.\n\nThe package explorer shows src1 but does not show src... (To see this, switch \nperspectives)\n\nJava Model Exception: Java Model Status [src1 does not exist.]\n\tat org.eclipse.jdt.internal.core.JavaElement.newNotPresentException\n(JavaElement.java:500)\n\tat org.eclipse.jdt.internal.core.PackageFragment.getUnderlyingResource\n(PackageFragment.java:260)\n\tat org.eclipse.jdt.internal.core.Openable.getCorrespondingResource\n(Openable.java:230)\n\tat org.eclipse.jdt.internal.core.Openable.openWhenClosed\n(Openable.java:399)\n\tat org.eclipse.jdt.internal.core.JavaElement.openHierarchy\n(JavaElement.java:521)\n\tat org.eclipse.jdt.internal.core.JavaElement.getElementInfo\n(JavaElement.java:308)\n\tat org.eclipse.jdt.internal.core.PackageFragment.containsJavaResources\n(PackageFragment.java:102)\n\tat org.eclipse.jdt.internal.ui.util.OpenTypeHierarchyUtil.getCandidates\n(OpenTypeHierarchyUtil.java:213)\n\tat org.eclipse.jdt.ui.actions.OpenTypeHierarchyAction.getCandidates\n(OpenTypeHierarchyAction.java:87)\n\tat org.eclipse.jdt.ui.actions.OpenTypeHierarchyAction.selectionChanged\n(OpenTypeHierarchyAction.java:81)\n\tat \norg.eclipse.jdt.ui.actions.SelectionDispatchAction.dispatchSelectionChanged\n(SelectionDispatchAction.java:187)\n\tat org.eclipse.jdt.ui.actions.SelectionDispatchAction.selectionChanged\n(SelectionDispatchAction.java:182)\n\tat org.eclipse.jface.viewers.Viewer.fireSelectionChanged\n(Viewer.java:147)\n\tat org.eclipse.jface.viewers.StructuredViewer.updateSelection\n(StructuredViewer.java:1155)\n\tat org.eclipse.jface.viewers.StructuredViewer.handleSelect\n(StructuredViewer.java:544)\n\tat org.eclipse.jface.viewers.StructuredViewer$1.widgetSelected\n(StructuredViewer.java:568)\n\tat org.eclipse.jface.util.OpenStrategy.fireSelectionEvent\n(OpenStrategy.java:171)\n\tat org.eclipse.jface.util.OpenStrategy.access$3(OpenStrategy.java:168)\n\tat org.eclipse.jface.util.OpenStrategy$1.handleEvent\n(OpenStrategy.java:297)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java\n(Compiled Code))\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java\n(Compiled Code))\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java\n(Compiled Code))\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1326)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:831)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:432)\n\tat EclipseRuntimeLauncher.main(EclipseRuntimeLauncher.java:24)\n\n\nScenario #2:\n------------\n\nTo recreate:\n1. Create a project.. share with cmvc\n2. Cancel all the local move operations....\n\nrg.eclipse.jface.util.Assert$AssertionFailedException: null argument;\n\tat org.eclipse.jface.util.Assert.isNotNull(Assert.java(Compiled Code))\n\tat org.eclipse.jface.util.Assert.isNotNull(Assert.java(Compiled Code))\n\tat org.eclipse.jface.viewers.StructuredSelection.\u003cinit\u003e\n(StructuredSelection.java:54)\n\tat \norg.eclipse.jdt.internal.ui.refactoring.RefactoringSupportFactory$RenameSupport.\nselectAndReveal(RefactoringSupportFactory.java:121)\n\tat \norg.eclipse.jdt.internal.ui.refactoring.RefactoringSupportFactory$RenameSupport.\nrename(RefactoringSupportFactory.java:82)\n\tat \norg.eclipse.jdt.internal.ui.refactoring.actions.RenameJavaElementAction.run\n(RenameJavaElementAction.java:52)\n\tat \norg.eclipse.jdt.internal.ui.refactoring.actions.RenameJavaElementAction.run\n(RenameJavaElementAction.java:41)\n\tat org.eclipse.jdt.ui.actions.RenameAction.run(RenameAction.java:104)\n\tat org.eclipse.jdt.ui.actions.SelectionDispatchAction.dispatchRun\n(SelectionDispatchAction.java:197)\n\tat org.eclipse.jdt.ui.actions.SelectionDispatchAction.run\n(SelectionDispatchAction.java:175)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:749)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection\n(ActionContributionItem.java:407)\n\tat org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent\n(ActionContributionItem.java:361)\n\tat org.eclipse.jface.action.ActionContributionItem.access$0\n(ActionContributionItem.java:352)\n\tat \norg.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent\n(ActionContributionItem.java:47)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java\n(Compiled Code))\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java\n(Compiled Code))\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1343)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1326)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:831)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:432)\n\tat EclipseRuntimeLauncher.main(EclipseRuntimeLauncher.java:24)\n\n\n\nThere are also posts to platform-vcm-dev and jdt-ui-dev mailing lists on March \n16, 2003 that you can refer to.",
+    "The problem got reported against 2.0.2.\n\nThere are two issues here:\n\n- the exceptions in JDT/UI land when the stuff got vetoed. The exceptions\n  happen on build 2.0.2. Looking at the code in RC3a reveals that the\n  exception in OpenTypeHierarchyAction can\u0027t occur anymore since we don\u0027t\n  inspect the element on selection change. This was postponed to run.\n  The selection handling in RefactoringSupportFactory (now \n  AbstractRenameSupportgot changed as well and is now protected against \n  the null case.\n\n- which status to returned if the move delete is veto. I think JDT/Core or\n  core resources must comment on this.\n  \n\nMoving to JDT/Core for commenting on the status issue.",
+    "I don\u0027t think that an OK status would reflect cancellation did occur. From \nJDT/Core standpoint, the resource manipulations should just fail. The VCM hook \nis only known by Platform\u0026VCM.\n\nDJ - any clue ?",
+    "Moving to platform for further comment",
+    "Sorry for the slow response...missed being added to the CC list.\n\nPhilippe is correct, and OK status should not be used to indicate failure.\n\nWhat is the severity of the status object that you are passing into the \ntree.failed() method?",
+    "This problem was originally reported in V2.0.2, but I have recently installed \nV2.1 and re-run my user scenarios.  With that in mind, there are several \nreasons why we set the severity to Status.OK.  \n\nThe most important one is that any status other than OK causes the workbench to \nput up a rather nasty looking error dialog (with Abort and Undo buttons) to the \nuser.  Since we put up a dialog asking the user if they want to cancel the \nlocal move/rename in the first place, we don\u0027t then want to scare the user into \nthinking something really bad has happened by then putting up this error \ndialog.  Basically this error dialog just informs the user that, yes, you have \nindeed cancelled the local move/rename.\n\nThe other reason is that an OK status works correctly in every situation except \nrenaming packages from the Package Explorer view.  You can cancel a delete from \nany view, and you can cancel a move/rename from the navigator view, all with an \nOK status and they seem to work perfectly, without the error dialogs.  Here is \nwhat happens when you rename a package from Package Explorer view:\n\n1) If the package I\u0027m renaming has sub-packages, I get a series of moveFile \ncalls for every file in that package, otherwise a moveFolder is called.  Either \nway, I  cancel all those local operations and everything appears to be good.\n2) A deleteFile is then called for every file in the original package to be \nrenamed.  Again, I cancel all those local deletes and we appear to still be \ngood.\n3) Then the error dialog appears with the message: \u0027An exception has been \ncaught while processing the change Rename package FOO to BAR.  Click Undo or \nAbort\u0027.  When you click Undo, an Internal Error is written to the Error log \n(with a Java Model Exception), and an empty package with the new name is \ncreated in the workspace.\n\nThe only thing that a Status.ERROR buys you in the above scenario, is that \nnumber 2 goes away, i.e., it appears that the delete hooks never get called.  \nBut you still get the error dialog with the empty package created in the \nworkspace.\nIt would be much better for us if it worked like this:\n    - If all the move files are cancelled, JDT should catch this and \nappropriately cancel the underlying package move operation\n    - If at least one file is renamed, then JDT should rename the package but \nshould not call deletes on all the other files that were vetoed\n\nLet me know if you need more info.\n",
+    "*** Bug 46701 has been marked as a duplicate of this bug. ***",
+    "This bug is stale.  I\u0027m going to mark it invalid, and I encourage people to\nreport new bugs against the relevant component if you continue to see problems.\n The resources plugin API specification has been clarified on what a team hooks\nshould do to indicate cancelation.  The move/delete hook should throw\nOperationCanceledException to indicate cancelation, and the validate edit hook\nshould return a status with severity CANCEL.  If there are still cases where JDT\nor other components are not correctly reacting to these cancel indicators, bug\nreports should be entered against those components."
+  ],
+  "commentCreationDates": [
+    "2003-03-20T18:34:58+01:00",
+    "2003-03-21T13:31:00+01:00",
+    "2003-03-22T09:43:06+01:00",
+    "2003-04-11T10:34:32+02:00",
+    "2003-04-11T22:12:36+02:00",
+    "2003-04-16T22:01:33+02:00",
+    "2004-11-24T19:25:00+01:00",
+    "2005-03-24T15:35:47+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "rg.eclipse.jface.util.Assert$AssertionFailedException",
+      "message": "null argument;",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.util.Assert.isNotNull",
+          "source": "Assert.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.jface.util.Assert.isNotNull",
+          "source": "Assert.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredSelection.\u003cinit\u003e",
+          "source": "StructuredSelection.java:54"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.RefactoringSupportFactory$RenameSupport.selectAndReveal",
+          "source": "RefactoringSupportFactory.java:121"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.RefactoringSupportFactory$RenameSupport.rename",
+          "source": "RefactoringSupportFactory.java:82"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.actions.RenameJavaElementAction.run",
+          "source": "RenameJavaElementAction.java:52"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.actions.RenameJavaElementAction.run",
+          "source": "RenameJavaElementAction.java:41"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.RenameAction.run",
+          "source": "RenameAction.java:104"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.SelectionDispatchAction.dispatchRun",
+          "source": "SelectionDispatchAction.java:197"
+        },
+        {
+          "method": "org.eclipse.jdt.ui.actions.SelectionDispatchAction.run",
+          "source": "SelectionDispatchAction.java:175"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:749"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:407"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent",
+          "source": "ActionContributionItem.java:361"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$0",
+          "source": "ActionContributionItem.java:352"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent",
+          "source": "ActionContributionItem.java:47"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java (Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java (Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1343"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1326"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:831"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:432"
+        },
+        {
+          "method": "EclipseRuntimeLauncher.main",
+          "source": "EclipseRuntimeLauncher.java:24"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "35393",
+      "date": "2003-03-20T18:34:58+01:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "major"
+    }
+  ],
+  "groupId": "35393",
+  "bugId": "35393",
+  "date": "2003-03-20T18:34:58+01:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "major"
+}

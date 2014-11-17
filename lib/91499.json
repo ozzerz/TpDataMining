@@ -1,0 +1,59 @@
+{
+  "comments": [
+    "To reproduce the problem, compile these two files and run Bomb (with no args):\n\n\u003e\u003e\u003e Detonator.aj \u003c\u003c\u003c\npublic aspect Detonator {    \n    before() : call( void Bomb.blow() ) {\n    }\n}\n\n\u003e\u003e\u003e Bomb.java \u003c\u003c\u003c\npublic class Bomb {\n    \n    public Bomb(int length) {\n        n \u003d length;\n    }\n\n    public static void main(String[] args) {\n        new Bomb(args.length).explode();\n    }\n\n    private void explode() {\n        try {\n            if (n !\u003d 0) {\n                System.out.println(\"Blow it!\");\n                blow(); // #1\n                return; // #2\n            }\n            throw new Exception(\"No args\");\n        }\n        catch (Exception e) {\n            System.out.println(\"Exception handled gracefully\");\n        }\n        finally {\n            System.out.println(\"It\u0027s over\"); // #3\n        }\n    }\n\n    private void blow() {        \n    }\n    \n    private int n;\n}\n\nI get this output:\n\nD:\\Devel\\Tries\\AOP\u003ejava -cp c:\\dev\\aspectj1.2\\lib\\aspectjrt.jar;. Bomb\nIt\u0027s over\nException in thread \"main\" java.lang.Exception: No args\n        at Bomb.explode(Bomb.java:18)\n        at Bomb.main(Bomb.java:8)\n\nNote that the exception thrown within the try block is NOT CAUGHT by the catch\nblock!! If I delete any of the lines marked #1, #2 and #3, the program behaves\nnormally again (ie. the message \"Exception handled gracefully\" is displayed).\n\nThe JVM is Sun\u0027s 1.4.2_04 but I first run into this problem with BEA\u0027s JRockIt\n1.4. This does look like AspectJ problem anyway.",
+    "This bug is fixed in 1.5.0M2 - I remember fixing something a while ago relating\nto us not preserving exception orderings when weaving.  The finally was getting\nin the way of handling the exception.\n\nRunning it on 1.5.0M2 gives:\n\nC:\\Documents and Settings\\AndyClement\\p\u003ejava Bomb\nException handled gracefully\nIt\u0027s over\n\nYou can get the exception to be handled correctly on 1.2.1 if you remove the\nfinally clause ... but I\u0027m not sure how helpful that is ;)\n\nAre you ok to run on 1.5.0M2?",
+    "(In reply to comment #1)\n\u003e \n\u003e Are you ok to run on 1.5.0M2?\nI have to check this with the client, as they have AspectJ 1.2 on the approved\nopen source software list but I don\u0027t know the status of any milestone build.\n",
+    "1.5.0M2 is a very good build, even though it is a milestone it passes every test\nthat 1.2 passed and more.\n\nBut anyway, another workaround is (I *think*...) to move the finally block to\nanother method, so this:\n\npublic void m() {\n  try {\n    // blahblah\n  } catch (Exception e) {\n    // blahblah\n  } finally {\n    // blahblah\n  }\n}\n\nbecomes:\n\npublic void callm() {\n  try {\n    m();\n  } finally {\n    // blahblah\n  }\n}\npublic void m() {\n  try {\n    // blahblah\n  } catch (Exception e) {\n    // blahblah\n  }\n}\n\nobviously whether you can use that workaround depends on the complexity of what\nyou do in that finally clause...",
+    "*** Bug 98583 has been marked as a duplicate of this bug. ***",
+    "Although we\u0027ve used a workaround in our code to avoid this bug, the bug hit back\nin another location in the code. We cannot easily migrate to the 1.5.0 M2\nversion since it is not on the client\u0027s approved software list.\n\nIs there any schedule for the next STABLE release? We can certainly talk with\nthe client about approving the M2 version but a stable release would certainly\nhave much better chance of being accepted.\n\nI\u0027d like to make a point about just how poisonous this problem is: you have\nperfectly working code, stable, but one day a stupid exception is thrown\nsomeplace and everything breaks.\n\nI am strongly in favour of AOP, but unless there is a stable AspectJ release\nwhich can handle try-catch-finally properly, it is very hard to advocate\nadapting AspectJ for any serious application.",
+    "I can understand your frustration - i was surprised how serious the exception\nproblem was when I first hit it.  Java5 features have really caused us a delay\nin getting AspectJ5 out.  Currently schedule says it\u0027ll be roughly in about\n2months from now (thats AspectJ5 final version).  We have talked about doing a\n1.2.2 release but maintaining the main codebase and a branch for 1.2.1 would be\nquite a drain on our small amount of resource.  I could try and find the fix and\ngive you a private patch for 1.2.1 that fixes it?\n\nDo your clients use AJDT?  What stable version of that do they mandate - since\nthat is always based on dev builds of AspectJ...",
+    "I think a private patch for 1.2.1 is the best alternative for us (until stable 5\nbuild is available). Please try to find the fix and provide us with the patch.\n\nI am not really frustrated (early adopters must always suffer :-), I just wanted\nto underline the severity of the bug. To help you in your striving for making\nAspectJ a mainstream tool. At least I suppose that\u0027s what you want to achieve.",
+    "Ok.  Original bug where is is fixed is but 78021.  I have reworked the fix for a\n1.2.1 release.  I\u0027m going to attach a zip file that contains the patch.  The\npatch is applied as follows:\n\nsave patch.zip into your aspectj lib directory, mine is c:/aspectj1.2/lib as I\ninstalled aspectj1.2.1 into c:/aspectj1.2.\n\ngo into that lib directory and:\n\nexpand the patch with: jar -xvf patch.zip\napply the patch with:  jar -uvf aspectjtools.jar org\n\nI tested my patched AspectJ on the test programs in bug 78021 and it worked.\n\nFixing AJDT is trickier since I dont know what version you are using and whether\nthat contains precisely AspectJ1.2.1 - i can only confirm this patch works when\napplied to 1.2.1",
+    "Created an attachment (id\u003d25829)\nPatches lazymethodgen\n",
+    "Many thanks - we applied the patch and it works. AJDT is not an issue for us.\nAlthough we do use AJDT for the Eclipse development, we build and deploy our\nJ2EE application with Ant scripts.",
+    "Patch supplied for 1.2.1, and fix integrated in AspectJ 5 tree."
+  ],
+  "commentCreationDates": [
+    "2005-04-15T10:43:08+02:00",
+    "2005-04-15T11:26:59+02:00",
+    "2005-04-15T14:13:00+02:00",
+    "2005-04-15T14:37:32+02:00",
+    "2005-06-07T05:05:01+02:00",
+    "2005-08-05T17:29:41+02:00",
+    "2005-08-05T18:58:10+02:00",
+    "2005-08-08T12:42:40+02:00",
+    "2005-08-08T15:28:29+02:00",
+    "2005-08-08T15:30:43+02:00",
+    "2005-08-10T10:16:25+02:00",
+    "2005-08-25T11:38:10+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.Exception",
+      "message": "No args",
+      "elements": [
+        {
+          "method": "Bomb.explode",
+          "source": "Bomb.java:18"
+        },
+        {
+          "method": "Bomb.main",
+          "source": "Bomb.java:8"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "91499",
+      "date": "2005-04-15T10:43:08+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "91499",
+  "bugId": "91499",
+  "date": "2005-04-15T10:43:08+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "critical"
+}

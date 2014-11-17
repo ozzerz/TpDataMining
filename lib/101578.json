@@ -1,0 +1,167 @@
+{
+  "comments": [
+    "I seem to get this only when I change a certain property on some of my parts.  \nIt seems that org.eclipse.swt.custom.TableTree.getItem(Point) is returning a \ndisposed widget for some reason.\n\norg.eclipse.swt.SWTException: Widget is disposed\nat org.eclipse.swt.SWT.error(SWT.java:2827)\nat org.eclipse.swt.SWT.error(SWT.java:2752)\nat org.eclipse.swt.SWT.error(SWT.java:2723)\nat org.eclipse.swt.widgets.Widget.error(Widget.java:388)\nat org.eclipse.swt.widgets.Widget.checkWidget(Widget.java:290)\nat org.eclipse.swt.widgets.Widget.getData(Widget.java:437)\nat org.eclipse.ui.views.properties.PropertySheetViewer.handleSelect\n(PropertySheetViewer.java:652)\nat org.eclipse.ui.views.properties.PropertySheetViewer.access$6\n(PropertySheetViewer.java:639)\nat org.eclipse.ui.views.properties.PropertySheetViewer$4.mouseDown\n(PropertySheetViewer.java:735)\nat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:132)\nat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\nat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:833)\nat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:2803)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2448)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1569)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1540)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:285)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:144)\nat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:102)\nat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:220)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:273)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:129)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\nat java.lang.reflect.Method.invoke(Unknown Source)\nat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\nat org.eclipse.core.launcher.Main.run(Main.java:704)\nat org.eclipse.core.launcher.Main.main(Main.java:688)",
+    "Which build are you using?\n\nMoving to SWT, as your assumptions appears to be correct.  The\nTree.getItem(Point) in the mouseDown listener must be returning a disposed item,\nwhich should not be possible.",
+    "PropertySheetViewer was changed to use a Tree with columns, rather than\nTableTree, back in January.  Which build are you running?\n",
+    "Could you please try with 3.1 RC3?\n",
+    "Was going to try reproducing the problem in 3.1 release, but have the \nfollowing breaking changes when trying to switch from 3.1M4 to 3.1 release: \n-the method getString (String) is undefined for the type WorkbenchMessages \n(used for sharing text/tooltips with eclipse commands - should this be done \nanother way?)\n\n-implementors of IEditorSite must implement inherited abstract method \nIWorkbenchPartSite.getPart(), IEditorSite.registerContextMenu(String, \nMenuManger, ISelectionProvider, boolean), IEditorSite.registerContextMenu\n(MenuManager, ISelectionProvider, boolean)\n\n-cannot open document to test because of bug 102186",
+    "The first two are API violations.  WorkbenchMessages is internal, and\nIEditorSite is marked as not to be implemented by clients.\n\nWhat strings are you trying to obtain via WorkbenchMessages?\n\nWhy do you need to implement IEditorSite yourself?\n\nShould file separate bugs for each of these against Platform UI if you feel that\nwe\u0027re missing API required for your scenario.",
+    "With respect to WorkbenchMessages, we\u0027re trying to obtain the localized \nstrings Eclipse is using for things \nlike \u0027Delete\u0027, \u0027Undo\u0027, \u0027Redo\u0027, \u0027Cut\u0027, \u0027Copy\u0027, \u0027Paste\u0027, etc.  We use them to \nset the text and tooltips on our Actions that perform these things.\n\nAs for why we\u0027re using IEditorSite, I\u0027ll have to look into it.",
+    "You can get the actions\u0027 strings via API by doing something like:\n\nActionFactory.IWorkbenchAction action \u003d ActionFactory.UNDO.create(window);\nString text \u003d action.getText();\naction.dispose();\n\nIt\u0027s important to dispose them because many actions hook listeners or allocate\nother resources.",
+    "TableTree is deprecated.  Please reopen if you can make this happen in 3.1.",
+    "Still a problem in 3.1 Release:\n\nHere\u0027s a stack trace for the same problem in 3.1 Release.  This time, it\u0027s \ntree.getItem (Point) that\u0027s returning a disposed widget (PropertySheetViewer \nline 754) that is being used (PropertySheetViewer line 756).\n\nWhat I am doing to cause the error is:\n1. Select a property in the Properties view (uses a combobox cell editor)\n2. Change the property to a different value\n3. Commit the property change by clicking off of the property onto another \nproperty.\n\nNote that this seems to only occur for some specific property changes, not \nall...\n\nThread [main] (Suspended (exception org.eclipse.swt.SWTException))\n\torg.eclipse.swt.SWT.error(int, java.lang.Throwable, java.lang.String) \nline: 2944\n\torg.eclipse.swt.SWT.error(int, java.lang.Throwable) line: 2865\n\torg.eclipse.swt.SWT.error(int) line: 2836\n\torg.eclipse.swt.widgets.TreeItem(org.eclipse.swt.widgets.Widget).error\n(int) line: 395\n\torg.eclipse.swt.widgets.TreeItem\n(org.eclipse.swt.widgets.Widget).checkWidget() line: 297\n\torg.eclipse.swt.widgets.TreeItem\n(org.eclipse.swt.widgets.Widget).getData() line: 448\n\torg.eclipse.ui.views.properties.PropertySheetViewer.handleSelect\n(org.eclipse.swt.widgets.TreeItem) line: 673\n\torg.eclipse.ui.views.properties.PropertySheetViewer.access$6\n(org.eclipse.ui.views.properties.PropertySheetViewer, \norg.eclipse.swt.widgets.TreeItem) line: 660\n\torg.eclipse.ui.views.properties.PropertySheetViewer$5.mouseDown\n(org.eclipse.swt.events.MouseEvent) line: 756\n\torg.eclipse.swt.widgets.TypedListener.handleEvent\n(org.eclipse.swt.widgets.Event) line: 133\n\torg.eclipse.swt.widgets.EventTable.sendEvent\n(org.eclipse.swt.widgets.Event) line: 66\n\torg.eclipse.swt.widgets.Tree(org.eclipse.swt.widgets.Widget).sendEvent\n(org.eclipse.swt.widgets.Event) line: 843\n\torg.eclipse.swt.widgets.Display.runDeferredEvents() line: 3080\n\torg.eclipse.swt.widgets.Display.readAndDispatch() line: 2713\n\torg.eclipse.ui.internal.Workbench.runEventLoop\n(org.eclipse.jface.window.Window$IExceptionHandler, \norg.eclipse.swt.widgets.Display) line: 1699\n\torg.eclipse.ui.internal.Workbench.runUI() line: 1663\n\torg.eclipse.ui.internal.Workbench.createAndRunWorkbench\n(org.eclipse.swt.widgets.Display, org.eclipse.ui.application.WorkbenchAdvisor) \nline: 367\n\torg.eclipse.ui.PlatformUI.createAndRunWorkbench\n(org.eclipse.swt.widgets.Display, org.eclipse.ui.application.WorkbenchAdvisor) \nline: 143\n\torg.eclipse.ui.internal.ide.IDEApplication.run(java.lang.Object) line: \n103\n\torg.eclipse.core.internal.runtime.PlatformActivator$1.run\n(java.lang.Object) line: 226\n\torg.eclipse.core.runtime.adaptor.EclipseStarter.run(java.lang.Object) \nline: 376\n\torg.eclipse.core.runtime.adaptor.EclipseStarter.run(java.lang.String\n[], java.lang.Runnable) line: 163\n\tsun.reflect.NativeMethodAccessorImpl.invoke0(java.lang.reflect.Method, \njava.lang.Object, java.lang.Object[]) line: not available [native method]\n\tsun.reflect.NativeMethodAccessorImpl.invoke(java.lang.Object, \njava.lang.Object[]) line: not available\n\tsun.reflect.DelegatingMethodAccessorImpl.invoke(java.lang.Object, \njava.lang.Object[]) line: not available\n\tjava.lang.reflect.Method.invoke(java.lang.Object, java.lang.Object[]) \nline: not available\n\torg.eclipse.core.launcher.Main.invokeFramework(java.lang.String[], \njava.net.URL[]) line: 334\n\torg.eclipse.core.launcher.Main.basicRun(java.lang.String[]) line: 278\n\torg.eclipse.core.launcher.Main.run(java.lang.String[]) line: 973\n\torg.eclipse.core.launcher.Main.main(java.lang.String[]) line: 948\n",
+    "We aren\u0027t having this issue any more in 3.2.\n\nShould we close the bug?",
+    "I\u0027d also check Eclipse 3.3 M4 or HEAD to see if the problem is gone for 3.3.  Lots of code changed in this area between 3.1 and 3.2 and it is quite possible this bug was fixed.\n\nIf the problem is back in 3.3, please reopen this bug report."
+  ],
+  "commentCreationDates": [
+    "2005-06-24T02:48:17+02:00",
+    "2005-06-24T15:58:02+02:00",
+    "2005-06-24T16:39:18+02:00",
+    "2005-06-24T16:40:14+02:00",
+    "2005-06-30T19:25:38+02:00",
+    "2005-06-30T19:47:00+02:00",
+    "2005-07-01T08:14:43+02:00",
+    "2005-07-05T16:35:26+02:00",
+    "2005-07-07T00:33:10+02:00",
+    "2005-07-07T01:24:44+02:00",
+    "2006-12-20T22:04:42+01:00",
+    "2006-12-20T23:05:25+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Widget is disposed",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2827"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2752"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2723"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:388"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java:290"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.getData",
+          "source": "Widget.java:437"
+        },
+        {
+          "method": "org.eclipse.ui.views.properties.PropertySheetViewer.handleSelect",
+          "source": "PropertySheetViewer.java:652"
+        },
+        {
+          "method": "org.eclipse.ui.views.properties.PropertySheetViewer.access$6",
+          "source": "PropertySheetViewer.java:639"
+        },
+        {
+          "method": "org.eclipse.ui.views.properties.PropertySheetViewer$4.mouseDown",
+          "source": "PropertySheetViewer.java:735"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:132"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:833"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:2803"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2448"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1569"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1540"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:285"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:144"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:102"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:220"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:273"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:129"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:704"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:688"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "101578",
+      "date": "2005-06-24T02:48:17+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "101578",
+  "bugId": "101578",
+  "date": "2005-06-24T02:48:17+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

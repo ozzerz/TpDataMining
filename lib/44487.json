@@ -1,0 +1,127 @@
+{
+  "comments": [
+    "M4 candidate\n\n- attempt to start a brand new eclipse\n- will get the attached exception",
+    "Created an attachment (id\u003d6378)\ntrace\n",
+    "Recently we changed the lock file strategy to use the new 1.4 java.nio.FileLock\nclass. \n\nI created a stand-alone application on HP using these classes and there were\nstill problems. Code looked something like this and the message from the\nIOException was \"Invalid Argument\":\n\n// Calculate the location of the lock file\nFile lockFile \u003d new File(\"/tmp/foo\");\nFileOutputStream stream \u003d null;\ntry {\n  stream \u003d new FileOutputStream(lockFile,true);\n  FileLock lock \u003d stream.getChannel().tryLock();\n} catch (IOException e) {\n  e.printStacktrace();\n} finally {\n  if (stream !\u003d null)\n    try {\n      stream.close();\n    } catch (IOException e) {\n      e.printStacktrace();\n    }\n}\n\nWill add a check for a system property. If the property is set, then the lock\nfile will NOT be checked. Value for the property is not checked. Key is\n\"org.eclipse.core.runtime.ignoreLockFile\".\n\nThis can be passed into Eclipse as a VM arg:\n  eclipse -vm \\myvm\\java -vmargs -Dorg.eclipse.core.runtime.ignoreLockFile",
+    "This JDK runtime library bug is supposed to be fixed for HP JDK 1.4.1_02:\n\nhttp://h21007.www2.hp.com/cmdspp/QuestionAnswer/1,1764,937B0204-CBD4-40A3-8B4C-E10D2D547E1A,00.html\n\nGrant, what is the version you are using?",
+    "That probably explains it, thanks for looking into this.  We\u0027re running:\n\njava version \"1.4.1.01\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.1.01-030304-15:40)\nJava HotSpot(TM) Server VM (build 1.4.1 1.4.1.01-030304-17:08-PA_RISC2.0 PA2.0, \nmixed mode)\n\nI\u0027ve asked Adrian to get this vm (or newer) for me, so when I get it I\u0027ll try \nthis out and will update this report.\n",
+    "Fixed, released, and versioned.\n\nShould re-visit for M5 to consider proper course of action.",
+    "According to the HP JDK web site, the newest release is 1.4.1_05. Also, the link\nI submitted above (which reports a similar problem and states that a fix has\nbeen provided) is from the users\u0027 forum. Unfortunately, I don\u0027t have access to\nthe HP JDK bug report system to get more complete/accurate information on the\nproblem.",
+    "I\u0027ve installed the newer jre here (version shown at the bottom) and the problem \nstill happens.  So I don\u0027t know if this version just doesn\u0027t contain the fix, \nwhich it apparently should, or if the fix isn\u0027t actually applicable to this \ncase.\n\njava version \"1.4.1.05\"\nJava(TM) 2 Runtime Environment, Standard Edition (build 1.4.1.05-030910-01:23)\nJava HotSpot(TM) Server VM (build 1.4.1 1.4.1.05-030910-02:49-PA_RISC2.0 PA2.0, \nmixed mode)\n",
+    "Reopening for investigation.",
+    "Created an attachment (id\u003d6500)\ntest case\n\nSimple program to test file locking. Run with:\n\njava TestLock \u003cfile-path\u003e\n\nimport java.io.*;\nimport java.nio.channels.*;\nclass TestLock {\n\tstatic void acquireLock(String path)  throws Exception {\n\t\tFile lockFile \u003d new File(path);\n\t\tFileOutputStream stream \u003d null;\n\t\tstream \u003d new FileOutputStream(lockFile,true);\n\t\tFileLock lock \u003d stream.getChannel().tryLock();\n\t\tstream.close();\n\t}\n\tpublic static void main(String[] args) throws Exception {\n\t\tSystem.out.println(\"trying to acquire lock once\");\t       \n\n\t\tacquireLock(args[0]);\n\t\tSystem.out.println(\"trying to acquire lock twice\");\t       \n\n\t\tacquireLock(args[0]);\n\t}\t\n}",
+    "Grant, could you run the class attached passing an existing and a non-existing\nfile path?\n\njava TestLock /tmp/bar.txt     \njava TestLock /tmp/fred.txt\n\n(bar.txt exists, fred.txt does not)",
+    "They both showed the same error...\n\ntrial with existing file:\n\n$ /opt/java1.4/jre/bin/java -cp .:/opt/java1.4/jre/lib/rt.jar \nTest /opt/Eclipse/eclipse2/eclipse/startup.jar\ntrying to acquire lock once\nException in thread \"main\" java.io.IOException: Invalid argument\n        at sun.nio.ch.FileChannelImpl.release0(Native Method)\n        at sun.nio.ch.FileChannelImpl.implCloseChannel(FileChannelImpl.java:104)\n        at java.nio.channels.spi.AbstractInterruptibleChannel.close\n(AbstractInterruptibleChannel.java:97)\n        at java.io.FileOutputStream.close(FileOutputStream.java:275)\n        at Test.acquireLock(Test.java:9)\n        at Test.main(Test.java:14)\n\ntrial with non-existent file:\n\n$ /opt/java1.4/jre/bin/java -cp .:/opt/java1.4/jre/lib/rt.jar \nTest /opt/Eclipse/eclipse2/eclipse/startup.jar2\ntrying to acquire lock once\nException in thread \"main\" java.io.IOException: Invalid argument\n        at sun.nio.ch.FileChannelImpl.release0(Native Method)\n        at sun.nio.ch.FileChannelImpl.implCloseChannel(FileChannelImpl.java:104)\n        at java.nio.channels.spi.AbstractInterruptibleChannel.close\n(AbstractInterruptibleChannel.java:97)\n        at java.io.FileOutputStream.close(FileOutputStream.java:275)\n        at Test.acquireLock(Test.java:9)\n        at Test.main(Test.java:14)\n",
+    "This is happening to me on SUSE Linux.  The problem might be related to NFS?  \nI am running over the network.  I\u0027m changing this to Linux instead of HP-UX.  \nIt happens for both GTK and Motif.",
+    "The problem with file locking on Linux+NFS is a different issue (misconfigured\nNFS) and is described in bug 44735. This PR is about a bug in HP JVM.",
+    "I didn\u0027t realize that this problem was also happening in NFS contexts.  I \nalways run over the network when using our hpux, so this is the problem that we \nwere seeing.  I\u0027ve installed M4 locally on hpux here and it starts fine.  So \nthis is actually a duplicate, changing status.\n\n\n*** This bug has been marked as a duplicate of 44735 ***",
+    "Actually, they are not exactly the same problem, since this happens when\nreleasing the lock while bug 44735 happens when acquiring the lock. Of course,\nmaybe the HP VM class library returns a invalid FileLock object (instead of\nthrowing an IOException), and when get an exception only when releasing.\n\nGrant, can you confirm you don\u0027t have a lockd process on your HP UX machine? Thanks.",
+    "NOTE:  This happens in SUSE Linux but not Red Hat.",
+    "*** Bug 52251 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2003-10-08T21:07:24+02:00",
+    "2003-10-08T21:07:40+02:00",
+    "2003-10-08T21:26:19+02:00",
+    "2003-10-08T21:36:22+02:00",
+    "2003-10-08T21:53:28+02:00",
+    "2003-10-08T21:55:33+02:00",
+    "2003-10-09T15:23:53+02:00",
+    "2003-10-20T20:05:46+02:00",
+    "2003-10-21T00:04:17+02:00",
+    "2003-10-21T00:09:20+02:00",
+    "2003-10-21T00:11:42+02:00",
+    "2003-10-21T01:14:25+02:00",
+    "2003-10-21T17:59:08+02:00",
+    "2003-10-21T19:42:20+02:00",
+    "2003-10-23T15:42:20+02:00",
+    "2003-10-23T16:05:59+02:00",
+    "2003-10-28T20:32:06+01:00",
+    "2004-02-17T17:13:11+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.io.IOException",
+      "message": "Invalid argument",
+      "elements": [
+        {
+          "method": "sun.nio.ch.FileChannelImpl.release0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.nio.ch.FileChannelImpl.implCloseChannel",
+          "source": "FileChannelImpl.java:104"
+        },
+        {
+          "method": "java.nio.channels.spi.AbstractInterruptibleChannel.close",
+          "source": "AbstractInterruptibleChannel.java:97"
+        },
+        {
+          "method": "java.io.FileOutputStream.close",
+          "source": "FileOutputStream.java:275"
+        },
+        {
+          "method": "Test.acquireLock",
+          "source": "Test.java:9"
+        },
+        {
+          "method": "Test.main",
+          "source": "Test.java:14"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 11,
+      "bugId": "44487",
+      "duplicateId": "44735",
+      "date": "2003-10-21T01:14:25+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.io.IOException",
+      "message": "Invalid argument",
+      "elements": [
+        {
+          "method": "sun.nio.ch.FileChannelImpl.release0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.nio.ch.FileChannelImpl.implCloseChannel",
+          "source": "FileChannelImpl.java:104"
+        },
+        {
+          "method": "java.nio.channels.spi.AbstractInterruptibleChannel.close",
+          "source": "AbstractInterruptibleChannel.java:97"
+        },
+        {
+          "method": "java.io.FileOutputStream.close",
+          "source": "FileOutputStream.java:275"
+        },
+        {
+          "method": "Test.acquireLock",
+          "source": "Test.java:9"
+        },
+        {
+          "method": "Test.main",
+          "source": "Test.java:14"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 11,
+      "bugId": "44487",
+      "duplicateId": "44735",
+      "date": "2003-10-21T01:14:25+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "44735",
+  "bugId": "44487",
+  "duplicateId": "44735",
+  "date": "2003-10-08T21:07:24+02:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "normal"
+}

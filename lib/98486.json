@@ -1,0 +1,87 @@
+{
+  "comments": [
+    "On a plugin project open the plugin.xml editor.  Select the \"Extensions\" tab and\ncreate an org.eclipse.ui.editors editor.  There are a couple of samples to\nchoose from.\nSelect the top one called \"Editor\" that creates a sample XML Editor.  Open this\nwith VE and there are about five NPE exceptions shown.\nWe work OK with the other choice that is a multi page editor although we don\u0027t\nrender it (cause it uses JFace viewers) and for the sample View that exists we\nwork OK with this but again we bring it up empty cause we don\u0027t support JFace\nviewers.  Once we work on support for JFace viewers and should use these as good\ntest cases, however in the meantime we should not crash quite so visibly on the\nXML editor example.",
+    "There is a generic problem, where the createPartControl is at\nAbstractDecoratedTextEditor.  \n\nThe Question is how are we going to handle this?   Create an override? or just\nmake it readOnly.",
+    "Created an attachment (id\u003d22436)\nLog of the exception\n",
+    "VE shouldnt bring up NPE dialogs when opening this file. Those errors need to be\nfixed. Since the XMLEditor doesnt have createPartControl(Composite) method in it\n(its super - AbstractDecoratedTextEditor has it), we do not know how to\ndetermine which composite to show on the UI so that components can be dropped on\nit. \n\nFor M2 at the very least a this part of the XMLEditor should show up with\nnothing underneath it. Also no components should be allowed to be dropped on it\nas it has no child composites.\n\nJoe, the file is throwing some ViewPartProxyAdapter NPE exceptions...\n\nCaused by: java.lang.NullPointerException\n\tat\norg.eclipse.ve.internal.jface.ViewPartProxyAdapter.getBounds(ViewPartProxyAdapter.java:151)\n\tat\norg.eclipse.ve.internal.swt.ControlGraphicalEditPart$ControlVisualModelAdapter.contributeModelSize(ControlGraphicalEditPart.java:259)\n\tat\norg.eclipse.ve.internal.cde.core.VisualInfoXYLayoutEditPolicy.getChildConstraint(VisualInfoXYLayoutEditPolicy.java:339)\n\tat\norg.eclipse.ve.internal.cde.core.VisualInfoXYLayoutEditPolicy.getChildConstraint(VisualInfoXYLayoutEditPolicy.java:325)\n\tat\norg.eclipse.ve.internal.cde.core.XYLayoutEditPolicy.zoomChanged(XYLayoutEditPolicy.java:178)",
+    "Rich - the stack is very heavy on proxy adapter stuff.  I can re-create it every\ntime so let me know if you want help seeing a test case.  If you talk me through\nwhat you think is going wrong I could take a stab at fixing it but I\u0027d need your\nhelp.",
+    "Several problems:\n\n1) java.lang.NoClassDefFoundError: org/eclipse/ui/ide/IGotoMarker\n\nThis is due to \tat\norg.eclipse.ui.texteditor.AbstractDecoratedTextEditor.\u003cinit\u003e(AbstractDecoratedTextEditor.java:205)\ntrying to access IGotoMarker, but IGotoMarker isn\u0027t in the classpath sent to the\nremote vm.\n\n2) \tat\norg.eclipse.ve.internal.jface.ViewPartProxyAdapter.getBounds(ViewPartProxyAdapter.java:151)\n\nThis is due to since the previous failure prevented the view part from being\ninstaniated, there is no control manager. The code at ViewPartProxyAdapter:151\ndoesn\u0027t check that the control manager may be null. It just assumes that it is\nthere.\n\n",
+    "For (1) it is worse than I thought. The reason it is not found is because\norg.eclipse.ui.ide is not on the buildpath. It is on the dependencies list for\norg.eclipse.ui.editors, but it is not exported from org.eclipse.ui.editors.\nSince it is not exported, it doesn\u0027t show in the buildpath. It used to be that\nif you referenced anything that referenced a non-exported plugin, you needed to\nactually add that non-exported plugin to your dependencies too! Even though you\nnever use it yourself. So then it would be in your classpath when we launch the\nremote vm. In the long run this is better (you shouldn\u0027t have to add\ndependencies that you never reference just so you can compile), but it screws us\nup because we assume the PDE container would create a complete classpath for us\non the remote vm. It doesn\u0027t, it just creates the ones that are directly referenced.",
+    "AND! (2) to top it off, if you do explicitly add the org.eclipse.ui.editors as\nan explicit prereq, even though you don\u0027t use it, you get beyond the first\nerror, but then you get another. TextEditor tries to call\nEditorsPlugin.getDefault() to initialize the preference store. Well,\nEditorsPlugin.getDefault() returns null because we aren\u0027t running under eclipse.\n\nWe have a big problem because we try to run RCP outside of Eclipse. It looks\nlike that as we get beyond simple viewparts we are hosed because we don\u0027t have\nEclipse running.",
+    "For 2) I changed the proxy adapter so that when it tries to create a\nControlManager and the bean has not been instantiated AND there is a severe\nerror (i.e. it knows the instantiation crashed which is what occurs here) then\nit puts a dummy ControlManager in place.  This returns a bounds of 50x50 and an\nerror image and the idea is that in the GUI the user sees a little redX that\nthey can hover over and see the error, and likewise in the tree they will see\nthe edit part and a redX and the error.  It works up to a point and I\u0027ve\nreleased it because it at least means that the VE can open without a meltdown. \nHowever it doesn\u0027t fix 1) and also the error shown to the user is the exception\nthat occured that talks about target VM REM stuff rather than the exception\nitself about IGotoMarker failing to be found.",
+    "Look at providing an error image on the graph viewer and look at fixing 1) for\nthe final VE 1.1",
+    "Released code so that when do get all of the errors in the .log. Instead we get\njust the red-X on the control with the message being what went wrong.\n\nThis is because actually adding in all of the requireds is very hard considering\nthe possible new formats of plugins (is the plugin a project, is it single jar,\nis it a jar within a binary plugin, etc). And even when we do fix it, it still\ndoesn\u0027t work because we are not running in an RCP environment. We get an NPE.\n\nThe true fix would be to run an RCP environment on the remote vm. We have some\nthoughts on how to do this for 1.2.",
+    "VE 1.1 is released. Moving to closed."
+  ],
+  "commentCreationDates": [
+    "2005-06-06T12:28:25+02:00",
+    "2005-06-06T14:49:56+02:00",
+    "2005-06-06T19:42:32+02:00",
+    "2005-06-06T20:08:08+02:00",
+    "2005-06-06T21:11:20+02:00",
+    "2005-06-06T21:57:05+02:00",
+    "2005-06-06T22:11:19+02:00",
+    "2005-06-06T22:18:07+02:00",
+    "2005-06-07T15:56:39+02:00",
+    "2005-06-10T16:11:10+02:00",
+    "2005-07-11T20:08:43+02:00",
+    "2005-07-26T18:14:19+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ve.internal.jface.ViewPartProxyAdapter.getBounds",
+          "source": "ViewPartProxyAdapter.java:151"
+        },
+        {
+          "method": "org.eclipse.ve.internal.swt.ControlGraphicalEditPart$ControlVisualModelAdapter.contributeModelSize",
+          "source": "ControlGraphicalEditPart.java:259"
+        },
+        {
+          "method": "org.eclipse.ve.internal.cde.core.VisualInfoXYLayoutEditPolicy.getChildConstraint",
+          "source": "VisualInfoXYLayoutEditPolicy.java:339"
+        },
+        {
+          "method": "org.eclipse.ve.internal.cde.core.VisualInfoXYLayoutEditPolicy.getChildConstraint",
+          "source": "VisualInfoXYLayoutEditPolicy.java:325"
+        },
+        {
+          "method": "org.eclipse.ve.internal.cde.core.XYLayoutEditPolicy.zoomChanged",
+          "source": "XYLayoutEditPolicy.java:178"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 3,
+      "bugId": "98486",
+      "date": "2005-06-06T20:08:08+02:00",
+      "product": "VE",
+      "component": "SWT",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "org/eclipse/ui/ide/IGotoMarker  This is due to",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractDecoratedTextEditor.\u003cinit\u003e",
+          "source": "AbstractDecoratedTextEditor.java:205"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 5,
+      "bugId": "98486",
+      "date": "2005-06-06T21:57:05+02:00",
+      "product": "VE",
+      "component": "SWT",
+      "severity": "major"
+    }
+  ],
+  "groupId": "98486",
+  "bugId": "98486",
+  "date": "2005-06-06T12:28:25+02:00",
+  "product": "VE",
+  "component": "SWT",
+  "severity": "major"
+}

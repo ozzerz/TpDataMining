@@ -1,0 +1,159 @@
+{
+  "comments": [
+    "RC6\n\nsee below: stracktrace from bug 144695\n\nMultiPageEditorPart.getAdapter requires getAdapter to be called in the UI thread.\nIn my opinion getAdapter should be usable from any thread (I guess also also after the widget is disposed). It\u0027s the editor part who claims to implement IAdaptable which is from runtime.\n\norg.eclipse.swt.SWTException: Invalid thread access\nat org.eclipse.swt.SWT.error(SWT.java:3374)\nat org.eclipse.swt.SWT.error(SWT.java(Inlined Compiled Code))\nat org.eclipse.swt.SWT.error(SWT.java(Inlined Compiled Code))\nat org.eclipse.swt.widgets.Widget.error(Widget.java(Inlined Compiled Code))\nat org.eclipse.swt.widgets.Widget.checkWidget(Widget.java(Inlined Compiled\nCode))\nat org.eclipse.swt.widgets.Widget.getData(Widget.java(Compiled Code))\nat\norg.eclipse.ui.part.MultiPageEditorPart.getEditor(MultiPageEditorPart.java:421)\nat\norg.eclipse.ui.part.MultiPageEditorPart.getActiveEditor(MultiPageEditorPart.java:348)\nat\norg.eclipse.ui.part.MultiPageEditorPart.getAdapter(MultiPageEditorPart.java:810)\nat\norg.eclipse.wst.xsd.ui.internal.adt.editor.CommonMultiPageEditor.getAdapter(CommonMultiPageEditor.java:336)\nat\norg.eclipse.wst.xsd.ui.internal.adt.editor.ADTMultiPageEditor.getAdapter(ADTMultiPageEditor.java:223)\nat\norg.eclipse.wst.xsd.ui.internal.editor.InternalXSDMultiPageEditor.getAdapter(InternalXSDMultiPageEditor.java:365)\nat\norg.eclipse.search2.internal.ui.text.EditorAnnotationManager.createHighlighter(EditorAnnotationManager.java:172)\nat\norg.eclipse.search2.internal.ui.text.EditorAnnotationManager.addAnnotations(EditorAnnotationManager.java:231)\nat\norg.eclipse.search2.internal.ui.text.EditorAnnotationManager.searchResultChanged(EditorAnnotationManager.java:128)\nat\norg.eclipse.search.ui.text.AbstractTextSearchResult.fireChange(AbstractTextSearchResult.java:259)\nat\norg.eclipse.search.ui.text.AbstractTextSearchResult.addMatch(AbstractTextSearchResult.java:82)\nat\norg.eclipse.wst.common.ui.internal.search.SearchQueryResultCollector.acceptSearchMatch(SearchQueryResultCollector.java:30)",
+    "This code path happens for every text and Java search that finds a match in an open editor.\nThat means every implementor of a multi part editor will see this exception.\nThe problematic code of using getActiveEditor in getAdapter got introduced in RC1 (I20060412-0800).\nSearch uses getAdapter from a background thread since 3.0\n\nI think qualifies as a stop ship. Either we need to fix this in search or in the MultiPageEditorPart.\nIf not fixed, this forces every implementor of a MultiPageEditorPart to override getAdapter and check for the thread.",
+    "\u003eThe problematic code of using getActiveEditor in getAdapter got introduced in\n\u003eRC1 (I20060412-0800).\nSee bug 43523.",
+    "A low risk fix for 3.2 is to disable the delegation behaviour if we\u0027re not in the UI thread.\n\nI\u0027m also working on a patch to fix this for 3.2.1.\n\nPW\n",
+    "What\u0027s the effect of not doing delegation if not on UI thread? Does that actually break a use case? \n\nSeems to me like MultiPageEditorPart.getActiveEditor is the place to fix this. \n\nOtherwise, this could show up elsewhere, and not just \u0027search\u0027 (I don\u0027t know of any concrete examples, but ... seems like a likely scenerio. Or am I misunderstanding? \n\n\n\n",
+    "I did not mean to change the priority in previous append .. some effect of mid-air collision, I\u0027d guess. \n\n",
+    "(In reply to comment #4)\n\u003e What\u0027s the effect of not doing delegation if not on UI thread? Does that\n\u003e actually break a use case? \n\nThat was the 3.1 behaviour, so background jobs are no worse off.  This is the proposed 3.2 fix.\n\n\u003e \n\u003e Seems to me like MultiPageEditorPart.getActiveEditor is the place to fix this.\n\nThe behaviour of this method hasn\u0027t changed.  One of the 3.2.1 fixes under investigation would be to make this method so it is not dependent on the UI thread.\n\nPW\n",
+    "Created an attachment (id\u003d43277)\nProposed 3.2.0 fix\n\nThe proposed 3.2.0 fix is to restrict the inner editor delegation to calls made on the UI thread.  In a non-UI thread this will return null, which is the same as the 3.1.x behaviour.\n\nPW\n",
+    "Given that this gets us the old behavior when run from background threads, but better behavior when run from the UI thread, plus is almost a zero risk change, this feels like the way to go for R3.2. \n\n+1.\n\nClearly though, it\u0027s a hack, and it should be clearly flagged as \"TODO replace with a real solution...\" and a real fix applied for R3.2.1.",
+    "I\u0027d like to get the proposed fix in tonight.  John, Mike V, could I get some input on the patch?\n\nPW\n",
+    "+1",
+    "+1",
+    "Well, I wasn\u0027t asked but I\u0027d give my +1 for this fix. One minor thing: instead of using \"Display.getCurrent()\" I\u0027d get the display via the site\u0027s shell.",
+    "(In reply to comment #12)\n\u003e Well, I wasn\u0027t asked but I\u0027d give my +1 for this fix. One minor thing: instead\n\u003e of using \"Display.getCurrent()\" I\u0027d get the display via the site\u0027s shell.\n\nOK, I looked into that, and the site\u0027s shell suggest that we use IWorkbench#getDisplay() ... I\u0027ll change to that.\n\nPW\n\n",
+    "Just a general question.  Are there any guide lines on the \u0027right\u0027 way to access the display?  I\u0027ve seen several variations and I never really know which is the best way.",
+    "Generally, if you have a widget (or UI element) at hand it\u0027s best to get the display via it.",
+    "Created an attachment (id\u003d43308)\nProposed 3.2.0 fix v02\n\nThis is the proposed 3.2.0 fix that doesn\u0027t use Display.getCurrent().  It gets the display through the workbench.\n\nprivate boolean inUiThread() {\n  // get our workbench display\n  Display display \u003d getSite().getWorkbenchWindow().getWorkbench().getDisplay();\n\n  // return true if we\u0027re in the UI thread\n  if (display!\u003dnull \u0026\u0026 !display.isDisposed()) {\n    return display.getThread()\u003d\u003dThread.currentThread();\n  }\n  return false;\n}\n\nA little more verbose than Display.getCurrent()!\u003dnull, eh?\n\nPW\n",
+    "I actually prefer the first patch.  The new patch seems to have other corner cases that could go wrong on this line:\n\ngetSite().getWorkbenchWindow().getWorkbench().getDisplay();\n\ngetSite() can return null, getWorkbench() could fail, etc.  Keep in mind getAdapter() can be called any time in any thread, during startup, after UI shutdown, etc. If running outside the UI thread, the display could be disposed *between* the calls to display.isDisposed() and display.getThread().\n\n\"Display.getCurrent() !\u003d null\" just feels like a simpler and safer fix at this point.",
+    "I also prefer the first patch.",
+    "I prefer the first patch as well ... awaiting further comments.\n\nPW\n",
+    "First patch is also fine - looks less risky at this point.",
+    "3.2.0 fix tagged for the 3.2 RC7 build, I20060602-0010\n\nPW\n",
+    "*** Bug 144695 has been marked as a duplicate of this bug. ***",
+    "On further investigation, I\u0027m don\u0027t think that moving a fix into getActiveEditor() is appropriate.\n\nWhile IAdaptable is a runtime construct, IEditorPart is definitely UI.  Introducing an active editor variable to cache the editor for non-UI thread access is do-able, but I haven\u0027t seen a usecase for it (except what was introduced by getAdapter(*) allowing delegation to inner editors).\n\nI could introduce the cache to support delegation specifically from getAdapter(*), but we would still be at the mercy of the client inner editor getAdapter(*) calls.\n\nPW\n",
+    "Paul if you are not going to proceed for 3.2.1 please remove the tag.",
+    "The last two comments have caused a bit of confusion in our team. By looking at the bug summary one could get the feeling that this bug was not fixed yet.\n\nJust to confirm: the simple fix committed for 3.2 will stay committed. You were just talking about whether the real fix can be made as part of 3.2.1 or not.\n\nWould it not be clearer if we mark this bug as fixed and close it and at the same time open a new one to track the real fix?",
+    "Sorry, you are correct.  The fix in 3.2.0 will stay there.  getAdapter(*) in the non-UI thread will not delegate to inner editors.\n\nI\u0027ll discuss it an possibly open a new bug tomorrow.\n\nPW\n",
+    "The fix will probalby stay as is, but then the code should get it\u0027s minor cleanup + remove the TODO\n\nPW\n",
+    "The fix will stay, and the comments have been updated.\nPW\n",
+    "In I20070918-0010\nPW\n"
+  ],
+  "commentCreationDates": [
+    "2006-06-01T10:49:05+02:00",
+    "2006-06-01T11:16:10+02:00",
+    "2006-06-01T11:21:45+02:00",
+    "2006-06-01T17:29:43+02:00",
+    "2006-06-01T17:33:56+02:00",
+    "2006-06-01T17:44:55+02:00",
+    "2006-06-01T18:27:42+02:00",
+    "2006-06-01T20:24:29+02:00",
+    "2006-06-01T20:57:44+02:00",
+    "2006-06-01T21:47:40+02:00",
+    "2006-06-01T21:52:05+02:00",
+    "2006-06-01T22:12:01+02:00",
+    "2006-06-01T22:12:31+02:00",
+    "2006-06-01T22:17:40+02:00",
+    "2006-06-01T22:21:19+02:00",
+    "2006-06-01T22:31:00+02:00",
+    "2006-06-01T22:40:54+02:00",
+    "2006-06-01T23:01:11+02:00",
+    "2006-06-01T23:02:10+02:00",
+    "2006-06-01T23:02:33+02:00",
+    "2006-06-01T23:08:08+02:00",
+    "2006-06-02T03:02:02+02:00",
+    "2006-06-06T23:07:20+02:00",
+    "2006-08-15T16:53:20+02:00",
+    "2006-08-16T18:57:11+02:00",
+    "2006-08-16T22:30:11+02:00",
+    "2006-08-16T22:56:13+02:00",
+    "2007-06-22T13:03:01+02:00",
+    "2007-08-14T20:34:38+02:00",
+    "2007-09-18T20:22:44+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Invalid thread access",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3374"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java(Inlined Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java(Inlined Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java(Inlined Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java(Inlined Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.getData",
+          "source": "Widget.java(Compiled Code)"
+        },
+        {
+          "method": "org.eclipse.ui.part.MultiPageEditorPart.getEditor",
+          "source": "MultiPageEditorPart.java:421"
+        },
+        {
+          "method": "org.eclipse.ui.part.MultiPageEditorPart.getActiveEditor",
+          "source": "MultiPageEditorPart.java:348"
+        },
+        {
+          "method": "org.eclipse.ui.part.MultiPageEditorPart.getAdapter",
+          "source": "MultiPageEditorPart.java:810"
+        },
+        {
+          "method": "org.eclipse.wst.xsd.ui.internal.adt.editor.CommonMultiPageEditor.getAdapter",
+          "source": "CommonMultiPageEditor.java:336"
+        },
+        {
+          "method": "org.eclipse.wst.xsd.ui.internal.adt.editor.ADTMultiPageEditor.getAdapter",
+          "source": "ADTMultiPageEditor.java:223"
+        },
+        {
+          "method": "org.eclipse.wst.xsd.ui.internal.editor.InternalXSDMultiPageEditor.getAdapter",
+          "source": "InternalXSDMultiPageEditor.java:365"
+        },
+        {
+          "method": "org.eclipse.search2.internal.ui.text.EditorAnnotationManager.createHighlighter",
+          "source": "EditorAnnotationManager.java:172"
+        },
+        {
+          "method": "org.eclipse.search2.internal.ui.text.EditorAnnotationManager.addAnnotations",
+          "source": "EditorAnnotationManager.java:231"
+        },
+        {
+          "method": "org.eclipse.search2.internal.ui.text.EditorAnnotationManager.searchResultChanged",
+          "source": "EditorAnnotationManager.java:128"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchResult.fireChange",
+          "source": "AbstractTextSearchResult.java:259"
+        },
+        {
+          "method": "org.eclipse.search.ui.text.AbstractTextSearchResult.addMatch",
+          "source": "AbstractTextSearchResult.java:82"
+        },
+        {
+          "method": "org.eclipse.wst.common.ui.internal.search.SearchQueryResultCollector.acceptSearchMatch",
+          "source": "SearchQueryResultCollector.java:30"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "144851",
+      "date": "2006-06-01T10:49:05+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "144851",
+  "bugId": "144851",
+  "date": "2006-06-01T10:49:05+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "major"
+}

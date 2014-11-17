@@ -1,0 +1,203 @@
+{
+  "comments": [
+    "If the Remote Search view is open and you do a copy/paste you will get a ClassCastException.\n\nLog file contains:\n\norg.eclipse.swt.SWTException: Failed to execute runnable (java.lang.ClassCastException: java.util.ArrayList cannot be cast to org.eclipse.core.runtime.IAdaptable)\nat org.eclipse.swt.SWT.error(SWT.java:3563)\nat org.eclipse.swt.SWT.error(SWT.java:3481)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:126)\nat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3659)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3296)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2389)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2353)\nat org.eclipse.ui.internal.Workbench.access$4(Workbench.java:2219)\nat org.eclipse.ui.internal.Workbench$4.run(Workbench.java:466)\nat org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:289)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:461)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\nat org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:106)\nat org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:153)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:106)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:76)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:363)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:176)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\nat java.lang.reflect.Method.invoke(Unknown Source)\nat org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:504)\nat org.eclipse.equinox.launcher.Main.basicRun(Main.java:443)\nat org.eclipse.equinox.launcher.Main.run(Main.java:1169)\nCaused by: java.lang.ClassCastException: java.util.ArrayList cannot be cast to org.eclipse.core.runtime.IAdaptable\nat org.eclipse.rse.internal.ui.view.SystemTableTreeView.getRemoteObjectIdentifier(SystemTableTreeView.java:1450)\nat org.eclipse.rse.internal.ui.view.SystemTableTreeView.getRemoteResourceAbsoluteName(SystemTableTreeView.java:1062)\nat org.eclipse.rse.internal.ui.view.SystemTableTreeView.systemRemoteResourceChanged(SystemTableTreeView.java:905)\nat org.eclipse.rse.internal.ui.view.search.SystemSearchTableView.systemRemoteResourceChanged(SystemSearchTableView.java:259)\nat org.eclipse.rse.internal.core.model.SystemRemoteChangeEventManager.notify(SystemRemoteChangeEventManager.java:69)\nat org.eclipse.rse.ui.internal.model.SystemRegistry.fireRemoteResourceChangeEvent(SystemRegistry.java:2767)\nat org.eclipse.rse.internal.ui.view.SystemDNDTransferRunnable$RefreshJob.runInUIThread(SystemDNDTransferRunnable.java:659)\nat org.eclipse.ui.progress.UIJob$1.run(UIJob.java:94)\nat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n... 22 more\n\n\n-----------Enter bugs above this line-----------\nTM 2.0.1 Testing\ninstallation : eclipse-SDK-3.3\nRSE install  : RSE I20070713-0605\njava.runtime : Sun 1.5.0_06-b05\nos.name:     : Windows XP 5.1, Service Pack 2\n------------------------------------------------",
+    "Kevin you\u0027ve been most exposed to search, could you investigate?",
+    "Created an attachment (id\u003d74390)\nChanged mentions of Vector to List so ArrayList is handled.\n\nAnother case where trying to cast an ArrayList to Vector.  Changed it to List\u0027s.  Also changed getRemoteResourceAbsoluteName(Object) to use an ISystemViewElementAdapter instead of IRemoteObjectIdentifier.\n\nLegal Message: I, Kevin Doyle, declare that I developed attached code from\nscratch, without referencing any 3rd party materials except material licensed\nunder the EPL. I am authorized by my employer, IBM Canada Ltd. to make this\ncontribution under the EPL.",
+    "I\u0027ve committed this to cvs.",
+    "(In reply to comment #2)\n\u003e Another case where trying to cast an ArrayList to Vector.\n\nHave you ever analyzed why we keep getting ArrayList passed into methods that expect a Vector? - I\u0027m all in favor of moving away from Vector to the more general List interface, but in the light of getting bugs fixed for 2.0.1 we should also fix the source of the issue, e.g.\n    SystemCommonDeleteAction\nwhich fires remoteChangedEvents with an ArrayList. We should also consider updating API docs to read what our API really expects -- ISystemRemoteChangeEvents.SYSTEM_REMOTE_RESOURCE_DELETED talks about \"List\" being expected although ISystemResourceChangeEvents.EVENT_REFRESH_REMOTE talks about \"Vector\" being expected. \n\nThis is inconsistent, and for the sake of being API compatible in 2.0.1 I\u0027d like to see us fire events with the less general \"Vector\" but expect events with the more general \"List\". With respect to the API docs, I\u0027m not sure but there might even already exist a bug report asking for this to be sanitized, and if it is not yet there it should be created (I\u0027m in favor of moving to \"List\" everywhere).\n\n\u003e Also changed getRemoteResourceAbsoluteName(Object) to use an\n\u003e ISystemViewElementAdapter instead of IRemoteObjectIdentifier.\n\nWhy? This change makes no sense. ISystemViewElementAdapter is a subclass of IRemoteObjectIdentifier, and by moving to a less general interface you\u0027re essentially breaking API (somebody who registers an adapter that\u0027s just an IRemoteObjectIdentifier but not an ISystemViewElementAdapter would no longer get his adapter called.\n\nReopening to get the previous version of getting the adapter restored, and getting the internal ArrayList replaced by a Vector in SystemCommonDeleteAction.",
+    "I do not see a bug open for fixing up the API docs in regards to what is expected.  Though I do remember talking about Lists instead of Vector\u0027s, but maybe that was for the Validator\u0027s only.\n\nIn regards to making the change to ISystemViewElementAdapter.  I think I understood this wrong before.  Since the name isn\u0027t view specific and ISystemViewElementAdapter is a subclass of IRemoteObjectIdentifier it would be okay to use IRemoteObjectIdentifier for getting the absolute name, but for anything relating to the view itself we should be using ISystemViewElementAdapter.  \n\nSystemView, SystemScratchpadView, and SystemTableView all use ISystemViewElementAdapter for getRemoteResourceAbsoluteName().  I\u0027m not sure why we are doing it differently in this case.  It\u0027s weird seeing things done differently in different spots.\n\nThough looking back at this I noticed that the code for getting an IRemoteObjectIdentifier adapter doesn\u0027t work.  It returns null.\n\nreturn (IRemoteObjectIdentifier) ((IAdaptable)o).getAdapter(IRemoteObjectIdentifier.class);\n\nAlso SystemView has a protected getRemoteObjectIdentifier(Object) method that is never even used.  With that same line of code.",
+    "(In reply to comment #5)\n\u003e SystemView, SystemScratchpadView, and SystemTableView all use\n\u003e ISystemViewElementAdapter for getRemoteResourceAbsoluteName().  I\u0027m not sure\n\u003e why we are doing it differently in this case.  It\u0027s weird seeing things done\n\u003e differently in different spots.\n\nThat\u0027s right.\n\n\u003e Though looking back at this I noticed that the code for getting an\n\u003e IRemoteObjectIdentifier adapter doesn\u0027t work.  It returns null.\n\nI now see why -- the plugin.xml for files.ui has:\n\u003c!-- TODO Check: These are not in the adapter factories \n     getAdapterList() Although the adapter implements them\n   \u003cadapter type\u003d\"org.eclipse.rse.core.subsystems.IRemoteObjectIdentifier\"/\u003e\n--\u003e\n\nThe comments would need to be removed, and the factory class updated, to make it work. I want to think a little bit more about this, but now that it didn\u0027t ever work your change certainly is not a regression. Let\u0027s keep your code in the repository for now.\n\n\u003e Also SystemView has a protected getRemoteObjectIdentifier(Object) method that\n\u003e is never even used.  With that same line of code.\n\nWe should mark that deprecated right away since it does not work in 2.0.1 as of today.",
+    "Created an attachment (id\u003d74471)\nSystemCommonDeleteAction now pass\u0027s Vector instead of ArrayList\n\nThis patch updates SystemCommonDeleteAction, so Vector\u0027s are passed instead of ArrayList\u0027s.  Also went through all class\u0027s implementing ISystemRemoteChangeListener to make sure they used the more general List.  SystemMonitorViewPart was the only one that wasn\u0027t and it\u0027s updated in the patch.\n\nLegal Message: I, Kevin Doyle, declare that I developed attached code from\nscratch, without referencing any 3rd party materials except material licensed\nunder the EPL. I am authorized by my employer, IBM Canada Ltd. to make this\ncontribution under the EPL.",
+    "Created an attachment (id\u003d75681)\nUpdated to deprecate getRemoteObjectIdentifier\n\nForgot to deprecate getRemoteObjectIdentifier in the previous patch.  Updated patch deprecates it.\n\nLegal Message: I, Kevin Doyle, declare that I developed attached code from\nscratch, without referencing any 3rd party materials except material licensed\nunder the EPL. I am authorized by my employer, IBM Canada Ltd. to make this\ncontribution under the EPL.",
+    "The patch looks good.  ",
+    "You forgot to update the Contributor list in SystemView.java.  Please add it in.  Thanks.\n",
+    "Created an attachment (id\u003d75712)\nAdded Contributer Line\n\nLegal Message: I, Kevin Doyle, declare that I developed attached code from\nscratch, without referencing any 3rd party materials except material licensed\nunder the EPL. I am authorized by my employer, IBM Canada Ltd. to make this\ncontribution under the EPL.",
+    "I\u0027ve committed the patch.",
+    "Verified fixed in 2.0.1 RC1."
+  ],
+  "commentCreationDates": [
+    "2007-07-15T23:38:02+02:00",
+    "2007-07-16T11:47:15+02:00",
+    "2007-07-23T21:22:24+02:00",
+    "2007-07-23T21:30:51+02:00",
+    "2007-07-24T00:28:39+02:00",
+    "2007-07-24T05:00:16+02:00",
+    "2007-07-24T07:30:01+02:00",
+    "2007-07-24T16:56:47+02:00",
+    "2007-08-08T17:38:01+02:00",
+    "2007-08-08T23:02:27+02:00",
+    "2007-08-08T23:08:01+02:00",
+    "2007-08-08T23:30:41+02:00",
+    "2007-08-09T05:45:08+02:00",
+    "2007-09-13T19:57:51+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "java.util.ArrayList cannot be cast to org.eclipse.core.runtime.IAdaptable)",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3563"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3481"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:126"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3659"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3296"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2389"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2353"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:2219"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$4.run",
+          "source": "Workbench.java:466"
+        },
+        {
+          "method": "org.eclipse.core.databinding.observable.Realm.runWithDefault",
+          "source": "Realm.java:289"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:461"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.application.IDEApplication.start",
+          "source": "IDEApplication.java:106"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:153"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:106"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:76"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:363"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:176"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:504"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:443"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1169"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.ClassCastException",
+        "message": "java.util.ArrayList cannot be cast to org.eclipse.core.runtime.IAdaptable",
+        "elements": [
+          {
+            "method": "org.eclipse.rse.internal.ui.view.SystemTableTreeView.getRemoteObjectIdentifier",
+            "source": "SystemTableTreeView.java:1450"
+          },
+          {
+            "method": "org.eclipse.rse.internal.ui.view.SystemTableTreeView.getRemoteResourceAbsoluteName",
+            "source": "SystemTableTreeView.java:1062"
+          },
+          {
+            "method": "org.eclipse.rse.internal.ui.view.SystemTableTreeView.systemRemoteResourceChanged",
+            "source": "SystemTableTreeView.java:905"
+          },
+          {
+            "method": "org.eclipse.rse.internal.ui.view.search.SystemSearchTableView.systemRemoteResourceChanged",
+            "source": "SystemSearchTableView.java:259"
+          },
+          {
+            "method": "org.eclipse.rse.internal.core.model.SystemRemoteChangeEventManager.notify",
+            "source": "SystemRemoteChangeEventManager.java:69"
+          },
+          {
+            "method": "org.eclipse.rse.ui.internal.model.SystemRegistry.fireRemoteResourceChangeEvent",
+            "source": "SystemRegistry.java:2767"
+          },
+          {
+            "method": "org.eclipse.rse.internal.ui.view.SystemDNDTransferRunnable$RefreshJob.runInUIThread",
+            "source": "SystemDNDTransferRunnable.java:659"
+          },
+          {
+            "method": "org.eclipse.ui.progress.UIJob$1.run",
+            "source": "UIJob.java:94"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.RunnableLock.run",
+            "source": "RunnableLock.java:35"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+            "source": "Synchronizer.java:123"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "196582",
+      "date": "2007-07-15T23:38:02+02:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "minor"
+    }
+  ],
+  "groupId": "196582",
+  "bugId": "196582",
+  "date": "2007-07-15T23:38:02+02:00",
+  "product": "Target Management",
+  "component": "RSE",
+  "severity": "minor"
+}

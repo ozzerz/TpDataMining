@@ -1,0 +1,123 @@
+{
+  "comments": [
+    " ",
+    "Common Base Event implemenation is not thread safe.\n\nInclude nultithreaded JUnit test cases for Common Base Event implemenation and \nJSR-047 and Apache Commons.",
+    "Multi-threading issues arise on multi-processor machines. We narrowed down to a \nproblem with either: a) CBE, b) EMF or c) the JVM itself, by using a program \nthat creates a very simple CBE and calls validate() on it.\n\nThe machine used was a Sun Fire 880 with 4x900 MHz UltraSparc III+ CPUs. \n\nThe problem could not be reproduced on a single-processor machine regardless of \nthe number of events and threads. On the SMP machine, the problem occured every \ntime, even with just two threads that each validate one event. \n\nThe attached file contains the code needed to reproduce the error:\n\nInstructions: modify the setup.sh file to fit your setup, source it in the \ncurrent shell, switch to the bin directory and run:  \n\n\u003e java Client -c 1 -t 2\n\nOutput:\n\nNumber of processors: 4\nJVM MAX Memory:       66912256\nJVM Total Memory:     3604480\nJVM Free Memory:      2311872\n\nRun settings:\n  iteration count \u003d 1\n  thread count    \u003d 2\n\njava.lang.UnsupportedOperationException\n        at org.eclipse.emf.common.util.BasicEList$UnmodifiableEList.addAll\n(BasicEList.java:1577)\n        at org.eclipse.emf.ecore.impl.EClassImpl.getEAllStructuralFeatures\n(EClassImpl.java:280)\n        at org.eclipse.emf.ecore.impl.EObjectImpl.eDerivedStructuralFeatureID\n(EObjectImpl.java:615)\n        at org.eclipse.hyades.logging.events.cbe.impl.CommonBaseEventImpl.eGet\n(CommonBaseEventImpl.java:1636)\n        at org.eclipse.emf.ecore.impl.EObjectImpl.eGet(EObjectImpl.java:404)\n        at \norg.eclipse.hyades.logging.events.cbe.util.EventValidation.validateRequiredPrope\nrties(EventValidation.java:81)\n        at \norg.eclipse.hyades.logging.events.cbe.impl.CommonBaseEventImpl.validate\n(CommonBaseEventImpl.java:2071)\n        at Worker.run(Worker.java:33)\njava.lang.IllegalArgumentException: The feature \u0027creationTime\u0027 is not a valid \nfeature\n        at org.eclipse.emf.ecore.impl.EObjectImpl.eDynamicGet\n(EObjectImpl.java:417)\n        at org.eclipse.hyades.logging.events.cbe.impl.CommonBaseEventImpl.eGet\n(CommonBaseEventImpl.java:1676)\n        at org.eclipse.emf.ecore.impl.EObjectImpl.eGet(EObjectImpl.java:404)\n        at \norg.eclipse.hyades.logging.events.cbe.util.EventValidation.validateRequiredPrope\nrties(EventValidation.java:81)\n        at \norg.eclipse.hyades.logging.events.cbe.impl.CommonBaseEventImpl.validate\n(CommonBaseEventImpl.java:2071)\n        at Worker.run(Worker.java:33)\nThread name: [Thread-0]\n  start millis       \u003d 1092356447906\n  end millis         \u003d 0\n  duration in millis \u003d -1092356447906\n  work completed     \u003d 0\n** Exception : java.lang.UnsupportedOperationException **\n\nThread name: [Thread-1]\n  start millis       \u003d 1092356447906\n  end millis         \u003d 0\n  duration in millis \u003d -1092356447906\n  work completed     \u003d 0\n** Exception : java.lang.IllegalArgumentException: The feature \u0027creationTime\u0027 \nis not a valid feature **\n\n\nOverall statistics:\n  work rate \u003d 0.0 / second\n\nThe exact exceptions change on every run, particularly with a larger number of \nthreads. \n",
+    "A similar bug was found on single-threaded machines. At that time it was traced \nthe problem down to EMF and opened a bug on Bugzilla \n(https://bugs.eclipse.org/bugs/show_bug.cgi?id\u003d49868). \n\nWorkaround: Add synchronization blocks around the calls to \"getE***\" methods on \nall classes, which are reportedly not thread safe. ",
+    "Based on the discussions on the committer call.  We need to understand what the \nissue is here and cannot close out 3.0.1 until this is understood.",
+    "As discussed with Paul.  This isn\u0027t really a thread safety issue. This is being \npushed out.",
+    "Concurrency problems may exist on multi-processor machines since the EMF model \nmetadata was being built on demand during execution.  The solution is for \napplications in this intensive multi-threaded environment to:\n\n1) Call the validate() API on a Common Base Event during application \ninitialization to populate the EMF model metadata.\n\n-OR-\n\n2) Execute the following source code:\n\n        EPackage ePck \u003d EventPackage.eINSTANCE;\n        EFactory eFx \u003d ePck.getEFactoryInstance();\n\n        List l \u003d ePck.eContents();\n        Iterator i \u003d l.iterator();\n        while (i.hasNext()) {\n            EClass c \u003d (EClass)i.next();\n            c.getEAllAttributes();\n            c.getEAllContainments();\n            c.getEAllOperations();\n            c.getEAllReferences();\n            c.getEAllStructuralFeatures();\n            c.getAllSuperTypes();\n        }\n\n\nAfter discussions with Richard, we are have decided not to include this fix in \nthe CBE implementation.  Based on the existing synchronization on the \nvalidation, de/serialization and equality APIs, the CBE implementation is \nsufficiently thread safe.  The fact that the EMF model metadata is being built \non demand during execution improves to the size and performance of the CBE \nimplementation, as designed by the EMF Team.  As such, we are recommending \nusers pre-populate the EMF meta model using one of provided workarounds.",
+    "Although synchronization exists on the validation, de/serialization and \nequality APIs, the event completion code is not synchronized.  Adding \nsynchronized blocks around the CommonBaseEventImpl.complete() API.",
+    "For performance reasons, all other synchronization is left to the user\u0027s \nspecific run-time environment.",
+    "Code checked-in to HEAD on August 18, 2004.",
+    "Verified in Toronto\u0027s 20040820_1751 HEAD build.",
+    "Closing.",
+    "correcting bugzilla target milestone -- setting back to 3.1 i2",
+    "*** Bug 155100 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2004-08-10T18:55:46+02:00",
+    "2004-08-10T18:59:30+02:00",
+    "2004-08-13T15:09:26+02:00",
+    "2004-08-13T16:33:03+02:00",
+    "2004-08-16T16:56:42+02:00",
+    "2004-08-17T16:55:04+02:00",
+    "2004-08-18T20:07:27+02:00",
+    "2004-08-18T20:16:02+02:00",
+    "2004-08-18T20:27:02+02:00",
+    "2004-08-18T20:33:30+02:00",
+    "2004-08-23T14:56:00+02:00",
+    "2004-08-23T14:56:07+02:00",
+    "2004-10-05T14:29:18+02:00",
+    "2006-09-11T18:11:26+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.UnsupportedOperationException",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList$UnmodifiableEList.addAll",
+          "source": "BasicEList.java:1577"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.EClassImpl.getEAllStructuralFeatures",
+          "source": "EClassImpl.java:280"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.EObjectImpl.eDerivedStructuralFeatureID",
+          "source": "EObjectImpl.java:615"
+        },
+        {
+          "method": "org.eclipse.hyades.logging.events.cbe.impl.CommonBaseEventImpl.eGet",
+          "source": "CommonBaseEventImpl.java:1636"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.EObjectImpl.eGet",
+          "source": "EObjectImpl.java:404"
+        },
+        {
+          "method": "org.eclipse.hyades.logging.events.cbe.util.EventValidation.validateRequiredProperties",
+          "source": "EventValidation.java:81"
+        },
+        {
+          "method": "org.eclipse.hyades.logging.events.cbe.impl.CommonBaseEventImpl.validate",
+          "source": "CommonBaseEventImpl.java:2071"
+        },
+        {
+          "method": "Worker.run",
+          "source": "Worker.java:33"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 2,
+      "bugId": "71720",
+      "date": "2004-08-13T15:09:26+02:00",
+      "product": "Hyades",
+      "component": "Exec.logging",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "The feature \u0027creationTime\u0027 is not a valid  feature",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.ecore.impl.EObjectImpl.eDynamicGet",
+          "source": "EObjectImpl.java:417"
+        },
+        {
+          "method": "org.eclipse.hyades.logging.events.cbe.impl.CommonBaseEventImpl.eGet",
+          "source": "CommonBaseEventImpl.java:1676"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.EObjectImpl.eGet",
+          "source": "EObjectImpl.java:404"
+        },
+        {
+          "method": "org.eclipse.hyades.logging.events.cbe.util.EventValidation.validateRequiredProperties",
+          "source": "EventValidation.java:81"
+        },
+        {
+          "method": "org.eclipse.hyades.logging.events.cbe.impl.CommonBaseEventImpl.validate",
+          "source": "CommonBaseEventImpl.java:2071"
+        },
+        {
+          "method": "Worker.run",
+          "source": "Worker.java:33"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 2,
+      "bugId": "71720",
+      "date": "2004-08-13T15:09:26+02:00",
+      "product": "Hyades",
+      "component": "Exec.logging",
+      "severity": "major"
+    }
+  ],
+  "groupId": "71720",
+  "bugId": "71720",
+  "date": "2004-08-10T18:55:46+02:00",
+  "product": "Hyades",
+  "component": "Exec.logging",
+  "severity": "major"
+}

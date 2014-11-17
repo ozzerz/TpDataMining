@@ -1,0 +1,601 @@
+{
+  "comments": [
+    "I got the following stack trace with today\u0027s I build\n\norg.eclipse.swt.SWTException: Failed to execute runnable (java.lang.IllegalArgumentException: Index out of bounds)\nat org.eclipse.swt.SWT.error(SWT.java:3450)\nat org.eclipse.swt.SWT.error(SWT.java:3373)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:126)\nat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3442)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3082)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2083)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2047)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:449)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\nat org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:101)\nat org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:145)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:104)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:74)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:354)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:170)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\nat java.lang.reflect.Method.invoke(Unknown Source)\nat org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:474)\nat org.eclipse.equinox.launcher.Main.basicRun(Main.java:414)\nat org.eclipse.equinox.launcher.Main.run(Main.java:1122)\nCaused by: java.lang.IllegalArgumentException: Index out of bounds\nat org.eclipse.swt.SWT.error(SWT.java:3434)\nat org.eclipse.swt.SWT.error(SWT.java:3373)\nat org.eclipse.swt.SWT.error(SWT.java:3344)\nat org.eclipse.swt.widgets.TreeItem.findPrevious(TreeItem.java:222)\nat org.eclipse.swt.widgets.TreeItem.\u003cinit\u003e(TreeItem.java:189)\nat org.eclipse.jface.viewers.TreeViewer.createNewRowPart(TreeViewer.java:782)\nat org.eclipse.jface.viewers.TreeViewer.newItem(TreeViewer.java:372)\nat org.eclipse.jface.viewers.AbstractTreeViewer.createTreeItem(AbstractTreeViewer.java:797)\nat org.eclipse.jface.viewers.AbstractTreeViewer.insert(AbstractTreeViewer.java:2785)\nat org.eclipse.debug.internal.ui.viewers.model.InternalTreeModelViewer.insert(InternalTreeModelViewer.java:398)\nat org.eclipse.debug.internal.ui.viewers.model.ChildrenUpdate.performUpdate(ChildrenUpdate.java:70)\nat org.eclipse.debug.internal.ui.viewers.model.ViewerUpdateMonitor$1.runInUIThread(ViewerUpdateMonitor.java:58)\nat org.eclipse.ui.progress.UIJob$1.run(UIJob.java:94)\nat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n... 19 more",
+    "I get this all the time in I20070201-0800. I tried to debug it, but I got nowhere, since the debugger always crashed with this problem.\n\nHowever, what I could definitely see is that ChildrenUpdate.performUpdate(ChildrenUpdate.java:70) calls viewer.insert(..) with a wrong insertIndex. In my scenario (which involves 2 big workspaces), I see that the parent SWT TreeItem has only 26 children, but insertIndex is 27 (1 too high).",
+    "Any steps to reproduce would be helpful.",
+    "Hooray, I have a setup to reproduce! Will write down steps in a minute.",
+    "The scenario is drawn from my setup to find bug 172524, so it might not work with later builds.\n\nSteps with N20070202-0010 and JDK 1.5.0:\n\n- have a development workspace (I call it \"debugger\") with all the relevant plug-ins (swt, jface, debug) loaded\n\n- run \"target\" with:\neclipse.exe -data target -consolelog -showlocation -vmargs -agentlib:jdwp\u003dtransport\u003ddt_socket,suspend\u003dn,server\u003dy,address\u003dlocalhost:51040\n\n- in \"target\", open Plug-ins view, select all, context menu \u003e Add to Java Search\n\n- run \"middle\" with:\neclipse.exe -data middle -consolelog -showlocation -vmargs -agentlib:jdwp\u003dtransport\u003ddt_socket,suspend\u003dn,server\u003dy,address\u003dlocalhost:51020\n\n- in \"middle\":\n  - add all plug-ins to Java search\n  - set these line breakpoints:\n      SaveManager line 970\n      SaveManager line 1191\n      SaveManager line 1202\n      Workspace line 1821\n  - go to Debug perspective\n  - create and debug a \"Remote Java Application\" launch configuration with\n      project \"External Plug-in Libraries\" and port 51040\n\n- in \"debugger\":\n  - set breakpoint on TreeItem line 222, set condition to \"return hItem \u003d\u003d 0;\"\n  - create and debug a \"Remote Java Application\" launch configuration with\n      port 51020\n\n- click close box of workbench window \"target\" and click \"OK\" to exit.\n\n- in \"middle\", press F8 whenever you hit a breakpoint\n\n\u003d\u003e After about 4 hits, \"target\" closes and the breakpoint in \"debugger\" is hit.\nNow, index is 2, and parentItem.getItemCount() is 0.\n\nI also got the bug when I launched the \"middle\" Eclipse as a normal \"Eclipse Application\" debug target, but the link from \"middle\" to \"target\" needs to be a \"Remote Java Application\" to reproduce.",
+    "Can you re-attach your most recent stack trace, the original one on this bug report no longer matches line numbers in the source. Thanks.",
+    "I got it now...\n\norg.eclipse.swt.SWTException: Failed to execute runnable (java.lang.IllegalArgumentException: Index out of bounds)\nat org.eclipse.swt.SWT.error(SWT.java:3478)\nat org.eclipse.swt.SWT.error(SWT.java:3401)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:126)\nat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3442)\nat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3082)\nat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2099)\nat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2063)\nat org.eclipse.ui.internal.Workbench.access$4(Workbench.java:1969)\nat org.eclipse.ui.internal.Workbench$4.run(Workbench.java:456)\nat org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:228)\nat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:451)\nat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\nat org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:101)\nat org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:146)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:106)\nat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:76)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:354)\nat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:169)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\nat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\nat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\nat java.lang.reflect.Method.invoke(Method.java:324)\nat org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:476)\nat org.eclipse.equinox.launcher.Main.basicRun(Main.java:416)\nat org.eclipse.equinox.launcher.Main.run(Main.java:1124)\nat org.eclipse.equinox.launcher.Main.main(Main.java:1099)\nCaused by: java.lang.IllegalArgumentException: Index out of bounds\nat org.eclipse.swt.SWT.error(SWT.java:3462)\nat org.eclipse.swt.SWT.error(SWT.java:3401)\nat org.eclipse.swt.SWT.error(SWT.java:3372)\nat org.eclipse.swt.widgets.TreeItem.findPrevious(TreeItem.java:222)\nat org.eclipse.swt.widgets.TreeItem.\u003cinit\u003e(TreeItem.java:189)\nat org.eclipse.jface.viewers.TreeViewer.createNewRowPart(TreeViewer.java:686)\nat org.eclipse.jface.viewers.TreeViewer.newItem(TreeViewer.java:315)\nat org.eclipse.jface.viewers.AbstractTreeViewer.createTreeItem(AbstractTreeViewer.java:799)\nat org.eclipse.jface.viewers.AbstractTreeViewer.insert(AbstractTreeViewer.java:2852)\nat org.eclipse.debug.internal.ui.viewers.model.InternalTreeModelViewer.insert(InternalTreeModelViewer.java:422)\nat org.eclipse.debug.internal.ui.viewers.model.ChildrenUpdate.performUpdate(ChildrenUpdate.java:70)\nat org.eclipse.debug.internal.ui.viewers.model.ViewerUpdateMonitor$1.runInUIThread(ViewerUpdateMonitor.java:58)\nat org.eclipse.ui.progress.UIJob$1.run(UIJob.java:94)\nat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\nat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n... 23 more\n",
+    "The problem happens when threads for a terminated target are being updated after the target has already terminated, when the \u0027show system threads\u0027 filter is filtering system threads.\n\nThe viewer\u0027s content provider maintains a mapping of which children are filtered. When a node\u0027s child count is set to 0 or a node\u0027s \u0027hasChildren\u0027 property is false, the filtered chidlren for that node are cleared. However, when an element\u0027s child count was set to a non-zero value, we did not clear any filters for items above that count (for example, a node changes from 10 to 5 children and items 7 and 8 were previuosly filtered). Updating the filter indicies fixes this problem, as we no longer attempt the insert.\n\nChanges to:\nChildrenCountUpdate\nFilterTransform\nModelContentProvider",
+    "Please verify, Mike.",
+    "*** Bug 165320 has been marked as a duplicate of this bug. ***",
+    "I\u0027m getting this still in Build id: I20070206-0010:\n\norg.eclipse.swt.SWTException: Failed to execute runnable (java.lang.IllegalArgumentException: Index out of bounds)\n\tat org.eclipse.swt.SWT.error(SWT.java:3478)\n\tat org.eclipse.swt.SWT.error(SWT.java:3401)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:126)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3467)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:3107)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:2257)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:2221)\n\tat org.eclipse.ui.internal.Workbench.access$4(Workbench.java:2096)\n\tat org.eclipse.ui.internal.Workbench$4.run(Workbench.java:456)\n\tat org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:289)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:451)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:149)\n\tat org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:101)\n\tat org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:146)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:106)\n\tat org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:76)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:354)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:169)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:64)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n\tat java.lang.reflect.Method.invoke(Method.java:615)\n\tat org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:476)\n\tat org.eclipse.equinox.launcher.Main.basicRun(Main.java:416)\n\tat org.eclipse.equinox.launcher.Main.run(Main.java:1124)\n\tat org.eclipse.equinox.launcher.Main.main(Main.java:1099)\nCaused by: java.lang.IllegalArgumentException: Index out of bounds\n\tat org.eclipse.swt.SWT.error(SWT.java:3462)\n\tat org.eclipse.swt.SWT.error(SWT.java:3401)\n\tat org.eclipse.swt.SWT.error(SWT.java:3372)\n\tat org.eclipse.swt.widgets.TreeItem.findPrevious(TreeItem.java:222)\n\tat org.eclipse.swt.widgets.TreeItem.\u003cinit\u003e(TreeItem.java:189)\n\tat org.eclipse.jface.viewers.TreeViewer.createNewRowPart(TreeViewer.java:686)\n\tat org.eclipse.jface.viewers.TreeViewer.newItem(TreeViewer.java:315)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.createTreeItem(AbstractTreeViewer.java:798)\n\tat org.eclipse.jface.viewers.AbstractTreeViewer.insert(AbstractTreeViewer.java:2818)\n\tat org.eclipse.debug.internal.ui.viewers.model.InternalTreeModelViewer.insert(InternalTreeModelViewer.java:422)\n\tat org.eclipse.debug.internal.ui.viewers.model.ChildrenUpdate.performUpdate(ChildrenUpdate.java:70)\n\tat org.eclipse.debug.internal.ui.viewers.model.ViewerUpdateMonitor$1.runInUIThread(ViewerUpdateMonitor.java:58)\n\tat org.eclipse.ui.progress.UIJob$1.run(UIJob.java:94)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\t... 23 more\n",
+    "Debugging the following program on J91.4.2, with \"Show System Threads\" turned off:\n\npublic class Deadlock {\n\n\tObject lock1 \u003d new Object();\n\tObject lock2 \u003d new Object();\n\t\n\tRunnable thing1 \u003d new Runnable() {\n\t\tpublic void run() {\n\t\t\tsynchronized (lock1) {\n\t\t\t\tSystem.out.println(\"Thing1 got lock1\");\n\t\t\t\ttry {\n\t\t\t\t\tThread.sleep(1000);\n\t\t\t\t} catch (InterruptedException e){}\n\t\t\t\tsynchronized (lock2) {\n\t\t\t\t\tSystem.out.println(\"Thing1 got lock2\");\t\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t};\n\t\n\tRunnable thing2 \u003d new Runnable() {\n\t\tpublic void run() {\n\t\t\tsynchronized (lock2) {\n\t\t\t\tSystem.out.println(\"Thing2 got lock2\");\n\t\t\t\ttry {\n\t\t\t\t\tThread.sleep(1100);\n\t\t\t\t} catch (InterruptedException e){}\n\t\t\t\tsynchronized (lock1) {\n\t\t\t\t\tSystem.out.println(\"Thing2 got lock1\");\t\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t};\t\n\t\n\tpublic static void main(String[] args) {\n\t\tnew Deadlock().lock();\n\t}\n\n\tprivate void lock() {\n\t\tThread thread \u003d new Thread(thing1);\n\t\tThread thread2 \u003d new Thread(thing2);\n\t\tthread.start();\n\t\tthread2.start();\n\t}\n\n}",
+    "I don\u0027t have a fix for this yet. Workaround is not to filter system threads.",
+    "Created an attachment (id\u003d58494)\npatch\n\nI have a patch for this, but I want to wait for M6 to release it. \n\nWe are not properly updating filtered indexes when an element (thread in this case) is removed from the model. We simply remove the element from the viewer but to not update filter indexes accordinly (remove the filtered element, if it is filtered, or decrement indexes of other element now that an element is removed).\n\nThis patch adds support to update filter indexes appropriately. When the index of the removed element is not known, the parent has to be refreshed and filtered elements are recomputed. This adds some flash to viewer as threads off the bottom of the viewer are removed.",
+    "*** Bug 176029 has been marked as a duplicate of this bug. ***",
+    "Created an attachment (id\u003d60191)\npatch\n\nThis patch clears fiters when a filtered item is removed from the tree, otherwise is just removes the item.",
+    "Created an attachment (id\u003d60205)\npatch\n\nClears filters on parent of removed element",
+    "Released last patch",
+    "Fixed in TreeModelContentProvider. Please verify, Curtis.",
+    "The test case I had doesn\u0027t fail anymore with code from HEAD. I\u0027ll verify again once this is in an integration build.",
+    "Reopen to close as VERIFIED.\nI don\u0027t know why this has changed on my last submit.",
+    "Close again as FIXED.",
+    "Verified",
+    "*** Bug 178535 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2007-01-18T03:03:41+01:00",
+    "2007-02-01T23:35:10+01:00",
+    "2007-02-02T02:59:20+01:00",
+    "2007-02-02T15:09:28+01:00",
+    "2007-02-02T15:59:59+01:00",
+    "2007-02-02T16:37:13+01:00",
+    "2007-02-02T17:10:03+01:00",
+    "2007-02-02T18:25:20+01:00",
+    "2007-02-02T18:27:31+01:00",
+    "2007-02-05T17:10:01+01:00",
+    "2007-02-06T20:07:27+01:00",
+    "2007-02-06T20:08:37+01:00",
+    "2007-02-07T19:35:37+01:00",
+    "2007-02-07T22:23:27+01:00",
+    "2007-03-02T17:19:14+01:00",
+    "2007-03-02T19:02:27+01:00",
+    "2007-03-02T20:28:25+01:00",
+    "2007-03-02T20:33:31+01:00",
+    "2007-03-02T20:33:51+01:00",
+    "2007-03-02T20:50:40+01:00",
+    "2007-03-02T20:51:23+01:00",
+    "2007-03-02T20:51:56+01:00",
+    "2007-03-05T17:46:30+01:00",
+    "2007-03-21T17:57:36+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Index out of bounds)",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3450"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3373"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:126"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3442"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3082"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2083"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2047"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:449"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.application.IDEApplication.start",
+          "source": "IDEApplication.java:101"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:145"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:104"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:74"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:354"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:170"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:474"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:414"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1122"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.IllegalArgumentException",
+        "message": "Index out of bounds",
+        "elements": [
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:3434"
+          },
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:3373"
+          },
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:3344"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.TreeItem.findPrevious",
+            "source": "TreeItem.java:222"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.TreeItem.\u003cinit\u003e",
+            "source": "TreeItem.java:189"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.TreeViewer.createNewRowPart",
+            "source": "TreeViewer.java:782"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.TreeViewer.newItem",
+            "source": "TreeViewer.java:372"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.AbstractTreeViewer.createTreeItem",
+            "source": "AbstractTreeViewer.java:797"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.AbstractTreeViewer.insert",
+            "source": "AbstractTreeViewer.java:2785"
+          },
+          {
+            "method": "org.eclipse.debug.internal.ui.viewers.model.InternalTreeModelViewer.insert",
+            "source": "InternalTreeModelViewer.java:398"
+          },
+          {
+            "method": "org.eclipse.debug.internal.ui.viewers.model.ChildrenUpdate.performUpdate",
+            "source": "ChildrenUpdate.java:70"
+          },
+          {
+            "method": "org.eclipse.debug.internal.ui.viewers.model.ViewerUpdateMonitor$1.runInUIThread",
+            "source": "ViewerUpdateMonitor.java:58"
+          },
+          {
+            "method": "org.eclipse.ui.progress.UIJob$1.run",
+            "source": "UIJob.java:94"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.RunnableLock.run",
+            "source": "RunnableLock.java:35"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+            "source": "Synchronizer.java:123"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "170857",
+      "date": "2007-01-18T03:03:41+01:00",
+      "product": "Platform",
+      "component": "Debug",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Index out of bounds)",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3478"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3401"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:126"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3442"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3082"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2099"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2063"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:1969"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$4.run",
+          "source": "Workbench.java:456"
+        },
+        {
+          "method": "org.eclipse.core.databinding.observable.Realm.runWithDefault",
+          "source": "Realm.java:228"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:451"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.application.IDEApplication.start",
+          "source": "IDEApplication.java:101"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:146"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:106"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:76"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:354"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:169"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:476"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:416"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1124"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.main",
+          "source": "Main.java:1099"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.IllegalArgumentException",
+        "message": "Index out of bounds",
+        "elements": [
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:3462"
+          },
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:3401"
+          },
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:3372"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.TreeItem.findPrevious",
+            "source": "TreeItem.java:222"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.TreeItem.\u003cinit\u003e",
+            "source": "TreeItem.java:189"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.TreeViewer.createNewRowPart",
+            "source": "TreeViewer.java:686"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.TreeViewer.newItem",
+            "source": "TreeViewer.java:315"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.AbstractTreeViewer.createTreeItem",
+            "source": "AbstractTreeViewer.java:799"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.AbstractTreeViewer.insert",
+            "source": "AbstractTreeViewer.java:2852"
+          },
+          {
+            "method": "org.eclipse.debug.internal.ui.viewers.model.InternalTreeModelViewer.insert",
+            "source": "InternalTreeModelViewer.java:422"
+          },
+          {
+            "method": "org.eclipse.debug.internal.ui.viewers.model.ChildrenUpdate.performUpdate",
+            "source": "ChildrenUpdate.java:70"
+          },
+          {
+            "method": "org.eclipse.debug.internal.ui.viewers.model.ViewerUpdateMonitor$1.runInUIThread",
+            "source": "ViewerUpdateMonitor.java:58"
+          },
+          {
+            "method": "org.eclipse.ui.progress.UIJob$1.run",
+            "source": "UIJob.java:94"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.RunnableLock.run",
+            "source": "RunnableLock.java:35"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+            "source": "Synchronizer.java:123"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 1,
+      "commentIndex": 6,
+      "bugId": "170857",
+      "date": "2007-02-02T17:10:03+01:00",
+      "product": "Platform",
+      "component": "Debug",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Index out of bounds)",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3478"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3401"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:126"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3467"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:3107"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:2257"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:2221"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$4",
+          "source": "Workbench.java:2096"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$4.run",
+          "source": "Workbench.java:456"
+        },
+        {
+          "method": "org.eclipse.core.databinding.observable.Realm.runWithDefault",
+          "source": "Realm.java:289"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:451"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:149"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.application.IDEApplication.start",
+          "source": "IDEApplication.java:101"
+        },
+        {
+          "method": "org.eclipse.equinox.internal.app.EclipseAppHandle.run",
+          "source": "EclipseAppHandle.java:146"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication",
+          "source": "EclipseAppLauncher.java:106"
+        },
+        {
+          "method": "org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start",
+          "source": "EclipseAppLauncher.java:76"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:354"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:169"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:64"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:43"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:615"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.invokeFramework",
+          "source": "Main.java:476"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.basicRun",
+          "source": "Main.java:416"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.run",
+          "source": "Main.java:1124"
+        },
+        {
+          "method": "org.eclipse.equinox.launcher.Main.main",
+          "source": "Main.java:1099"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.IllegalArgumentException",
+        "message": "Index out of bounds",
+        "elements": [
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:3462"
+          },
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:3401"
+          },
+          {
+            "method": "org.eclipse.swt.SWT.error",
+            "source": "SWT.java:3372"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.TreeItem.findPrevious",
+            "source": "TreeItem.java:222"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.TreeItem.\u003cinit\u003e",
+            "source": "TreeItem.java:189"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.TreeViewer.createNewRowPart",
+            "source": "TreeViewer.java:686"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.TreeViewer.newItem",
+            "source": "TreeViewer.java:315"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.AbstractTreeViewer.createTreeItem",
+            "source": "AbstractTreeViewer.java:798"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.AbstractTreeViewer.insert",
+            "source": "AbstractTreeViewer.java:2818"
+          },
+          {
+            "method": "org.eclipse.debug.internal.ui.viewers.model.InternalTreeModelViewer.insert",
+            "source": "InternalTreeModelViewer.java:422"
+          },
+          {
+            "method": "org.eclipse.debug.internal.ui.viewers.model.ChildrenUpdate.performUpdate",
+            "source": "ChildrenUpdate.java:70"
+          },
+          {
+            "method": "org.eclipse.debug.internal.ui.viewers.model.ViewerUpdateMonitor$1.runInUIThread",
+            "source": "ViewerUpdateMonitor.java:58"
+          },
+          {
+            "method": "org.eclipse.ui.progress.UIJob$1.run",
+            "source": "UIJob.java:94"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.RunnableLock.run",
+            "source": "RunnableLock.java:35"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+            "source": "Synchronizer.java:123"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 2,
+      "commentIndex": 10,
+      "bugId": "170857",
+      "date": "2007-02-06T20:07:27+01:00",
+      "product": "Platform",
+      "component": "Debug",
+      "severity": "major"
+    }
+  ],
+  "groupId": "170857",
+  "bugId": "170857",
+  "date": "2007-01-18T03:03:41+01:00",
+  "product": "Platform",
+  "component": "Debug",
+  "severity": "major"
+}

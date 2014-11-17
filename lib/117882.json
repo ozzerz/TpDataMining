@@ -1,0 +1,100 @@
+{
+  "comments": [
+    "Test program included and stack trace shown below:\n\njava.lang.NullPointerException\nat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.doDeclareAnnotations(AjLookupEnvironment.java:742)\nat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.weaveInterTypeDeclarations(AjLookupEnvironment.java:556)\nat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.weaveInterTypeDeclarations(AjLookupEnvironment.java:483)\nat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.doPendingWeaves(AjLookupEnvironment.java:350)\nat org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.completeTypeBindings(AjLookupEnvironment.java:177)\nat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.beginToCompile(Compiler.java:301)\nat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:315)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation(AjBuildManager.java:809)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:254)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.incrementalBuild(AjBuildManager.java:163)\nat org.aspectj.ajde.internal.CompilerAdapter.compile(CompilerAdapter.java:117)\nat org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run(AspectJBuildManager.java:191)\n\nNullPointerException thrown: null",
+    "Created an attachment (id\u003d30532)\nTest project\n\n",
+    "Helen, can you integrate this project into our incremental compilation area?\n\nThis is similar to other bugs Helen and I have looked at recently.  It is related to accessing state for a SourceTypeBinding when in fact what you are dealing with is a BinaryTypeBinding.  Although a quick hack here would seem to also work - I\u0027m worried about the implications as the code following where the NPE occurs seems to really need to know what was on the typebinding - we need to see if we can access the annotations through the binary type binding in some way.",
+    "I\u0027ve managed to easily reproduce this with a minimal test project in AJDT containing:\n\n- Class C.java with no contents\n- Annotation Annotation.java with no contents\n- Aspect A.aj with the following declare statement: \n          declare @type : C : @Annotation;\n\nTo consistently recreate the problem, you need to do a full build on the project, then make a change to the aspect A (for example, add a comment), save the aspect and the NPE occurs every time on the incremental build.\n\nThe NPE only happens with declare @type, with all the others (@field, @method and @constructor) you just see the markers disappear in AJDT until you do a full build.\n\nI\u0027m currently trying to integrate the above scenario into the MultiProjectIncrementalTests, however, with declare @type I\u0027m getting an ArrayIndexOutOfBoundsException because the annotations are not being added when run within the testsuite.",
+    "Created an attachment (id\u003d30601)\nfirst pass at testcase\n\nApply this patch to the tests project.\n\nThis patch contains the start of the testcase to reproduce the NPE. However, as mentioned in the previous comment I haven\u0027t reached that far yet and am still stuck on the ArrayIndexOutofBoundsException. The testcase supplied reproduces this (note that this patch contains sysout\u0027s and Task Tags, however, I\u0027m attaching it in it\u0027s current state so the AIOBException can be seen) \n\nThe reason for the ArrayIndexOutOfBoundsException is that in DeclareAnnotation.ensureAnnotationDiscovered(..) we get the declare @type ResolvedMember ajc$declare_at_type_1(), ask for it\u0027s annotations and get back an empty array. Consequently member.getAnnotations()[0] causes the exception. The problem is that in the case of running this test within the Aspectj testsuite, when we come to parse A.class in ClassParser.parse(..) and read the number of methods in readMethods(), we get back that there are 6 methods, one of which is the ajc$declare_at_type_1() as expected. However, when we step through this we find that in the FieldOrMethod constructor the call \n\nattributes_count \u003d file.readUnsignedShort(); \n\nreturns 3 (these are Unknown, Unknown and Code) and the ajc$declare_at_type_1() method consequently has these three attributes attached to it. \n\nIn the case when this is run in AJDT, the call \n\nattributes_count \u003d file.readUnsignedShort(); \n\nreturns 5. The two extra ones are RuntimeInvisibleAnnotations and RuntimeVisibleAnnotations. It is the lack of these which cause the ArrayIndexOutOfBoundsException.\n\nThe same behaviour happens with the other declare statements (@method, @field and @constructor), however, in these cases it makes no difference because noone asks).",
+    "Looking into this further, the reason the RuntimeAnnotations aren\u0027t there is the check at line 3289 in org.aspectj.org.eclipse.jdt.internal.compiler.ClassFile: \n\nthis.targetJDK \u003e\u003d ClassFileConstants.JDK1_5 \u0026\u0026 !this.creatingProblemType \u0026\u0026 !createProblemMethod\n\nThis is never true in the case when this is run within the aspectj test harness and consequently the RuntimeAnnotations aren\u0027t generated. The problem is that\n\nthis.targetJDK \u003e\u003d ClassFileConstants.JDK1_5 \n\nreturns false so it seems like there\u0027s something else which needs to be done to get the test to realise it\u0027s running in Java5 mode.",
+    "Fixing the BuildOptionsAdapter in AjdeInteractionTestbed to also have the targetPlatform \u003d 1.5 in its javaOptionsMap fixes the problem with getting the test to realise its running in 1.5 mode.\n\nI\u0027m now able to recreate the NPE originally reported in this bug.",
+    "Created an attachment (id\u003d30611)\ntestcase patch\n\nApply this patch to the tests project.\n\nThis patch contains a failing testcase which shows the reported NPE.",
+    "When we enter AjLookupEnvironment.doDeclareAnnotations(..) during a full build we have a SourceTypeBinding.  This has a scope (ClassScope) which we can then query for it\u0027s TypeDeclaration and consequently the annotations. Within this method, we find out if there are any new annotations to add and update the list of annotations to be this new set. \n\nIn an incremental build we have a BinaryTypeBinding which has null scope which leads to the NPE when we query for the annotations. There are two options, either to do a null check the first time and return false if it\u0027s null, or stick null checks around these calls and return true. The problem is that in both these cases, we don\u0027t update the list of annotations to be the new set. Consequently, there are situations where we don\u0027t know that there are annotations and we report compiler errors instead. The workaround would be to do a full build.",
+    "Created an attachment (id\u003d30766)\naugmented testcase patch\n\nApply this patch to the tests project.\n\nThis is a testcase patch which includes the previously attached testcase, but also a testcase which shows the failure described in the previous comment. When MultiProjectIncrementalTests.testPr117882_2() is run (if there are null checks put in to fix MultiProjectIncrementalTests.testPr117882()), then this will fail with the error:\n\nBuild errors:\nerror at new C().method();\n        ^^^\nC:\\temp\\ajcSandbox\\ajcTest35899.tmp\\PR117882_2\\src\\pack\\A.aj:13:0::0 The method method() is undefined for the type C\n---------\n\nIf the four lines in this test:\n\nbuild(\"PR117882_2\");\ncheckWasntFullBuild();\n//fullBuild(\"PR117882_2\");\n//checkWasFullBuild();\n\nare changed to:\n\n//build(\"PR117882_2\");\n//checkWasntFullBuild();\nfullBuild(\"PR117882_2\");\ncheckWasFullBuild();\n\nthen this test passes because a full build has been done and the annotations have been recorded.\n",
+    "I believe the reason that the errror message \"....undefined for the type....\" is coming out when running MultiProjectIncrementalTests.testPr117882_2() rather than it blowing up with an NPE is that at this point we\u0027re in CompilationUnitDeclaration.resolve(..) which calls resolve on AspectDeclaration, which in turn calls resolve on AjMethodDeclaration (the method we\u0027re resolving within A.aj is \n\n  public static void main(String []argv) {\n     new C().method();\n  }\n\n). AjMethodDeclaration has a non-null MethodScope which means that we\u0027re not NPE\u0027ing.",
+    "fixes checked in - waiting on build",
+    "fix available.\n\nbasically we can\u0027t \u0027attach\u0027 annotations to a binarytypebinding and thats the type that we are processing on the incremental build.  The other features that require the annotations to be there (declare parents/annotation) check the weaver type for the annotations - so the solution is that we map from the binarytypebinding to the weaver type and put the annotations on *it*.  What we stick on the weaver type is a \u0027fakeannotation\u0027 - which is created from an eclipse annotation and only knows its annotation type name (that\u0027s all the other decps/decas will need).  This works fine - the FakeAnnotation never makes it to disk, the weaver adds the real annotation when it correctly processes the declare @type later on.\n\n(that makes sense to me...at least) :)"
+  ],
+  "commentCreationDates": [
+    "2005-11-24T11:05:43+01:00",
+    "2005-11-24T11:08:05+01:00",
+    "2005-11-24T11:33:47+01:00",
+    "2005-11-25T08:58:20+01:00",
+    "2005-11-25T10:35:13+01:00",
+    "2005-11-25T12:02:15+01:00",
+    "2005-11-25T13:04:53+01:00",
+    "2005-11-25T14:20:55+01:00",
+    "2005-11-29T14:07:26+01:00",
+    "2005-11-29T14:11:39+01:00",
+    "2005-12-01T15:50:18+01:00",
+    "2005-12-04T13:41:16+01:00",
+    "2005-12-05T08:12:30+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.doDeclareAnnotations",
+          "source": "AjLookupEnvironment.java:742"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.weaveInterTypeDeclarations",
+          "source": "AjLookupEnvironment.java:556"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.weaveInterTypeDeclarations",
+          "source": "AjLookupEnvironment.java:483"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.doPendingWeaves",
+          "source": "AjLookupEnvironment.java:350"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.AjLookupEnvironment.completeTypeBindings",
+          "source": "AjLookupEnvironment.java:177"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.beginToCompile",
+          "source": "Compiler.java:301"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:315"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:809"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:254"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.incrementalBuild",
+          "source": "AjBuildManager.java:163"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:117"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:191"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "117882",
+      "date": "2005-11-24T11:05:43+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "117882",
+  "bugId": "117882",
+  "date": "2005-11-24T11:05:43+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

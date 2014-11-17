@@ -1,0 +1,159 @@
+{
+  "comments": [
+    "build R2.0\n\nI\u0027m debugging a JUnit test case with a breakpoint set in \norg.eclipse.swt.custom.StyledText.\nWhen the breakpoint is hit I get a dialog for configuring the source lookup \npath.\nHowever, the project containing the source (org.eclipse.swt) is already in the \nlist and I can see the source in the packages view.",
+    "So you are using a JUnit launch configuration?\n\nCan you provide the launch configuration (found \nin ..\\.metadata\\.plugins\\org.eclipse.debug.core\\.launches)?",
+    "I\u0027m using the regular Java launcher.\nThe JUnit launcher does not work and I haven\u0027t bothered to find out why not. I \nget a \"NoClassDefFoundError: \norg.eclipse.jdt.internal.junit.runner.RemoteTestRunner\" when I try to use the \nJUnit launcher. Maybe this is related?\n",
+    "Created an attachment (id\u003d1687)\nJava launch config\n",
+    "Created an attachment (id\u003d1688)\nJUnit launch config that doesn\u0027t even run\n",
+    "The debugger does find the source when I remove and add back the \norg.eclipse.swt project in the debug source lookup dialog that pops up. I also \nmoved the project to the top of the list but I doubt that matters.\n\nThe JUnit launcher works if I add the org.eclipse.jdt.junit plugin jar \n(junitsupport.jar) to the classpath of the swt test project \n(org.eclipse.swt.tests). That doesn\u0027t sound right and I don\u0027t think I had to do \nthat before.",
+    "I cannot reproduce the problem.  \n\nBefore you moved the SWT project to the top of the list for the Source lookup, \nwhat was the Source Lookup Path as specified in the Source tab of the launch \nconfiguration?  Did you start with the default source lookup path?",
+    "I didn\u0027t change the default source path initially.\nIt was: \nJRE_LIB [JRE_SRC/JRE_SRCROOT]\nJRE_LIB\nECLIPSE_HOME/plugins/org.junit_3.7.0/junit.jar\norg.eclipse.swt\norg.eclipse.swt.tests\nd:/images/eclipse/dev/eclipse/plugins/org.eclipse.jdt.junit_2.0.0/junitsupport.j\nar\n\nI just tried this again with a fresh launch config for the same JUnit test \ncase, running as a Java app.\nIt is sufficient to *move* the org.eclipse.swt project above the junit.jar, \nbelow JRE_LIB in the source lookup path. If I do that the debugger finds the \nsource. It is not necessary to remove and add back the project.\n\nDid you try reproducing this with the same JUnit test case \n(org.eclipse.swt.tests.junit.Test_org_eclipse_swt_custom_StyledText), SWT in \nyour workspace and a breakpoint in StyledText.java?\nI can send you my workspace if you want to reproduce the problem.",
+    "Knut,  I am getting back to addressing our defects...is this still a problem?",
+    "Yes, still occurs in 20020827 when I run the StyledText test case with a Java \nlauncher.",
+    "Passing the buck as Darin W is looking at other source lookup problems.",
+    "Step one: I have reproduced the problem as described.",
+    "Discovered that the build path for \"org.eclipse.swt.tests\" specifies a non-\nexistant source attachment. Rather than referencing \"org.junit\" as a required \nproject, there is a variable on the \"libraries\" tab of the build path that \npoints to the \"junit.jar\", and specifies an incorrect source attachment. The \n(workaround) is to remove the variable, and add \"org.junit\" as a required \nproject.\n\nWe have a bug because our source lookup tried to find the source in a non-\nexistant jar, and then threw an exception which short-circuited the source \nlookup.",
+    "Note, there are exceptions in the log like:\n\n!MESSAGE Unable to locate source element in archive D:\\sdk20020910\n\\eclipse\\plugins\\org.junit_3.7.0\\src.jar\n!STACK 0\njava.util.zip.ZipException: The system cannot find the file specified\n\tat \norg.eclipse.jdt.launching.sourcelookup.ArchiveSourceLocation.findSourceElement\n(ArchiveSourceLocation.java:124)\n\tat \norg.eclipse.jdt.launching.sourcelookup.JavaSourceLocator.getSourceElement\n(JavaSourceLocator.java:190)\n\tat org.eclipse.jdt.debug.ui.JavaUISourceLocator.getSourceElement\n(JavaUISourceLocator.java:122)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchView.lookupEditorInput\n(LaunchView.java:489)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchView.showMarkerForCurrentSelect\nion(LaunchView.java:449)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchView.selectionChanged\n(LaunchView.java:324)\n\tat org.eclipse.jface.viewers.Viewer.fireSelectionChanged\n(Viewer.java:147)\n\tat org.eclipse.jface.viewers.StructuredViewer.updateSelection\n(StructuredViewer.java:1155)\n\tat org.eclipse.jface.viewers.StructuredViewer.setSelection\n(StructuredViewer.java:904)\n\tat org.eclipse.debug.internal.ui.views.launch.LaunchView.autoExpand\n(LaunchView.java:753)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleSuspen\ndThreadEvent(LaunchViewEventHandler.java:242)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleSuspen\ndEvent(LaunchViewEventHandler.java:192)\n\tat \norg.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleDebugE\nvents(LaunchViewEventHandler.java:104)\n\tat org.eclipse.debug.internal.ui.views.AbstractDebugEventHandler$1.run\n(AbstractDebugEventHandler.java:49)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:31)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages\n(Synchronizer.java:94)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:1599)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1372)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1256)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1239)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:775)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:432)\n\tat EclipseRuntimeLauncher.main(EclipseRuntimeLauncher.java:24)\n\tat EclipseRuntimeLauncher.main(EclipseRuntimeLauncher.java:24)",
+    "Released fix to HEAD such that the source lookup continues (and works). Need to \nfind better way to report error to the user. An error does appear in the log, \nand an error appears on the \"source attachement\" property of the bogus \nvariable. However, the user does not see the error at runtime.",
+    "No futher action planned. There is no longer a runtime exception. The result \nwill be that the user sees that source is not found when debugging. This is \nenough of an \"error indication\". The source attachment dialogs do not let you \nenter invalid/non-existent source attachements, so this only happens when a pre-\nexisting source attachement goes missing.",
+    "Fixed.",
+    "Verified."
+  ],
+  "commentCreationDates": [
+    "2002-07-11T17:14:31+02:00",
+    "2002-07-11T17:55:08+02:00",
+    "2002-07-11T18:48:53+02:00",
+    "2002-07-11T18:49:24+02:00",
+    "2002-07-11T18:49:50+02:00",
+    "2002-07-11T19:15:36+02:00",
+    "2002-07-12T16:34:22+02:00",
+    "2002-07-12T17:07:25+02:00",
+    "2002-09-03T18:34:19+02:00",
+    "2002-09-03T19:00:21+02:00",
+    "2002-09-10T23:18:38+02:00",
+    "2002-09-11T00:41:19+02:00",
+    "2002-09-11T15:49:01+02:00",
+    "2002-09-11T15:49:44+02:00",
+    "2002-09-11T16:28:33+02:00",
+    "2002-09-20T16:05:21+02:00",
+    "2002-09-20T16:05:30+02:00",
+    "2002-09-27T17:44:28+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.util.zip.ZipException",
+      "message": "The system cannot find the file specified",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.launching.sourcelookup.ArchiveSourceLocation.findSourceElement",
+          "source": "ArchiveSourceLocation.java:124"
+        },
+        {
+          "method": "org.eclipse.jdt.launching.sourcelookup.JavaSourceLocator.getSourceElement",
+          "source": "JavaSourceLocator.java:190"
+        },
+        {
+          "method": "org.eclipse.jdt.debug.ui.JavaUISourceLocator.getSourceElement",
+          "source": "JavaUISourceLocator.java:122"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchView.lookupEditorInput",
+          "source": "LaunchView.java:489"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchView.showMarkerForCurrentSelection",
+          "source": "LaunchView.java:449"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchView.selectionChanged",
+          "source": "LaunchView.java:324"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.Viewer.fireSelectionChanged",
+          "source": "Viewer.java:147"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.updateSelection",
+          "source": "StructuredViewer.java:1155"
+        },
+        {
+          "method": "org.eclipse.jface.viewers.StructuredViewer.setSelection",
+          "source": "StructuredViewer.java:904"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchView.autoExpand",
+          "source": "LaunchView.java:753"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleSuspendThreadEvent",
+          "source": "LaunchViewEventHandler.java:242"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleSuspendEvent",
+          "source": "LaunchViewEventHandler.java:192"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.launch.LaunchViewEventHandler.doHandleDebugEvents",
+          "source": "LaunchViewEventHandler.java:104"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.AbstractDebugEventHandler$1.run",
+          "source": "AbstractDebugEventHandler.java:49"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.RunnableLock.run",
+          "source": "RunnableLock.java:31"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:94"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:1599"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1372"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1256"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1239"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:775"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:432"
+        },
+        {
+          "method": "EclipseRuntimeLauncher.main",
+          "source": "EclipseRuntimeLauncher.java:24"
+        },
+        {
+          "method": "EclipseRuntimeLauncher.main",
+          "source": "EclipseRuntimeLauncher.java:24"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 13,
+      "bugId": "21489",
+      "date": "2002-09-11T15:49:44+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "21489",
+  "bugId": "21489",
+  "date": "2002-07-11T17:14:31+02:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

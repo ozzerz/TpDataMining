@@ -1,0 +1,63 @@
+{
+  "comments": [
+    "Using 3.1 M6.\n\nI wanted to refresh all my workspaces with latest M6 plugins and got 2 resources\nexceptions while opening them:\n\n!SESSION 2005-04-02 17:19:14.371 -----------------------------------------------\neclipse.buildId\u003dI20050401-1645\njava.version\u003d1.4.2_04\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nFramework arguments:  -showlocation -showversion -verify\nCommand-line arguments:  -os win32 -ws win32 -arch x86 -showlocation -data\nD:\\usr\\OTI\\workspaces\\dvpt\\v31\\bugs -consoleLog -showversion -verify\n\n!ENTRY org.eclipse.core.resources 4 4 2005-04-02 17:19:14.381\n!MESSAGE Exception occurred while saving project preferences:\n/_Bug/.settings/org.eclipse.jdt.ui.prefs.\n!STACK 1\norg.eclipse.core.internal.resources.ResourceException: A resource already exists\non disk D:\\usr\\OTI\\workspaces\\dvpt\\v31\\HEAD\\_Bug\\.settings\\org.eclipse.jdt.ui.prefs.\n        at org.eclipse.core.internal.resources.File.create(File.java:146)\n        at\norg.eclipse.core.internal.resources.ProjectPreferences.save(ProjectPreferences.java:228)\n        at\norg.eclipse.core.internal.preferences.EclipsePreferences.flush(EclipsePreferences.java:350)\n        at\norg.eclipse.core.internal.resources.ProjectPreferences.flush(ProjectPreferences.java:399)\n        at\norg.eclipse.jdt.internal.ui.preferences.formatter.ProfileManager.writeToPreferenceStore(ProfileManager.java:561)\n        at\norg.eclipse.jdt.internal.ui.preferences.formatter.ProfileManager.commitChanges(ProfileManager.java:677)\n...\n\nI\u0027ll attach a file with complete stack trace.\n\nI\u0027m a little afraid as I noticed it comes from ProfileManager.commitChanges(...)\nwhich already introduced troubles with Code Formatter options (see bug 89739)...",
+    "Created an attachment (id\u003d19481)\nTrace of 2 ResourceException\n",
+    "Note that these 2 exceptions do no longer occur after closing/restarting eclipse.\n",
+    "IMO the problem is in the preference store (may be a race condition). The code\nin ProjectPreferences#save looks like this:\n\nif (fileInWorkspace.exists()) {\n        ...\n\t// set the contents\n\tfileInWorkspace.setContents(input, IResource.KEEP_HISTORY, null);\n} else {\n        ...\n\tfileInWorkspace.create(input, IResource.NONE, null);\n}\n\nSo in the case that the file already exists the code sets only the content and\ndoesn\u0027t create the file. However, the exception complains about the fact that\nthe file already exists, but the then case didn\u0027t get executed.\n\nRegarding Frederics comment for bug 89739: the fix we put in for bug 89739 was\nin a different section of the method. Additional the fix avoids to write the\nstore when it is a build-in profile. So we are writing even less settings.\n\nI tried to reproduce the problem upgrading a M5 workspace to M6 with project\nspecific settings but wasn\u0027t able to do so.",
+    "Agreed, this is a bug in ProjectPreferences.  The entire block in comment #3\nneeds to be inside an IWorkspaceRunnable with appropriate scheduling rule to\nprevent another thread from creating/deleting the resource after the\nIResource.exists() check is performed.\n\nFor a scheduling rule, it should use:\n\nIResourceRulFactory fac \u003d ...\nMultiRule.combine(fac.createRule(file), fac.modifyRule(file);\n\nSince the block may perform either creation or modification of the file.",
+    "Fixed in HEAD."
+  ],
+  "commentCreationDates": [
+    "2005-04-02T16:29:36+02:00",
+    "2005-04-02T16:30:57+02:00",
+    "2005-04-02T16:32:59+02:00",
+    "2005-04-04T00:27:36+02:00",
+    "2005-04-04T17:11:18+02:00",
+    "2005-04-05T17:39:38+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.core.internal.resources.ResourceException",
+      "message": "A resource already exists on disk D:\\usr\\OTI\\workspaces\\dvpt\\v31\\HEAD\\_Bug\\.settings\\org.eclipse.jdt.ui.prefs.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.resources.File.create",
+          "source": "File.java:146"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.ProjectPreferences.save",
+          "source": "ProjectPreferences.java:228"
+        },
+        {
+          "method": "org.eclipse.core.internal.preferences.EclipsePreferences.flush",
+          "source": "EclipsePreferences.java:350"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.ProjectPreferences.flush",
+          "source": "ProjectPreferences.java:399"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.preferences.formatter.ProfileManager.writeToPreferenceStore",
+          "source": "ProfileManager.java:561"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.preferences.formatter.ProfileManager.commitChanges",
+          "source": "ProfileManager.java:677"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "90084",
+      "date": "2005-04-02T16:29:36+02:00",
+      "product": "Platform",
+      "component": "Resources",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "90084",
+  "bugId": "90084",
+  "date": "2005-04-02T16:29:36+02:00",
+  "product": "Platform",
+  "component": "Resources",
+  "severity": "normal"
+}

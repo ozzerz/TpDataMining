@@ -1,0 +1,135 @@
+{
+  "comments": [
+    "The current JDI implementation seems to be throwing VMDisconnected exceptions \nin cases where the problem is really an IOException (bug in the JDI \nimplementation...hot swap on 1.4).\n\nFor example:\nInternal error logged from JDI debug model:\nUnhandled exception caught in event loop.\nReason:\nFailed to execute runnable (java.lang.NullPointerException)\ncom.sun.jdi.VMDisconnectedException: Got IOException from Virtual Machine\n        at\norg.eclipse.jdi.internal.connect.PacketReceiveManager.getReply(Packet\nReceiveManager.java:116)\n        at\norg.eclipse.jdi.internal.connect.PacketReceiveManager.getReply(Packet\nReceiveManager.java:130)\n        at\norg.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:155)\n        at\norg.eclipse.jdi.internal.MirrorImpl.requestVM(MirrorImpl.java:173)\n        at\norg.eclipse.jdi.internal.VirtualMachineImpl.classesBySignature(Virtua\nlMachineImpl.java:449)\n        at\norg.eclipse.jdi.internal.VirtualMachineImpl.classesByName(VirtualMach\nineImpl.java:475)\n        at\norg.eclipse.jdt.internal.debug.core.JDIDebugTarget.jdiClassesByName(J\nDIDebugTarget.java:1038)\n        at\norg.eclipse.jdt.internal.debug.core.JavaBreakpoint.addToTarget(JavaBr\neakpoint.java:349)\n        at\norg.eclipse.jdt.internal.debug.core.JDIDebugTarget.breakpointAdded(JD\nIDebugTarget.java:864)\n        at\norg.eclipse.jdt.internal.debug.core.JDIDebugTarget.reinstallBreakpoin\ntsIn(JDIDebugTarget.java:611)\n        at\norg.eclipse.jdt.internal.debug.core.JDIDebugTarget.typesHaveChanged(J\nDIDebugTarget.java:583)\n        at\norg.eclipse.jdt.internal.debug.core.JavaHotCodeReplaceManager.notify(\nJavaHotCodeReplaceManager.java:223)\n        at\norg.eclipse.jdt.internal.debug.core.JavaHotCodeReplaceManager.notifyJ\nDK(JavaHotCodeReplaceManager.java:204)\n        at\norg.eclipse.jdt.internal.debug.core.JavaHotCodeReplaceManager$2.run(J\navaHotCodeReplaceManager.java:140)\n        at\norg.eclipse.core.internal.resources.Workspace.run(Workspace.java:1186\n)\n        at\norg.eclipse.jdt.internal.debug.core.JavaHotCodeReplaceManager$3.run(J\navaHotCodeReplaceManager.java:400)\n        at java.lang.Thread.run(Unknown Source)",
+    "Added comment from Jared Burns:\n\n\" (recommend) Giving the JDI packet managers some serious review.\nThe VMDisconnectedExceptions they throw are adding serious instability to our\ncode base.\"",
+    "Deferred",
+    "Related to bug# 21226.",
+    "Marking as 2.1 candidate. Need to review the JDI IO/Disconnect exceptions for \n2.1.",
+    "From my review, I beleive that an IOException is a disconnect exception. When \nwe read/write a socket which is connected to the target, and we get an \nexception, our communication is ended with the target VM, and the target has \neffectively disconnected.\n\nHowever, we need improve our handling of VMDisconnected. Whenever this \nexception is encountered, we should be updating our debug model \nas \"disconnected\". Otherwise, it will repeatedly try to communicate with the \ntarget, and always get VMDisconnectExceptions and display as \"not responding\". \n\nLuc, do you agree?",
+    "Indeed. I just take a quick of the debug model code, the VMDisconnected\nexception is almost never managed (just logged or skipped). We really need to\nhandle that.",
+    "Perhaps we should be receiving a VM Disconnect event from the event queue \nwhenever this exception occurrs. That way we could process the event centrally, \nrather than everywhere the exception occurrs.",
+    "The EventQueueImpl will create a VM Disconnect event if a disconnect happens \nwhile reading an event from the target VM, or if the VM has disconnected since \nthe last event was read. Thus, it looks like we should always get a disconnect \nevent from the event queue, and our debug model should update properly.",
+    "Pretty sure this violates the JDI spec. I think the spec says that a \nVMDisconnectedException can only be thrown when there is a VMDisconnectEvent \non the queue from the VM.",
+    "The fact that we throw VMDisconnectedExceptions so often seems to be \n\"illegal\" according to the spec. Rather than throwing these exceptions when \nwe get an IOException, we should probably first check if there is a \nVMDisconnectEvent on the queue. If there is, we should throw the \nVMDisconnectedException and then process the VMDisconnectEvent next. Not \nsure what we\u0027re supposed to do if there\u0027s no VMDisconnectEvent waiting.\n\nFrom the index page of the JDI spec:\nNOTE: The exceptions below may be thrown whenever the specified conditions \nare met but a guarantee that they are thrown only exists when a valid \nresult cannot be returned. \nVMDisconnectedException\n\nAny method on ObjectReference, ReferenceType, EventRequest, StackFrame, or  \nVirtualMachine or which takes one of these directly or indirectly as an \nparameter may throw VMDisconnectedException if the target VM is \ndisconnected and the VMDisconnectEvent has been or is available to be read \nfrom the EventQueue. ",
+    "I think we are in compliance. If we get an IOException reading from the target, \na disconnect is thrown, and the connection is closed. This should only happen \nonce. Thus, the JDI implementation only throws the exception once. If we then \nmake any requests of the VM, the exception will be thrown - but that is the \nclient use of JDI, not our JDI implementation.\n\nI think we follow exactly what you have stated: \"Any method on ObjectReference, \nReferenceType, EventRequest, StackFrame, or VirtualMachine or which takes one \nof these directly or indirectly as an parameter may throw \nVMDisconnectedException if the target VM is disconnected and the \nVMDisconnectEvent has been or is available to be read \nfrom the EventQueue\"",
+    "Forgot to mention - when the disconnect happens, an event is placed on the \nevent queue (only once).",
+    "I checked the code, it looks like the JDI client don\u0027t respect completly this\npoint of the spec.\n\nIn EvenQueueImpl, when a VMDisconnected exception is catched, an VMDisconnected\nevent is generated if needed.\n\nBut there is not such mechanism when the debugger send a command or wait for a\nreply. In this case, a VMDisconnected exception is thrown, but no VMDisconnected\nevent is send. It should be why the java model is not updated.",
+    "I think the event will be generated the next time the event queue is read. \nSince the EventQueueImpl will attempt to read the next command packet, which \nwill throw a VM Disconnect, which will generate the VMDisconnectEvent. Thus, if \na disconnect exception is thrown, the event will appear (be available on the \nqueue) in the queue on the next read.",
+    "The spec says \"has been or is available\", not \"will be available\" ...\n\nAn other point, there are two stream used in the connection between the VM and\nthe debugger (debugger -\u003e VM and VM -\u003e debugger).\n\nIs there any way that just one stream (debugger -\u003e VM) is broken ? In this case,\nthe EventQueue never generates a VMDisconnected event (stream VM -\u003e debugger is\nok) but the debugger is not more able to send commands.\n\nDoes that can explain the fact that sometime a launch is in a \u0027ghost\u0027 state ?\n(every commands failed and the only way to remove the launch is use \"Terminate\nand remove\") Do we have any test case for that ?",
+    "In this case, \"is available\" and \"will be\" are the same. In either case, the \nnext read will generate the event - whether the event is generated as a result \nof the read, or was there to begin with is irrelevant, because the result is \nthe same - it is returned in the next event set.\n\nNeed to investigate if it is possible for only one stream to break/close.",
+    "I think there is a bug with the \"VMIsDisconnected()\" method in PacketManager. \nThe problem is that there are two packet managers - one for receive, and one \nfor send. They both have \"disconnected\" flags - and there should only be one \nshared flag for each debug session. Thus it may be possible for one pipe to \ndisconnect, but not the other.\n\nI checked the code to ensure that each place a VMDisconnectedException is \nthrown, that the state is actually set/verified to be disconnected. There is \none place where the state is not set properly - Mirror.defaultReplyErrorHandler\n(int). When a VM_DEAD reply is received, we throw a disconnected exception, but \nwe should also call \"disconnectVM\".\n\nI beleive that the \"disconnected\" flag should be in the VirtualMachine (shared \nfor both packet managers), and disconnecting should disconnect both the send \nand receive managers.",
+    "Fixed. Centralized \"disconnected\" flag in VirtualMachineImpl.",
+    "Please verify, Luc."
+  ],
+  "commentCreationDates": [
+    "2001-11-21T23:16:44+01:00",
+    "2001-12-04T21:49:05+01:00",
+    "2002-02-28T17:05:30+01:00",
+    "2002-07-30T22:37:47+02:00",
+    "2002-07-30T22:38:23+02:00",
+    "2002-09-30T20:37:02+02:00",
+    "2002-09-30T21:18:02+02:00",
+    "2002-10-02T21:19:28+02:00",
+    "2002-10-02T21:32:02+02:00",
+    "2002-10-02T21:36:14+02:00",
+    "2002-10-02T21:40:56+02:00",
+    "2002-10-02T21:55:15+02:00",
+    "2002-10-02T21:56:04+02:00",
+    "2002-10-02T22:12:09+02:00",
+    "2002-10-02T22:18:15+02:00",
+    "2002-10-02T23:07:12+02:00",
+    "2002-10-02T23:20:45+02:00",
+    "2002-10-03T15:23:04+02:00",
+    "2002-10-07T20:44:26+02:00",
+    "2002-10-07T20:44:36+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "com.sun.jdi.VMDisconnectedException",
+      "message": "Got IOException from Virtual Machine",
+      "elements": [
+        {
+          "method": "org.eclipse.jdi.internal.connect.PacketReceiveManager.getReply",
+          "source": "Packet ReceiveManager.java:116"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.connect.PacketReceiveManager.getReply",
+          "source": "Packet ReceiveManager.java:130"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+          "source": "MirrorImpl.java:155"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.MirrorImpl.requestVM",
+          "source": "MirrorImpl.java:173"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.VirtualMachineImpl.classesBySignature",
+          "source": "Virtua lMachineImpl.java:449"
+        },
+        {
+          "method": "org.eclipse.jdi.internal.VirtualMachineImpl.classesByName",
+          "source": "VirtualMach ineImpl.java:475"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JDIDebugTarget.jdiClassesByName",
+          "source": "J DIDebugTarget.java:1038"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JavaBreakpoint.addToTarget",
+          "source": "JavaBr eakpoint.java:349"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JDIDebugTarget.breakpointAdded",
+          "source": "JD IDebugTarget.java:864"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JDIDebugTarget.reinstallBreakpointsIn",
+          "source": "JDIDebugTarget.java:611"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JDIDebugTarget.typesHaveChanged",
+          "source": "J DIDebugTarget.java:583"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JavaHotCodeReplaceManager.notify",
+          "source": " JavaHotCodeReplaceManager.java:223"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JavaHotCodeReplaceManager.notifyJDK",
+          "source": "JavaHotCodeReplaceManager.java:204"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JavaHotCodeReplaceManager$2.run",
+          "source": "J avaHotCodeReplaceManager.java:140"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1186 "
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.JavaHotCodeReplaceManager$3.run",
+          "source": "J avaHotCodeReplaceManager.java:400"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "6211",
+      "date": "2001-11-21T23:16:44+01:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "6211",
+  "bugId": "6211",
+  "date": "2001-11-21T23:16:44+01:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "normal"
+}

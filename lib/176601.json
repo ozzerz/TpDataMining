@@ -1,0 +1,115 @@
+{
+  "comments": [
+    "As we are allowing more and more background jobs to do work in RSE, some of these jobs want to notify the System about state changes and send e.g. a Refresh event.\n\nSuch events are typically expected to be delivered on the dispatch thread. But currently, SystemRegistry.fireEvent() just uses the current thread of the caller, which leads to SWT.InvalidThreadAccess exceptions which we have recently seen in the org.eclipsecon.tmtutorial for instance.\n\nI think there are three possible solutions to this:\nA) Write up API Docs for fireEvent() that tells clients that they always need\n   to switch to the display thread themselves before calling it. IMHO, this \n   leads to duplication and is error prone.\nB) Add a check to fireEvent() which tests if it is running on the display \n   thread already; if yes, send event synchronously and if no, post it \n   to the event queue asynchronously. IMHO, this may be problematic because \n   the semantics of it is not always clear, and the extra thread check is \n   unnecessary work for clients that do know which thread they are on.\nC) Add methods postEvent() which always posts using asyncExec() and sendEvent()\n   which requires callers to be on the display thread. Deprecate fireEvent()\n   but add delegating code which checks for the current thread and delegates\n   either to sendEvent() or postEvent().\n\nIn my opinion, (C) is best. In order to reduce the number of methods in SystemRegistry, we should do the new sendEvent() / postEvent() methods only\nonce and avoid convenience variants of them.\n\nComments ?",
+    "Here is one example of a backtrace from the Eclipsecon tutorial, which occurs because SubSystem$ConnectJob doesnt switch to the display thread correctly for firing the event.\n\norg.eclipse.swt.SWTException: Invalid thread access\nat org.eclipse.swt.SWT.error(SWT.java:3478)\nat org.eclipse.swt.SWT.error(SWT.java:3401)\nat org.eclipse.swt.SWT.error(SWT.java:3372)\nat org.eclipse.swt.widgets.Widget.error(Widget.java:432)\nat org.eclipse.swt.widgets.Widget.checkWidget(Widget.java:326)\nat org.eclipse.swt.widgets.Widget.getData(Widget.java:485)\nat org.eclipse.rse.internal.ui.view.monitor.MonitorViewWorkbook.getCurrentTabItem(MonitorViewWorkbook.java:156)\nat org.eclipse.rse.internal.ui.view.monitor.MonitorViewWorkbook.getViewer(MonitorViewWorkbook.java:180)\nat org.eclipse.rse.internal.ui.view.monitor.SystemMonitorViewPart.getViewer(SystemMonitorViewPart.java:639)\nat org.eclipse.rse.internal.ui.view.monitor.SystemMonitorViewPart.systemResourceChanged(SystemMonitorViewPart.java:805)\nat org.eclipse.rse.internal.model.SystemResourceChangeManager.notify(SystemResourceChangeManager.java:74)\nat org.eclipse.rse.model.SystemRegistry.fireEvent(SystemRegistry.java:2955)\nat org.eclipse.rse.model.SystemRegistry.connectedStatusChange(SystemRegistry.java:2860)\nat org.eclipse.rse.model.SystemRegistry.connectedStatusChange(SystemRegistry.java:2844)\nat org.eclipse.rse.core.subsystems.SubSystem$ConnectJob.performOperation(SubSystem.java:1590)\nat org.eclipse.rse.core.subsystems.SubSystem$SubSystemOperationJob.run(SubSystem.java:1274)\nat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)\n",
+    "Browsing through Eclipse code a little, it seems to me that variants of fireEvent() are only used when (SWT) widgets or other UI elements communicate with each other, so it is obvious that all kind of event firing is always on the display thread.\n\nMore generic kinds of event handling, however, seem to always use variants of postEvent() / sendEvent() where sendEvent is often \"more hidden\" than postEvent and used for internal kinds of communication only.",
+    "Based on the fact that the variants usually fire events from UI code, what do you think we should do?  Do you think think we should explicitly switch to the Display thread or do you think introduce other ways to fire events (i.e. postEvent() and sendEvent())?",
+    "Not for 2.0",
+    "I\u0027d like to take a first stab at this in 2.0 because it\u0027s causing some exceptions in the current code.  I\u0027ll make my changes so that no APIs actually change.",
+    "I\u0027ve added code to put the event firing on the main thread whenever it is not already on it.",
+    "So, Dave - the bug status should be FIXED then, shouldn\u0027t it?\n\nWe should consider this VERY carefully, because fireEvent() is a method in ISystemRegistry for which we have planned implementation to go into non-UI. In a headless RSE in the future, we will not have UI so there is no concept of a display thread and no access to SWT.Display.\n\nAt any rate, we need to update Javadoc to clearly specify what we do. I\u0027d recommend specifying that if we are running with UI, fireEvent() will switch to the display thread; but in a headless environment, it can be any other thread. \n\nThis means that UI components which register themselves as listeners can be sure they are notified on the display thread. Non-UI components should be aware that it can be any other thread. In order to implement this, in the future, SystemRegistryUI would need to set the EventNotifier in SystemRegistry so it can do the event switching.\n\nWe should perhaps discuss this quickly at the committer meeting since it is a very important change.",
+    "marking fixed to ease release notes generation and tracking",
+    "*** Bug 174775 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2007-03-07T13:10:18+01:00",
+    "2007-03-07T13:11:28+01:00",
+    "2007-03-07T13:20:40+01:00",
+    "2007-04-13T16:57:22+02:00",
+    "2007-05-18T22:08:05+02:00",
+    "2007-05-24T22:20:18+02:00",
+    "2007-05-24T22:41:26+02:00",
+    "2007-05-25T10:11:17+02:00",
+    "2007-05-25T13:14:46+02:00",
+    "2007-05-30T15:50:04+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Invalid thread access",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3478"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3401"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3372"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:432"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.checkWidget",
+          "source": "Widget.java:326"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.getData",
+          "source": "Widget.java:485"
+        },
+        {
+          "method": "org.eclipse.rse.internal.ui.view.monitor.MonitorViewWorkbook.getCurrentTabItem",
+          "source": "MonitorViewWorkbook.java:156"
+        },
+        {
+          "method": "org.eclipse.rse.internal.ui.view.monitor.MonitorViewWorkbook.getViewer",
+          "source": "MonitorViewWorkbook.java:180"
+        },
+        {
+          "method": "org.eclipse.rse.internal.ui.view.monitor.SystemMonitorViewPart.getViewer",
+          "source": "SystemMonitorViewPart.java:639"
+        },
+        {
+          "method": "org.eclipse.rse.internal.ui.view.monitor.SystemMonitorViewPart.systemResourceChanged",
+          "source": "SystemMonitorViewPart.java:805"
+        },
+        {
+          "method": "org.eclipse.rse.internal.model.SystemResourceChangeManager.notify",
+          "source": "SystemResourceChangeManager.java:74"
+        },
+        {
+          "method": "org.eclipse.rse.model.SystemRegistry.fireEvent",
+          "source": "SystemRegistry.java:2955"
+        },
+        {
+          "method": "org.eclipse.rse.model.SystemRegistry.connectedStatusChange",
+          "source": "SystemRegistry.java:2860"
+        },
+        {
+          "method": "org.eclipse.rse.model.SystemRegistry.connectedStatusChange",
+          "source": "SystemRegistry.java:2844"
+        },
+        {
+          "method": "org.eclipse.rse.core.subsystems.SubSystem$ConnectJob.performOperation",
+          "source": "SubSystem.java:1590"
+        },
+        {
+          "method": "org.eclipse.rse.core.subsystems.SubSystem$SubSystemOperationJob.run",
+          "source": "SubSystem.java:1274"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "176601",
+      "date": "2007-03-07T13:11:28+01:00",
+      "product": "Target Management",
+      "component": "RSE",
+      "severity": "enhancement"
+    }
+  ],
+  "groupId": "176601",
+  "bugId": "176601",
+  "date": "2007-03-07T13:10:18+01:00",
+  "product": "Target Management",
+  "component": "RSE",
+  "severity": "enhancement"
+}

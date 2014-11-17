@@ -1,0 +1,70 @@
+{
+  "comments": [
+    "I am trying to use the refactoring support in an environment where the project \nsource tree is accessed via links and some parts of the raw tree are filtered \nout.\n\nSpecifically I am trying to rename a class and when the refactoring dialog \ncomes up I select all the options which forces a preview. When I select the \n\"preview\" button, the system works for a moment, flashes up another dialog or \nmessage box which disappears before it can be seen and finally presents a \ndialog that states that an internal processing error has occurred and that \ndetails will be found in the log.\n\nWhen I look at the log below\n\n!SESSION Jan 31, 2003 07:56:09.772 --------------------------------------------\n-\njava.version\u003d1.4.1_01\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments: -os win32 -ws win32 -arch x86 -data \nE:\\CRYPTOAdminWorkspace-6.0 -showlocation -install file:E:/Eclipse-\nI20030129/eclipse/\n!ENTRY org.eclipse.jdt.ui 4 10001 Jan 31, 2003 07:56:09.772\n!MESSAGE Internal Error\n!STACK 0\njava.lang.reflect.InvocationTargetException\n\tat org.eclipse.jdt.internal.ui.refactoring.CheckConditionsOperation.run\n(CheckConditionsOperation.java:61)\n\tat org.eclipse.jdt.internal.ui.refactoring.CreateChangeOperation.run\n(CreateChangeOperation.java:94)\n\tat org.eclipse.jface.operation.ModalContext$ModalContextThread.run\n(ModalContext.java:95)\nCaused by: Java Model Exception: Core Exception [code 969] \nRelease/com/cryptocard/HalfPint [in CRYPTOAdmin-6.0] does not exist.\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.RenameTypeRefactoring.checkI\nnput(RenameTypeRefactoring.java:389)\n\tat org.eclipse.jdt.internal.ui.refactoring.CheckConditionsOperation.run\n(CheckConditionsOperation.java:59)\n\t... 2 more\n\nwe see that the system is complaining about Release/com/cryptocard/HalfPint. \nThis is one of the directories that has been filtered out of the project.\n\nI am attaching the .project and .classpath files for the project as supporting \nmaterial.\n\nRegards\n\nJonathan Gossage",
+    "Created an attachment (id\u003d3248)\nThe .project file for the problem project.\n",
+    "Created an attachment (id\u003d3249)\nThe .classpath file for the problem project.\n",
+    "The JavaModel exception seems legite if the file is excluded. Moving to \nrefactoring for further analysis (feels like they should never have got a hold \nonto it). Where did it came from ?",
+    "Adam, the first bug regarding linked resources and exculsion filters. ",
+    "Jonathan, what do you mean with filtered out. Excluded from the class path or \nfiltered in the package explorer (UI) ?",
+    "silly me - i guess i know the answer to Dirk\u0027s question\ni forgot to look at the classpath file\nit contains excluded folders\n",
+    "It is filtered out from the source tree using the Java project wizard.\n\nRegards\n\nJonathan Gossage",
+    "i cannot reproduce the exception\nbut we noticed that search engine reports results in excluded files\n\n1. create a jproject with a source folder (lined) src\n2. create 2 package in it\n a.b.c with A.java\n d.e.f with B.java - with class B that references class A\n\n3. search for refs to A - you find some in B.java\n4. exclude d/ from the classpath\n5. search again for refs to A - you still find some in B.java (which is now \nincorrect as it\u0027s not a real java file anymore (compiler ignores it))\n\nasking jcore for comment",
+    "Sounds like a bug",
+    "Adam\u0027s problem happens only if an editor on B.java is open. In this case, the \ncorresponding IWorkingCopy is passed to the SearchEngine and the SearchEngine \nlooks for matches in this IWorkingCopy.\n\nShould the SearchEngine exclude IWorkingCopies whose original element is \nexcluded? Or should the UI do the filtering beforehand? \n\nIf we choose the former solution, it will never be possible to search in \nIWorkingCopies open on non-java resources. If we choose the latter solution, it \nis more flexible and the decision can be taken at the UI level.\n\nMoving to JDT/UI for comment.",
+    "No we have two different issue in one PR. I split it. For the search engine \nproblem I opened bug 31473.\n\nAdam, can you please try to reproduce the original problem. ",
+    "reproduced",
+    "the folders being linked did not matter\nthe key points were the exclusions and the fact that Jonathan checked all \noptions (which i missed before)\nthe exception happened in TextMatchFinder (this was a bit obscured before)\nfix is easy\n\nCaused by: Java Model Exception: Java Model Status \n[Release/com/cryptocard/HalfPint [in CRYPTOAdmin-6.0] does not exist.]\n\tat org.eclipse.jdt.internal.core.JavaElement.newNotPresentException\n(JavaElement.java:482)\n\tat org.eclipse.jdt.internal.core.PackageFragmentRoot.openWhenClosed\n(PackageFragmentRoot.java:780)\n\tat org.eclipse.jdt.internal.core.Openable.openParent(Openable.java:369)\n\tat org.eclipse.jdt.internal.core.Openable.openWhenClosed\n(Openable.java:385)\n\tat org.eclipse.jdt.internal.core.PackageFragment.openWhenClosed\n(PackageFragment.java:314)\n\tat org.eclipse.jdt.internal.core.Openable.openParent(Openable.java:369)\n\tat org.eclipse.jdt.internal.core.CompilationUnit.openParent\n(CompilationUnit.java:751)\n\tat org.eclipse.jdt.internal.core.Openable.openWhenClosed\n(Openable.java:385)\n\tat org.eclipse.jdt.internal.core.JavaElement.openHierarchy\n(JavaElement.java:503)\n\tat org.eclipse.jdt.internal.core.JavaElement.getElementInfo\n(JavaElement.java:296)\n\tat org.eclipse.jdt.internal.core.Openable.getBuffer(Openable.java:187)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.RefactoringScanner.scan\n(RefactoringScanner.java:43)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.TextMatchFinder.addTextMatche\ns(TextMatchFinder.java:165)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.TextMatchFinder.addTextMatche\ns(TextMatchFinder.java:141)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.TextMatchFinder.addTextMatche\ns(TextMatchFinder.java:152)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.TextMatchFinder.addTextMatche\ns(TextMatchFinder.java:152)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.TextMatchFinder.addTextMatche\ns(TextMatchFinder.java:152)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.TextMatchFinder.addTextMatche\ns(TextMatchFinder.java:152)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.TextMatchFinder.addTextMatche\ns(TextMatchFinder.java:152)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.TextMatchFinder.findTextMatch\nes(TextMatchFinder.java:116)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.TextMatchFinder.findTextMatch\nes(TextMatchFinder.java:89)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.TextMatchFinder.findTextMatch\nes(TextMatchFinder.java:61)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.RenameTypeRefactoring.addText\nMatches(RenameTypeRefactoring.java:742)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.RenameTypeRefactoring.createC\nhangeManager(RenameTypeRefactoring.java:762)\n\tat \norg.eclipse.jdt.internal.corext.refactoring.rename.RenameTypeRefactoring.checkIn\nput(RenameTypeRefactoring.java:384)\n",
+    "to verify do this:\n1. create a jproject j\n2. create a source folder src in in it\n3. create a package a.b in scr\n4. create a file A.java in package a.b\n5. creat a file B.java in package a (with class B in it)\n6. exclude a.b from classpath\n7. select class B\n8. rename (check option \u0027update references in javadoc comments\u0027)\n9. press preview",
+    "fixed"
+  ],
+  "commentCreationDates": [
+    "2003-01-31T12:45:35+01:00",
+    "2003-01-31T12:47:40+01:00",
+    "2003-01-31T12:48:13+01:00",
+    "2003-01-31T12:57:49+01:00",
+    "2003-01-31T13:27:37+01:00",
+    "2003-01-31T13:35:40+01:00",
+    "2003-01-31T14:04:25+01:00",
+    "2003-01-31T15:26:44+01:00",
+    "2003-01-31T16:10:49+01:00",
+    "2003-01-31T17:28:47+01:00",
+    "2003-02-10T16:31:09+01:00",
+    "2003-02-10T16:55:49+01:00",
+    "2003-02-13T17:59:51+01:00",
+    "2003-02-13T18:19:42+01:00",
+    "2003-02-13T18:23:21+01:00",
+    "2003-02-13T18:27:00+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.reflect.InvocationTargetException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.CheckConditionsOperation.run",
+          "source": "CheckConditionsOperation.java:61"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.refactoring.CreateChangeOperation.run",
+          "source": "CreateChangeOperation.java:94"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext$ModalContextThread.run",
+          "source": "ModalContext.java:95"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "30706",
+      "date": "2003-01-31T12:45:35+01:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "30706",
+  "bugId": "30706",
+  "date": "2003-01-31T12:45:35+01:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "major"
+}

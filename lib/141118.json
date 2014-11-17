@@ -1,0 +1,55 @@
+{
+  "comments": [
+    "digestURL is always treated as absolute path, this is a big problem for sites that are replicated like main eclipse.org and callisto update sites since after replication digestURL should be changed. This also represents problem for testing sites since they are usually tested in one place and then later moved to public directory",
+    "Created an attachment (id\u003d41000)\nupdate core\n\nalthough this change looks big it really very small. The big part of the change is that moving digest handling (4 methods which did not use any instance or class variables)from DefaultSiteParser to UpdateManagerUtils. This was done so that we can call DigestParser after siteURL is set in SiteModel class which allow us to try to calculate absolut bath from relative path by prepanding site url to digest url if digestURL is relative path. This happens in this code which is the only code added:\nif (digestURL.indexOf(\"://\") \u003d\u003d -1) { //$NON-NLS-1$\n\t\t\tString siteURL \u003d site.getLocationURL().toExternalForm();\n\t\t\tif (siteURL.endsWith(Site.SITE_XML)) {\n\t\t\t\tsiteURL \u003d siteURL.substring(0, siteURL.length() - Site.SITE_XML.length());\n\t\t\t} \n\t\t\tif (digestURL.equals(\"/\")) { //$NON-NLS-1$\n\t\t\t\tdigestURL \u003d siteURL;\n\t\t\t} else {\n\t\t\t\tif (digestURL.startsWith(\"/\")) { //$NON-NLS-1$\n\t\t\t\t\tdigestURL \u003d digestURL.substring(1, digestURL.length());\n\t\t\t\t}\n\t\t\t\tdigestURL \u003d siteURL + digestURL;\n\t\t\t}\n\t\t}",
+    "Dave, this have a potential of making your life easier but I am not convinced it is warranted this late in the game. Can you live with absolute URLs for digests for now? As Branko pointed out, the main problem is when you want to copy the site elsewhere. Entering the full URL if you don\u0027t plan to move the site is not a big deal.",
+    "I (and Callisto :) can live without this ... but, I still think its a serious problem that could break corporate update site policies, and/or might even prove to be a compelte bottle neck to update, if eclipse.org happens to be down. \n\nIts my understanding that some corporations create \"mirror sites\" by copying once from eclipse.org, and then directing their employees to get/update from their own corporate site. So, this once case would \"force\" a path the eclipse.org? Or, all such users to have to \"hand edit\" their mirror sites? \n\nAlso, in those hopefully rare cases when eclipse.org is down, or \"totally saturated\", then having to *required* users to go back to eclipse.org even for one small file could prove to be a bottle neck. \n\nSo .. I think I\u0027m just the \"canary in the mine\" :) ... and this deserves fixing in 3.2. \n\n",
+    "David, I don\u0027t think we described the problem clearly. You will not need to reach out of the site to get the digest. You simply need to modify site.xml to point at the digest local to the site, but unfortunately by still using the full URL. Example:\n\nsite URL: http://my.site.org/site.xml\nDigest URL: http:/my.site.org/digest.zip\n\nIf you mirror the site to http://another.site.org/site.xml\n\nyour digest should be: http://another.site.org/digest.zip\n\nNote that when the mirrring command does not mirrot digests today, so it is a moot point anyway.\n",
+    "I think we should raise this one to the RC4 candidate. It has a potential for causing problems by forcing update to look back to the originating server when a site mirror is made by simple copy. \n\nThe patch looks somewhat scary but all it really does is moves the bulk of the code into a utility method and calling it later when the site URL becomes available.\n\n+1\n\nAdding DJ for checking over the code and Jeff for voting.",
+    "Created an attachment (id\u003d41230)\nupdate core\n\npatch needed a change in order to compile against new head",
+    "did this make it in to RC4? \n\nI still see a \"no protocol\" error, but during the digest _creation_ if I have just \"plain\" digest.zip for URL. \n\n\ncreateDigest:\n     [java] java.net.MalformedURLException: no protocol: digest.zip/digest.zip\n     [java]     at java.net.URL.\u003cinit\u003e(URL.java(Compiled Code))\n     [java]     at java.net.URL.\u003cinit\u003e(URL.java:463)\n     [java]     at java.net.URL.\u003cinit\u003e(URL.java:412)\n     [java]     at org.eclipse.update.core.model.DefaultSiteParser.getFullDigestURL(DefaultSiteParser.java:940)\n     [java] Extracting locales from /home/data/users/david_williams/downloads/callisto/staging/features/org.apache.commons_logging.feature_1.0.4.v200605180400--084228273_2672.jar\n     [java]     at org.eclipse.update.core.model.DefaultSiteParser.getLightFeatures(DefaultSiteParser.java:910)\n     [java]     at org.eclipse.update.core.model.DefaultSiteParser.endElement(DefaultSiteParser.java:273)\n     [java]     at org.apache.xerces.parsers.AbstractSAXParser.endElement(Unknown Source)\n     [java]     at org.apache.xerces.impl.XMLNSDocumentScannerImpl.scanEndElement(Unknown Source)\n     [java]     at org.apache.xerces.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch(Unknown Source)\n     [java]     at org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanDocument(Unknown Source)\n     [java]     at org.apache.xerces.parsers.XML11Configuration.parse(Unknown Source)\n     [java]     at org.apache.xerces.parsers.XML11Configuration.parse(Unknown Source)\n     [java]     at org.apache.xerces.parsers.XMLParser.parse(Unknown Source)\n     [java]     at org.apache.xerces.parsers.AbstractSAXParser.parse(Unknown Source)\n     [java]     at javax.xml.parsers.SAXParser.parse(Unknown Source)\n     [java]     at org.eclipse.update.core.model.DefaultSiteParser.parse(DefaultSiteParser.java:156)\n     [java]     at org.eclipse.update.internal.provisional.SiteOptimizerApplication.getFeatureListFromSiteXML(SiteOptimizerApplication.java:424)\n     [java]     at org.eclipse.update.internal.provisional.SiteOptimizerApplication.getFeatureList(SiteOptimizerApplication.java:375)\n     [java]     at org.eclipse.update.internal.provisional.SiteOptimizerApplication.runDigestBuilder(SiteOptimizerApplication.java:185)\n     [java]     at org.eclipse.update.internal.provisional.SiteOptimizerApplication.run(SiteOptimizerApplication.java:467)\n     [java]     at org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:78)\n     [java]     at org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:92)\n     [java]     at org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:68)\n     [java]     at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:400)\n     [java]     at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:177)\n     [java] Extracting locales from /home/data/users/david_williams/downloads/callisto/staging/features/org.apache.jakarta_log4j.feature_1.2.8.v200605180400--084228273_2672.jar\n     [java]     at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n     [java]     at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:85)\n     [java]     at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:58)\n     [java]     at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:60)\n     [java]     at java.lang.reflect.Method.invoke(Method.java:391)\n     [java]     at org.eclipse.core.launcher.Main.invokeFramework(Main.java:336)\n     [java]     at org.eclipse.core.launcher.Main.basicRun(Main.java:280)\n     [java]     at org.eclipse.core.launcher.Main.run(Main.java:977)\n     [java]     at org.eclipse.core.launcher.Main.main(Main.java:952)\n     [java] Extracting locales from /home/data/users/david_williams/downloads/callisto/staging/features/org.apache.xerces.feature_2.8.0.v200605051415--08422826392652.jar\n     [java] Extracting locales from /home/data/users/david_williams/downloads/callisto/staging/features/org.eclipse.platform_3.2.0.v20060512-0730-_OZ2g3C9A7hWY9A.jar\n     [java] Extracting locales from /home/data/users/david_williams/downloads/callisto/staging/features/org.eclipse.equinox_3.2.0.v20060509------Cq0bcpccoh.jar\n     [java] Extracting locales from /home/data/users/david_williams/downloads/callisto/staging/features/org.eclipse.birt_2.1.0.N20060430-1302.jar\n",
+    "No. The change was deemed too risky for RC4 because it was not limited to digest generation - it affected Update proper.",
+    "True it affects update proper, but only interpretation of digest url and not anything else.",
+    "Too many lines are changed in this patch to feel comfortable for 3.2, but this is an important shortcoming that should be in as soon as we open the shop for maintainance. \n\nScheduling for 3.2.1.",
+    "commited."
+  ],
+  "commentCreationDates": [
+    "2006-05-10T20:44:11+02:00",
+    "2006-05-10T20:53:10+02:00",
+    "2006-05-10T20:57:43+02:00",
+    "2006-05-10T22:53:42+02:00",
+    "2006-05-10T23:15:14+02:00",
+    "2006-05-11T19:59:07+02:00",
+    "2006-05-11T22:57:35+02:00",
+    "2006-05-20T00:27:20+02:00",
+    "2006-05-20T01:26:23+02:00",
+    "2006-05-26T21:54:22+02:00",
+    "2006-05-26T23:00:10+02:00",
+    "2006-08-08T06:51:29+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.net.MalformedURLException",
+      "message": "no protocol: digest.zip/digest.zip      [java]",
+      "elements": [
+        {
+          "method": "java.net.URL.\u003cinit\u003e",
+          "source": "URL.java(Compiled Code)"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 7,
+      "bugId": "141118",
+      "date": "2006-05-20T00:27:20+02:00",
+      "product": "Platform",
+      "component": "Update",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "141118",
+  "bugId": "141118",
+  "date": "2006-05-10T20:44:11+02:00",
+  "product": "Platform",
+  "component": "Update",
+  "severity": "normal"
+}

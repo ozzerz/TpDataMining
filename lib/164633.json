@@ -1,0 +1,48 @@
+{
+  "comments": [
+    "Take this two classes below:\nCalling test.Model.main throws an error:\nException in thread \"main\" java.lang.IncompatibleClassChangeError\n\tat test.BoundEntityAspect.ajc$interMethodDispatch1$test_BoundEntityAspect$test_BoundEntityAspect$BoundBean$getPropertyChangeSupport(BoundEntityAspect.aj)\n\tat test.Model$ChangeL.propertyChange(Model.java:12)\n\tat test.Model.main(Model.java:17)\n\n\nChanging line 12 in Model from \n\ngetPropertyChangeSupport().firePropertyChange(\"valid\", null, null);\nto \nModel.this.getPropertyChangeSupport().firePropertyChange(\"valid\", null, null);\n\nfixes the problem.\n\nexplicitly changing to:\nthis.getPropertyChangeSupport().firePropertyChange(\"valid\", null, null);\ncompiles but should not (and of course) throws this excpetion.\n\npackage test;\n\nimport java.beans.PropertyChangeListener;\nimport java.beans.PropertyChangeSupport;\nimport java.io.Serializable;\n\npublic aspect BoundEntityAspect {\n\n\tinterface BoundBean extends Serializable {}\n\t\n\tdeclare parents: test.* \u0026\u0026 !BoundEntityAspect implements BoundBean;\n\t\n\tpublic PropertyChangeSupport BoundBean.propertySupport;\n\n\tpublic void BoundBean.addPropertyChangeListener(\n\t\t\tPropertyChangeListener listener) {\n\t\tgetPropertyChangeSupport().addPropertyChangeListener(listener);\n\t}\n\n\tpublic void BoundBean.addPropertyChangeListener(String propertyName,\n\t\t\tPropertyChangeListener listener) {\n\t\tgetPropertyChangeSupport().addPropertyChangeListener(propertyName, listener);\n\t}\n\n\tpublic void BoundBean.removePropertyChangeListener(String propertyName,\n\t\t\tPropertyChangeListener listener) {\n\t\tgetPropertyChangeSupport().removePropertyChangeListener(propertyName, listener);\n\t}\n\n\tpublic void BoundBean.removePropertyChangeListener(\n\t\t\tPropertyChangeListener listener) {\n\t\tgetPropertyChangeSupport().removePropertyChangeListener(listener);\n\t}\n\n\tpublic void BoundBean.hasListeners(String propertyName) {\n\t\tgetPropertyChangeSupport().hasListeners(propertyName);\n\t}\n\n\tpublic synchronized PropertyChangeSupport BoundBean.getPropertyChangeSupport() {\n\t\tif (propertySupport \u003d\u003d null) {\n\t\t\tpropertySupport \u003d new PropertyChangeSupport(this);\n\t\t}\n\t\treturn propertySupport;\n\t}\n\t\n\tpointcut setter(BoundBean bean): execution(void BoundBean+.set*(*)) \u0026\u0026 this(bean);\n\n\tvoid around(BoundBean bean): setter(bean) \u0026\u0026 if (bean.propertySupport !\u003d null) {\n\t}\n\n\tpointcut indexedSetter(BoundBean bean, int index): execution(void BoundBean+.set*(int, *)) \u0026\u0026 args(index,*) \u0026\u0026 this(bean);\n\t\n\tvoid around(BoundBean bean, int index): indexedSetter(bean, index) \u0026\u0026 if(bean.propertySupport !\u003d null) {\n\t}\n\t\n}\n--------------\npackage test;\n\nimport java.beans.PropertyChangeEvent;\nimport java.beans.PropertyChangeListener;\n\npublic class Model {\n\n\tprivate PropertyChangeListener changeListener \u003d new ChangeL();\n\t\n\tprotected class ChangeL implements PropertyChangeListener {\n\t\tpublic void propertyChange(PropertyChangeEvent evt) {\n\t\t\tgetPropertyChangeSupport().firePropertyChange(\"valid\", null, null);\n\t\t}\n\t}\n\t\n\tpublic static void main(String[] args) {\n\t\tnew Model().changeListener.propertyChange(null);\n\t}\n}",
+    "there is a bug here but do you definetly want your declare parents to also target the inner class Model$ChangeL ?  The declare parents: \n\n        declare parents: test.* \u0026\u0026 !BoundEntityAspect implements BoundBean;\n\nwill match test.Model and test.Model$ChangeL.  It is the (bad) weaving of Model$ChangeL that causes the problem - i have trimmed down the test program and am looking into it now.",
+    "No I did not want to match the inner class.\nIn the programming guide for Type pattern I found:\nAn embedded * in an identifier matches any sequence of characters, but does not match the package (or inner-type) separator. So I expected test.* to only match normal classes but no inner classes.\n\nThere was no AJDT marker on the inner class. So i thought the inner class is not a target.\nIf I change the declaration to :\ndeclare parents: (test.* || test.*.* ) \u0026\u0026 !BoundEntityAspect implements BoundBean;\n\nI see an annotation on the inner class.\n\nHow I can prevent this in the declare clause to match only top classes?",
+    "I have found and fixed the problem.  The programming guide is correct - my previous comment was to give you perhaps something of a workaround by specifying perhaps something like \u0027test.* \u0026\u0026 !test.*.*\u0027 if you wanted to progress past this problem whilst I worked on it (wasn\u0027t sure how hard it would be to fix).\n\nThe problem was the front end compiler considering your pattern matched the inner type but the backend weaver (correctly) not seeing it as a match.  So it parsed just fine but then the weaver produced a broken class file.  (so the reason you saw no AJDT marked in your original version is that it is the weaver that produces those and that didn\u0027t consider it a match)\n\nI am committing this for 1.5.3 final - it is quite a nasty bug.\n\n",
+    "Changing OS from Mac OS to Mac OS X as per bug 185991"
+  ],
+  "commentCreationDates": [
+    "2006-11-15T13:19:49+01:00",
+    "2006-11-21T14:33:21+01:00",
+    "2006-11-21T15:16:00+01:00",
+    "2006-11-21T16:34:20+01:00",
+    "2007-07-29T15:21:08+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IncompatibleClassChangeError",
+      "elements": [
+        {
+          "method": "test.BoundEntityAspect.ajc$interMethodDispatch1$test_BoundEntityAspect$test_BoundEntityAspect$BoundBean$getPropertyChangeSupport",
+          "source": "BoundEntityAspect.aj"
+        },
+        {
+          "method": "test.Model$ChangeL.propertyChange",
+          "source": "Model.java:12"
+        },
+        {
+          "method": "test.Model.main",
+          "source": "Model.java:17"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "164633",
+      "date": "2006-11-15T13:19:49+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "major"
+    }
+  ],
+  "groupId": "164633",
+  "bugId": "164633",
+  "date": "2006-11-15T13:19:49+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "major"
+}

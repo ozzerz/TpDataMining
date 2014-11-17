@@ -1,0 +1,319 @@
+{
+  "comments": [
+    "20050106\n\nWhen you are running in strict mode all methods from AbstractScope are not accessible due to the access restrictions in org.eclipse.equinox.preferences.\n\nAs a result you cannot call DefaultScope#getNode() without an access restriction violation.",
+    "Adding Maxime as it appears that some changes to the compiler rules have surfaced this. It doesn\u0027t appear to affect our builds but it will mean that we cannot compile our preference initializers in the workbench.",
+    "Dropping to normal as Maxime has told me an easy workaround\n\nthe code\n\nIEclipsePreferences node \u003d new DefaultScope().getNode(WorkbenchPlugin\n\t\t\t\t.getDefault().getBundle().getSymbolicName());\n\ncan be written as \n\nIScopeContext context \u003d new DefaultScope();\nIEclipsePreferences node \u003d context.getNode(WorkbenchPlugin\n\t\t\t\t.getDefault().getBundle().getSymbolicName());\n",
+    "Isn\u0027t this a bug in the compiler\u0027s implementation of access restrctions?  Clearly the method \"String getNode(String)\" is accessible on class DefaultScope via IScopeContext.  Moving to Equinox where the preference plugin lives.",
+    "(In reply to comment #3)\n\u003e Isn\u0027t this a bug in the compiler\u0027s implementation of access restrctions? \n\u003e Clearly the method \"String getNode(String)\" is accessible on class DefaultScope\n\u003e via IScopeContext.\nThe fact that we complain upon restricted inherited methods is new with bug 76266. Prior bug 76266, client code could get access to methods of restricted classes by subclassing those classes.\n\n\n\n",
+    "I talked this over with Olivier and Kent and I believe we agree this is a compiler issue.\n\n Here is a summary:\n\ninterface I {\n  void foo();\n}\nabstract class A implements I {\n  void foo() {};\n}\nclass B extends A {\n}\n\nwhere I and B are API and A is internal.\n\nWhen running in strict mode this works: \nI b \u003d new B();\nb.foo();\n\nand this doesn\u0027t work:\nnew B().foo();",
+    "The compiler binds new B().foo() to A#foo() (which you can check with hovering).\nA is internal, so are its methods. The interface method is irrelevant here, as never considered by the compiler (not needed to bind).\n\nWhen indirecting through the interface, then the compiler will ignore A#foo(), and thus stop complaining. \n\nNow I understand this is unhappy for client code, though it forces the code to not make decisions upon internal material. \n\nKent: are you suggesting overriding a non-restricted method should grant it as non-restricted either ? i.e. method verifier issue ?",
+    "*** Bug 123737 has been marked as a duplicate of this bug. ***",
+    "I think the difficulty is we don\u0027t have a good definition of what an access restriction means.   According to Eclipse API rules, public and protected members in supertypes of an API type are automatically API regardless of whether the supertype is in an API package.  Changing any of those members in the supertype would be a non binary-compatible change to the API of the public class.  It sounds like access restrictions don\u0027t follow this model.",
+    "I think JohnA is on the right path.\n\nWho can define what strict mode means?\n\nIn straight Java terms, public/protected inherited methods are visible to any client if the receiver type B (not the declaring type A) is visible.\n\nBut what does this mean in terms of access restrictions \u0026 strict mode????",
+    "Tom or Jeff, do you know the strict OSGi behaviour here?  Where A is in a package that is not exported, and subclass B is in an exported package.  References to B#foo where foo is declared on A...  I presume the code in comment #2 is not currently causing us runtime errors, just compile errors.",
+    "I need to investgate.  But I believe it should work.  CC\u0027ing BJ because OSGi had a similar issue, but I think it was slightly different.\n\n",
+    "Yes, this does sound like the issue we researched in the OSGi build. Using the example code in comment #5, if a bundle imports the packages containing I and B but does not import the package containing A, the code of the form \"new B().foo()\" can result in a verifier error at runtime when the verifier cannot find A since the code \"new B().foo()\" will generate a constant pool reference to \"A.foo()\" (assuming you just use normal javac to compile). Modifying the code to \"( (I) new B() ).foo()\" solves the unsuccessful attempt to load A since the constant pool now refers to \"I.foo()\".\n\nThe change we made was to our bundle builder tool to examine the method refs in the constant pool and add the import for the package containing A.\n\nSince the compiler is now respecting runtime class visibility, these issues are surfacing at compile time. I see two solutions: (1) the package containing A must be imported to the compiler can see \"A.foo()\" or (2) the compiler should look further and see that foo() is visible on B through some superclass or interface which is visible via an already imported package and generate the appropriate bytecodes (e.g. invokeinterface) to avoid the reference to \"A.foo()\" (not sure if (2) is strictly kosher :-)",
+    "So assuming the JDT access restrictions are intending to reflect the OSGi behaviour, it sounds like the compiler is doing the right thing here. \n\nIn this case, I would suggest fixing DefaultScope to 1) add implements IScopeContext, and 2) Override any public methods inherited from AbstractScope and just put super invocations in the method bodies.  This actually makes the API clearer for the javadoc reader anyway.  We have a number of examples of this approach in the platform already: Job does this with methods inherited from the non-API supertype InternalJob, and IncrementalProjectBuilder from InternalBuilder, for example.",
+    "Created an attachment (id\u003d33014)\ntestcase bundles\n\nWait lets not be too hasty.  This is a complicated problem that is not very easy to explain or diagnose.  I believe the code outlined in this bug report actually works at runtime.  Attached is a simple testcase to demonstrate the different problems which can occur because of accessiblity problems.\n\nIn the testcase the Activator class of the test.importer bundle performs the two tests.  \n\nIn the first test it constructs and calls a method directly on the constructed object \"new Concrete1Api().method1();\".  Where method1 is a public method inherited from internal class BaseApi which implements method1 from public API interface Test1Api.  This is basically the case outlined in comment 5.  The package test.internal.api is not accessible from test.importer bundle and therefore the jdt compiler is complaining about accessibility problems.  Note that the project has compiler settings to make this a warning.  But this code runs just fine at runtime.\n\nThe second test is more like the problem which was surfaced within OSGi.  In this case the class test.api.Test2Api defines a method which takes a parameter of type test.api.basetypes.BaseType.  And test.api.concrete.Concrete2Api implements test.api.test2Api and there is a test.api.concrete.ConcreteType class which implements test.api.basetypes.BaseType.  The test.importer bundle does not have access to the test.api.basetypes, but does have access to the test.api.concrete package. In the second test the test.importer bundle calls \"new Concrete2Api().method1(new ConcreteType());\"\nThis line of code actually fails at runtime but does not get any compiler error from JDT.\n\nSo it appears to me JDT is too strict in the first case but not strict enough in the second case.\n\nTo run the testcase import the zip into your workspace and start eclipse with \"-console\" and start the test.importer bundle.\n\nosgi\u003e start test.importer",
+    "When running in -verbose mode, here is the console output:\n\nosgi\u003e start test.importer\n[Loaded test.importer.Activator from file:/d:/test.importer/bin/]\n[Loaded test.importer.Test1 from file:/d:/test.importer/bin/]\n[Loaded test.api.Test1Api from file:/d:/test.exporter/bin/]\n[Loaded test.internal.api.BaseApi from file:/d:/test.exporter/bin/]\n[Loaded test.api.concrete.Concrete1Api from file:/d:/test.exporter/bin/]\n[Loaded test.importer.Test2 from file:/d:/test.importer/bin/]\norg.osgi.framework.BundleException: Exception in test.importer.Activator.start() of bundle test.importer.\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:1013)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.start(BundleContextImpl.java:969)\n\tat org.eclipse.osgi.framework.internal.core.BundleHost.startWorker(BundleHost.java:316)\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.start(AbstractBundle.java:255)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkCommandProvider._start(FrameworkCommandProvider.java:232)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkCommandInterpreter.execute(FrameworkCommandInterpreter.java:145)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkConsole.docommand(FrameworkConsole.java:293)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkConsole.console(FrameworkConsole.java:278)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkConsole.run(FrameworkConsole.java:213)\n\tat java.lang.Thread.run(Thread.java:595)\nCaused by: java.lang.NoClassDefFoundError: test/api/basetypes/BaseType\n\tat test.importer.Activator.start(Activator.java:11)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run(BundleContextImpl.java:994)\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:988)\n\t... 13 more\n[Loaded java.lang.Class$MethodArray from D:\\jdk1.5.0\\jre\\lib\\rt.jar]\nNested Exception:\njava.lang.NoClassDefFoundError: test/api/basetypes/BaseType\n\tat test.importer.Activator.start(Activator.java:11)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run(BundleContextImpl.java:994)\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:988)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.start(BundleContextImpl.java:969)\n\tat org.eclipse.osgi.framework.internal.core.BundleHost.startWorker(BundleHost.java:316)\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.start(AbstractBundle.java:255)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkCommandProvider._start(FrameworkCommandProvider.java:232)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkCommandInterpreter.execute(FrameworkCommandInterpreter.java:145)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkConsole.docommand(FrameworkConsole.java:293)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkConsole.console(FrameworkConsole.java:278)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkConsole.run(FrameworkConsole.java:213)\n\tat java.lang.Thread.run(Thread.java:595)\nNested Exception:\njava.lang.NoClassDefFoundError: test/api/basetypes/BaseType\n\tat test.importer.Activator.start(Activator.java:11)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run(BundleContextImpl.java:994)\n\tat java.security.AccessController.doPrivileged(Native Method)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator(BundleContextImpl.java:988)\n\tat org.eclipse.osgi.framework.internal.core.BundleContextImpl.start(BundleContextImpl.java:969)\n\tat org.eclipse.osgi.framework.internal.core.BundleHost.startWorker(BundleHost.java:316)\n\tat org.eclipse.osgi.framework.internal.core.AbstractBundle.start(AbstractBundle.java:255)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkCommandProvider._start(FrameworkCommandProvider.java:232)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:585)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkCommandInterpreter.execute(FrameworkCommandInterpreter.java:145)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkConsole.docommand(FrameworkConsole.java:293)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkConsole.console(FrameworkConsole.java:278)\n\tat org.eclipse.osgi.framework.internal.core.FrameworkConsole.run(FrameworkConsole.java:213)\n\tat java.lang.Thread.run(Thread.java:595)",
+    "OSGi semantics are not described in Java language specification, and as such \nare not implemented in a Java compiler. OSGi is hiding some types at runtime, this is all the magic which is involved there I believe. Note that a compiler needs to load all types involved in a type hierarchy (for instance) to perform static verifications, which some runtime may not care about due to lazy loading or solve differently when dealing with cooperating bundle classloaders. \n\nThe OSGi behavior would best be emulated by discarding the corresponding classfile from the compile time classpath. Access restrictions are NOT emulating this. A restricted type remains on the classpath, and can be bound to. \nHowever when doing so however the compiler will report it. The fact OSGi behavior is emulated using restrictions doesn\u0027t mean restrictions have to follow OSGi specific semantics. Restrictions were designed to enforce clean separation between API and non-API code.\n\nThere is no way for internal types to be ignored when conducting name lookups, unless we change the lookup semantics (and say for instance that a restricted method isn\u0027t considered any longer). \n\nNote that in bug 98127, we are considering a change in access restrictions, which will better allow emulating OSGi runtime behavior, but this change is located in a different area of the compiler, and could be implemented based on standard compiler API (e.g. see JSR-199). Whereas the change implied here would require a true change in compiler lookup semantics which isn\u0027t a pluggable semantics even considering JSR-199. So, if we moved into that space, we would break the law.\n\nI can see 3 options for 3.2:\n1. we keep current behavior, have users adjust their code. In essence, it looks good as the resulting code will be clearer anyway. The compiler diagnosis is indicating a scenario where the bytecode needs to be modified(as described in comment 12), and you\u0027d better want the original source to be fixed.\n2. we remove support for inheriting restrictions (or make it optional). We will revert to being a bit too permissive, but this is back to strict 3.1.0 behavior.\n3. we still inherit restrictions, but make the inheritance smarter to notice that some definitions are overriding/implementing unrestricted ones (method verifier). \n\n   Unclear if we could efficiently handle the case where the unrestricted method is only indirectly overriden/implemented (i.e. if the super method is also restricted, but need to look further up in hierarchy).\n   e.g.\n     interface I#foo()   // API\n     class A implements I, defines #foo()  // internal\n     class B extends A, defines #foo()  // internal\n     class C extends B // API\n   Now, depending on our algorith, this could be handled when recursively verifying A before B, and thus noting that A#foo() isn\u0027t restricted, thus it would get propagated to B#foo() when comparing it with A#foo(). But I suspect this property isn\u0027t guaranteed inside binary types (i.e. they do not get verified at all, only sources get verified, so B#foo() would still look like it is internal).\n\nMy preference is (1). I could agree to (2) to reach consensus. I am seeing (3) as future work (\u003e3.2), but if considering this in the future, then we may rather want to go for (2) now, i.e. revert to original behavior before we reconsider our solution there.\n",
+    "Hmmm, +1 for #1 with an option for #3 at a later date?",
+    "fyi: I have released code into HEAD for DefaultScope (and the other sub-classes of AbstractScope) that:\n1). adds \"implements IScopeContext\"\n2). implements #getNode which just called the super implementation\n",
+    "Kent - pls comment on feasibility of #3.",
+    "We cannot guarantee that types are verified in order of their hierarchy.\n\nSo whenever we\u0027re verifying an API type, that would mean every inherited method which matches a current method (ignoring all the issues with pseudo-overridden methods with generics), would need to be checked to see if one is or is not an API method.\n\nIts possible but far from efficient.",
+    "*** Bug 142985 has been marked as a duplicate of this bug. ***",
+    "*** Bug 146394 has been marked as a duplicate of this bug. ***",
+    "*** Bug 180629 has been marked as a duplicate of this bug. ***",
+    "From the equinox mailing list.  This is still an issue for many, is there an outlook for a fix?\n\nHi,\n\nThe PDE bug that disallow exported subclasses to extend from\nnon-exported internal classes is getting on my nerve. The internal\nsuperclass is something I insist of not exporting, since it is\nsomething we don\u0027t want to support, and users are demanding that we do\nso because otherwise their code doesn\u0027t compile in PDE.\n\nWhat does the Equinox community recommend? Do the wrong thing and\nexport the internal classes as a compile-time work-around, or what? I\ndon\u0027t use Eclipse, and don\u0027t have a problem myself, and it annoys the\ncrap out of me to give into these kinds of demands, when the tooling\nis crappy...\n\nAny ideas of what one should do?\n\n(Mind you this is not a problem in Equinox, only the PDE.)\n\n\nCheers\nNiclas"
+  ],
+  "commentCreationDates": [
+    "2006-01-06T15:15:32+01:00",
+    "2006-01-06T15:26:25+01:00",
+    "2006-01-06T15:31:52+01:00",
+    "2006-01-11T15:56:56+01:00",
+    "2006-01-11T17:00:10+01:00",
+    "2006-01-12T20:19:28+01:00",
+    "2006-01-13T09:26:17+01:00",
+    "2006-01-13T10:19:13+01:00",
+    "2006-01-13T14:48:11+01:00",
+    "2006-01-13T15:28:58+01:00",
+    "2006-01-13T16:24:58+01:00",
+    "2006-01-13T16:47:06+01:00",
+    "2006-01-13T18:53:32+01:00",
+    "2006-01-13T19:47:11+01:00",
+    "2006-01-13T21:27:04+01:00",
+    "2006-01-16T11:43:15+01:00",
+    "2006-01-16T14:55:11+01:00",
+    "2006-01-17T03:48:43+01:00",
+    "2006-01-20T21:00:45+01:00",
+    "2006-01-23T08:47:08+01:00",
+    "2006-01-31T20:07:35+01:00",
+    "2006-05-22T17:04:40+02:00",
+    "2006-06-11T00:09:37+02:00",
+    "2007-04-03T15:38:54+02:00",
+    "2007-06-15T14:49:06+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.osgi.framework.BundleException",
+      "message": "Exception in test.importer.Activator.start() of bundle test.importer.",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:1013"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "BundleContextImpl.java:969"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "BundleHost.java:316"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.start",
+          "source": "AbstractBundle.java:255"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkCommandProvider._start",
+          "source": "FrameworkCommandProvider.java:232"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkCommandInterpreter.execute",
+          "source": "FrameworkCommandInterpreter.java:145"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.docommand",
+          "source": "FrameworkConsole.java:293"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.console",
+          "source": "FrameworkConsole.java:278"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.run",
+          "source": "FrameworkConsole.java:213"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.lang.NoClassDefFoundError",
+        "message": "test/api/basetypes/BaseType",
+        "elements": [
+          {
+            "method": "test.importer.Activator.start",
+            "source": "Activator.java:11"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run",
+            "source": "BundleContextImpl.java:994"
+          },
+          {
+            "method": "java.security.AccessController.doPrivileged",
+            "source": "Native Method"
+          },
+          {
+            "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+            "source": "BundleContextImpl.java:988"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 0,
+      "commentIndex": 15,
+      "bugId": "122915",
+      "date": "2006-01-16T11:43:15+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "test/api/basetypes/BaseType",
+      "elements": [
+        {
+          "method": "test.importer.Activator.start",
+          "source": "Activator.java:11"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run",
+          "source": "BundleContextImpl.java:994"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:988"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "BundleContextImpl.java:969"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "BundleHost.java:316"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.start",
+          "source": "AbstractBundle.java:255"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkCommandProvider._start",
+          "source": "FrameworkCommandProvider.java:232"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkCommandInterpreter.execute",
+          "source": "FrameworkCommandInterpreter.java:145"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.docommand",
+          "source": "FrameworkConsole.java:293"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.console",
+          "source": "FrameworkConsole.java:278"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.run",
+          "source": "FrameworkConsole.java:213"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 15,
+      "bugId": "122915",
+      "date": "2006-01-16T11:43:15+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.NoClassDefFoundError",
+      "message": "test/api/basetypes/BaseType",
+      "elements": [
+        {
+          "method": "test.importer.Activator.start",
+          "source": "Activator.java:11"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl$2.run",
+          "source": "BundleContextImpl.java:994"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.startActivator",
+          "source": "BundleContextImpl.java:988"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.start",
+          "source": "BundleContextImpl.java:969"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.startWorker",
+          "source": "BundleHost.java:316"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.start",
+          "source": "AbstractBundle.java:255"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkCommandProvider._start",
+          "source": "FrameworkCommandProvider.java:232"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:585"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkCommandInterpreter.execute",
+          "source": "FrameworkCommandInterpreter.java:145"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.docommand",
+          "source": "FrameworkConsole.java:293"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.console",
+          "source": "FrameworkConsole.java:278"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.FrameworkConsole.run",
+          "source": "FrameworkConsole.java:213"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:595"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 15,
+      "bugId": "122915",
+      "date": "2006-01-16T11:43:15+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "122915",
+  "bugId": "122915",
+  "date": "2006-01-06T15:15:32+01:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

@@ -1,0 +1,105 @@
+{
+  "comments": [
+    "I\u0027m getting a StackTrace complaining about not having a two argument String constructor on my Permission.\n\nAdmittedly there is no such constructor however I don\u0027t understand why there has to be. Regardless a stack trace probably shouldn\u0027t be written to System.out.\n\nI don\u0027t really have a good understanding of what\u0027s going on here. Is this really a bad problem. Despite printing the stack trace everything seems to work correctly.\n\nHere\u0027s the trace, if anyone could shed some light it would be much appreciated.\n\njava.lang.NoSuchMethodException: com.sun.jini.thread.ThreadPoolPermission.\u003cinit\u003e(java.lang.String, java.lang.String)\n        at java.lang.Class.getConstructor0(Class.java:2647)\n        at java.lang.Class.getConstructor(Class.java:1629)\n        at org.eclipse.osgi.framework.internal.core.ConditionalPermissionInfoImpl.addPermissions(ConditionalPermissionIn\nfoImpl.java:148)\n        at org.eclipse.osgi.framework.internal.core.ConditionalPermissionSet.implies(ConditionalPermissionSet.java:215)\n        at org.eclipse.osgi.framework.internal.core.BundleCombinedPermissions.implies(BundleCombinedPermissions.java:121\n)\n        at java.security.ProtectionDomain.implies(ProtectionDomain.java:199)\n        at java.security.AccessControlContext.checkPermission(AccessControlContext.java:249)\n        at java.security.AccessController.checkPermission(AccessController.java:427)\n        at java.lang.SecurityManager.checkPermission(SecurityManager.java:532)\n        at com.sun.jini.thread.GetThreadPoolAction.run(GetThreadPoolAction.java:83)\n        at java.security.AccessController.doPrivileged(Native Method)\n        at net.jini.jeri.tcp.TcpServerEndpoint.\u003cclinit\u003e(TcpServerEndpoint.java:117)\n        at net.jini.lookup.ServiceDiscoveryManager$LookupCacheImpl.initCache(ServiceDiscoveryManager.java:2141)\n        at net.jini.lookup.ServiceDiscoveryManager$LookupCacheImpl.\u003cinit\u003e(ServiceDiscoveryManager.java:1510)\n        at net.jini.lookup.ServiceDiscoveryManager.createLookupCache(ServiceDiscoveryManager.java:3523)\n        at net.jini.lookup.ServiceDiscoveryManager.createLookupCache(ServiceDiscoveryManager.java:3068)\n...",
+    "I\u0027m not sure what to make of this.  I was under the impression that ever since Java2 security was introduced all permission objects had a two argument String constructor.  Can you tell us what constructor types ThreadPoolPermission has?\nAs to printing to the console, there is a TODO in the code to log this exception which is the correct thing to do here.\n\nLooks like we may need to search for a two string constructor, then a one string constructor, and finally a no arg constructor to be complete.\n\nIt probably looks like you are working fine because all bundles have AllPermission assigned to them by default.  You have to lock down the system before you will start seeing SecurityExceptions being thrown.\n",
+    "The constructor in this case has just a single string argument see:\nhttp://java.sun.com/products/jini/2.1/doc/api/com/sun/jini/thread/ThreadPoolPermission.html\n\nThey are rare, but I\u0027ve seen a few other Permissions that don\u0027t fit the zero, one, or two argument constructor pattern. For example java.security.UnresolvedPermission.\n\nThat being said covering the one argument constructor would be an improvement as named permissions with no actions are not uncommon.",
+    "Created an attachment (id\u003d30915)\nPossible Fix\n\nThis patch searches for (String,String), (String), and finally () no arg constructors on permission classes.  Simon, can you test this out in your env.  Thanks.",
+    "Thanks Tom,\nThat seems to work for me.\n\n--\nLooking at the code I noticed a comment about caching and wondered about another alternative that might sort out both problems.\n\nThere\u0027s probably a good reason as I really have no idea what the context is, but what about just adding the Permission instances from \"perms\" to the collection? Is that too risky?\n\nJust a thought really, as again the patch works for me.\nThanks.\n",
+    "Re: comment 4\n\nThe perms array is of type PermissionInfo while the collection holds Permission object instances.  The PermissionInfo objects from perms is used to construct Permission objects.\n\nI actually think the TODO is wrong.  It states \"We need to cache the constructed permissions to enhance performance.\"  But we already do cache the constructed permissions into the PermissionCollection which is passed in.  This collection is then stored in a cache in ConditionalPermissionSet.\n\nI can\u0027t say for sure, but I think the original developer ( not me :-) really meant that we could cache the constructor lookups for each permission class type to enhance performance.  Right now the code looksup the constructor, using reflection, once per ConditionalPermissionInfoImpl that is assigned to each bundle that is having a particular permission checked for the first time.  After the first check, each subsequent check of that permission uses the cached permission object in the PermissionCollection.\n\nI\u0027m not against this optimization, it will involve making a Framework wide cache that each configured ConditionalPermissionInfoImpl object can share.  It would not help to store the cache in the ConditionalPermissionInfoImpl because then we would still use reflection for every ConditionalPermissionInfoImpl configured in the Framework.\n\nInstead of discussing here, I\u0027ll open another bug.  I will release this patch to fix this bug.\n",
+    "Fixed for 3.2 M4.  Opened bug 118813 to cover performance enhancement."
+  ],
+  "commentCreationDates": [
+    "2005-11-30T20:51:20+01:00",
+    "2005-11-30T21:31:08+01:00",
+    "2005-11-30T21:59:47+01:00",
+    "2005-11-30T22:45:21+01:00",
+    "2005-11-30T23:17:24+01:00",
+    "2005-12-01T14:37:19+01:00",
+    "2005-12-01T15:04:35+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NoSuchMethodException",
+      "message": "com.sun.jini.thread.ThreadPoolPermission.\u003cinit\u003e(java.lang.String, java.lang.String)",
+      "elements": [
+        {
+          "method": "java.lang.Class.getConstructor0",
+          "source": "Class.java:2647"
+        },
+        {
+          "method": "java.lang.Class.getConstructor",
+          "source": "Class.java:1629"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.ConditionalPermissionInfoImpl.addPermissions",
+          "source": "ConditionalPermissionIn foImpl.java:148"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.ConditionalPermissionSet.implies",
+          "source": "ConditionalPermissionSet.java:215"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleCombinedPermissions.implies",
+          "source": "BundleCombinedPermissions.java:121 "
+        },
+        {
+          "method": "java.security.ProtectionDomain.implies",
+          "source": "ProtectionDomain.java:199"
+        },
+        {
+          "method": "java.security.AccessControlContext.checkPermission",
+          "source": "AccessControlContext.java:249"
+        },
+        {
+          "method": "java.security.AccessController.checkPermission",
+          "source": "AccessController.java:427"
+        },
+        {
+          "method": "java.lang.SecurityManager.checkPermission",
+          "source": "SecurityManager.java:532"
+        },
+        {
+          "method": "com.sun.jini.thread.GetThreadPoolAction.run",
+          "source": "GetThreadPoolAction.java:83"
+        },
+        {
+          "method": "java.security.AccessController.doPrivileged",
+          "source": "Native Method"
+        },
+        {
+          "method": "net.jini.jeri.tcp.TcpServerEndpoint.\u003cclinit\u003e",
+          "source": "TcpServerEndpoint.java:117"
+        },
+        {
+          "method": "net.jini.lookup.ServiceDiscoveryManager$LookupCacheImpl.initCache",
+          "source": "ServiceDiscoveryManager.java:2141"
+        },
+        {
+          "method": "net.jini.lookup.ServiceDiscoveryManager$LookupCacheImpl.\u003cinit\u003e",
+          "source": "ServiceDiscoveryManager.java:1510"
+        },
+        {
+          "method": "net.jini.lookup.ServiceDiscoveryManager.createLookupCache",
+          "source": "ServiceDiscoveryManager.java:3523"
+        },
+        {
+          "method": "net.jini.lookup.ServiceDiscoveryManager.createLookupCache",
+          "source": "ServiceDiscoveryManager.java:3068"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "118704",
+      "date": "2005-11-30T20:51:20+01:00",
+      "product": "Equinox",
+      "component": "Framework",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "118704",
+  "bugId": "118704",
+  "date": "2005-11-30T20:51:20+01:00",
+  "product": "Equinox",
+  "component": "Framework",
+  "severity": "normal"
+}

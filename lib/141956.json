@@ -1,0 +1,162 @@
+{
+  "comments": [
+    "I don\u0027t know much about the internal workings of aspectJ but this bug keeps popping up so I went through the trouble of checking of trying to debug it so that I could hopefully provide enough information to get it fixed.\n\nThis happens while using eclipse AJDT. It never happens if I fully do a clean before rebuild. It only seems to happen when doing incrmental builds (using  the project-\u003ebuild automatically setting). \n\nThe error happens in the iterator that recursively builds a list of methods\nto return for matching. The error is triggered here:\n\n\n    // we need to know if it is an interface from Parent kind munger\n            // as those are used for @AJ ITD and we precisely want to skip those\n            boolean shouldSkip \u003d false;\n            for (int j \u003d 0; j \u003c rtx.interTypeMungers.size(); j++) {\n                ConcreteTypeMunger munger \u003d (ConcreteTypeMunger) rtx.interTypeMungers.get(j);\n                if (munger.getMunger().getKind() \u003d\u003d ResolvedTypeMunger.Parent) {\n                    shouldSkip \u003d true;\n                    break;\n                }\n            }\n\nmunger.getMunger() returns null because the munger instance is a BcelPerClauseAspectAdder. My naive fix would be to check munger.getMunger() \u003d\u003d null or check munger.getKind(). I\u0027m assuming that BcelPerClausAspectAdder is one that should be skipped since it is related to @AJ ??? \n\nAgain, I don\u0027t know very much about the internal architecture of the weaver magic so I hope this is enough information. \n\nI would appreciate it if someone who knows more of the internals could speculate as to why this bug would never pop up on a clean build but only on incremental builds? Also it\u0027s not on all incremental builds and I haven\u0027t been able to isolate what kind of changes or compiles it triggers this, although it seems that  once I got the exception once, I keep getting it on every build until I do a clean. \n\njava.lang.NullPointerException\nat org.aspectj.weaver.ResolvedType.addAndRecurse(ResolvedType.java:288)\nat org.aspectj.weaver.ResolvedType.getMethodsWithoutIterator(ResolvedType.java:257)\nat org.aspectj.weaver.ResolvedType.lookupResolvedMember(ResolvedType.java:378)\nat org.aspectj.weaver.JoinPointSignatureIterator.findSignaturesFromSupertypes(JoinPointSignatureIterator.java:178)\nat org.aspectj.weaver.JoinPointSignatureIterator.hasNext(JoinPointSignatureIterator.java:69)\nat org.aspectj.weaver.patterns.SignaturePattern.matches(SignaturePattern.java:287)\nat org.aspectj.weaver.patterns.KindedPointcut.matchInternal(KindedPointcut.java:103)\nat org.aspectj.weaver.patterns.Pointcut.match(Pointcut.java:144)\nat org.aspectj.weaver.patterns.AndPointcut.matchInternal(AndPointcut.java:51)\nat org.aspectj.weaver.patterns.Pointcut.match(Pointcut.java:144)\nat org.aspectj.weaver.ShadowMunger.match(ShadowMunger.java:64)\nat org.aspectj.weaver.Advice.match(Advice.java:109)\nat org.aspectj.weaver.bcel.BcelAdvice.match(BcelAdvice.java:104)\nat org.aspectj.weaver.bcel.BcelClassWeaver.match(BcelClassWeaver.java:2210)\nat org.aspectj.weaver.bcel.BcelClassWeaver.match(BcelClassWeaver.java:1752)\nat org.aspectj.weaver.bcel.BcelClassWeaver.weave(BcelClassWeaver.java:479)\nat org.aspectj.weaver.bcel.BcelClassWeaver.weave(BcelClassWeaver.java:109)\nat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:1574)\nat org.aspectj.weaver.bcel.BcelWeaver.weaveWithoutDump(BcelWeaver.java:1525)\nat org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify(BcelWeaver.java:1305)\nat org.aspectj.weaver.bcel.BcelWeaver.weave(BcelWeaver.java:1127)\nat org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave(AjCompilerAdapter.java:321)\nat org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling(AjCompilerAdapter.java:192)\nat org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspectj_ajdt_internal_compiler_CompilerAdapter$2$f9cc9ca0(CompilerAdapter.aj:70)\nat org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:367)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation(AjBuildManager.java:862)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:269)\nat org.aspectj.ajdt.internal.core.builder.AjBuildManager.incrementalBuild(AjBuildManager.java:168)\nat org.aspectj.ajde.internal.CompilerAdapter.compile(CompilerAdapter.java:117)\nat org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run(AspectJBuildManager.java:191)",
+    "There are certainly situations where errors only occur on incremental compilation - we record state during the full build to optimize subsequent incremental builds.  \nI don\u0027t fully understand what is going wrong in this scenario though - from the description I might expect it to happen on a full build, so there is possibly something more serious lurking.  It needs the combination of a perclause of some kind and using @AJ syntax, is your aspect particularly complicated?\n\nTo just help you progress I am tempted to put in your simple null check extension to that test if we can\u0027t work out a simplistic scenario in which this happens reliably.\n\nYou could try running with the AJDT event trace open - it will tell us exactly what is getting recompiled/rewoven on an incremental build and that may give us a clue as to what is happening.  (You might have to press some magic switch to get the event trace to produce all its diagnostics info, either on the view window itself or in the AspectJ project/workbench properties).",
+    "The aspect is fairly simple: \n\n@Aspect\npublic class ExpirableToucher {\n\n\t@Before(\"within(com.residencycentral.app.Expirable+) \u0026\u0026 execution(public * *(..)) \u0026\u0026 !execution(* touch()) \u0026\u0026 target(target)\")\n\tpublic void touchBeforeExecute(Expirable target) {\n\t\ttarget.touch();\n\t}\n}\n\n\nI will try my best to figure out the circumstances that reproduce this bug.\n",
+    "Is this the trace?\n\ntrouble in: \npublic abstract class com.residencycentral.tapestry.pages.residency.html.SurveyReport extends com.residencycentral.tapestry.pages.residency.html.ModuleBasedPage:\n  private static final String SURVEY_REPORT_MODULE_NAME \u003d \"SurveyReportModule\"\n  public void \u003cinit\u003e():\n                    ALOAD_0     // Lcom/residencycentral/tapestry/pages/residency/html/SurveyReport; this   (line 11)\n                    INVOKESPECIAL com.residencycentral.tapestry.pages.residency.html.ModuleBasedPage.\u003cinit\u003e ()V\n    constructor-execution(void com.residencycentral.tapestry.pages.residency.html.SurveyReport.\u003cinit\u003e())\n    |               RETURN\n    constructor-execution(void com.residencycentral.tapestry.pages.residency.html.SurveyReport.\u003cinit\u003e())\n  end public void \u003cinit\u003e()\n\n  public abstract org.apache.tapestry.IAsset getStyleSheet()    org.aspectj.weaver.MethodDeclarationLineNumber: 17:584\n;\n\n  protected void attachNewModule()    org.aspectj.weaver.MethodDeclarationLineNumber: 20:633\n:\n                    ALOAD_0     // Lcom/residencycentral/tapestry/pages/residency/html/SurveyReport; this   (line 21)\n                    LDC \"SurveyReportModule\"\n                    INVOKEVIRTUAL com.residencycentral.tapestry.pages.residency.html.SurveyReport.attachNewModule (Ljava/lang/String;)V\n                    RETURN   (line 22)\n  end protected void attachNewModule()\n\n  private com.residencycentral.survey.modules.SurveyReportModule getSurveyReportModule()    org.aspectj.weaver.MethodDeclarationLineNumber: 24:740\n:\n                    ALOAD_0     // Lcom/residencycentral/tapestry/pages/residency/html/SurveyReport; this   (line 25)\n                    INVOKEVIRTUAL com.residencycentral.tapestry.pages.residency.html.SurveyReport.getModule ()Lcom/residencycentral/app/ApplicationModule;\n                    CHECKCAST com.residencycentral.survey.modules.SurveyReportModule\n                    ARETURN\n  end private com.residencycentral.survey.modules.SurveyReportModule getSurveyReportModule()\n\n  public java.util.List getReportEntries()    org.aspectj.weaver.MethodDeclarationLineNumber: 28:849\n:\n                    ALOAD_0     // Lcom/residencycentral/tapestry/pages/residency/html/SurveyReport; this   (line 29)\n                    INVOKESPECIAL com.residencycentral.tapestry.pages.residency.html.SurveyReport.getSurveyReportModule ()Lcom/residencycentral/survey/modules/SurveyReportModule;\n                    INVOKEINTERFACE com.residencycentral.survey.modules.SurveyReportModule.getReportEntries ()Ljava/util/List;\n                    ARETURN\n  end public java.util.List getReportEntries()\n\n  public String getColumnsExpression()    org.aspectj.weaver.MethodDeclarationLineNumber: 34:952\n:\n                    LDC \"procedure:Procedure:procedure.description\"   (line 36)\n                    ASTORE_1\n                    ALOAD_0     // Lcom/residencycentral/tapestry/pages/residency/html/SurveyReport; this   (line 37)\n                    INVOKESPECIAL com.residencycentral.tapestry.pages.residency.html.SurveyReport.getSurveyReportModule ()Lcom/residencycentral/survey/modules/SurveyReportModule;\n                    INVOKEINTERFACE com.residencycentral.survey.modules.SurveyReportModule.getSurveyOptions ()Ljava/util/List;\n                    INVOKEINTERFACE java.util.List.iterator ()Ljava/util/Iterator;\n                    ASTORE_3\n                    GOTO L1\n                L0: ALOAD_3\n                    INVOKEINTERFACE java.util.Iterator.next ()Ljava/lang/Object;\n                    CHECKCAST com.residencycentral.survey.SurveyOption\n                    ASTORE_2\n                    NEW java.lang.StringBuilder   (line 38)\n                    DUP\n                    ALOAD_1     // Ljava/lang/String; expression\n                    INVOKESTATIC java.lang.String.valueOf (Ljava/lang/Object;)Ljava/lang/String;\n                    INVOKESPECIAL java.lang.StringBuilder.\u003cinit\u003e (Ljava/lang/String;)V\n                    LDC \",\"\n                    INVOKEVIRTUAL java.lang.StringBuilder.append (Ljava/lang/String;)Ljava/lang/StringBuilder;\n                    ALOAD_2     // Lcom/residencycentral/survey/SurveyOption; option\n                    INVOKEINTERFACE com.residencycentral.survey.SurveyOption.getId ()Ljava/lang/Long;\n                    INVOKEVIRTUAL java.lang.StringBuilder.append (Ljava/lang/Object;)Ljava/lang/StringBuilder;\n                    LDC \":\"\n                    INVOKEVIRTUAL java.lang.StringBuilder.append (Ljava/lang/String;)Ljava/lang/StringBuilder;\n                    ALOAD_2     // Lcom/residencycentral/survey/SurveyOption; option\n                    INVOKEINTERFACE com.residencycentral.survey.SurveyOption.getLabel ()Ljava/lang/String;\n                    INVOKEVIRTUAL java.lang.StringBuilder.append (Ljava/lang/String;)Ljava/lang/StringBuilder;\n                    LDC \":getCountForAnswer(\"   (line 39)\n                    INVOKEVIRTUAL java.lang.StringBuilder.append (Ljava/lang/String;)Ljava/lang/StringBuilder;\n                    ALOAD_2     // Lcom/residencycentral/survey/SurveyOption; option\n                    INVOKEINTERFACE com.residencycentral.survey.SurveyOption.getId ()Ljava/lang/Long;\n                    INVOKEVIRTUAL java.lang.StringBuilder.append (Ljava/lang/Object;)Ljava/lang/StringBuilder;\n                    LDC \")\"\n                    INVOKEVIRTUAL java.lang.StringBuilder.append (Ljava/lang/String;)Ljava/lang/StringBuilder;\n                    INVOKEVIRTUAL java.lang.StringBuilder.toString ()Ljava/lang/String;   (line 38)\n                    ASTORE_1     // Ljava/lang/String; expression\n                L1: ALOAD_3   (line 37)\n                    INVOKEINTERFACE java.util.Iterator.hasNext ()Z\n                    IFNE L0\n                    ALOAD_1     // Ljava/lang/String; expression   (line 41)\n                    ARETURN\n  end public String getColumnsExpression()\n\nend public abstract class com.residencycentral.tapestry.pages.residency.html.SurveyReport\n\nwhen weaving type com.residencycentral.tapestry.pages.residency.html.SurveyReport\nwhen weaving classes \nwhen weaving \nwhen incrementally building BuildConfig[H:\\programming\\workspace\\.metadata\\.plugins\\org.eclipse.ajdt.core\\residency.generated.lst] #Files\u003d367\n",
+    "Ok I have debugged some more and I think I\u0027m closer to the source of the bug.\n\nWhen I do a clean and compile, in BcelWeaver.prepareForWeave() it sets the typeMunger list on line 464:\n    typeMungerList \u003d xcutSet.getTypeMungers();\n    lateTypeMungerList \u003d xcutSet.getLateTypeMungers();\n    declareParentsList \u003d xcutSet.getDeclareParents();\n\nwhen going from a clean compile xcutSet.getTypeMungers() returns a bunch of mungers but not the BcelPerClauseAspectAdder munger that is the source of \nthe segfault later on. \n\nthe BcelPerClauseApectAdder is returned by the second call to xcutSet.getLateTypeMungers(), but this is fine because this list is not checked in the code that caused the segfault.\n\nWhen doing the incremental compile,  the xcutSet.getTypeMungers() gets modified by org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.finishTypeMungers():\n\n// XXX by Andy: why do we mix up the mungers here? it means later we know about \n// two sets and the late ones are a subset of the complete set? (see pr114436)\n        baseTypeMungers.addAll(getWorld().getCrosscuttingMembersSet().getLateTypeMungers());\n\nI\u0027m not sure why this is done or what it does as I don\u0027t really understand all the inner workings of AspectJ. But what happens is now those LateTypeMungers (which include the BcelPerClauseAspectAdder mungers that cause the problem) now get added to the list returned by xcutSet.getTypeMungers();.\n\nIn fact, it seems this is not intended, because if I edit the code and recompile \nseveral times, it keeps appending those BcelPerClauseAspectAdder to the end of the list so after a while I have 5-6 mungers followed by 40+ BcelPerClauseAspectAdder mungers. \n\nI\u0027d appreciate any further clarification of what this code does and how it could be fixed. I don\u0027t fully understand  what the BcelPerClauseAspectAdder does or what a LateTypeMunger is or why it is merged... etc... but I hope the debugging information I\u0027m providing can get this solved soon.\n\n\n",
+    "More good work Daniel ;)\n\nbased on what you have said, I\u0027ve created a testcase that shows us leaking the typemungers on incremental compiles.\n\nLate type mungers are \u0027special\u0027 ones that can only perform their job after the pointcuts have been matched and the advice applied.  (Normal type mungers are applied before the pointcuts are matched and advice is applied - here \u0027normal\u0027 means things like ITDs).\n\nThe BcelPerClauseAspectAdder creates the methods aspectOf() and hasAspect() - for each kind of aspect these vary depending on the per clause in use.  Specifying no perclause means you get the default of \u0027persingleton\u0027.  In the old days before annotation style development came along, the compiler generated aspectOf() and hasAspect().  Nowadays with annotation style it is possible the aspect is built using regular javac - which won\u0027t create these aspectof()/hasAspect() methods.  So the BcelPerClauseAdder was created which adds these methods at weave time for @AJ aspects.\n\nAs you have discovered, I put a comment in the code against something another developer did:\n\n// XXX by Andy: why do we mix up the mungers here? it means later we know about \n// two sets and the late ones are a subset of the complete set? (see pr114436)\n       \nbaseTypeMungers.addAll(getWorld().getCrosscuttingMembersSet().getLateTypeMungers());\n\nwhich I wanted to revisit at some point when I had time to investigate. Now based on my testcase and your observation about the collection constantly growing on compiles, I\u0027ve removed that line of code.  All our tests continue to execute fine.  I have also put in the guard for a null munger that was described in the initial comment in this bug report.  So the code should be much more reliable now.\n\nthe fixes will be in a dev build shortly, then in an AJDT build a little after that.\nthanks for the investigation work!",
+    "fix available in latest AJ dev build.",
+    "fixed."
+  ],
+  "commentCreationDates": [
+    "2006-05-16T11:12:06+02:00",
+    "2006-05-16T14:17:37+02:00",
+    "2006-05-16T17:37:26+02:00",
+    "2006-05-16T18:22:26+02:00",
+    "2006-05-17T00:00:07+02:00",
+    "2006-05-17T13:51:09+02:00",
+    "2006-05-17T17:18:07+02:00",
+    "2006-05-18T12:41:37+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.weaver.ResolvedType.addAndRecurse",
+          "source": "ResolvedType.java:288"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.getMethodsWithoutIterator",
+          "source": "ResolvedType.java:257"
+        },
+        {
+          "method": "org.aspectj.weaver.ResolvedType.lookupResolvedMember",
+          "source": "ResolvedType.java:378"
+        },
+        {
+          "method": "org.aspectj.weaver.JoinPointSignatureIterator.findSignaturesFromSupertypes",
+          "source": "JoinPointSignatureIterator.java:178"
+        },
+        {
+          "method": "org.aspectj.weaver.JoinPointSignatureIterator.hasNext",
+          "source": "JoinPointSignatureIterator.java:69"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.SignaturePattern.matches",
+          "source": "SignaturePattern.java:287"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.KindedPointcut.matchInternal",
+          "source": "KindedPointcut.java:103"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.match",
+          "source": "Pointcut.java:144"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.AndPointcut.matchInternal",
+          "source": "AndPointcut.java:51"
+        },
+        {
+          "method": "org.aspectj.weaver.patterns.Pointcut.match",
+          "source": "Pointcut.java:144"
+        },
+        {
+          "method": "org.aspectj.weaver.ShadowMunger.match",
+          "source": "ShadowMunger.java:64"
+        },
+        {
+          "method": "org.aspectj.weaver.Advice.match",
+          "source": "Advice.java:109"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelAdvice.match",
+          "source": "BcelAdvice.java:104"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.match",
+          "source": "BcelClassWeaver.java:2210"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.match",
+          "source": "BcelClassWeaver.java:1752"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:479"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelClassWeaver.weave",
+          "source": "BcelClassWeaver.java:109"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:1574"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveWithoutDump",
+          "source": "BcelWeaver.java:1525"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveAndNotify",
+          "source": "BcelWeaver.java:1305"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weave",
+          "source": "BcelWeaver.java:1127"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.weave",
+          "source": "AjCompilerAdapter.java:321"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterCompiling",
+          "source": "AjCompilerAdapter.java:192"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.CompilerAdapter.ajc$afterReturning$org_aspectj_ajdt_internal_compiler_CompilerAdapter$2$f9cc9ca0",
+          "source": "CompilerAdapter.aj:70"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:367"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:862"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:269"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.incrementalBuild",
+          "source": "AjBuildManager.java:168"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:117"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:191"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "141956",
+      "date": "2006-05-16T11:12:06+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "141956",
+  "bugId": "141956",
+  "date": "2006-05-16T11:12:06+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

@@ -1,0 +1,58 @@
+{
+  "comments": [
+    "We have started to hammer our generated code with multiple threads and are \ncurrently observing problems that don\u0027t show up in our single-threaded\nunit tests, such as:\n\n---\n\njava.lang.UnsupportedOperationException\n       at\norg.eclipse.emf.common.util.BasicEList$UnmodifiableEList.addAll(BasicEList.j\nava:1577)\n       at\norg.eclipse.emf.ecore.impl.EClassImpl.getEAllAttributes(EClassImpl.java:164)\n       at\ncom.ibm.events.cbe.util.EventValidation.validateRequiredProperties(Unknown\nSource)\n       at com.ibm.events.cbe.impl.CommonBaseEventImpl.validate(Unknown\nSource)\n       at\ncom.ibm.events.emitter.impl.EmitterImpl.sendEvent(EmitterImpl.java:362)\n       at source.EventGenerator$EventSource.run(EventGenerator.java:495)\n       at java.lang.Thread.run(Thread.java:512)\n\n-- \n\nIn investigating the problem further, we\u0027ve identified a worse strand of\nthread unsafety: across different object instances.\n\nEssentially, we reproduce the bug by simpling hitting code snippets like the\none below from multiple threads:\n\n    XYZ emfInstance \u003d XYZFactory .eINSTANCE.createXYZ();\n    EClass  eClass \u003d emfInstance.eClass();\n    List attrs \u003d eClass.getEAllAttributes();\n\nWe\u0027ve narrowed the problem to the \"EClass.getEAll*\" methods but have not\nbeen able to follow through the rest of EMF source code. If the problem\ndoesn\u0027t happen on the very first call to the method in question, then it\ndoesn\u0027t happen anymore, which points to a thread-safety problem during\ninitialization time.\n\nI tried to add synchronization blocks around the generated XYZPackage.init,\ncall the EcorePackage.init method before the test startup, and even the\nnewest 1.1 driver (Build 20031120_1149WL), but to no avail.\n\nOn the good side, we have managed to work around the problem by\nsynchronizing the few calls to the \"EClass.getEAll*\" methods scattered\nthrough our product.",
+    "This should be fixed in the latest 2.0 driver where we\u0027ve tweaked the getEAll \nmethods to avoid the problem."
+  ],
+  "commentCreationDates": [
+    "2004-01-12T19:12:13+01:00",
+    "2004-01-23T22:11:06+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.UnsupportedOperationException",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList$UnmodifiableEList.addAll",
+          "source": "BasicEList.j ava:1577"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.impl.EClassImpl.getEAllAttributes",
+          "source": "EClassImpl.java:164"
+        },
+        {
+          "method": "com.ibm.events.cbe.util.EventValidation.validateRequiredProperties",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "com.ibm.events.cbe.impl.CommonBaseEventImpl.validate",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "com.ibm.events.emitter.impl.EmitterImpl.sendEvent",
+          "source": "EmitterImpl.java:362"
+        },
+        {
+          "method": "source.EventGenerator$EventSource.run",
+          "source": "EventGenerator.java:495"
+        },
+        {
+          "method": "java.lang.Thread.run",
+          "source": "Thread.java:512"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "49868",
+      "date": "2004-01-12T19:12:13+01:00",
+      "product": "EMF",
+      "component": "Core",
+      "severity": "major"
+    }
+  ],
+  "groupId": "49868",
+  "bugId": "49868",
+  "date": "2004-01-12T19:12:13+01:00",
+  "product": "EMF",
+  "component": "Core",
+  "severity": "major"
+}

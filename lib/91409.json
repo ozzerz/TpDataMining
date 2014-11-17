@@ -1,0 +1,235 @@
+{
+  "comments": [
+    "Project Open/Close option in the Project menu is disabled in Plugin prespective.",
+    "they are also disabled in other perspectives (e.g Java).\n\nSuspect it is a general product issue.",
+    "when did this start happening?  cc\u0027ing Doug",
+    "so far, found that it was also not working in M6",
+    "works in M5a, so this was broken between M5a and M6",
+    "This is not a problem with the object contributions on editors.",
+    "Works when using the Resource Perspective and the Navigator View.  ",
+    "The open close project menus are disabled in the java perspective too. I see\nthis stacktrace in the .log file\n\n!ENTRY org.eclipse.ui 4 0 2005-04-21 16:47:29.911\n!MESSAGE org.eclipse.jdt.internal.ui.packageview.PackageExplorerPart\n!STACK 0\njava.lang.ClassCastException:\norg.eclipse.jdt.internal.ui.packageview.PackageExplorerPart\n\tat\norg.epic.core.popupmenus.TogglePerlNatureActionDelegate.setActivePart(TogglePerlNatureActionDelegate.java:40)\n\tat\norg.eclipse.ui.internal.ObjectPluginAction.setActivePart(ObjectPluginAction.java:66)\n\tat\norg.eclipse.ui.internal.ObjectActionContributor.contributeObjectActions(ObjectActionContributor.java:135)\n\tat\norg.eclipse.ui.internal.ObjectActionContributorManager.contributeObjectActions(ObjectActionContributorManager.java:137)\n\tat\norg.eclipse.ui.internal.PopupMenuExtender.addObjectActions(PopupMenuExtender.java:201)\n\tat\norg.eclipse.ui.internal.PopupMenuExtender.menuAboutToShow(PopupMenuExtender.java:226)\n\tat org.eclipse.jface.action.MenuManager.fireAboutToShow(MenuManager.java:285)\n\tat org.eclipse.jface.action.MenuManager.handleAboutToShow(MenuManager.java:372)\n\tat org.eclipse.jface.action.MenuManager.access$0(MenuManager.java:369)\n\tat org.eclipse.jface.action.MenuManager$2.menuShown(MenuManager.java:386)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:116)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:82)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:842)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:866)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:847)\n\tat org.eclipse.swt.widgets.Control.WM_INITMENUPOPUP(Control.java:3327)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:3055)\n\tat org.eclipse.swt.widgets.Decorations.windowProc(Decorations.java:1493)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:3466)\n\tat org.eclipse.swt.internal.win32.OS.TrackPopupMenu(Native Method)\n\tat org.eclipse.swt.widgets.Menu._setVisible(Menu.java:225)\n\tat org.eclipse.swt.widgets.Display.runPopups(Display.java:2920)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2521)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1570)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1534)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:306)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:103)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:228)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:344)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:156)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n\tat java.lang.reflect.Method.invoke(Unknown Source)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:315)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:268)\n\tat org.eclipse.core.launcher.Main.run(Main.java:942)\n\tat org.eclipse.core.launcher.Main.main(Main.java:926)\n",
+    "I forgot to mention, i am running 3.1 M6 on Win2k3",
+    "moving to NE as he was working in in 3.1",
+    "I belive the CCE is unrelated and is a bug in the implementation of \norg.epic.core.popupmenus.TogglePerlNatureActionDelegate.\nIt\u0027s being added as an object contribution, which can appear in the context menu\nof many different parts, but it\u0027s trying to cast down to a specific part.\n",
+    "Also, the stack above looks like it was triggered by popping up a context menu\nin the package explorer, not the Project menu.\n",
+    "I can confirm that in build I20050420, the Open Project and Close Project items\nin the Project menu when the Package Explorer is active, even if the selection\nis changed.  It works OK in the Navigator.\n\nAlso note that special logic is required here since the state of the projects\ncan change without the selection changing.  A resource change listener is needed.\n\nOne option would be to make these actions be RetargetableWithDefault actions,\nlike Build Project is (see WorkbenchActionBuilder).\n\nMoving to JDT UI for comment.\n",
+    "s/when the Package Explorer is active/are disabled when the Package Explorer is\nactive",
+    "Nick, thanks for the pointer how to fix it.",
+    "*** Bug 91502 has been marked as a duplicate of this bug. ***",
+    "Nick, I looked at our code and here is what we are doing. The code is in\nProjectActionGroup:\n\n- create two actions CloseResourceAction and OpenProjectAction. The close\n  resource actions comes from Platform/UI, the open project action is JDT\n  specific.\n\n- register both actions as selection listeners and resource change listeners\n\n- set the action definition ids of the two actions to the following values:\n\n  close action: org.eclipse.ui.project.closeProject\n  open action: org.eclipse.ui.project.openProject\n\n- register both actions as global action handlers using the following ids:\n  IDEActionFactory.CLOSE_PROJECT.getId()\n  IDEActionFactory.OPEN_PROJECT.getId()\n\nI tested it with I20050426-1700 plus our latest plug-in export and the actions\nare enabled when the package explorer is active. \n\nMoving to Platform/UI to confirm that the setup of the actions is correct\n(espically the ids we are using). However, since we haven\u0027t changed this code\nsince 3.0 the setup can only be incorrect if something in Platform/UI has changed.",
+    "Will look into it further.\n",
+    "The open/close project action handlers in ProjectActionGroup are getting\noverridden by the open/close working set action handlers in WorkingSetActionGroup.\n\ne.g. WorkingSetActionGroup has:\n\nfOpenAction\u003d OpenCloseWorkingSetAction.createOpenAction(fSite);\nactionBars.setGlobalActionHandler(IDEActionFactory.OPEN_PROJECT.getId(),\nfOpenAction);\n\nLikewise for close.\n",
+    "Thanks Nick for pointing this out.\n\nThe new action handlers will only be installed if the user switches into working\nset mode. Fix is to not retarget the actions there or to forward to the original\nactions if in this mode and no project is selected.",
+    "I see the WorkingSetActionGroup\u0027s fLazyInitializer running even when not in\nworking set mode.\n",
+    "Didn\u0027t make it into M7.",
+    "*** Bug 95441 has been marked as a duplicate of this bug. ***",
+    "Fixed.",
+    "Verified in I20050527-0010.  Dirk, please update resolution.",
+    "Marking as verified."
+  ],
+  "commentCreationDates": [
+    "2005-04-14T16:28:08+02:00",
+    "2005-04-15T05:32:35+02:00",
+    "2005-04-18T17:28:22+02:00",
+    "2005-04-18T17:40:22+02:00",
+    "2005-04-18T17:42:14+02:00",
+    "2005-04-18T17:51:33+02:00",
+    "2005-04-18T20:07:42+02:00",
+    "2005-04-22T02:10:16+02:00",
+    "2005-04-22T02:11:11+02:00",
+    "2005-04-26T21:27:41+02:00",
+    "2005-04-26T21:51:12+02:00",
+    "2005-04-26T22:04:32+02:00",
+    "2005-04-26T22:10:07+02:00",
+    "2005-04-26T22:10:44+02:00",
+    "2005-04-27T10:50:32+02:00",
+    "2005-04-27T10:50:43+02:00",
+    "2005-05-02T16:45:32+02:00",
+    "2005-05-02T16:56:43+02:00",
+    "2005-05-05T21:00:31+02:00",
+    "2005-05-06T11:43:40+02:00",
+    "2005-05-06T15:28:40+02:00",
+    "2005-05-11T20:03:08+02:00",
+    "2005-05-17T10:42:27+02:00",
+    "2005-05-17T13:10:20+02:00",
+    "2005-05-27T10:24:48+02:00",
+    "2005-05-27T11:10:52+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerPart",
+      "elements": [
+        {
+          "method": "org.epic.core.popupmenus.TogglePerlNatureActionDelegate.setActivePart",
+          "source": "TogglePerlNatureActionDelegate.java:40"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ObjectPluginAction.setActivePart",
+          "source": "ObjectPluginAction.java:66"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ObjectActionContributor.contributeObjectActions",
+          "source": "ObjectActionContributor.java:135"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ObjectActionContributorManager.contributeObjectActions",
+          "source": "ObjectActionContributorManager.java:137"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PopupMenuExtender.addObjectActions",
+          "source": "PopupMenuExtender.java:201"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PopupMenuExtender.menuAboutToShow",
+          "source": "PopupMenuExtender.java:226"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.fireAboutToShow",
+          "source": "MenuManager.java:285"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.handleAboutToShow",
+          "source": "MenuManager.java:372"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.access$0",
+          "source": "MenuManager.java:369"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager$2.menuShown",
+          "source": "MenuManager.java:386"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:116"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:82"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:842"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:866"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:847"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_INITMENUPOPUP",
+          "source": "Control.java:3327"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3055"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Decorations.windowProc",
+          "source": "Decorations.java:1493"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:3466"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.TrackPopupMenu",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Menu._setVisible",
+          "source": "Menu.java:225"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runPopups",
+          "source": "Display.java:2920"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2521"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1570"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1534"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:306"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:103"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:228"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:344"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:156"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:315"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:268"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:942"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:926"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 7,
+      "bugId": "91409",
+      "date": "2005-04-22T02:10:16+02:00",
+      "product": "JDT",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "91409",
+  "bugId": "91409",
+  "date": "2005-04-14T16:28:08+02:00",
+  "product": "JDT",
+  "component": "UI",
+  "severity": "major"
+}

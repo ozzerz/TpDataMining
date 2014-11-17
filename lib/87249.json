@@ -1,0 +1,96 @@
+{
+  "comments": [
+    "Reported to me by Ron Bodkin at EclipseCon\n\n(could be generics related...)\n\nPROBLEM1---------------------------------------------------\nSeverity            Description       Resource          In Folder          \nLocation           Creation Time\n2          The method addObserver(Subject, Observer) in the type\nObserverProtocol is not applicable for the arguments (Playable, BillingService)\n      ObserverBillingPolicy.aj            ObserverDemo/src/songplayobserver   \nline 34  March 2, 2005 4:13:48 PM\n \n \npackage observer;\n \nimport aspectmodel.*;\nimport songplayobserver.*;\nimport designpatterns.*;\n \npublic aspect ObserverBillingPolicy extends ObserverProtocol {\n \n            declare parents : Playable extends Subject;       \n            declare parents : BillingService implements Observer;\n \n            pointcut titleUse(Playable playable) :\n                        this(playable)\n                        \u0026\u0026 ( \n                        execution(public void Playable+.play()) ||\n                        execution(public void Song.showLyrics())\n                        );\n                        \n            pointcut topLevelTitleUse(Playable playable) :\n                        titleUse(playable) \u0026\u0026 ! cflowbelow(titleUse(Playable));\n \n            public pointcut subjectChange(Subject subject) : \n                        topLevelTitleUse(Playable) \u0026\u0026 this(subject);\n            \n            public void updateObserver(Subject s, Observer o){\n                        BillingService service \u003d (BillingService)o;\n                        service.generateChargeFor((Playable)s);\n            }\n            \n            after(Application currentApp) returning (Playable title): \n                        TitleUsePolicy.titleEntersUse(currentApp)\n            {\n                        BillingService usersBillingService \u003d\ncurrentApp.getUser().getBillingService();\n                        addObserver(title, usersBillingService);\n            }\n            \n            //default wiring...boring but good for simple tests\n//          private BillingService defaultBillingService \u003d new BillingService();\n//\n//          \n//          after() returning(Playable p) :\n//                      call(public Playable+.new(..)){\n//                      addObserver((Subject)p, (Observer)defaultBillingService);\n//          }\n}\n \npackage designpatterns;\n \n \nimport java.util.WeakHashMap;\nimport java.util.List;\nimport java.util.LinkedList;\n \npublic abstract aspect ObserverProtocol {  \n    \n    private WeakHashMap\u003cSubject,List\u003cObserver\u003e\u003e perSubjectObservers;\n \n \n    protected List\u003cObserver\u003e getObservers(Subject subject) { \n        if (perSubjectObservers \u003d\u003d null) {\n            perSubjectObservers \u003d new WeakHashMap\u003cSubject,List\u003cObserver\u003e\u003e();\n        }\n        List\u003cObserver\u003e observers \u003d perSubjectObservers.get(subject);\n        if ( observers \u003d\u003d null ) {\n            observers \u003d new LinkedList\u003cObserver\u003e();\n            perSubjectObservers.put(subject, observers);\n        }\n        return observers;\n    }\n \n    \n    public void addObserver(Subject subject, Observer observer) { \n        getObservers(subject).add(observer);    \n    }\n    \n    public void removeObserver(Subject subject, Observer observer) { \n        getObservers(subject).remove(observer); \n    }\n \n    protected abstract pointcut subjectChange(Subject s);\n \n \n    after(Subject subject): subjectChange(subject) {\n        for(Observer o : getObservers(subject)){\n            updateObserver(subject, o);\n        }\n    } \n    \n    protected abstract void updateObserver(Subject subject, Observer observer);\n}\n\n\nPROBLEM2---------------------------------------------------\nSeverity            Description       Resource          In Folder          \nLocation           Creation Time\n2          Internal compiler error\njava.lang.NullPointerException\n            at\norg.aspectj.asm.internal.ProgramElement.genHandleIdentifier(ProgramElement.java:474)\n            at\norg.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.addUsesPointcutRelationsForNode(AsmHierarchyBuilder.java:372)\n            at\norg.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.visit(AsmHierarchyBuilder.java:343)\n            at\norg.aspectj.org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.traverse(MethodDeclaration.java:167)\n            at\norg.aspectj.org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.traverse(TypeDeclaration.java:1133)\n            at\norg.aspectj.org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.traverse(CompilationUnitDeclaration.java:314)\n            at\norg.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.internalBuild(AsmHierarchyBuilder.java:141)\n            at\norg.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.buildStructureForCompilationUnit(AsmHierarchyBuilder.java:81)\n            at\norg.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.finishedCompilationUnit(EclipseFactory.java:354)\n            at\norg.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterProcessing(AjCompilerAdapter.java:139)\n            at\norg.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile(Compiler.java:373)\n            at\norg.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation(AjBuildManager.java:682)\n            at\norg.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild(AjBuildManager.java:191)\n            at\norg.aspectj.ajdt.internal.core.builder.AjBuildManager.incrementalBuild(AjBuildManager.java:109)\n            at\norg.aspectj.ajde.internal.CompilerAdapter.compile(CompilerAdapter.java:117)\n            at\norg.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run(AspectJBuildManager.java:165)\n            ObserverBillingPolicy.aj           \nObserverDemo/src/songplayobserver                March 2, 2005 4:13:48 PM\n2          The method addObserver(Subject, Observer) in the type\nObserverProtocol is not applicable for the arguments (Playable, BillingService)\n      ObserverBillingPolicy.aj            ObserverDemo/src/songplayobserver   \nline 34  March 2, 2005 4:13:48 PM\n -----------------------------------------------------",
+    "we\u0027ll be looking at generics in aj5m3...",
+    "Fixed under bug 90806, actual failure was *not* generics related - shock horror!\n\nIt was the reference to a pointcut defined elsewhere:\n\nTitleUsePolicy.titleEntersUse(currentApp)"
+  ],
+  "commentCreationDates": [
+    "2005-03-07T08:50:01+01:00",
+    "2005-03-23T14:54:30+01:00",
+    "2005-04-21T09:52:42+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.aspectj.asm.internal.ProgramElement.genHandleIdentifier",
+          "source": "ProgramElement.java:474"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.addUsesPointcutRelationsForNode",
+          "source": "AsmHierarchyBuilder.java:372"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.visit",
+          "source": "AsmHierarchyBuilder.java:343"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.MethodDeclaration.traverse",
+          "source": "MethodDeclaration.java:167"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.traverse",
+          "source": "TypeDeclaration.java:1133"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration.traverse",
+          "source": "CompilationUnitDeclaration.java:314"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.internalBuild",
+          "source": "AsmHierarchyBuilder.java:141"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AsmHierarchyBuilder.buildStructureForCompilationUnit",
+          "source": "AsmHierarchyBuilder.java:81"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.lookup.EclipseFactory.finishedCompilationUnit",
+          "source": "EclipseFactory.java:354"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.compiler.AjCompilerAdapter.afterProcessing",
+          "source": "AjCompilerAdapter.java:139"
+        },
+        {
+          "method": "org.aspectj.org.eclipse.jdt.internal.compiler.Compiler.compile",
+          "source": "Compiler.java:373"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.performCompilation",
+          "source": "AjBuildManager.java:682"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.doBuild",
+          "source": "AjBuildManager.java:191"
+        },
+        {
+          "method": "org.aspectj.ajdt.internal.core.builder.AjBuildManager.incrementalBuild",
+          "source": "AjBuildManager.java:109"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.CompilerAdapter.compile",
+          "source": "CompilerAdapter.java:117"
+        },
+        {
+          "method": "org.aspectj.ajde.internal.AspectJBuildManager$CompilerThread.run",
+          "source": "AspectJBuildManager.java:165"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "87249",
+      "date": "2005-03-07T08:50:01+01:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "87249",
+  "bugId": "87249",
+  "date": "2005-03-07T08:50:01+01:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

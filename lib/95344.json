@@ -1,0 +1,110 @@
+{
+  "comments": [
+    "In the attached aspect (don\u0027t worry, it\u0027s generated code, I did not write it \nmyself :-)), I get the warning, that the Type \"Formula$1\" cannot be found on any \nwithin-pointcut.\n\nHowever, \"Formula$1\" is the aspect type itself, thus IMO it should be found. \nWhen I fully qualify the type with a package name, it works.",
+    "Created an attachment (id\u003d21199)\nThe test case\n",
+    "I had a look at this... but as I can\u0027t get the test case to compile due to\ndependencies, and it has some huge lines of code it\u0027s rather tricky to work out\nwhat\u0027s going on..\n\ncould you attatch the dependencies (or attatch a version without the\ndependencies but where the bug still occurs) and also say what exactly the\nwarning message was?",
+    "Hi. I think there is no need for this. I had a further look and I saw that the \n\u0027$\u0027 character in the class name is the problem. I think, AspectJ misinteprets \nthis as separator for an inner class or something like this. Usage of \u0027$\u0027 is \nindeed discouraged in class IDs, however it *is* legal in Java so AspectJ \nshould obey this IMHO. \n \nHope that helps. ",
+    "Interesting..\nInner classes in java get put in classfiles called className$1.class,\nclassName$2.class, etc.\n\nAfter screwing around a bit with dollar signs I discovered this...\n\n/////////////////// In the following code:\ninterface A$1 {}\nclass A{\n  public A$1 a(){\n    return new A$1() {};\n  }\n}\n//////////////////////////////////////////\n\njavac produces:\nA$1.class\nA$2.class\nA.class\n\najc produces this:\njava.lang.StackOverflowError\n        at java.util.HashMap.hash(HashMap.java:264)\n        at java.util.HashMap.get(HashMap.java:320)\n        at org.aspectj.weaver.World$TypeMap.get(World.java:518)\n        at org.aspectj.weaver.World.resolve(World.java:123)\n        at org.aspectj.weaver.World.resolve(World.java:108)\n        at org.aspectj.weaver.World.resolve(World.java:146)\n        at org.aspectj.weaver.bcel.BcelWeaver.weaveParentsFor(BcelWeaver.java:963)\n        at org.aspectj.weaver.bcel.BcelWeaver.weaveParentsFor(BcelWeaver.java:974)\n        at org.aspectj.weaver.bcel.BcelWeaver.weaveParentsFor(BcelWeaver.java:974)\n        at org.aspectj.weaver.bcel.BcelWeaver.weaveParentsFor(BcelWeaver.java:974)\n        at org.aspectj.weaver.bcel.BcelWeaver.weaveParentsFor(BcelWeaver.java:974)\n... etc\n\nLovely!\nI think the problem I\u0027ve found is to do with ajc trying to call both the\nanonymous inner class and the interface \"A$1\" (javac calls the anon. inner class\n\"A$2\")",
+    "On further investigation my above problem isn\u0027t a bug in ajc as such...\nit\u0027s a bug in jdt...\n\n//////////////////////// in the following code\ninterface B {void hello();}\n\nclass Main$1 {}\n\npublic class Main{\n  public static B a(){\n    return new B() {public void hello(){System.out.println(\"hello\");}};\n  }\n  \n  public static void main(String [] args){\n\t  a().hello();\n  }\n}\n//////////////////////////////////////////////\n\njavac produces the files: \nB.class\nMain$1.class\nMain$2.class\nMain.class\nand when ran says \"hello\"\n\njdt in Eclipse 3.1M6 produces the files:\nB.class\nMain$1.class\nMain.class\nand when ran says:\n\nException in thread \"main\" java.lang.IncompatibleClassChangeError\n        at Main.main(Main.java:11)\n\nI\u0027m going to check if this still happens in the latest version of Eclipse, and\nif it does raise it as a bug on jdt. Perhaps if this bug gets fixed the original\none (Formula$1) will go away too when ajc uses the latest jdt.",
+    "It is still there in Eclipse 3.1RC1, so I\u0027ve reported that as jdt bug 98120",
+    "Created an attachment (id\u003d22410)\nerror detecting patch\n\nThis patch makes AspectJ print an error and state what happened (and the\nworkaround) when jdt passes the messed up data to AspectJ.",
+    "Andy, please can you apply patch...\nThks :)",
+    "I\u0027m worried about the performance of the algorithm in the patch - and\nunfortunately the JDT guys haven\u0027t fixed the bug in 3.1 final compiler.  I\u0027m\ngoing to delay this to M4 to give us a chance to prod them on the compiler bug,\nmaybe for them to fix it in 3.1.1 - and to rework the algorithm if that doesnt work.",
+    "moved to 1.5.1 since we\u0027re not fully happy with the patch, and really want to pick up the JDT fix... but JDT \nhaven\u0027t fixed it in their 3.1.1 final compiler on which AJ 5 is based, and we\u0027re not going to move to a pre-\nrelease JDT compiler for AJ 5 even if they do fix it now. Hopefully they will have something we can pick up \nfor 1.5.1",
+    "nothing happening with the eclipse bug for this..."
+  ],
+  "commentCreationDates": [
+    "2005-05-16T13:33:30+02:00",
+    "2005-05-16T13:34:00+02:00",
+    "2005-05-31T15:08:25+02:00",
+    "2005-05-31T15:26:07+02:00",
+    "2005-06-02T15:01:10+02:00",
+    "2005-06-02T16:05:23+02:00",
+    "2005-06-02T17:10:55+02:00",
+    "2005-06-06T11:45:53+02:00",
+    "2005-06-09T15:28:24+02:00",
+    "2005-08-24T16:05:49+02:00",
+    "2005-10-28T14:06:07+02:00",
+    "2006-06-27T16:32:57+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.StackOverflowError",
+      "elements": [
+        {
+          "method": "java.util.HashMap.hash",
+          "source": "HashMap.java:264"
+        },
+        {
+          "method": "java.util.HashMap.get",
+          "source": "HashMap.java:320"
+        },
+        {
+          "method": "org.aspectj.weaver.World$TypeMap.get",
+          "source": "World.java:518"
+        },
+        {
+          "method": "org.aspectj.weaver.World.resolve",
+          "source": "World.java:123"
+        },
+        {
+          "method": "org.aspectj.weaver.World.resolve",
+          "source": "World.java:108"
+        },
+        {
+          "method": "org.aspectj.weaver.World.resolve",
+          "source": "World.java:146"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveParentsFor",
+          "source": "BcelWeaver.java:963"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveParentsFor",
+          "source": "BcelWeaver.java:974"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveParentsFor",
+          "source": "BcelWeaver.java:974"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveParentsFor",
+          "source": "BcelWeaver.java:974"
+        },
+        {
+          "method": "org.aspectj.weaver.bcel.BcelWeaver.weaveParentsFor",
+          "source": "BcelWeaver.java:974"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "95344",
+      "date": "2005-06-02T15:01:10+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.IncompatibleClassChangeError",
+      "elements": [
+        {
+          "method": "Main.main",
+          "source": "Main.java:11"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 5,
+      "bugId": "95344",
+      "date": "2005-06-02T16:05:23+02:00",
+      "product": "AspectJ",
+      "component": "Compiler",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "95344",
+  "bugId": "95344",
+  "date": "2005-05-16T13:33:30+02:00",
+  "product": "AspectJ",
+  "component": "Compiler",
+  "severity": "normal"
+}

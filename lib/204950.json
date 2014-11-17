@@ -1,0 +1,34 @@
+{
+  "comments": [
+    "I was testing remote log import backwards compatibility with older Agent Controllers and encountered a case where the log import operation hung forever.  I could not even cancel the eclipse job that was running the import operation.  Here was the setup:\n\nClient:\nTPTP 4.4.0 Eclipse workbench\nWindows 2000 machine\nIBM JRE 1.4.2 SR3\n\nAgent Controller:\nIBM built version based on TPTP 4.0.1.2\nSame Windows 2000 machine\nIBM JRE 1.4.2\n\nI ran the client in a runtime workbench and had the following printed to the Eclipse Console window:\n\njava.lang.NullPointerException\n\tat org.eclipse.hyades.internal.execution.local.common.Console.run(Console.java:181)\n\nI debugged the code at the point of the NPE:\n\nboolean serverCanReach \u003d false;\ntry {\n\tIFileManagerExtended fileManager \u003d FileManagerFactory.getInstance()\n\t\t\t.create(this._node.getConnection());\n\u003e\u003e\u003e\u003e\tserverCanReach \u003d fileManager.determineServerReach(localHost\n\t\t\t.getHostAddress(), (int) this._port);\n} catch (ServerNotAvailableException e) {\n\te.printStackTrace();\n}\n\n/* Inform the start method we are up */\nsynchronized (this) {\n\t_started \u003d true;\n\tthis.notify();\n}\n\nI found that fileManager was null when used to set serverCanReach.  The NPE is not caught here but higher up in the stack so _started is never set to true.  The thread doing the remote launch then hangs in the following code:\n\n\tpublic void start() {\n\t\t/* We need to wait until the server is fully up */\n\t\tsynchronized (this) {\n\t\t\t_valid \u003d true;\n\t\t\tsuper.start();\n\t\t\tdo {\n\t\t\t\ttry {\n\t\t\t\t\tthis.wait();\n\t\t\t\t} catch (InterruptedException e) {\n\t\t\t\t}\n\t\t\t} while (!_started);\n\t\t}\n\t}\n\nThe code in Console.run() should either catch the NPE or test for fileManager\u003d\u003dnull before using fileManager.  I added the test for null and then the remote log import succeeded.\n\nI am not sure what caused this scenario.  I tried testing with a pure TPTP 4.0.1.2 Agent Controller and could not reproduce the problem.  I tried reinstalling the IBM Agent Controller again and could not reproduce the problem.  Even though this scenario is rare, the code should still handle the case of fileManager\u003d\u003dnull.",
+    "I reproduced this problem again with a pure TPTP scenario:\n\nClient - TPTP 4.4.0.2 workbench\n\nAgent Controller - TPTP 4.0.1.2\n\nI did some more debugging and found fileManager\u003d\u003dnull in Console.run() because of the following code in ProvisionalNewFileServerProvider.getTaskRunnable():\n\npublic void run() {\n\ttry {\n\t\tif (ProvisionalNewFileServerProvider.this.descriptor.isVersionWithin(\"3.3\", \"4.0.1\")) {\n\n\t\t// Attempt file server available operation\n\t\t\t\t\t\t\tProvisionalNewFileServerProvider.this.fileManager.isServerAvailable();\n\n\t\t// If it doesn\u0027t fail, then the server is valid\n\t\t\t\t\t\t\tProvisionalNewFileServerProvider.this.serverValidity \u003d ServerValidity.VALID;\n\n\t\t} else {\n\n\t\t\t// Invalid if outside of 3.3 \u003c\u003d x \u003c\u003d 4.0.1 range\n\t\t\t\t\t\t\tProvisionalNewFileServerProvider.this.serverValidity \u003d ServerValidity.INVALID;\n\n\t\t}\n\n\t} catch (Throwable e) {\n\n\t// Exception leaves server validity in unknown state\n\t\t\t\t\t\tProvisionalNewFileServerProvider.this.serverValidity \u003d ServerValidity.UNKNOWN;\n\t\texception \u003d e;\n\n\t}\n\n\t// Notify waiting threads\n\tsynchronized (ProvisionalNewFileServerProvider.this.attemptLock) {\n\t\t\t\t\t\tProvisionalNewFileServerProvider.this.attemptLock.notifyAll();\n}\n\n\nThe version range 3.3 \u003c\u003d x \u003c\u003d 4.0.1 is not sufficient in this case.  The version of the the org.eclipse.hyades.execution plugin and Agent Controller is 4.0.1.2 in this case.  When I changed the upper limit to 4.0.1.2 in the version number test, the log import worked.\n\nNote this bug also affects profiling on a remote system running 4.0.1.2 Agent Controller.\n\nI don\u0027t know how I was able to get this scenario to work previously because it should always occur with a 4.0.1.2 Agent Controller.\n\nEven if this version number test is fixed, I think the fileManager\u003d\u003dnull case in Console.run() should still be handled better to avoid causing the client to hang.\n"
+  ],
+  "commentCreationDates": [
+    "2007-09-28T22:02:28+02:00",
+    "2007-10-01T22:41:44+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.hyades.internal.execution.local.common.Console.run",
+          "source": "Console.java:181"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "204950",
+      "date": "2007-09-28T22:02:28+02:00",
+      "product": "TPTP Agent Controller",
+      "component": "FileSystemServices",
+      "severity": "major"
+    }
+  ],
+  "groupId": "204950",
+  "bugId": "204950",
+  "date": "2007-09-28T22:02:28+02:00",
+  "product": "TPTP Agent Controller",
+  "component": "FileSystemServices",
+  "severity": "major"
+}

@@ -1,0 +1,812 @@
+{
+  "comments": [
+    "+++ This bug was initially created as a clone of Bug #114571 +++\n\nSynchronization fix is needed in org.eclipse.jdt.internal.core.JavaModel.java to prevent infinite loop on corrupted HashSet which occurs on multiprocessor i5/OS platform (or possibly on any MP system). Would like back port of this self-contained fix to 3.0.2 level.\n\nDetails \u003d\u003e \nJVM dump of infinite loop on corrupted hashMap. Note two threads are looping on same hashMap in contains.Key(...) method \u003d\u003e \n\nThread:  000004EF Thread-0                                                     \n  TDE:  B003900007879000                                                       \n  Thread priority: 5                                                           \n  Thread status: Running                                                       \n  Thread group: main                                                           \n  Runnable: java/lang/Thread                                                   \n Stack:                                                                        \n    java/util/HashMap.containsKey(Ljava/lang/Object;)Z+30 (HashMap.java:342)   \n    java/util/HashSet.contains(Ljava/lang/Object;)Z+0 (HashSet.java:180)       \n    org/eclipse/jdt/internal/core/JavaModel.getTarget(Lorg/eclipse/core/resour \n     e/core/runtime/IPath;Z)Ljava/lang/Object;+0 (JavaModel.java:336)      \n org/eclipse/jdt/internal/core/JavaProject.computePackageFragmentRoots(Lorg\n     thEntry;Lorg/eclipse/jdt/internal/compiler/util/ObjectVector;Ljava/uti\n     .java? :458)                                                          \n org/eclipse/jdt/internal/core/JavaProject.computePackageFragmentRoots([Lor\n     athEntry;Lorg/eclipse/jdt/internal/compiler/util/ObjectVector;Ljava/ut\n     t.java:570)                                                           \n org/eclipse/jdt/internal/core/JavaProject.computePackageFragmentRoots([Lor\n     athEntry;Z)[Lorg/eclipse/jdt/core/IPackageFragmentRoot;+0 (JavaProject\n org/eclipse/jdt/internal/core/JavaProject.getAllPackageFragmentRoots()[Lor\n     eFragmentRoot;+9 (JavaProject.java:1246)                              \n org/eclipse/jdt/internal/core/JavaProject.findPackageFragmentRoot0(Lorg/ec\n     Lorg/eclipse/jdt/core/IPackageFragmentRoot;+1 (JavaProject.java:1022) \n org/eclipse/jdt/internal/core/JavaProject.findPackageFragmentRoot(Lorg/ecl\n     org/eclipse/jdt/core/IPackageFragmentRoot;+5 (JavaProject.java:1013)  \n com/ibm/etools/ejbdeploy/EJBDeployer.getGenerationOutputFolder(Lorg/eclips\n\n\nThread:  00000501 Worker-0                                                    \n  TDE:  B0039000078C4000                                                      \n  Thread priority: 5                                                          \n  Thread status: Running                                                      \n  Thread group: main                                                          \n  Runnable: org/eclipse/core/internal/jobs/Worker                             \n Stack:                                                                       \n    java/util/HashMap.containsKey(Ljava/lang/Object;)Z+30 (HashMap.java:342)  \n    java/util/HashSet.contains(Ljava/lang/Object;)Z+0 (HashSet.java:180)      \n    org/eclipse/jdt/internal/core/JavaModel.getTarget(Lorg/eclipse/core/resour\n        e/core/runtime/IPath;Z)Ljava/lang/Object;+0 (JavaModel.java:336)      \n    org/eclipse/jdt/internal/core/ClasspathEntry.validateClasspathEntry(Lorg/e\n        ct;Lorg/eclipse/jdt/core/IClasspathEntry;ZZ)Lorg/eclipse/jdt/core/IJav\n        y.java:1000)                                                          \n    org/eclipse/jdt/internal/core/JavaProject.getResolvedClasspath([Lorg/eclip\n        y;Lorg/eclipse/core/runtime/IPath;ZZLjava/util/Map;)[Lorg/eclipse/jdt/\n     roject.java:1848)                                                     \n org/eclipse/jdt/internal/core/JavaProject.getResolvedClasspath(ZZZ)[Lorg/e\n     Entry;+0 (JavaProject.java:1774)                                      \n org/eclipse/jdt/internal/core/DeltaProcessor.updateClasspathMarkers(Lorg/e\n     ourceDelta;Ljava/util/HashSet;Ljava/util/Map;Ljava/util/Map;)V+300 (De\n org/eclipse/jdt/internal/core/DeltaProcessor.updateClasspathMarkers(Lorg/e\n     ourceDelta;Ljava/util/HashSet;Ljava/util/Map;Ljava/util/Map;)V+421 (De\n org/eclipse/jdt/internal/core/DeltaProcessor.updateClasspathMarkers(Lorg/e\n     ourceDelta;)V+37 (DeltaProcessor.java:2170)                           \n org/eclipse/jdt/internal/core/DeltaProcessor.resourceChanged(Lorg/eclipse/\n     angeEvent;)V+318 (DeltaProcessor.java:1874)                           \n org/eclipse/jdt/internal/core/DeltaProcessingState.resourceChanged(Lorg/ec\n     urceChangeEvent;)V+63 (DeltaProcessingState.java:414)                 \n org/eclipse/core/internal/events/NotificationManager$2.run()V+10 (Notifica\n org/eclipse/core/internal/runtime/InternalPlatform.run(Lorg/eclipse/core/r\n     (InternalPlatform.java:616)                                           \n\n\nFailing code in JavaModel.java \u003d\u003d\u003d\u003e\n.\n.\n public static Object getTarget(IContainer container, IPath path, boolean checkResourceExistence)\n    {\n        if(path \u003d\u003d null)\n            return null;\n        if(path.getDevice() \u003d\u003d null)\n        {\n            IResource resource \u003d container.findMember(path);\n            if(resource !\u003d null)\n                if(!checkResourceExistence || resource.exists())\n                    return resource;\n                else\n                    return null;\n        }\n        if(!path.isAbsolute())\n            return null;\n        File externalFile \u003d new File(path.toOSString());\n        if(!checkResourceExistence)\n            return externalFile;\n        if(existingExternalFiles.contains(externalFile))    \u003c\u003d\u003d\u003d\u003d\u003d\u003d\u003d thread A, B reading global hashmap\n            return externalFile;\n        if(JavaModelManager.ZIP_ACCESS_VERBOSE)\n            System.out.println(\"(\" + Thread.currentThread() + \") [JavaModel.getTarget(...)] Checking existence of \" + path.toString());\n        if(externalFile.exists())\n        {\n            existingExternalFiles.add(externalFile);   \u003c\u003d\u003d\u003d\u003d\u003d  unlocked threads C, D, E, ... updating global hashmap\n            return externalFile;\n        } else\n        {\n            return null;\n        }\n    } // end method \n.\n.\n    public static HashSet existingExternalFiles \u003d new HashSet();    \u003c\u003d\u003d\u003d\u003d\u003d  the unsynchronized global hashset \n.\n.\n\n\n\n\nPrevious/original bug report follows \u003d\u003e \n\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\u003d\n\nAlthough I do not know how to reproduce this problem, I get the following\nexception(s) from time to time. Eclipse 3.1.1 + WTP, IBM JDK j9n142-20050929,\nWinXP SP2.\n\n!ENTRY org.eclipse.core.resources 4 2 2005-10-31 11:33:07.837\n!MESSAGE Problems occurred when invoking code from plug-in:\n\"org.eclipse.core.resources\".\n!STACK 0\njava.util.ConcurrentModificationException: concurrent access to HashMap\nattempted by Thread[Worker-66,5,main]\n\tat java.util.HashMap.onEntry(HashMap.java:211)\n\tat java.util.HashMap.transfer(HashMap.java:554)\n\tat java.util.HashMap.resize(HashMap.java:541)\n\tat java.util.HashMap.addEntry(HashMap.java:901)\n\tat java.util.HashMap.put(HashMap.java:474)\n\tat java.util.HashSet.add(HashSet.java:206)\n\tat org.eclipse.jdt.internal.core.JavaModel.getTarget(JavaModel.java:372)\n\tat\norg.eclipse.jdt.internal.core.ClasspathEntry.validateClasspathEntry(ClasspathEntry.java:1591)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:2059)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath(JavaProject.java:1954)\n\tat\norg.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers(DeltaProcessor.java:2073)\n\tat\norg.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers(DeltaProcessor.java:2103)\n\tat\norg.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers(DeltaProcessor.java:2119)\n\tat\norg.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged(DeltaProcessor.java:1823)\n\tat\norg.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged(DeltaProcessingState.java:432)\n\tat\norg.eclipse.core.internal.events.NotificationManager$2.run(NotificationManager.java:276)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:1044)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:783)\n\tat\norg.eclipse.core.internal.events.NotificationManager.notify(NotificationManager.java:270)\n\tat\norg.eclipse.core.internal.events.NotificationManager.broadcastChanges(NotificationManager.java:144)\n\tat\norg.eclipse.core.internal.resources.Workspace.broadcastBuildEvent(Workspace.java:185)\n\tat org.eclipse.core.internal.events.AutoBuildJob.doBuild(AutoBuildJob.java:137)\n\tat org.eclipse.core.internal.events.AutoBuildJob.run(AutoBuildJob.java:200)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:76)\n\n!ENTRY org.eclipse.ui 4 4 2005-10-31 11:33:07.868\n!MESSAGE Unhandled event loop exception\n\n!ENTRY org.eclipse.ui 4 0 2005-10-31 11:33:07.868\n!MESSAGE Failed to execute runnable (java.util.ConcurrentModificationException:\nconcurrent access to HashMap attempted by Thread[main,6,main])\nUnhandled event loop exception\nReason:\n!STACK 0\norg.eclipse.swt.SWTException: Failed to execute runnable\n(java.util.ConcurrentModificationException: concurrent access to HashMap\nattempted by Thread[main,6,main])\n\tat org.eclipse.swt.SWT.error(SWT.java:2942)\n\tat org.eclipse.swt.SWT.error(SWT.java:2865)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:126)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3057)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2716)\n\tat\norg.eclipse.ui.internal.dialogs.EventLoopProgressMonitor.runEventLoop(EventLoopProgressMonitor.java:123)\n\tat\norg.eclipse.ui.internal.dialogs.EventLoopProgressMonitor.done(EventLoopProgressMonitor.java:82)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1731)\n\tat\norg.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:110)\n\tat\norg.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:73)\n\tat\norg.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:63)\n\tat\norg.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation(TextFileDocumentProvider.java:441)\n\tat\norg.eclipse.ui.editors.text.TextFileDocumentProvider.saveDocument(TextFileDocumentProvider.java:700)\n\tat\norg.eclipse.ui.texteditor.AbstractTextEditor.performSave(AbstractTextEditor.java:3736)\n\tat\norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.performSave(CompilationUnitEditor.java:1405)\n\tat\norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.doSave(CompilationUnitEditor.java:1458)\n\tat org.eclipse.ui.internal.SaveableHelper$1.run(SaveableHelper.java:95)\n\tat org.eclipse.ui.internal.SaveableHelper$2.run(SaveableHelper.java:116)\n\tat\norg.eclipse.jface.operation.ModalContext.runInCurrentThread(ModalContext.java:346)\n\tat org.eclipse.jface.operation.ModalContext.run(ModalContext.java:291)\n\tat org.eclipse.jface.window.ApplicationWindow$1.run(ApplicationWindow.java:624)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\n\tat org.eclipse.jface.window.ApplicationWindow.run(ApplicationWindow.java:621)\n\tat org.eclipse.ui.internal.WorkbenchWindow.run(WorkbenchWindow.java:2134)\n\tat\norg.eclipse.ui.internal.SaveableHelper.runProgressMonitorOperation(SaveableHelper.java:122)\n\tat org.eclipse.ui.internal.SaveableHelper.savePart(SaveableHelper.java:100)\n\tat org.eclipse.ui.internal.EditorManager.savePart(EditorManager.java:1154)\n\tat org.eclipse.ui.internal.WorkbenchPage.savePart(WorkbenchPage.java:2714)\n\tat org.eclipse.ui.internal.WorkbenchPage.saveEditor(WorkbenchPage.java:2727)\n\tat org.eclipse.ui.internal.SaveAction.run(SaveAction.java:69)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:996)\n\tat org.eclipse.jface.commands.ActionHandler.execute(ActionHandler.java:117)\n\tat org.eclipse.core.commands.Command.execute(Command.java:311)\n\tat\norg.eclipse.core.commands.ParameterizedCommand.execute(ParameterizedCommand.java:396)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard.executeCommand(WorkbenchKeyboard.java:459)\n\tat org.eclipse.ui.internal.keys.WorkbenchKeyboard.press(WorkbenchKeyboard.java:781)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard.processKeyEvent(WorkbenchKeyboard.java:828)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard.filterKeySequenceBindings(WorkbenchKeyboard.java:550)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard.access$3(WorkbenchKeyboard.java:493)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard$KeyDownFilter.handleEvent(WorkbenchKeyboard.java:117)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Display.filterEvent(Display.java:917)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:842)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:867)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:852)\n\tat org.eclipse.swt.widgets.Widget.sendKeyEvent(Widget.java:880)\n\tat org.eclipse.swt.widgets.Widget.sendKeyEvent(Widget.java:876)\n\tat org.eclipse.swt.widgets.Widget.wmChar(Widget.java:1190)\n\tat org.eclipse.swt.widgets.Control.WM_CHAR(Control.java:3135)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:3038)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:3706)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessageW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessage(OS.java:1656)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2711)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1699)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1663)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:367)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:103)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:226)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:163)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:85)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:58)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:60)\n\tat java.lang.reflect.Method.invoke(Method.java:391)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:334)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:278)\n\tat org.eclipse.core.launcher.Main.run(Main.java:973)\n\tat org.eclipse.core.launcher.Main.main(Main.java:948)\nCaused by: java.util.ConcurrentModificationException: concurrent access to\nHashMap attempted by Thread[main,6,main]\n\tat java.util.HashMap.onExit(HashMap.java:223)\n\tat java.util.HashMap.transfer(HashMap.java:558)\n\tat java.util.HashMap.resize(HashMap.java:541)\n\tat java.util.HashMap.addEntry(HashMap.java:901)\n\tat java.util.HashMap.put(HashMap.java:474)\n\tat java.util.HashSet.add(HashSet.java:206)\n\tat org.eclipse.jdt.internal.core.JavaModel.getTarget(JavaModel.java:372)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.computePackageFragmentRoots(JavaProject.java:522)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.computePackageFragmentRoots(JavaProject.java:625)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.computePackageFragmentRoots(JavaProject.java:586)\n\tat\norg.eclipse.jdt.internal.core.JavaProject.findPackageFragmentRoots(JavaProject.java:1097)\n\tat\norg.eclipse.jdt.internal.ui.packageview.ClassPathContainer.contains(ClassPathContainer.java:190)\n\tat\norg.eclipse.jdt.internal.ui.packageview.PackageExplorerContentProvider.internalGetParent(PackageExplorerContentProvider.java:231)\n\tat\norg.eclipse.jdt.ui.StandardJavaElementContentProvider.getParent(StandardJavaElementContentProvider.java:231)\n\tat\norg.eclipse.jdt.internal.ui.packageview.PackageExplorerContentProvider.getParent(PackageExplorerContentProvider.java:215)\n\tat\norg.eclipse.jdt.internal.ui.packageview.WorkingSetAwareContentProvider.getModelPath(WorkingSetAwareContentProvider.java:142)\n\tat\norg.eclipse.jdt.internal.ui.packageview.WorkingSetAwareContentProvider.getTreePaths(WorkingSetAwareContentProvider.java:126)\n\tat\norg.eclipse.jdt.internal.ui.packageview.PackageExplorerPart$PackageExplorerProblemTreeViewer.setSelectionToWidget(PackageExplorerPart.java:645)\n\tat\norg.eclipse.jface.viewers.StructuredViewer.preservingSelection(StructuredViewer.java:1208)\n\tat\norg.eclipse.jdt.internal.ui.packageview.PackageExplorerPart$PackageExplorerProblemTreeViewer.preservingSelection(PackageExplorerPart.java:624)\n\tat org.eclipse.jface.viewers.StructuredViewer.refresh(StructuredViewer.java:1289)\n\tat\norg.eclipse.jdt.internal.ui.packageview.PackageExplorerContentProvider$3.run(PackageExplorerContentProvider.java:615)\n\tat\norg.eclipse.jdt.internal.ui.packageview.PackageExplorerContentProvider$7.run(PackageExplorerContentProvider.java:659)\n\tat org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:35)\n\tat org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:123)\n\tat org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:3057)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2716)\n\tat\norg.eclipse.ui.internal.dialogs.EventLoopProgressMonitor.runEventLoop(EventLoopProgressMonitor.java:123)\n\tat\norg.eclipse.ui.internal.dialogs.EventLoopProgressMonitor.done(EventLoopProgressMonitor.java:82)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1731)\n\tat\norg.eclipse.ui.actions.WorkspaceModifyOperation.run(WorkspaceModifyOperation.java:110)\n\tat\norg.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:73)\n\tat\norg.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run(WorkspaceOperationRunner.java:63)\n\tat\norg.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation(TextFileDocumentProvider.java:441)\n\tat\norg.eclipse.ui.editors.text.TextFileDocumentProvider.saveDocument(TextFileDocumentProvider.java:700)\n\tat\norg.eclipse.ui.texteditor.AbstractTextEditor.performSave(AbstractTextEditor.java:3736)\n\tat\norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.performSave(CompilationUnitEditor.java:1405)\n\tat\norg.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.doSave(CompilationUnitEditor.java:1458)\n\tat org.eclipse.ui.internal.SaveableHelper$1.run(SaveableHelper.java:95)\n\tat org.eclipse.ui.internal.SaveableHelper$2.run(SaveableHelper.java:116)\n\tat\norg.eclipse.jface.operation.ModalContext.runInCurrentThread(ModalContext.java:346)\n\tat org.eclipse.jface.operation.ModalContext.run(ModalContext.java:291)\n\tat org.eclipse.jface.window.ApplicationWindow$1.run(ApplicationWindow.java:624)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:69)\n\tat org.eclipse.jface.window.ApplicationWindow.run(ApplicationWindow.java:621)\n\tat org.eclipse.ui.internal.WorkbenchWindow.run(WorkbenchWindow.java:2134)\n\tat\norg.eclipse.ui.internal.SaveableHelper.runProgressMonitorOperation(SaveableHelper.java:122)\n\tat org.eclipse.ui.internal.SaveableHelper.savePart(SaveableHelper.java:100)\n\tat org.eclipse.ui.internal.EditorManager.savePart(EditorManager.java:1154)\n\tat org.eclipse.ui.internal.WorkbenchPage.savePart(WorkbenchPage.java:2714)\n\tat org.eclipse.ui.internal.WorkbenchPage.saveEditor(WorkbenchPage.java:2727)\n\tat org.eclipse.ui.internal.SaveAction.run(SaveAction.java:69)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:996)\n\tat org.eclipse.jface.commands.ActionHandler.execute(ActionHandler.java:117)\n\tat org.eclipse.core.commands.Command.execute(Command.java:311)\n\tat\norg.eclipse.core.commands.ParameterizedCommand.execute(ParameterizedCommand.java:396)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard.executeCommand(WorkbenchKeyboard.java:459)\n\tat org.eclipse.ui.internal.keys.WorkbenchKeyboard.press(WorkbenchKeyboard.java:781)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard.processKeyEvent(WorkbenchKeyboard.java:828)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard.filterKeySequenceBindings(WorkbenchKeyboard.java:550)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard.access$3(WorkbenchKeyboard.java:493)\n\tat\norg.eclipse.ui.internal.keys.WorkbenchKeyboard$KeyDownFilter.handleEvent(WorkbenchKeyboard.java:117)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:66)\n\tat org.eclipse.swt.widgets.Display.filterEvent(Display.java:917)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:842)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:867)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:852)\n\tat org.eclipse.swt.widgets.Widget.sendKeyEvent(Widget.java:880)\n\tat org.eclipse.swt.widgets.Widget.sendKeyEvent(Widget.java:876)\n\tat org.eclipse.swt.widgets.Widget.wmChar(Widget.java:1190)\n\tat org.eclipse.swt.widgets.Control.WM_CHAR(Control.java:3135)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:3038)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:3706)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessageW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DispatchMessage(OS.java:1656)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:2711)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1699)\n\tat org.eclipse.ui.internal.Workbench.runUI(Workbench.java:1663)\n\tat org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:367)\n\tat org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:143)\n\tat org.eclipse.ui.internal.ide.IDEApplication.run(IDEApplication.java:103)\n\tat\norg.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformActivator.java:226)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:376)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:163)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:85)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:58)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:60)\n\tat java.lang.reflect.Method.invoke(Method.java:391)\n\tat org.eclipse.core.launcher.Main.invokeFramework(Main.java:334)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:278)\n\tat org.eclipse.core.launcher.Main.run(Main.java:973)\n\tat org.eclipse.core.launcher.Main.main(Main.java:948)\nFailed to execute runnable (java.util.ConcurrentModificationException:\nconcurrent access to HashMap attempted by Thread[main,6,main])",
+    "+1 for backporting. Note that all upper streams should be fixed as well.",
+    "Created an attachment (id\u003d52919)\nProposed patch for R3_0_maintenance stream\n\n",
+    "Patch released in R3_0_maintenance stream.\n\nI\u0027ve posted JDT/Core patch preview including this fix at:\nhttp://www.eclipse.org/jdt/core/r3.0/main.html#updates\n",
+    "(In reply to comment #2)\n\u003e Created an attachment (id\u003d52919) [details]\n\u003e Proposed patch for R3_0_maintenance stream\n\u003e \nSame patch released in R3_1_maintenance stream.\n",
+    "*** Bug 185355 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2006-10-27T05:44:10+02:00",
+    "2006-10-27T11:26:19+02:00",
+    "2006-10-30T09:16:59+01:00",
+    "2006-10-31T16:32:28+01:00",
+    "2007-03-26T20:08:36+02:00",
+    "2007-05-03T17:51:50+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.util.ConcurrentModificationException",
+      "message": "concurrent access to HashMap attempted by Thread[Worker-66,5,main]",
+      "elements": [
+        {
+          "method": "java.util.HashMap.onEntry",
+          "source": "HashMap.java:211"
+        },
+        {
+          "method": "java.util.HashMap.transfer",
+          "source": "HashMap.java:554"
+        },
+        {
+          "method": "java.util.HashMap.resize",
+          "source": "HashMap.java:541"
+        },
+        {
+          "method": "java.util.HashMap.addEntry",
+          "source": "HashMap.java:901"
+        },
+        {
+          "method": "java.util.HashMap.put",
+          "source": "HashMap.java:474"
+        },
+        {
+          "method": "java.util.HashSet.add",
+          "source": "HashSet.java:206"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaModel.getTarget",
+          "source": "JavaModel.java:372"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.ClasspathEntry.validateClasspathEntry",
+          "source": "ClasspathEntry.java:1591"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:2059"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.getResolvedClasspath",
+          "source": "JavaProject.java:1954"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers",
+          "source": "DeltaProcessor.java:2073"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers",
+          "source": "DeltaProcessor.java:2103"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers",
+          "source": "DeltaProcessor.java:2119"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged",
+          "source": "DeltaProcessor.java:1823"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged",
+          "source": "DeltaProcessingState.java:432"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager$2.run",
+          "source": "NotificationManager.java:276"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:1044"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:783"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.notify",
+          "source": "NotificationManager.java:270"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.broadcastChanges",
+          "source": "NotificationManager.java:144"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.broadcastBuildEvent",
+          "source": "Workspace.java:185"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.doBuild",
+          "source": "AutoBuildJob.java:137"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.run",
+          "source": "AutoBuildJob.java:200"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:76"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "162517",
+      "date": "2006-10-27T05:44:10+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.util.ConcurrentModificationException",
+      "message": "concurrent access to HashMap attempted by Thread[main,6,main])",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2942"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2865"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+          "source": "Synchronizer.java:126"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+          "source": "Display.java:3057"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2716"
+        },
+        {
+          "method": "org.eclipse.ui.internal.dialogs.EventLoopProgressMonitor.runEventLoop",
+          "source": "EventLoopProgressMonitor.java:123"
+        },
+        {
+          "method": "org.eclipse.ui.internal.dialogs.EventLoopProgressMonitor.done",
+          "source": "EventLoopProgressMonitor.java:82"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1731"
+        },
+        {
+          "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+          "source": "WorkspaceModifyOperation.java:110"
+        },
+        {
+          "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+          "source": "WorkspaceOperationRunner.java:73"
+        },
+        {
+          "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+          "source": "WorkspaceOperationRunner.java:63"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation",
+          "source": "TextFileDocumentProvider.java:441"
+        },
+        {
+          "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.saveDocument",
+          "source": "TextFileDocumentProvider.java:700"
+        },
+        {
+          "method": "org.eclipse.ui.texteditor.AbstractTextEditor.performSave",
+          "source": "AbstractTextEditor.java:3736"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.performSave",
+          "source": "CompilationUnitEditor.java:1405"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.doSave",
+          "source": "CompilationUnitEditor.java:1458"
+        },
+        {
+          "method": "org.eclipse.ui.internal.SaveableHelper$1.run",
+          "source": "SaveableHelper.java:95"
+        },
+        {
+          "method": "org.eclipse.ui.internal.SaveableHelper$2.run",
+          "source": "SaveableHelper.java:116"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.runInCurrentThread",
+          "source": "ModalContext.java:346"
+        },
+        {
+          "method": "org.eclipse.jface.operation.ModalContext.run",
+          "source": "ModalContext.java:291"
+        },
+        {
+          "method": "org.eclipse.jface.window.ApplicationWindow$1.run",
+          "source": "ApplicationWindow.java:624"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:69"
+        },
+        {
+          "method": "org.eclipse.jface.window.ApplicationWindow.run",
+          "source": "ApplicationWindow.java:621"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.run",
+          "source": "WorkbenchWindow.java:2134"
+        },
+        {
+          "method": "org.eclipse.ui.internal.SaveableHelper.runProgressMonitorOperation",
+          "source": "SaveableHelper.java:122"
+        },
+        {
+          "method": "org.eclipse.ui.internal.SaveableHelper.savePart",
+          "source": "SaveableHelper.java:100"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorManager.savePart",
+          "source": "EditorManager.java:1154"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.savePart",
+          "source": "WorkbenchPage.java:2714"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.saveEditor",
+          "source": "WorkbenchPage.java:2727"
+        },
+        {
+          "method": "org.eclipse.ui.internal.SaveAction.run",
+          "source": "SaveAction.java:69"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:996"
+        },
+        {
+          "method": "org.eclipse.jface.commands.ActionHandler.execute",
+          "source": "ActionHandler.java:117"
+        },
+        {
+          "method": "org.eclipse.core.commands.Command.execute",
+          "source": "Command.java:311"
+        },
+        {
+          "method": "org.eclipse.core.commands.ParameterizedCommand.execute",
+          "source": "ParameterizedCommand.java:396"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.executeCommand",
+          "source": "WorkbenchKeyboard.java:459"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.press",
+          "source": "WorkbenchKeyboard.java:781"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.processKeyEvent",
+          "source": "WorkbenchKeyboard.java:828"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.filterKeySequenceBindings",
+          "source": "WorkbenchKeyboard.java:550"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.access$3",
+          "source": "WorkbenchKeyboard.java:493"
+        },
+        {
+          "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard$KeyDownFilter.handleEvent",
+          "source": "WorkbenchKeyboard.java:117"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:66"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.filterEvent",
+          "source": "Display.java:917"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:842"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:867"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:852"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendKeyEvent",
+          "source": "Widget.java:880"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendKeyEvent",
+          "source": "Widget.java:876"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.wmChar",
+          "source": "Widget.java:1190"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_CHAR",
+          "source": "Control.java:3135"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:3038"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:3706"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DispatchMessage",
+          "source": "OS.java:1656"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:2711"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1699"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runUI",
+          "source": "Workbench.java:1663"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+          "source": "Workbench.java:367"
+        },
+        {
+          "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+          "source": "PlatformUI.java:143"
+        },
+        {
+          "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+          "source": "IDEApplication.java:103"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:226"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:376"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:163"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:85"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:58"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:60"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:391"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.invokeFramework",
+          "source": "Main.java:334"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:278"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:973"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:948"
+        }
+      ],
+      "causedBy": {
+        "exceptionType": "java.util.ConcurrentModificationException",
+        "message": "concurrent access to HashMap attempted by Thread[main,6,main]",
+        "elements": [
+          {
+            "method": "java.util.HashMap.onExit",
+            "source": "HashMap.java:223"
+          },
+          {
+            "method": "java.util.HashMap.transfer",
+            "source": "HashMap.java:558"
+          },
+          {
+            "method": "java.util.HashMap.resize",
+            "source": "HashMap.java:541"
+          },
+          {
+            "method": "java.util.HashMap.addEntry",
+            "source": "HashMap.java:901"
+          },
+          {
+            "method": "java.util.HashMap.put",
+            "source": "HashMap.java:474"
+          },
+          {
+            "method": "java.util.HashSet.add",
+            "source": "HashSet.java:206"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.core.JavaModel.getTarget",
+            "source": "JavaModel.java:372"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.core.JavaProject.computePackageFragmentRoots",
+            "source": "JavaProject.java:522"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.core.JavaProject.computePackageFragmentRoots",
+            "source": "JavaProject.java:625"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.core.JavaProject.computePackageFragmentRoots",
+            "source": "JavaProject.java:586"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.core.JavaProject.findPackageFragmentRoots",
+            "source": "JavaProject.java:1097"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.packageview.ClassPathContainer.contains",
+            "source": "ClassPathContainer.java:190"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerContentProvider.internalGetParent",
+            "source": "PackageExplorerContentProvider.java:231"
+          },
+          {
+            "method": "org.eclipse.jdt.ui.StandardJavaElementContentProvider.getParent",
+            "source": "StandardJavaElementContentProvider.java:231"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerContentProvider.getParent",
+            "source": "PackageExplorerContentProvider.java:215"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.packageview.WorkingSetAwareContentProvider.getModelPath",
+            "source": "WorkingSetAwareContentProvider.java:142"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.packageview.WorkingSetAwareContentProvider.getTreePaths",
+            "source": "WorkingSetAwareContentProvider.java:126"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerPart$PackageExplorerProblemTreeViewer.setSelectionToWidget",
+            "source": "PackageExplorerPart.java:645"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.StructuredViewer.preservingSelection",
+            "source": "StructuredViewer.java:1208"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerPart$PackageExplorerProblemTreeViewer.preservingSelection",
+            "source": "PackageExplorerPart.java:624"
+          },
+          {
+            "method": "org.eclipse.jface.viewers.StructuredViewer.refresh",
+            "source": "StructuredViewer.java:1289"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerContentProvider$3.run",
+            "source": "PackageExplorerContentProvider.java:615"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerContentProvider$7.run",
+            "source": "PackageExplorerContentProvider.java:659"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.RunnableLock.run",
+            "source": "RunnableLock.java:35"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Synchronizer.runAsyncMessages",
+            "source": "Synchronizer.java:123"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Display.runAsyncMessages",
+            "source": "Display.java:3057"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+            "source": "Display.java:2716"
+          },
+          {
+            "method": "org.eclipse.ui.internal.dialogs.EventLoopProgressMonitor.runEventLoop",
+            "source": "EventLoopProgressMonitor.java:123"
+          },
+          {
+            "method": "org.eclipse.ui.internal.dialogs.EventLoopProgressMonitor.done",
+            "source": "EventLoopProgressMonitor.java:82"
+          },
+          {
+            "method": "org.eclipse.core.internal.resources.Workspace.run",
+            "source": "Workspace.java:1731"
+          },
+          {
+            "method": "org.eclipse.ui.actions.WorkspaceModifyOperation.run",
+            "source": "WorkspaceModifyOperation.java:110"
+          },
+          {
+            "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+            "source": "WorkspaceOperationRunner.java:73"
+          },
+          {
+            "method": "org.eclipse.ui.internal.editors.text.WorkspaceOperationRunner.run",
+            "source": "WorkspaceOperationRunner.java:63"
+          },
+          {
+            "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.executeOperation",
+            "source": "TextFileDocumentProvider.java:441"
+          },
+          {
+            "method": "org.eclipse.ui.editors.text.TextFileDocumentProvider.saveDocument",
+            "source": "TextFileDocumentProvider.java:700"
+          },
+          {
+            "method": "org.eclipse.ui.texteditor.AbstractTextEditor.performSave",
+            "source": "AbstractTextEditor.java:3736"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.performSave",
+            "source": "CompilationUnitEditor.java:1405"
+          },
+          {
+            "method": "org.eclipse.jdt.internal.ui.javaeditor.CompilationUnitEditor.doSave",
+            "source": "CompilationUnitEditor.java:1458"
+          },
+          {
+            "method": "org.eclipse.ui.internal.SaveableHelper$1.run",
+            "source": "SaveableHelper.java:95"
+          },
+          {
+            "method": "org.eclipse.ui.internal.SaveableHelper$2.run",
+            "source": "SaveableHelper.java:116"
+          },
+          {
+            "method": "org.eclipse.jface.operation.ModalContext.runInCurrentThread",
+            "source": "ModalContext.java:346"
+          },
+          {
+            "method": "org.eclipse.jface.operation.ModalContext.run",
+            "source": "ModalContext.java:291"
+          },
+          {
+            "method": "org.eclipse.jface.window.ApplicationWindow$1.run",
+            "source": "ApplicationWindow.java:624"
+          },
+          {
+            "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+            "source": "BusyIndicator.java:69"
+          },
+          {
+            "method": "org.eclipse.jface.window.ApplicationWindow.run",
+            "source": "ApplicationWindow.java:621"
+          },
+          {
+            "method": "org.eclipse.ui.internal.WorkbenchWindow.run",
+            "source": "WorkbenchWindow.java:2134"
+          },
+          {
+            "method": "org.eclipse.ui.internal.SaveableHelper.runProgressMonitorOperation",
+            "source": "SaveableHelper.java:122"
+          },
+          {
+            "method": "org.eclipse.ui.internal.SaveableHelper.savePart",
+            "source": "SaveableHelper.java:100"
+          },
+          {
+            "method": "org.eclipse.ui.internal.EditorManager.savePart",
+            "source": "EditorManager.java:1154"
+          },
+          {
+            "method": "org.eclipse.ui.internal.WorkbenchPage.savePart",
+            "source": "WorkbenchPage.java:2714"
+          },
+          {
+            "method": "org.eclipse.ui.internal.WorkbenchPage.saveEditor",
+            "source": "WorkbenchPage.java:2727"
+          },
+          {
+            "method": "org.eclipse.ui.internal.SaveAction.run",
+            "source": "SaveAction.java:69"
+          },
+          {
+            "method": "org.eclipse.jface.action.Action.runWithEvent",
+            "source": "Action.java:996"
+          },
+          {
+            "method": "org.eclipse.jface.commands.ActionHandler.execute",
+            "source": "ActionHandler.java:117"
+          },
+          {
+            "method": "org.eclipse.core.commands.Command.execute",
+            "source": "Command.java:311"
+          },
+          {
+            "method": "org.eclipse.core.commands.ParameterizedCommand.execute",
+            "source": "ParameterizedCommand.java:396"
+          },
+          {
+            "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.executeCommand",
+            "source": "WorkbenchKeyboard.java:459"
+          },
+          {
+            "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.press",
+            "source": "WorkbenchKeyboard.java:781"
+          },
+          {
+            "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.processKeyEvent",
+            "source": "WorkbenchKeyboard.java:828"
+          },
+          {
+            "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.filterKeySequenceBindings",
+            "source": "WorkbenchKeyboard.java:550"
+          },
+          {
+            "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard.access$3",
+            "source": "WorkbenchKeyboard.java:493"
+          },
+          {
+            "method": "org.eclipse.ui.internal.keys.WorkbenchKeyboard$KeyDownFilter.handleEvent",
+            "source": "WorkbenchKeyboard.java:117"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+            "source": "EventTable.java:66"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Display.filterEvent",
+            "source": "Display.java:917"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+            "source": "Widget.java:842"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+            "source": "Widget.java:867"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+            "source": "Widget.java:852"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Widget.sendKeyEvent",
+            "source": "Widget.java:880"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Widget.sendKeyEvent",
+            "source": "Widget.java:876"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Widget.wmChar",
+            "source": "Widget.java:1190"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Control.WM_CHAR",
+            "source": "Control.java:3135"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Control.windowProc",
+            "source": "Control.java:3038"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Display.windowProc",
+            "source": "Display.java:3706"
+          },
+          {
+            "method": "org.eclipse.swt.internal.win32.OS.DispatchMessageW",
+            "source": "Native Method"
+          },
+          {
+            "method": "org.eclipse.swt.internal.win32.OS.DispatchMessage",
+            "source": "OS.java:1656"
+          },
+          {
+            "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+            "source": "Display.java:2711"
+          },
+          {
+            "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+            "source": "Workbench.java:1699"
+          },
+          {
+            "method": "org.eclipse.ui.internal.Workbench.runUI",
+            "source": "Workbench.java:1663"
+          },
+          {
+            "method": "org.eclipse.ui.internal.Workbench.createAndRunWorkbench",
+            "source": "Workbench.java:367"
+          },
+          {
+            "method": "org.eclipse.ui.PlatformUI.createAndRunWorkbench",
+            "source": "PlatformUI.java:143"
+          },
+          {
+            "method": "org.eclipse.ui.internal.ide.IDEApplication.run",
+            "source": "IDEApplication.java:103"
+          },
+          {
+            "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+            "source": "PlatformActivator.java:226"
+          },
+          {
+            "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+            "source": "EclipseStarter.java:376"
+          },
+          {
+            "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+            "source": "EclipseStarter.java:163"
+          },
+          {
+            "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+            "source": "Native Method"
+          },
+          {
+            "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+            "source": "NativeMethodAccessorImpl.java:85"
+          },
+          {
+            "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+            "source": "NativeMethodAccessorImpl.java:58"
+          },
+          {
+            "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+            "source": "DelegatingMethodAccessorImpl.java:60"
+          },
+          {
+            "method": "java.lang.reflect.Method.invoke",
+            "source": "Method.java:391"
+          },
+          {
+            "method": "org.eclipse.core.launcher.Main.invokeFramework",
+            "source": "Main.java:334"
+          },
+          {
+            "method": "org.eclipse.core.launcher.Main.basicRun",
+            "source": "Main.java:278"
+          },
+          {
+            "method": "org.eclipse.core.launcher.Main.run",
+            "source": "Main.java:973"
+          },
+          {
+            "method": "org.eclipse.core.launcher.Main.main",
+            "source": "Main.java:948"
+          }
+        ],
+        "number": 0,
+        "commentIndex": 0
+      },
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "162517",
+      "date": "2006-10-27T05:44:10+02:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "162517",
+  "bugId": "162517",
+  "date": "2006-10-27T05:44:10+02:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "normal"
+}

@@ -1,0 +1,90 @@
+{
+  "comments": [
+    "On Build id: I20060505-1306:\n\nThe following exception was encountered on shutdown, and encountered multiple times (about 20). I\u0027m not sure I have a scenario that can reproduce this, but there were many more Navigator extensions than base platform (roughly 20). \n\nI think by the time this was reached, the Project Explorer had been disposed.\n\n \n!ENTRY org.eclipse.osgi 4 0 2006-05-19 11:21:38.993\n!MESSAGE An unexpected runtime error has occurred.\n!STACK 0\njava.lang.NullPointerException\nat org.eclipse.ui.internal.navigator.NavigatorSaveablesService.computeSaveables(NavigatorSaveablesService.java:216)\nat org.eclipse.ui.internal.navigator.NavigatorSaveablesService.recomputeSaveablesAndNotify(NavigatorSaveablesService.java:374)\nat org.eclipse.ui.internal.navigator.NavigatorSaveablesService.handleBundleStopped(NavigatorSaveablesService.java:457)\nat org.eclipse.ui.internal.navigator.NavigatorSaveablesService.bundleChanged(NavigatorSaveablesService.java:100)\nat org.eclipse.ui.internal.navigator.NavigatorPlugin$1.bundleChanged(NavigatorPlugin.java:35)\nat org.eclipse.osgi.framework.internal.core.BundleContextImpl.dispatchEvent(BundleContextImpl.java:1206)\nat org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent(EventManager.java:189)\nat org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.run(EventManager.java:291) 11",
+    "The dispose listener in NavigatorSaveablesService sets saveablesSource to null, and NavigatorSaveablesService.handleBundleStopped() does nothing if saveablesSource is null.\n\nMichael, could it be that the dispose listener is not always called, or that it does not complete normally, or that we have a concurrency problem?",
+    "Dusko, have you seen this too?",
+    "I can see how this might be caused when the dispose listener registered by the viewer is called first (nulling the content provider), then bundle events happen asynchronously before the NavigatorSaveablesService\u0027s dispose listener is run.",
+    "The OSGI event manager ignores exceptions thrown by listeners, so this is not a stop-ship. Should be fixed for 3.2.1.",
+    "*** Bug 147739 has been marked as a duplicate of this bug. ***",
+    "Created an attachment (id\u003d44927)\npatch\n\nThis patch reverses the order of calls in CommonViewer.handleDispose().  Instead of calling super.handleDispose() first, which nulls the content provider and the input, dispose() is called first which will dispose of the content service and of the saveables service. This should fix the NPE.",
+    "Will your patch fix the second exception noted in bug 147739?",
+    "Fix released into HEAD (3.3 stream) \u003e20060620.\n\nDusko, Keith - before I put this into 3.2.1 I would like to confirm that it fixes the NPE.  However, I was not able to reproduce the problem to begin with.  Could I send you a patched jar to run against?",
+    "(In reply to comment #7)\n\u003e Will your patch fix the second exception noted in bug 147739?\n\nNo. I have no clue how the second exception can happen at all. Line 86 synchronizes on the private static field \"instances\" which is statically initialized to be an ArrayList and never nulled.",
+    "(In reply to comment #9)\n\u003e No. I have no clue how the second exception can happen at all. Line 86\n\u003e synchronizes on the private static field \"instances\" which is statically\n\u003e initialized to be an ArrayList and never nulled.\n\nIt turned out that the second exception happened in a debug session because the synchronized block in question behaves like a try..finally in that it catches and re-throws the exception to do the monitorexit, i.e. the second exception was a red herring.",
+    "Keith has tested the patch and it fixed the problem for him - no NPEs anymore.\n\nI would like to release the fix into the 3.2.1 stream, but need approval from another committer.  Michael, do you approve?",
+    "The patch is simple and the fix looks safe. +1.",
+    "Released into TARGET_321.",
+    "Verified that the fix has been applied to the 3.3 stream [I20060807-2000].",
+    "Verified that the fix has been applied to the 3.2.1 stream [M20060830-0800].\n\n"
+  ],
+  "commentCreationDates": [
+    "2006-05-19T17:29:10+02:00",
+    "2006-05-19T17:58:26+02:00",
+    "2006-05-24T17:48:57+02:00",
+    "2006-05-25T22:52:58+02:00",
+    "2006-05-25T22:59:10+02:00",
+    "2006-06-20T19:07:51+02:00",
+    "2006-06-20T19:24:12+02:00",
+    "2006-06-20T19:33:02+02:00",
+    "2006-06-20T19:42:54+02:00",
+    "2006-06-20T20:39:10+02:00",
+    "2006-06-20T21:09:27+02:00",
+    "2006-06-20T21:15:03+02:00",
+    "2006-06-20T22:15:24+02:00",
+    "2006-06-20T22:52:55+02:00",
+    "2006-08-08T21:31:38+02:00",
+    "2006-08-31T20:27:21+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.internal.navigator.NavigatorSaveablesService.computeSaveables",
+          "source": "NavigatorSaveablesService.java:216"
+        },
+        {
+          "method": "org.eclipse.ui.internal.navigator.NavigatorSaveablesService.recomputeSaveablesAndNotify",
+          "source": "NavigatorSaveablesService.java:374"
+        },
+        {
+          "method": "org.eclipse.ui.internal.navigator.NavigatorSaveablesService.handleBundleStopped",
+          "source": "NavigatorSaveablesService.java:457"
+        },
+        {
+          "method": "org.eclipse.ui.internal.navigator.NavigatorSaveablesService.bundleChanged",
+          "source": "NavigatorSaveablesService.java:100"
+        },
+        {
+          "method": "org.eclipse.ui.internal.navigator.NavigatorPlugin$1.bundleChanged",
+          "source": "NavigatorPlugin.java:35"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleContextImpl.dispatchEvent",
+          "source": "BundleContextImpl.java:1206"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent",
+          "source": "EventManager.java:189"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.eventmgr.EventManager$EventThread.run",
+          "source": "EventManager.java:291"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "142785",
+      "date": "2006-05-19T17:29:10+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "142785",
+  "bugId": "142785",
+  "date": "2006-05-19T17:29:10+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "major"
+}

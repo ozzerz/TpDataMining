@@ -1,0 +1,156 @@
+{
+  "comments": [
+    "Sleak reportes a resource leak at ActionContributionItem$ImageCache.getImage().\n\njava.lang.Error\n\tat org.eclipse.swt.graphics.Device.new_Object(Device.java:683)\n\tat org.eclipse.swt.graphics.Image.\u003cinit\u003e(Image.java:629)\n\tat org.eclipse.jface.resource.ImageDescriptor.createImage(ImageDescriptor.java:169)\n\tat org.eclipse.jface.resource.ImageDescriptor.createImage(ImageDescriptor.java:115)\n\tat org.eclipse.jface.resource.ImageDescriptor.createImage(ImageDescriptor.java:97)\n\tat\norg.eclipse.jface.action.ActionContributionItem$ImageCache.getImage(ActionContributionItem.java:422)\n\tat\norg.eclipse.jface.action.ActionContributionItem$ImageCache.access$1(ActionContributionItem.java:409)\n\tat\norg.eclipse.jface.action.ActionContributionItem.updateImages(ActionContributionItem.java:1292)\n\tat\norg.eclipse.jface.action.ActionContributionItem.update(ActionContributionItem.java:1168)\n\tat\norg.eclipse.jface.action.ActionContributionItem.fill(ActionContributionItem.java:649)\n\tat org.eclipse.jface.action.SubContributionItem.fill(SubContributionItem.java:58)\n\tat org.eclipse.jface.action.MenuManager.update(MenuManager.java:603)\n\tat org.eclipse.jface.action.MenuManager.update(MenuManager.java:525)\n\tat org.eclipse.jface.action.MenuManager.fill(MenuManager.java:233)\n\tat org.eclipse.jface.action.MenuManager.update(MenuManager.java:603)\n\tat org.eclipse.jface.action.MenuManager.update(MenuManager.java:525)\n\tat org.eclipse.jface.action.MenuManager.fill(MenuManager.java:233)\n\tat org.eclipse.jface.action.SubContributionItem.fill(SubContributionItem.java:58)\n\tat org.eclipse.jface.action.MenuManager.update(MenuManager.java:603)\n\tat org.eclipse.jface.action.MenuManager.updateAll(MenuManager.java:697)\n\tat\norg.eclipse.ui.internal.WorkbenchWindow.updateActionBars(WorkbenchWindow.java:1979)\n\tat org.eclipse.ui.internal.WWinActionBars.updateActionBars(WWinActionBars.java:96)\n\tat org.eclipse.ui.SubActionBars.updateActionBars(SubActionBars.java:338)",
+    "There has been interest expressed in getting this fixed for 3.0.1, but can we \nget more information on how to recreate this and the impact?\n",
+    "Waiting on information from reporter.\n",
+    "I\u0027m trying to remove our proprietry code to submit a test case, but that is\ntruely time consuming matter. Please investigate this problem from this stack\ntrace first. I think you can investigate this problem w/o a test case.\n\nAs for the severity, this is completely severe. Whenever updating a status bar\n(and menu), this image is leaking.\n\n\n",
+    "Could you give some steps please? I don\u0027t need your code as much as I need to \nknow where the menu you are concerned about is being invoked from and how you \npopulate it. \n\nWhen you say updating a menu do you mean that you are adding to it each time \nit is invoked? Note that doing this will invoke a series of images as the \nreferences are cleaned up when the widget is disposed.\n\nYour trace below is what occurs when the image is created for the first time \nbut subsequent lookups are not leaking.\n\nI tried this by popping up the context menu in the package explorer multiple \ntimes. The first time you get a diff (as expected) but the subsequent times \nyou do not.",
+    "Our editor is based on MultiPageEditorPart and we have Action\nsets/Scope/Menus/Toolbars/KeyBindings per page. So whenever the page\nis switched, we install them via \nMultiPageEditorActionBarContributor#setActivePage()\n\nIn this function, we do something like :\n\n- Change a keybinding(scope)\n- Remove all menus/Update all menus\n- Some other initializations\n\nthen call IActionBars#updateActiosBars()\n\n.\n",
+    "Are you keeping the same instance of MenuManager when you do this? You at \nleast want to cache these values if it is a simple switching of pages that \ngenerates them whether you have this problem or not.",
+    "Whenver we access IMenuManager from the inside of \nour Contributor which is based on MultiPageEditorActionBarContributor,\nwe do :\n\nIActionBars ab \u003d getActionBars();\nif (null !\u003d ab) {\n  IMenuManager mm \u003d ab.getMenuManager();\n....\n}\n\nI think ours shouldn\u0027t keep IMenuManger. Instead, if necessary, \nMultiPageEditorActionBarContributor shuold keep it.\n\n\n",
+    "Renaming the PR to reflect what you are after here",
+    "Tod, just to follow up on comment #1, with your change of priority from P2 to \nP4 and of severity to enhancement I am guessing we will not see anything in \n3.0.1 for this bug.  Just want to be absolutly clear for the submitter.\n",
+    ".\n\nI\u0027m getting the severity back to \u0027major\u0027 since I don\u0027t think this, that is\nfixing a resource leak, is an enhancement and we always see this image leak. So\ndoing nothing for 301 isn\u0027t acceptable for our product.\n\n.\n",
+    "Correct. We will not be addressing this for 3.0.1.",
+    "Matsumoto-san I am going to need more to go on here as your problem is not in \nthe creation but the disposal of obsolete menu entries correct? Your trace \nshows where they were created but not what is holding onto the old ones.\n\nIn the update code we remove any obsolete IContributionItems(see line 566 of \nthe MenuManager and delete the widget. The question is where do you create \nActionContributionItems? Is it in your code or are you using our API somewhere?\n\nAs long as there is a reference to them there will be a reference to the \nimages associated with them - this is by design. If an ActionContributionItem \nis recreated and the old reference is not removed this will keep the old image.\n\nIf we are holding onto these items somewhere then we will address it - I just \nneed to know where to look.\n\nAlso setActivePage is an abstract method so I may need more details about what \nyour code is doing.\n\n\n",
+    ".\n\nWe have two kind of menus we added.\n\na) Menus which are added to the existing main menu. For example, the\n   menus which are under File or Edit in the main menu\nb) Menus which are added to the main menu. For example, once our\n   editor is opened, we add \"Tools\" in the main menu.\n\nTo delete a) menus, what we do in our\nMultiPageEditorActionBarContributor#setActivePage() is something like ( not\nexact but pseudo code ) :\n\n  IActionBars ab \u003d getActionBars();\n  IMenuManager mm \u003d ab.getMenuManager();\n  mm.removeAll()\n  IMenuManager fm \u003d\n     mm.findMenuUsingPath(IWorkbenchActionConstants.M_FILE);\n  fm.removeAll()\n\nTo delete b) menus, what we do in our\nMultiPageEditorActionBarContributor#setActivePage() is something like\n ( not exact but pseudo code ) :\n\n  IActionBars ab \u003d getActionBars();\n  IMenuManager mm \u003d ab.getMenuManager();\n  mm.removeAll()\n  IMenuManager mymenu \u003d mm.findMenuUsingPath(MyMenuPath);\n  mm.remove(mymenu);\n\nNote that in my editor, mm\u0027s concrete class is EditorMenuManager.\n\nThey are what we do to remove the menus we created. When we took a\nlook at the code of EditorMenuManager#remove()/removeAll() ( Actually\nnot EditorMenuManager but SubContributionManager ), it holds the\nmenus which are created by this editor so that I think we are using\nthe right methods.\n\nAlso your question ( where do you create ActionContributionItems? ),\nwe are using two methods to add \u0027ContributionItem\u0027s.\n\nIContributionManager#add(IAction)\nIContributionManager#add(IContributionItem)\n\nso the answer to your question is \"IContributionManager#add(IAction)\"\nNot that according to the source of IContributionItem#dispose(), it\nsays :\n/**\n * Disposes of this contribution item. Called by the parent\n * contribution manager when the manager is being disposed.\n * Clients should not call this method directly.\n * \n * @since 2.1\n */\nI don\u0027t think we can call dispose() method.\n\nMy guess is the inside of IContributionManager#remove()/removeAll(),\nall clean up needs to be done.\n\n.\n\n\n",
+    "Ok so I think we are getting closer. I wasn\u0027t suggesting that you dispose the \ncontribution item - as you point out that is not your problem.\n\nThe image cache is a static field in ActionContributionItem - it does not get \ndisposed until the display is disposed (which of course is on shutdown). When \nyou lookup a contribution item in the cache it is cached on the instance - if \nyou recreate ActionContributionItems all of the time that would explain the \nextra references. Are you creating new ActionContributions each time you \nswitch pages?\n\nThe keys of the cache are WeakReferences so they will be eventually cleared up \nby the garbage collector. You can check this if you have a tool you can run \nthat forces garbage collection (such as OptimizeIt). If so you could see if \nthe extra contributions are garbage collected when you run it.\n\nIf this is the case it would look very much like a leak as you would be \nwaiting for a garbage collect to have the reference go away. If you are doing \nthis with a lot of items they could build up fast.\n\nThe easiest solution for you is to cache your ActionContribution items when \npage switching.",
+    "How about ActionContributionItem which is newed by\nSubContributionManager#add(IAction) ? Also how come\nIContributionManager#remove()/removeAll() not clean up ?\nTo me, IContributionManager#remove()/removeAll() needs to clean them up.\n",
+    "I think you are missing my point - the cleanup is done by weak references upon \ngarbage collection. ActionContributionItems are frequently reused in different \nmenus so we can\u0027t delete them when they are removed - other menus may have \nthem.\n\nBy using weak references the cleanup comes from the virtual machine rather \nthan from a reference counting mechanism that has higher overhead.",
+    "Closing as we already have a caching story.",
+    "."
+  ],
+  "commentCreationDates": [
+    "2004-07-22T14:18:08+02:00",
+    "2004-08-05T22:51:08+02:00",
+    "2004-08-10T15:42:55+02:00",
+    "2004-08-11T01:26:40+02:00",
+    "2004-08-18T20:10:11+02:00",
+    "2004-08-19T13:56:46+02:00",
+    "2004-08-19T14:04:20+02:00",
+    "2004-08-19T14:55:13+02:00",
+    "2004-08-19T15:30:16+02:00",
+    "2004-08-19T16:16:40+02:00",
+    "2004-08-19T16:34:42+02:00",
+    "2004-08-19T16:51:23+02:00",
+    "2004-08-19T17:54:55+02:00",
+    "2004-08-19T19:56:22+02:00",
+    "2004-08-19T20:28:01+02:00",
+    "2004-08-19T21:09:54+02:00",
+    "2004-08-19T21:25:36+02:00",
+    "2004-08-30T17:12:02+02:00",
+    "2005-09-28T06:41:24+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.Error",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.graphics.Device.new_Object",
+          "source": "Device.java:683"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.Image.\u003cinit\u003e",
+          "source": "Image.java:629"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageDescriptor.createImage",
+          "source": "ImageDescriptor.java:169"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageDescriptor.createImage",
+          "source": "ImageDescriptor.java:115"
+        },
+        {
+          "method": "org.eclipse.jface.resource.ImageDescriptor.createImage",
+          "source": "ImageDescriptor.java:97"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$ImageCache.getImage",
+          "source": "ActionContributionItem.java:422"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$ImageCache.access$1",
+          "source": "ActionContributionItem.java:409"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.updateImages",
+          "source": "ActionContributionItem.java:1292"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.update",
+          "source": "ActionContributionItem.java:1168"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.fill",
+          "source": "ActionContributionItem.java:649"
+        },
+        {
+          "method": "org.eclipse.jface.action.SubContributionItem.fill",
+          "source": "SubContributionItem.java:58"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.update",
+          "source": "MenuManager.java:603"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.update",
+          "source": "MenuManager.java:525"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.fill",
+          "source": "MenuManager.java:233"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.update",
+          "source": "MenuManager.java:603"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.update",
+          "source": "MenuManager.java:525"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.fill",
+          "source": "MenuManager.java:233"
+        },
+        {
+          "method": "org.eclipse.jface.action.SubContributionItem.fill",
+          "source": "SubContributionItem.java:58"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.update",
+          "source": "MenuManager.java:603"
+        },
+        {
+          "method": "org.eclipse.jface.action.MenuManager.updateAll",
+          "source": "MenuManager.java:697"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.updateActionBars",
+          "source": "WorkbenchWindow.java:1979"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WWinActionBars.updateActionBars",
+          "source": "WWinActionBars.java:96"
+        },
+        {
+          "method": "org.eclipse.ui.SubActionBars.updateActionBars",
+          "source": "SubActionBars.java:338"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "70613",
+      "date": "2004-07-22T14:18:08+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "70613",
+  "bugId": "70613",
+  "date": "2004-07-22T14:18:08+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "major"
+}

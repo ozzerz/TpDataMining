@@ -1,0 +1,79 @@
+{
+  "comments": [
+    "It looks as if 90387 wasn\u0027t a thorough fix.\n\nOn 3.1M7 I get\n\njava.lang.ClassCastException:\norg.eclipse.jdt.internal.debug.core.model.JDIInterfaceType\n\tat\norg.eclipse.jdt.internal.debug.core.model.JDIStackFrame.getDeclaringType(JDIStackFrame.java:1071)\n\tat\norg.eclipse.jdt.internal.debug.ui.JDIModelPresentation.getStackFrameText(JDIModelPresentation.java:1651)\n\tat\norg.eclipse.jdt.internal.debug.ui.JDIModelPresentation.getText(JDIModelPresentation.java:213)\n\tat\norg.eclipse.debug.internal.ui.LazyModelPresentation.getText(LazyModelPresentation.java:153)\n\tat\norg.eclipse.debug.internal.ui.DelegatingModelPresentation.getText(DelegatingModelPresentation.java:156)\n\tat\norg.eclipse.debug.internal.ui.views.DebugViewLabelDecorator$LabelJob.run(DebugViewLabelDecorator.java:316)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:67)\n\nvery regularly, sometimes more than one per breakpoint. I also\nget a fair few ... stack frames, and more off-by-one line numbers\nwhile stepping than with 3.1M6.",
+    "Do you have a simple way to reproduce this exception? It indicates that a \nstack frame\u0027s method\u0027s declaring type is an interface. I\u0027m not sure how that \ncan occurr since concrete methods must derive from classes.",
+    "\nYes. It\u0027s so reproducible, I\u0027m trying to switch back to 3.1M6 but EMF needs ...\n\nI think I can do a repro just from EMF + GEF + GEF\u0027s EDiagram example. It may\ntake a while to prove that it\u0027s reproducible from a clean installation. Back \nsoon.",
+    "\nEasier than I expected:.\n\nExtract eclipse-SDK-3.1M7-win32.zip to C:/Temp/96964\nExtract emf-sdo-xsd-SDK-I200505191347.zip to C:/Temp/96964\nExtract GEF-ALL-3.1M7.zip to C:/Temp/96964\nStart Eclipse via short-cut C:\\Temp\\96964\\eclipse\\eclipse.exe -data \nC:\\Temp\\96964\\Workspace -vm C:\\Tools\\Java\\jdk1.5.0_01\\jre\\bin\\javaw.exe -\nvmargs -Xmx512M\n\n[EMF currently has number of plug-in id issues with its source plug-ins.]\n\nIn CVS Repository perspective\ndefine a pserver connection to anonymous@dev.eclipse.org:/home/tools\ncheck out HEAD/org.eclipse.gef.examples.ediagram\n\nIn PDE perpsective\n[2 deprecations and 3 discouraged accesses under JDK 1.5].\nOpen Type Hierrachy and set a method breakpoint on all 4 constructors of \nEPackageImpl.\nStart a Debug session for default Eclipse Application.\nCreate a Simple project: \"Test\".\nOn \"Test\": New-\u003eEDiagram. On \"New EDiagram Wizard\". Next. \n\"Specify Ecore Files\". Create. then in \"Create File\", select \"Test\", and then \nenter \"new.ecore\" as !Ecore filename:\". OK.\nFinish.\n\nYou now hit your first breakpoint. Advance to the next and you start to get \nvery fed up with the errors.\n\n\n",
+    "Sure enough - it\u0027s a \u003cclinit\u003e method in an interface:\n\npublic class AClass implements AnInterface {\n\t\n\tObject thing;\n\t\n\tpublic AClass() {\n\t\tthing \u003d AnInterface.aConstant;\n\t}\n\n\tpublic static Object doit() {\n\t\tStringBuffer buf \u003d new StringBuffer();\n\t\tbuf.append(\"CONST\");\n\t\treturn buf.toString();\n\t}\n\n}\n\nublic class ASubClass extends AClass {\n\n\tpublic ASubClass() {\n\t\tsuper();\n\t\tSystem.out.println(\"ok\");\n\t}\n}\n\n\npublic interface AnInterface {\n\t\n\tpublic static Object aConstant \u003d AClass.doit(); \n\n}\n\npublic class MainClass {\n\t\n\tObject aVar;\n\n\tpublic static void main(String[] args) {\n\t\tnew ASubClass();\n\t}\n\t\n\tpublic MainClass() {\n\t\taVar \u003d AnInterface.aConstant;\n\t}\n\n}\n\nAdd a breakpoint in the \"doit()\" method and debug the MainClass. Boom.",
+    "This is an ugly oversight. Our API has returned a \"class\" since 2.0 (i.e \nIJavaStackFrame.getDeclaringType() return IJavaClassType). It should return an \nIJavaReferenceType.",
+    "API change request for 3.1RC2:\n\nThis will require the addition of a new method on IJavaStackFrame - \ngetReferenceType(), which will be spec\u0027d as follows. We will then deprecate \n#getDeclaringType(), in favour of the new method and fix up all references. I \nexamined our references to the method, and they all look easy to fix up.\n\nThe old method will also need to be fixed to avoid the ClassCastException. \nSince the old API never returned null, I suggest we throw a debug exception in \nit\u0027s place? (Jim, do you agee with this?).\n\n/**\n * Returns the type in which this stack frame\u0027s method is\n * declared.\n * \n * @return the type in which this stack frame\u0027s method is\n *   declared\n * @exception DebugException if this method fails.  Reasons include:\n * \u003cul\u003e\n * \u003cli\u003eFailure communicating with the VM.  The DebugException\u0027s\n * status code contains the underlying exception responsible for\n * the failure.\u003c/li\u003e\n * \u003cli\u003eThis stack frame is no longer valid. That is, the thread\n *   containing this stack frame has since been resumed.\u003c/li\u003e\n * \u003c/ul\u003e\n * @since 3.1\n */\npublic IJavaReferenceType getReferenceType() throws DebugException;",
+    "API change approved for RC2\n- add IJavaStackFrame.getReferenceType()\n- deprecate IJavaStackFrame.getDeclaringType()\n\nThrowing DebugException from deprecated getDeclaringType() in this case seems \nlike the best approach since the caller is already prepared for this checked \nexception to be thrown under other circumstances.",
+    "Fixed in IJavaStackFrame/JDIStackFrame/JDIDebugModelMessages.\n\nFixed references in:\n\nBinaryBasedSourceGenerator\nEvaluationSourceGenerator\nIRuntimeContext\nJavaObjectRuntimeContext\nRuntimeContext\nJavaDebugPropertyTester\nStratumTests\nTypeTests\nJavaUISourceLocator\nJavaDebugHover\nJDIModelPresentation\nShowStratumAction\n",
+    "Please verify, Luc.",
+    "Verified.",
+    "*** Bug 98986 has been marked as a duplicate of this bug. ***"
+  ],
+  "commentCreationDates": [
+    "2005-05-27T15:13:18+02:00",
+    "2005-05-27T15:21:35+02:00",
+    "2005-05-27T15:28:03+02:00",
+    "2005-05-27T16:12:46+02:00",
+    "2005-05-27T17:41:14+02:00",
+    "2005-05-27T17:44:16+02:00",
+    "2005-06-01T21:34:29+02:00",
+    "2005-06-02T13:52:44+02:00",
+    "2005-06-02T18:46:21+02:00",
+    "2005-06-02T18:46:34+02:00",
+    "2005-06-02T19:24:30+02:00",
+    "2005-06-08T17:54:13+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.eclipse.jdt.internal.debug.core.model.JDIInterfaceType",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.debug.core.model.JDIStackFrame.getDeclaringType",
+          "source": "JDIStackFrame.java:1071"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.ui.JDIModelPresentation.getStackFrameText",
+          "source": "JDIModelPresentation.java:1651"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.debug.ui.JDIModelPresentation.getText",
+          "source": "JDIModelPresentation.java:213"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.LazyModelPresentation.getText",
+          "source": "LazyModelPresentation.java:153"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.DelegatingModelPresentation.getText",
+          "source": "DelegatingModelPresentation.java:156"
+        },
+        {
+          "method": "org.eclipse.debug.internal.ui.views.DebugViewLabelDecorator$LabelJob.run",
+          "source": "DebugViewLabelDecorator.java:316"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:67"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "96964",
+      "date": "2005-05-27T15:13:18+02:00",
+      "product": "JDT",
+      "component": "Debug",
+      "severity": "major"
+    }
+  ],
+  "groupId": "96964",
+  "bugId": "96964",
+  "date": "2005-05-27T15:13:18+02:00",
+  "product": "JDT",
+  "component": "Debug",
+  "severity": "major"
+}

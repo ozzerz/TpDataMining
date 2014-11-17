@@ -1,0 +1,46 @@
+{
+  "comments": [
+    "* Connect serial terminal to COM1 (9600 8n1 no flow control)\n* Disconnect / reconnect very quickly and often - either using the toolbar \n  buttons or the ENTER key to connect.\n* After some time, terminal will not connect any more but show the message:\n  Connection Error!\n  COM1 is already in use by another Terminal View\n\nThis state is persistent. It is not possible to make any connection on COM1 any more, neither from within Eclipse nor with any external applications.\n\nThe only remedy is to shut down Eclipse.\nI thus consider the issue as major.\n\nThe issue is very hard to reproduce when no data transfer is going on on COM1 -- it took me about 40 tries of doing disconnect by button / press enter extremely quickly. But when data is being sent, the issue is easier to reproduce.\n\n-----------Enter bugs above this line-----------\nTM 2.0.1 Testing\ninstallation : eclipse-SDK-3.3.1 (M20070921-1145), cdt-4.0.1, emf-2.3.1\nRSE install  : Download RSE-2.0.1: RSE-SDK,tests,discovery,terminal,remotecdt\njava.runtime : Sun 1.6.0_02-b06\nos.name:     : Windows XP 5.1, Service Pack 1\n------------------------------------------------",
+    "The problem seems to occur when a queued \"disconnect\" Thread interferes with a new \"connect\" Thread that\u0027s already going on.\n\nIn that case, the following NPE can happen in the SerialConnectWorker:\njava.lang.NullPointerException\n\tat org.eclipse.tm.internal.terminal.serial.SerialConnectWorker.run(SerialConnectWorker.java:124)\n\nwhich causes the already opened Port to remain open instead of being closed, even though the state of the Terminal changes to CLOSED.\n\nI\u0027m not exactly sure what a correct fix will look like. It feels like the \"disconnect\" Thread should never be allowed to run while a \"connect\" Thread is still ongoing; there should be a mutual exclusion lock between the two. In order to stop an ongoing connect (terminal is CONNECTING or OPENED), different code should be executed than the normal disconnect.\n\nOn a different occasion, I once also got an NPE from RXTX at RXTXPort line 821:\n    while( monThread.isAlive() )\nwould NPE because monThread was already null. The NPE was propagated from removeEventListener() to the disconnect Thread in SerialConnector.java line 99.\n\nI think that the serial port connect / disconnect / state handling logic should be reviewed very carefully once more to ensure that ports can always be released.",
+    "CQ:WIND00109403  ",
+    "Created an attachment (id\u003d81621)\nTest file being sent via null modem\n\nDebugged and tried to fix this, but it seems that there are several subtle concurrency issues inside the RXTX serial library.\n\nIf I\u0027m doing disconnect / reconnect while a remote is continuously sending attached text to the serial port via a null modem at 9600/8n1/no-flow-control, I\u0027m running into all kinds of Exceptions inside RXTX: monitor thread not dying on disconnect; port not available; no nativeDrain etc. One indication of this is that eventually when trying to connect, the Terminal prints:\n\n  Connection Error!\n  COM1 is already in use by Unknown Application\n\nalthough no application other than Eclipse itself is dealing with the serial ports.",
+    "Created an attachment (id\u003d81669)\nPatch fixing the issue\n\nAttached patch fixes the issue.\n\nThe problem was, that while a connect job was going on in background, the user could already disconnect (disconnect button is enabled while in connecting state). The disconnect thread would set the port identifier to null; because of that, the connect thread which was running at the same time could run into a NullPointerException, which was not caught properly, and could lead to the COM port remaining opened but not correctly registered. \n\nNobody would be able to close the COM port any more.\n\nThe patch ensures the following:\n1.) Only ONE background thread (for connect or disconnect) can run at any one\n    time. Requests to connect or disconnect are ignored while a connect or\n    disconnect job is still going on.\n2.) Exceptions are properly caught and handled to ensure that close() can always\n    be called on the serial port.",
+    "Patch committed:\n\n[208029] COM port not released after quick disconnect/reconnect\n    SerialConnector.java   1.8\n    SerialConnectWorker.java   1.7\n\nMerge [208029] COM port not released after quick disconnect/reconnect\n    SerialConnector.java   1.6.2.2\n    SerialConnectWorker.java   1.5.2.2\n",
+    "Released for\nhttp://download.eclipse.org/dsdp/tm/downloads/drops/M20071030-2030",
+    "patch seems ok"
+  ],
+  "commentCreationDates": [
+    "2007-10-30T16:45:06+01:00",
+    "2007-10-30T16:55:58+01:00",
+    "2007-10-30T16:59:32+01:00",
+    "2007-10-30T19:24:02+01:00",
+    "2007-10-31T00:36:05+01:00",
+    "2007-10-31T00:40:25+01:00",
+    "2007-10-31T02:13:37+01:00",
+    "2007-10-31T06:04:43+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.tm.internal.terminal.serial.SerialConnectWorker.run",
+          "source": "SerialConnectWorker.java:124"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 1,
+      "bugId": "208029",
+      "date": "2007-10-30T16:55:58+01:00",
+      "product": "Target Management",
+      "component": "Terminal",
+      "severity": "major"
+    }
+  ],
+  "groupId": "208029",
+  "bugId": "208029",
+  "date": "2007-10-30T16:45:06+01:00",
+  "product": "Target Management",
+  "component": "Terminal",
+  "severity": "major"
+}

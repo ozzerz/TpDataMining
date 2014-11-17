@@ -1,0 +1,1095 @@
+{
+  "comments": [
+    "Eclipse M4: reported error in many views while clicking.\nWithout manually requesting deletion of anything, it deleted some entire\ndirectory end everything under it!!!!\n\nDon\u0027t ask how to reproduce, it has no tendency yet. It happend like 3 or 4 times\nyet, for totally obscure reasons. (I suspect out of memory since one of you told\nme it was a 64M max heap by default).",
+    "Has this happened again. It will be hard for us to fix it without more \ninformation. There is no other bug about it to say that has happened to more \npeople.",
+    "yes! 3 times, on different depth in the src folder, but once AT the src, and I\nlost everything.\n\nI really suspect out of memory, since not many programmers try/catch these.\ntry doing (heavy or not) refactoring while low on memory, provoque it by\nreducing the -J-mx##m interpreter args. You will see a lot of very incoherent\nreactions.\n\nI often get desynchronized package explorer like the file isnt there anymore,\nbut is still in the editor? you know? I close the editor or try to switch to\nanother from the package explorer but I get some more error dialog, then I may\ncontinue, but soon enought it will come again and gets worse.\n\nOf course, I better get out and restart eclipse. Now I use 2.0.1, the only\nstable (no no, not 2.0.2!). And I also start it \"manually\" with a -J-mx256M\n\nNo bug until now. But I didn\u0027t try the 256 meg trick on M4, because I just don\u0027t\ntrust it. I just can\u0027t afford to loose work again.\n\nBesides, none of the 2.1 series can decently run a 1.3 vm on 1.1.8 bootclasses\nanyway, so I need 2.0\n(see bug 28120 Cannot launch debug with JDK 1.1.8 classes)\n\nPlease, Please, fix both. There is no point to use another eclipse version than\n2.0.1 if these 2 bugs are not fixed.\n",
+    "Please indicate:\n- which VM you are using to run eclipse\n- what VCM system you use, if any (CVS, ClearCase, or other)\n- whether UI operations you suspect cause the problem (you mention refactoring \nabove)\n- are the files really deleted from the filesystem, or just not accessible via \nEclipse?\n",
+    "ccing Erich due to mention of JDT actions.\n",
+    "eclipse runs in jdk 1.4.1\n\nI don\u0027t control CVS from eclipse, although the project is over a CVS working folder\n\nI barely used the refactoring. But the bug really came after. There were no\noparation else than trying to click folder and files in the package explorer and\nswitching and closing editors.\n\nFiles are actually DELETED! No kidding!\nThat must be easy to find where file.delete is called no?\nunless it is moved somewhere magic I didn\u0027t see.\n",
+    "Moving to JDT-UI for comment on whether refactoring could possibly cause this \nbehaviour.\n",
+    "IMO these errors are not caused by refactoring since refactoring usually shows \na dialog prior to executing a refactoring (and this is not mentioned in the \nPR). There is only one exception where this is not the case: when you DnD a \ncompilation unit to or from a default package. Did you do this ? \n\nRegarding file manipulation: refactoring only uses core.resources or jdt.core \nAPI to do any file manipulation. So if an out of memory error causes some \nproblems here we should have a look at core.resources or jdt.core as well.\n\nI did some testing with low memory and I got exception during executing \nrefactorings and other operations. But in all cases this didn\u0027t result in a \nloss of data. Filed separate bugs if necessary.\n\nThe only \"thing\" I can think about that might cause any trouble are linked \nresources since they are new and some actions might not handle them accordingly.\n\nDid the workspace showing the behavior make use of linked resources ?\n\n",
+    "Never affirmed it was because of refactoring, I only say the data loss happened\nnot long after it failed. It is clearly not enought to make it a cause.\n\nYou should definitely look at the core, since it does look like any file based\noperation can cause the data loss.\n\nI don\u0027t know anything about linked resources. I obviously don\u0027t use them so.\n\nI should mention that my package explorer is often \"inside\" a folder with the\n\"go into\" feature. Could that in combination with file creation be unstable?\n\nJust this afternoon again, I did a refactor-move of a class and the package\nexplorer wouldn\u0027t refresh to reflect the new location. I had to go out of the\nfolder of the previous \"go into\" (go back). Then I saw it. Definitely a bug there.\n",
+    "But it was only a refresh problem?  Did you lose data yesterday?",
+    "Stop looking at every little bit that could allow you to close the bug and start\nlooking at every little bit that could be related to the bug.\n\nI\u0027m giving you as much information I believe is pertinent.\nThe refresh bug is one thing. No I didn\u0027t loose any data yesterday because I\nclosed everyting to be sure it could not happen again. But if the internal paths\nstructure were to be incoherent, that could be a cause of my previous data loss.\nIt sounds like an obvious track to me.\n\nStart by grep-ing any file.delete or move.\nAre there any non-threadsafe internal file structure, race conditions from event\nhandlers, etc...? You know better than me.\n",
+    "I am -not- looking for an excuse to close this PR.  I was just trying to \ndetermine whether you lost data last time since it was unclear from your \ndescription.  Looking at all occurrences of delete leads to -many- paths.\n\nIt would help us greatly if you could try to come up with a reproduceable case, \nsince you seem to be the only one encountering this, and it may have something \nto do with your particular setup.\n",
+    "Ok, sorry about my last reply. Some other guy in another context just pushed me\na bit far. Ok. I was going to try to reproduce it on weekend at home, in a safer\nlocation. I will give you news as soon as I can. But my setup is very plain.\nAnyway we will see.\n",
+    "Thanks, we appreciate your help in tracking this down.\n",
+    "In the mean time, could that be related to bug 29745?",
+    "Bug 29745 was garbling files rather than deleting them, so it doesn\u0027t sound \nlike it explains your symptoms.  I\u0027m looking over all references to delete, but \nhaven\u0027t found anything yet.\n",
+    "Regarding your comments above about the relationship between views not getting \nupdated properly and data loss, it\u0027s most unlikely that data would get lost \njust because a view does not update properly.  The projects/folders/files in \nthe workspace are kept in a separate workspace representation, with their \ncontent stored in the file system, not in memory.  Access to the workspace is \ndone purely through resource handles, which have no direct link to the \nunderlying workspace representation (they\u0027re essentially just a path).\nViews like the Navigator and Package Explorer use these handles.\n\nIf files are getting deleted, it\u0027s because somebody is explicitly deleting them.\nUnfortunateley, there are many callers to delete(), and the call chains fan out \nwildly.\n\nCould you provide a few more details to help me narrow my search:\n\n- Are you using just Java projects, or other kinds of projects too (e.g. simple \nprojects)?\n\n- If using other kinds, have you seen data loss in them as well?\n\n- Do you modify files outside of Eclipse (directly in the file system).  If \nyou\u0027re using an external CVS, then you must occasionally do this.  Did the data \nloss happen shortly after doing this?  \n\n- Do you ever do an explicit refresh operation from within eclipse?  Did the \ndata loss happen after doing this?\n\n- Did the data loss happen immediately after opening a file?  Immediately after \na build? (It might be hard to tell the different between these two.)\n\n- What is the shape of your project:\n  - what are the source folders and output folders?\n  - is the output folder the same as the source folder (e.g. the project \nitself)?\n  - were you changing these?\n\n- Although it doesn\u0027t sound like refactoring was the problem (you mentioned \nthat the data loss occurred some time after refactoring), I\u0027d still like to \nknow the different kinds of refactorings you were using.\n\nI realize it can be hard to reconstruct the details, but any extra info will \nhelp in tracking this down.\n",
+    "I\u0027ve tried looking at various senders of java.io.File.delete() and the delete \nmethods in Core, without seeing anything out of the ordinary.\n\nEduardo, would you be able to look into this?\n",
+    "Hey,\n\nAs I suspect OutOfMemoryError, you have to look at any delete/rename inside\nfinally clauses and finalizers, because most probably, the OutOfMemoryError is\nnot caught and the code might complete the finally thinking it\u0027s ok to\ndelete/rename. Still didn\u0027t get time to try reproduce. Soon I wish.",
+    "First. We consider loss of data a critical problem and we really want to fix \nit. Unfortunately it will be very difficult in this case to fix it without a \nreproducible case. Please try to reproduce it whenever you have the time. We \nappreciate your help.\n\nI looked in the senders of delete (we have lots) and did not find anything \nthat could cause a DATA LOSS. I talked to Core to see if they had seen any PR \nlike this but this is the only case.\n\nI think we can\u0027t fix the fact that Eclipse is crashing because of a \nOutOfMemory but it should not cause a loss of data and that must be fixed.\n\nPlease if you have the time, could you answer Nick\u0027s questions. ",
+    "(I though I did, maybe in personnal email...)\n\n- using just Java projects\n\n-I Do modify files outside of Eclipse (external CVS) but Data loss happened\nwithout any relation to that, at home I don\u0027t use CVS and I lost a folder for a\nsmall project.\n\n-Do you ever do an explicit refresh operation: yes, right click or F5.\nNot related.\n\n-Did the data loss happen immediately after opening a file. No\n-Immediately after a build? No.\n\n- what are the source folders and output folders?\nSingle src root with packages, single output.\n\n-is the output folder the same as the source folder? No.\n\n-were you changing these? No.\n\n-the different kinds of refactorings you were using?\ncertainly refactor rename, can\u0027t remember if I had one by refactor-move (it\nstarting to a while now.) Please, let me try to reproduce first...when I get the\ntime.",
+    "I have checked senders of delete again but did not find anything that could \ndelete user files/folder.\n\nHave you tried a more recent build? Is this still happening? Have you noticed \nanything else that could help us fixing this?",
+    "We have been unable to reproduce this problem.\nNote that our freeze for RC1 is this Friday morning.\n\nAny help you can give us in tracking this down would be appreciated.\n",
+    "Kai recently reported a problem where if you do a large refactoring and run \nout of memory, then the workspace may be inconsistent due to some, but not \nall, of the files having been changed.  But this is not so much a problem of \ndata loss, as it is an interrupted change.\n\nDJ, do you know of any scenarios in Core where data could be lost due to \nOutOfMemoryErrors?",
+    "The only thing that I can think of would be if you were renaming a project. \nConsider the following:\n\n- call IProject.move()\n- we move the contents on disk\n- OutOfMemory occurs\n- we don\u0027t get the change to update the workspace tree\n\nIn this case when you restart Eclipse I believe your source project would be \nclosed (since its .project is missing) and there would be no workspace tree \nnodes at the destination project location.\n\nThe work-around for this would be to create a new project with the same name as \nthe destination project at the same location. This would bring all the project \ncontents into the workspace tree. Note that this won\u0027t restore your properties, \nmarkers, syncinfo, etc.\n\nIn Core we don\u0027t aggressively delete files on disk. We follow the philosophy \nof \"the disk is right\". So whenever we find an inconsistency between the \nworkspace tree and the filesystem, we bring the filesystem changes into the \nworkspace and do not delete anything from the filesystem.\n\n(the case that I mention above is a little different than a normal scenerio \nbecause we do not \"discover\" new projects on disk through a refreshLocal like \nwe do with files and folders within a project)\n",
+    "Could this be related to bug 33726?\nDo you remember what was the name of the project you renamed, and what you \nrenamed it to?",
+    "I also heard of a case where the project can be lost if you manually modify \nthe .classpath file so that the output folder points to the project itself.\nThis is not normally allowed in the UI, but they were not detecting the case \nwhen the file was directly modified.  It would then clean the output folder, \ndeleting all files in the project.\n\nWere you renaming the project, or making any modifications to the .classpath \nfile (either directly or via some other tool)?\n",
+    "I never use the project folder as output. (I\u0027m not disorganized enought to dare\nto do that anyway: got src, got output. Period.)\n\nSince february, it goes better as I never had the dataloss problem again...but\nonly because I never let it a chance to occur. The main reason is that I now\nstart eclipse myself, inside another console program. I used -Xmx128M and I\nperiodically look at the Runtime.freeMemory from ny little console program. I\never growing above a hard 40 megs (cannot GC more), I quit and boot again, to\nsee the same workspace in only 11 megs!\n\nI withnessed leaks in all versions up to now (otherwise, how bad is eclipse\ninternal caching or how many soft references?)\n\nAbout caching and soft references, it\u0027s not because we defined 128meg heap that\nyou are free to use it all: it is forcing swapping! Besides, GC pauses are HUGE,\nlike 30 seconds to minutes.\n\nADVICE, just in case you fdo that: NEVER call System.gc()!\nAt least not on AWT event queue.\nThis is a useless punition on the poor thread that called it.\nThe JVM does GC by itself. Just consider putting the ref to null will suffice.\n\nFor the dataloss bug, I would start investigating people around you for hidden\nfixes that were not documented. Some programmers may still think it is better to\nhide their mistakes rather than sharing it as a lesson.\n\nThis bug was experienced before january 2nd. Since there was a very unstable\nstreak since december 4 up to january 15, I would point fingers at post M4 and\nbefore.\n\nSorry for not having time to stress-test again. But you know what \"busy\" mean\nfor developpers...\n",
+    "Not clear what we can do hear for 2.1.\nWe have stress-tested, and not seen data loss.\n\nWhen you lost data, did you get an Out of Memory error dialog, and then ask to \ncontinue (repeatedly)?\n\nWe are considering forcing eclipse to exit (with a warning) if you run out of \nmemory.  If you continue after running out of memory, anything can happen.\n",
+    "HAPPENED AGAIN! Damn it!\n\nOk. Let\u0027s stay calm.\nI use RC2, I spawn the jvm on the command line:\n\nC:\\java\\j2sdk1.4.1\\bin\\javaw.exe -Xmx128M -cp C:\\java\\eclipseRC2\\startup.jar\norg.eclipse.core.launcher.Main org.eclipse.ui\n\nAs you see: 128 megs of heap.\nI wasn\u0027t even close to run out of ram.\nAnd my eclipse hasn\u0027t been running for more than the day.\n\nWhat I did:\n\nI had only 4 files open, not much.\nI was double clicking a file in the package explorer, to open it.\n\n--\u003e\u003e I get Error activating view\nI tried to stop a running debug profile, barely clicking on the debug view and I\nalso get --\u003e\u003e error activating view.\nThen I tried again the debug view and succeeded at terminating my process.\n\nI look at the error log view: could not find the file I just tried to open.\n(now I\u0027m freaking out!) I look at the file system: the file is gone! not even in\nthe recycle bin!\n\nI exit eclipse, before I loos more.\n\nHere the log part (not soo long), hope you have enought.\n\n\n\n\n\n!SESSION Mar 18, 2003 17:36:58.596 ---------------------------------------------\njava.version\u003d1.4.1-rc\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments: org.eclipse.ui -install file:C:/java/eclipseRC2/\n!ENTRY org.eclipse.ui 4 4 Mar 18, 2003 17:36:58.596\n!MESSAGE Unhandled exception caught in event loop.\n!ENTRY org.eclipse.ui 4 0 Mar 18, 2003 17:36:58.606\n!MESSAGE java.lang.NullPointerException\n!STACK 0\njava.lang.NullPointerException\n\tat\norg.eclipse.jface.text.contentassist.ContentAssistant$Closer.focusLost(ContentAssistant.java:157)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:106)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:77)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:836)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:861)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:841)\n\tat org.eclipse.swt.widgets.Control.WM_KILLFOCUS(Control.java:3436)\n\tat org.eclipse.swt.widgets.Canvas.WM_KILLFOCUS(Canvas.java:205)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2791)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.BringWindowToTop(Native Method)\n\tat org.eclipse.swt.widgets.Decorations.bringToTop(Decorations.java:196)\n\tat org.eclipse.swt.widgets.Shell.open(Shell.java:669)\n\tat org.eclipse.jface.window.Window.open(Window.java:553)\n\tat\norg.eclipse.jface.dialogs.ProgressMonitorDialog.run(ProgressMonitorDialog.java:345)\n\tat org.eclipse.debug.ui.DebugUITools.launch(DebugUITools.java:493)\n\tat\norg.eclipse.debug.ui.actions.AbstractLaunchToolbarAction.run(AbstractLaunchToolbarAction.java:65)\n\tat org.eclipse.ui.internal.PluginAction.runWithEvent(PluginAction.java:251)\n\tat org.eclipse.ui.internal.WWinPluginAction.runWithEvent(WWinPluginAction.java:207)\n\tat\norg.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:456)\n\tat\norg.eclipse.jface.action.ActionContributionItem.handleWidgetEvent(ActionContributionItem.java:403)\n\tat\norg.eclipse.jface.action.ActionContributionItem.access$0(ActionContributionItem.java:397)\n\tat\norg.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent(ActionContributionItem.java:72)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:77)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:836)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1777)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1485)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1400)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1383)\n\tat\norg.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:845)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:247)\n\tat org.eclipse.core.launcher.Main.run(Main.java:703)\n\tat org.eclipse.core.launcher.Main.main(Main.java:539)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat tools.ConsoleDebugger.a(Unknown Source)\n\tat tools.ConsoleDebugger.main(Unknown Source)\n!ENTRY org.eclipse.ui.workbench 4 2 Mar 18, 2003 17:38:40.219\n!MESSAGE Problems occurred when invoking code from plug-in:\n\"org.eclipse.ui.workbench\".\n!STACK 0\njava.lang.NullPointerException\n\tat\norg.eclipse.jface.text.contentassist.ContentAssistant$Closer.focusLost(ContentAssistant.java:157)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:106)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:77)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:836)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:861)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:841)\n\tat org.eclipse.swt.widgets.Control.WM_KILLFOCUS(Control.java:3436)\n\tat org.eclipse.swt.widgets.Canvas.WM_KILLFOCUS(Canvas.java:205)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2791)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.SetFocus(Native Method)\n\tat org.eclipse.swt.widgets.Control.forceFocus(Control.java:595)\n\tat org.eclipse.swt.widgets.Control.setFocus(Control.java:1918)\n\tat org.eclipse.swt.widgets.Composite.setFocus(Composite.java:382)\n\tat\norg.eclipse.jdt.internal.ui.packageview.PackageExplorerPart.setFocus(PackageExplorerPart.java:574)\n\tat org.eclipse.ui.internal.WorkbenchPage$2.run(WorkbenchPage.java:422)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:867)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:413)\n\tat org.eclipse.ui.internal.WorkbenchPage.activatePart(WorkbenchPage.java:419)\n\tat org.eclipse.ui.internal.WorkbenchPage.setActivePart(WorkbenchPage.java:2487)\n\tat org.eclipse.ui.internal.WorkbenchPage.requestActivation(WorkbenchPage.java:2214)\n\tat org.eclipse.ui.internal.PartPane.requestActivation(PartPane.java:331)\n\tat org.eclipse.ui.internal.PartPane.handleEvent(PartPane.java:311)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:77)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:836)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:861)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:841)\n\tat org.eclipse.swt.widgets.Shell.setActiveControl(Shell.java:835)\n\tat org.eclipse.swt.widgets.Shell.WM_MOUSEACTIVATE(Shell.java:1233)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2801)\n\tat org.eclipse.swt.widgets.Decorations.windowProc(Decorations.java:1225)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProc(OS.java:1294)\n\tat org.eclipse.swt.widgets.Scrollable.callWindowProc(Scrollable.java:73)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2839)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProc(OS.java:1294)\n\tat org.eclipse.swt.widgets.Scrollable.callWindowProc(Scrollable.java:73)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2839)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProc(OS.java:1294)\n\tat org.eclipse.swt.widgets.Scrollable.callWindowProc(Scrollable.java:73)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2839)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProc(OS.java:1294)\n\tat org.eclipse.swt.widgets.Scrollable.callWindowProc(Scrollable.java:73)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2839)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.CallWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.CallWindowProc(OS.java:1232)\n\tat org.eclipse.swt.widgets.Tree.callWindowProc(Tree.java:152)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2839)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.PeekMessageW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.PeekMessage(OS.java:1682)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1479)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1400)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1383)\n\tat\norg.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:845)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:247)\n\tat org.eclipse.core.launcher.Main.run(Main.java:703)\n\tat org.eclipse.core.launcher.Main.main(Main.java:539)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat tools.ConsoleDebugger.a(Unknown Source)\n\tat tools.ConsoleDebugger.main(Unknown Source)\n!ENTRY org.eclipse.core.resources 4 368 Mar 18, 2003 17:38:42.292\n!MESSAGE Resource /Outsight in\nresin/src/outsight/com/coradiant/outsight/Login.java does not exist.\n!ENTRY org.eclipse.core.resources 4 368 Mar 18, 2003 17:38:42.503\n!MESSAGE Resource /Outsight in\nresin/src/outsight/com/coradiant/outsight/Login.java does not exist.\n!ENTRY org.eclipse.ui.workbench 4 2 Mar 18, 2003 17:38:46.589\n!MESSAGE Problems occurred when invoking code from plug-in:\n\"org.eclipse.ui.workbench\".\n!STACK 0\njava.lang.NullPointerException\n\tat\norg.eclipse.jface.text.contentassist.ContentAssistant$Closer.focusLost(ContentAssistant.java:157)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:106)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:77)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:836)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:861)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:841)\n\tat org.eclipse.swt.widgets.Control.WM_KILLFOCUS(Control.java:3436)\n\tat org.eclipse.swt.widgets.Canvas.WM_KILLFOCUS(Canvas.java:205)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2791)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.SetFocus(Native Method)\n\tat org.eclipse.swt.widgets.Control.forceFocus(Control.java:595)\n\tat org.eclipse.swt.widgets.Control.setFocus(Control.java:1918)\n\tat org.eclipse.swt.widgets.Composite.setFocus(Composite.java:382)\n\tat org.eclipse.ui.part.PageBookView.setFocus(PageBookView.java:654)\n\tat org.eclipse.ui.internal.WorkbenchPage$2.run(WorkbenchPage.java:422)\n\tat\norg.eclipse.core.internal.runtime.InternalPlatform.run(InternalPlatform.java:867)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:413)\n\tat org.eclipse.ui.internal.WorkbenchPage.activatePart(WorkbenchPage.java:419)\n\tat org.eclipse.ui.internal.WorkbenchPage.setActivePart(WorkbenchPage.java:2487)\n\tat org.eclipse.ui.internal.WorkbenchPage.requestActivation(WorkbenchPage.java:2214)\n\tat org.eclipse.ui.internal.PartPane.requestActivation(PartPane.java:331)\n\tat org.eclipse.ui.internal.PartPane.handleEvent(PartPane.java:311)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:77)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:836)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:861)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:841)\n\tat org.eclipse.swt.widgets.Shell.setActiveControl(Shell.java:835)\n\tat org.eclipse.swt.widgets.Shell.WM_MOUSEACTIVATE(Shell.java:1233)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2801)\n\tat org.eclipse.swt.widgets.Decorations.windowProc(Decorations.java:1225)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProc(OS.java:1294)\n\tat org.eclipse.swt.widgets.Scrollable.callWindowProc(Scrollable.java:73)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2839)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProc(OS.java:1294)\n\tat org.eclipse.swt.widgets.Scrollable.callWindowProc(Scrollable.java:73)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2839)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.DefWindowProc(OS.java:1294)\n\tat org.eclipse.swt.widgets.Scrollable.callWindowProc(Scrollable.java:73)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2839)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.CallWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.CallWindowProc(OS.java:1232)\n\tat org.eclipse.swt.widgets.ToolBar.callWindowProc(ToolBar.java:122)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2839)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2283)\n\tat org.eclipse.swt.internal.win32.OS.PeekMessageW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.PeekMessage(OS.java:1682)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1479)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1400)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1383)\n\tat\norg.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:845)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:247)\n\tat org.eclipse.core.launcher.Main.run(Main.java:703)\n\tat org.eclipse.core.launcher.Main.main(Main.java:539)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat tools.ConsoleDebugger.a(Unknown Source)\n\tat tools.ConsoleDebugger.main(Unknown Source)\n",
+    "In case you wonder what is ConsoleDebugger, it simply invokes the main of the\nother program (eclipse) and listen to a tcp port for basic admin stuff, like\nmemory info,\ncall GC, (which I do a lot to help, and I see extremely long gc pauses! but that\nmay be because of the 128 Meg heap...), see classpath, system props and threads,\nmost core static stuff, on demand from the telnet client that would connect\nthere. Don\u0027t worry, prooven to be good for years.\n",
+    "FYI the NPE below got fixed for RC3: \n   org.eclipse.jface.text.contentassist.ContentAssistant$Closer.focusLost    \n    (ContentAssistant.java:157)\n",
+    "So, basically, you are telling me that, I double click Login.java, it gets\ndeleted, I get error activating views, and nothing is logged...\n\nObviously, eclipse has something to do with the deletion of my file, since I\ntried to open it.\n---\nSome other silly observations, that I will tell you even if I think they are not\n usefull.\n\n-I use the logitech mouseware, where I can doubleclick with the middle button in\na single click. I tried to open the file this way (I always double click with\nmiddle button). Do you expect 2 clicks?\n\n-my cvs work folder is my project folder. I filter out all \"CVS/\" from build\noutput, and also from package explorer. I don\u0027t use eclipse CVS stuff. Could\neclipse have some glitch with the presence of CVS stuff in the source folder?\n\n-my project file has a org.eclipse.team.cvs.core.cvsnature. Something I tried\nlong ago to workaround the display of CVS folders, in the 2.0 times. But I got\ndataloss on projects that were not altered and not cvs nature at all.\n\n-I run caucho resin app server, it points to my output for classes, and my\nsources for... well...sources! Resin may read those files to compile but I\ndisabled compilation. But the fact remains that while reading, maybe there is a\nfile lock of some sort, colliding with yours. But then again, I got a dataloss\non another project that do not involve resin, and there is almost chance that\nany eclipse process was running on it.\n\n-I have a ntp program that adjust time every 15 minutes. Generally does not\nadjust more than 300ms. At the time of the incident yesterday (around 17h38), it\nadjusted forward in time by 223ms and 39ms\nntp v2 - time.nrc.ca - 123~18-Mar-2003~5:30:54 PM~0 223\nntp v2 - time.nrc.ca - 123~18-Mar-2003~5:45:54 PM~0 39\n\n",
+    "Still don\u0027t undestand what is going on here.\n\nWhy do you use Xmx128M instead of Xmx256M? All messages in the news group \nrecommend 256. I used to use 128 and notice that everything seems slower \nbecause GC had to run more frequently.\n\nWhat file system are you using? Are the files in your HD or in the network?\n\nDo the files you lost exist in the CVS repository?\n\nWhich CVS client do you use? (PS: Why not eclipse?)\n\n\n\n",
+    "First, don\u0027t beieve everything you read in news group... hehehe.\n\nIf you tell jvm to go up to 256 meg, it will! And your OS knows nothing about it\nso it will start swapping. (May I remind you that simple scrolling create megs\nof transient objects, even my winamp starts jitters!)\nMy warmed up project space take about 20 megs, with a heap of about 40 megs: why\nwould I inflict such a punition to my machine by climbing to 256 megs? If you\nproject is so big the GC runs frequently, then it runs for smaller chunks.\nBasically, it means I should run back in 64 megs, but then I face Out of memory\nerrors a bit too soon for my confort.\n\nI think some people should review their code about memory usage... anyway...back\nto main topic.\n\nNo network files, I\u0027m on hard disk, NTFS, with indexing service (like it matters...)\n\n\u003eDo the files you lost exist in the CVS repository?\n\u003eWhich CVS client do you use? (PS: Why not eclipse?)\n\nWhat are you talking about? You think I\u0027m an idiot, Edouardo? Hehehe...\nOf course the repository contains it.\nBesides, I mentionned that I got files and even entire folders deleted at home,\nwhere there is no CVS at all.\n\nAs for eclipse as CVS: not just yet. No thanks. I\u0027m very confortable with WinCVS\n1.2, its text output and its tcl macros. Reliable. And I get to use my prefered\nexternal merger/diff tool (sorry guys but eclipse diff is ugly).\n\nWe put effort into diagnosing and narrowing the context, let\u0027s try not enlarging\nit to unconfirmed premisses. Let me sum up:\n\nTop list of premisses:\n\n1-bug occurs when you get an error activating views (involving at least the\npackage explorer)\n2-bug is not memory related\n3-it deletes file or folder (with folder content if any) when it was the target\nof the selection\n4-it is not CVS related\n5-it is not related to project restructuration (moving src/output)\n6-it is not related to refactoring\n\nIf you confirmed or not other checkpoints, please log it here so others can feed\non it. Thanks.\n",
+    "Another thing that would be helpful to know is, when your contents were \ndeleted, were the latest changes preserved in the local history?\nThat is, if you select the project (assuming it wasn\u0027t deleted as well) and \nchoose Restore From Local History in the context menu of the Navigator or \nPackage Explorer, does it have your most recent changes?\nIt may have old changes, but if it has the latest changes then that suggests \nit\u0027s a regular resource deletion operation that\u0027s being invoked at the wrong \ntime.\n",
+    "\u003ewere the latest changes preserved in the local history?\n\u003edoes it have your most recent changes?\n\nI have no clue... I never use that history.\nI will try to think about it next time.\nBut I made no change to this file (the Login.java example) for months!\nSo they (file, package and project) have no history at all at the moment I wrote\nthis line.\n",
+    "Comment #29.  My understanding is that -Xmx128M must be the last arguement, \nelse it is ignored.",
+    "To #37,\n-Xmx option is a jvm option, not a org.eclipse.core.launcher.Main parameter!\n\n-Xmx has to be at least before the classname in\n\nC:\\java\\j2sdk1.4.1\\bin\\javaw.exe -Xmx128M -cp C:\\java\\eclipseRC2\\startup.jar\norg.eclipse.core.launcher.Main org.eclipse.ui\n",
+    "What about the \"error activating view\" message mentioned first in comment #29? \nUsually there is a log entry showing which view could not be activated. You \nwouldn\u0027t get this message just because an editor could not be opened (I don\u0027t \nthink). Next time you check the log it would be best to use Help/About Eclipse \nPlatform/Configuration Details or the .log file in the file system.\nAlso, in comment #34 item 2 says \"bug is not memory related\". Earlier comments \nsuggested this was related to low memory situations. I guess this is no longer \ntrue, i.e., this is the first time you saw this problem and you didn\u0027t run out \nof memory? Did you get the \"error activating view\" message before? I wonder if \nthese are two different causes of possibly the same bug.",
+    "Maybe 2 different cause. I can\u0027t remember for the first time, 4 months ago.\nFor the last, you see all my last log session at that moment: Login.java could\nnot be found, and the NPE from a plugin.\n\nFor now I can tell you I use 2.1 final, and I still get popups for some \"jface\"\nerrors. But haven\u0027t face the data loss bug yet.\n\nNote: the view I have open in my only perspective (customized debug):\nDebug, Breakpoint, thread and monitor, display, variable, package explorer,\nnavigator, outline, expression, ant, tasks, console, errorlog, search, bookmarks.\n\n\n\n!SESSION Apr 22, 2003 14:56:41.333 ---------------------------------------------\njava.version\u003d1.4.1_02\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments: org.eclipse.ui -install file:C:/java/eclipse2.1/\n!ENTRY org.eclipse.jface 4 2 Apr 22, 2003 14:56:41.333\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.jface\".\n!STACK 0\njava.lang.NullPointerException\n!ENTRY org.eclipse.ui 4 4 Apr 22, 2003 14:59:52.426\n!MESSAGE Unhandled exception caught in event loop.\n!ENTRY org.eclipse.ui 4 0 Apr 22, 2003 14:59:52.436\n!MESSAGE Argument cannot be null\n!STACK 0\njava.lang.IllegalArgumentException: Argument cannot be null\n\tat org.eclipse.swt.SWT.error(SWT.java:2318)\n\tat org.eclipse.swt.SWT.error(SWT.java:2262)\n\tat org.eclipse.swt.widgets.Widget.error(Widget.java:385)\n\tat org.eclipse.swt.widgets.Text.insert(Text.java:828)\n\tat\norg.eclipse.jdt.internal.ui.preferences.JavaEditorHoverConfigurationBlock$3.keyReleased(JavaEditorHoverConfigurationBlock.java:194)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent(TypedListener.java:124)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:81)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:840)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1838)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1545)\n\tat org.eclipse.jface.window.Window.runEventLoop(Window.java:583)\n\tat org.eclipse.jface.window.Window.open(Window.java:563)\n\tat org.eclipse.ui.internal.OpenPreferencesAction.run(OpenPreferencesAction.java:53)\n\tat org.eclipse.jface.action.Action.runWithEvent(Action.java:842)\n\tat\norg.eclipse.jface.action.ActionContributionItem.handleWidgetSelection(ActionContributionItem.java:456)\n\tat\norg.eclipse.jface.action.ActionContributionItem.handleWidgetEvent(ActionContributionItem.java:403)\n\tat\norg.eclipse.jface.action.ActionContributionItem.access$0(ActionContributionItem.java:397)\n\tat\norg.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent(ActionContributionItem.java:72)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:81)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:840)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1838)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1545)\n\tat org.eclipse.ui.internal.Workbench.runEventLoop(Workbench.java:1402)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1385)\n\tat\norg.eclipse.core.internal.boot.InternalBootLoader.run(InternalBootLoader.java:845)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:461)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:291)\n\tat org.eclipse.core.launcher.Main.run(Main.java:747)\n\tat org.eclipse.core.launcher.Main.main(Main.java:583)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)\n\tat\nsun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)\n\tat java.lang.reflect.Method.invoke(Method.java:324)\n\tat tools.ConsoleDebugger.a(Unknown Source)\n\tat tools.ConsoleDebugger.main(Unknown Source)\n!ENTRY org.eclipse.jface 4 2 Apr 22, 2003 16:44:37.807\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.jface\".\n!STACK 0\njava.lang.NullPointerException\n\n[few more times the jface error...]\n",
+    "The IllegalArgumentException apparently ocurred when you opened the Java editor \npreferences. Opened bug 36902 for that one. I doubt it has anything to do with \nthe data loss problem or with the \"error activating view\" message.",
+    "Could you please include the stack trace for the NPE.  The first stack is for \nan IllegalArgumentException, not an NPE.",
+    "I think the rest is just a repeat of the stack trace shown.\nIt is interesting that there is a NPE stack entry with no other stack below it. \nThat one happened separately from the IllegalArgumentException so the NPE stack \ntrace would be helpful. I didn\u0027t even notice the first time I looked at it.\nRunning on a different VM may produce better debug info.",
+    "I would love to give you the stacktrace, but there is none!\n\nI get repeatedly\n\n!ENTRY org.eclipse.jface 4 2 \u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003csome date\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.jface\".\n!STACK 0\njava.lang.NullPointerException\n!ENTRY org.eclipse.jface 4 2 \u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003csome date\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.jface\".\n!STACK 0\njava.lang.NullPointerException\n!ENTRY org.eclipse.jface 4 2 \u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003csome date\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\u003e\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.jface\".\n!STACK 0\njava.lang.NullPointerException\n\n\nAnd since I run java instead of javaw, with\n\nC:\\WINNT\\SYSTEM32\\CMD.EXE /k C:\\java\\j2sdk1.4.1\\bin\\java.exe -server -verbosegc\n-Xmx128M -cp c:\\users\\danny\\prog\\tools.jar;C:\\java\\eclipse2.1\\startup.jar\ntools.ConsoleDebugger -st -1 -is 9090 org.eclipse.core.launcher.Main org.eclipse.ui\n\nI see the NPE without stack trace too.\n\nNote: could you beleive I saw a fullGC taking 29 seconds? Everything freezes\nduring that time of course... I reported a RFE to javasoft JDC bug parade: they\nshould use memory locking, (like memory+ does). I would gladly use some -Xml128\nto pin the whole jvm in physical ram... I tried mempory+ and beside that it\ncrashes the JVM (bug reported to TFI cny with no answer yet), eclipse was\nincredibly fast!\n",
+    "There was a posting on the newsgroup about a NPE in the Java console window. \n\n\"From: \"Nikolay\" \u003cN.Metchev@teamphone.com\u003e\nSubject: NullPointerException\nDate: Thursday, April 24, 2003 11:53 AM\n\nI have started running eclipse using -vm arguements and I get a console\nwindow open in that console window I get the following messages from time to\ntime:\n\nUnhandled exception caught in event loop.\nReason:\njava.lang.NullPointerException\nUnhandled exception caught in event loop.\nReason:\njava.lang.NullPointerException\n\nnothing shows up in the log and I am not sure when it actually happens. I\nwas wondering if anyone else has noticed this?\"",
+    "BTW: What does the -server argument do in the Sun VM? I\u0027d try running without \nit to see if it solves your performance/GC problems.\nAlso, you should try running without the ConsoleDebugger to see if the NPE goes \naway (probably won\u0027t make a difference but you want to be sure). E.g., just run \nEclipse using eclipse.exe in which case the previous comment about putting -Xmx \nlast on the command line holds true. You would specify the vm arguments using -\nvmargs -Xmx256M after the -vm argument. I would suggest specifying 256MB.\n",
+    "if I run just eclipse.exe I won\u0027t get any info if it crashe.\nI need the console. The ConsoleDebugger only invoke the main.\nIt start a tcp socket server for a simple telnet console, where I can\ntype in few commands like gc, memory info, date, system props, classpath.\nTotally safe, used for years now.\n\nusing 256 meg won\u0027t solve anything. It will make it worse, forcing the stupid OS\nto swap even more, and cause a general whole \"swap-me-in\" just for GC. I rarely\nuse above 40 meg java object heap (happyly returned from the console debugger,\nsee how usefull...)\n\n-server causes the jvm to precompile every byte code, (as I read once in\njavaworld I think), it is like a JIT compilation only for everything on start.\nmay make also some changes in native library for i/o performance but that is not\nconfirmed. In general, I feel it runs smoother.\n\n",
+    "If you run eclipse with the argument -vm \u003cyou jdk path\u003e\\java.exe you will get a \nconsole that shows VM output. The console window will close when Eclipse \ncrashes. However, that\u0027s fine since all I want to see is if Eclipse still \ncrashes or not. We already know what\u0027s being printed to the console when it \ndoes crash.\n",
+    "Have you seen (or tried reproducing) this problem since April (the last comment \non this bug report)? Or does it look like its gone away?",
+    "Hasn\u0027t happened again.\nHope it is fixed for good.\nSomebody got lucky and escaped finger pointing.\n\nThanks to all who invested times on this Damocles sword.\n",
+    "Please reopen if it happens again."
+  ],
+  "commentCreationDates": [
+    "2003-01-02T22:46:13+01:00",
+    "2003-01-15T22:01:16+01:00",
+    "2003-01-16T01:19:16+01:00",
+    "2003-01-16T19:29:23+01:00",
+    "2003-01-16T19:29:44+01:00",
+    "2003-01-17T03:25:33+01:00",
+    "2003-01-17T16:17:31+01:00",
+    "2003-01-20T13:19:09+01:00",
+    "2003-01-20T23:56:45+01:00",
+    "2003-01-21T16:07:39+01:00",
+    "2003-01-21T23:14:10+01:00",
+    "2003-01-22T13:49:16+01:00",
+    "2003-01-22T15:30:56+01:00",
+    "2003-01-22T15:38:35+01:00",
+    "2003-01-23T14:14:35+01:00",
+    "2003-01-24T14:40:28+01:00",
+    "2003-01-24T15:30:29+01:00",
+    "2003-02-04T02:10:16+01:00",
+    "2003-02-04T15:19:59+01:00",
+    "2003-02-04T18:48:46+01:00",
+    "2003-02-06T02:04:14+01:00",
+    "2003-02-17T21:50:30+01:00",
+    "2003-02-19T16:48:41+01:00",
+    "2003-02-27T20:08:10+01:00",
+    "2003-02-27T20:57:28+01:00",
+    "2003-03-05T17:11:25+01:00",
+    "2003-03-05T19:51:39+01:00",
+    "2003-03-06T16:51:41+01:00",
+    "2003-03-12T16:29:41+01:00",
+    "2003-03-18T23:06:57+01:00",
+    "2003-03-18T23:13:07+01:00",
+    "2003-03-18T23:18:17+01:00",
+    "2003-03-19T14:51:30+01:00",
+    "2003-03-19T16:40:20+01:00",
+    "2003-03-20T17:24:37+01:00",
+    "2003-03-20T20:46:03+01:00",
+    "2003-03-20T22:28:04+01:00",
+    "2003-04-09T21:19:12+02:00",
+    "2003-04-09T22:24:20+02:00",
+    "2003-04-24T20:49:40+02:00",
+    "2003-04-25T00:28:39+02:00",
+    "2003-04-25T16:27:03+02:00",
+    "2003-04-25T16:32:45+02:00",
+    "2003-04-25T17:03:02+02:00",
+    "2003-04-25T18:15:06+02:00",
+    "2003-04-25T19:25:59+02:00",
+    "2003-04-25T19:26:40+02:00",
+    "2003-04-26T02:04:59+02:00",
+    "2003-04-28T17:10:12+02:00",
+    "2003-07-09T20:49:22+02:00",
+    "2003-07-10T15:56:39+02:00",
+    "2003-07-10T16:05:36+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant$Closer.focusLost",
+          "source": "ContentAssistant.java:157"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:77"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:836"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:861"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:841"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_KILLFOCUS",
+          "source": "Control.java:3436"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Canvas.WM_KILLFOCUS",
+          "source": "Canvas.java:205"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2791"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.BringWindowToTop",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Decorations.bringToTop",
+          "source": "Decorations.java:196"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.open",
+          "source": "Shell.java:669"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:553"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.ProgressMonitorDialog.run",
+          "source": "ProgressMonitorDialog.java:345"
+        },
+        {
+          "method": "org.eclipse.debug.ui.DebugUITools.launch",
+          "source": "DebugUITools.java:493"
+        },
+        {
+          "method": "org.eclipse.debug.ui.actions.AbstractLaunchToolbarAction.run",
+          "source": "AbstractLaunchToolbarAction.java:65"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PluginAction.runWithEvent",
+          "source": "PluginAction.java:251"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WWinPluginAction.runWithEvent",
+          "source": "WWinPluginAction.java:207"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:456"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent",
+          "source": "ActionContributionItem.java:403"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$0",
+          "source": "ActionContributionItem.java:397"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent",
+          "source": "ActionContributionItem.java:72"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:77"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:836"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:1777"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1485"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1400"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1383"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:845"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:247"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:703"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:539"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "tools.ConsoleDebugger.a",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "tools.ConsoleDebugger.main",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 29,
+      "bugId": "28959",
+      "date": "2003-03-18T23:06:57+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant$Closer.focusLost",
+          "source": "ContentAssistant.java:157"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:77"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:836"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:861"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:841"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_KILLFOCUS",
+          "source": "Control.java:3436"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Canvas.WM_KILLFOCUS",
+          "source": "Canvas.java:205"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2791"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.SetFocus",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.forceFocus",
+          "source": "Control.java:595"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.setFocus",
+          "source": "Control.java:1918"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.setFocus",
+          "source": "Composite.java:382"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.packageview.PackageExplorerPart.setFocus",
+          "source": "PackageExplorerPart.java:574"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage$2.run",
+          "source": "WorkbenchPage.java:422"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:867"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:413"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.activatePart",
+          "source": "WorkbenchPage.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.setActivePart",
+          "source": "WorkbenchPage.java:2487"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.requestActivation",
+          "source": "WorkbenchPage.java:2214"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.requestActivation",
+          "source": "PartPane.java:331"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.handleEvent",
+          "source": "PartPane.java:311"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:77"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:836"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:861"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:841"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.setActiveControl",
+          "source": "Shell.java:835"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.WM_MOUSEACTIVATE",
+          "source": "Shell.java:1233"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2801"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Decorations.windowProc",
+          "source": "Decorations.java:1225"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProc",
+          "source": "OS.java:1294"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Scrollable.callWindowProc",
+          "source": "Scrollable.java:73"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2839"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProc",
+          "source": "OS.java:1294"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Scrollable.callWindowProc",
+          "source": "Scrollable.java:73"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2839"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProc",
+          "source": "OS.java:1294"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Scrollable.callWindowProc",
+          "source": "Scrollable.java:73"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2839"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProc",
+          "source": "OS.java:1294"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Scrollable.callWindowProc",
+          "source": "Scrollable.java:73"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2839"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.CallWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.CallWindowProc",
+          "source": "OS.java:1232"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Tree.callWindowProc",
+          "source": "Tree.java:152"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2839"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.PeekMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.PeekMessage",
+          "source": "OS.java:1682"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1479"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1400"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1383"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:845"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:247"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:703"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:539"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "tools.ConsoleDebugger.a",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "tools.ConsoleDebugger.main",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 29,
+      "bugId": "28959",
+      "date": "2003-03-18T23:06:57+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jface.text.contentassist.ContentAssistant$Closer.focusLost",
+          "source": "ContentAssistant.java:157"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:106"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:77"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:836"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:861"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:841"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_KILLFOCUS",
+          "source": "Control.java:3436"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Canvas.WM_KILLFOCUS",
+          "source": "Canvas.java:205"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2791"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.SetFocus",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.forceFocus",
+          "source": "Control.java:595"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.setFocus",
+          "source": "Control.java:1918"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.setFocus",
+          "source": "Composite.java:382"
+        },
+        {
+          "method": "org.eclipse.ui.part.PageBookView.setFocus",
+          "source": "PageBookView.java:654"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage$2.run",
+          "source": "WorkbenchPage.java:422"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:867"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:413"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.activatePart",
+          "source": "WorkbenchPage.java:419"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.setActivePart",
+          "source": "WorkbenchPage.java:2487"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.requestActivation",
+          "source": "WorkbenchPage.java:2214"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.requestActivation",
+          "source": "PartPane.java:331"
+        },
+        {
+          "method": "org.eclipse.ui.internal.PartPane.handleEvent",
+          "source": "PartPane.java:311"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:77"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:836"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:861"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:841"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.setActiveControl",
+          "source": "Shell.java:835"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Shell.WM_MOUSEACTIVATE",
+          "source": "Shell.java:1233"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2801"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Decorations.windowProc",
+          "source": "Decorations.java:1225"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProc",
+          "source": "OS.java:1294"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Scrollable.callWindowProc",
+          "source": "Scrollable.java:73"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2839"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProc",
+          "source": "OS.java:1294"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Scrollable.callWindowProc",
+          "source": "Scrollable.java:73"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2839"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.DefWindowProc",
+          "source": "OS.java:1294"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Scrollable.callWindowProc",
+          "source": "Scrollable.java:73"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2839"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.CallWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.CallWindowProc",
+          "source": "OS.java:1232"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.ToolBar.callWindowProc",
+          "source": "ToolBar.java:122"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2839"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2283"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.PeekMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.PeekMessage",
+          "source": "OS.java:1682"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1479"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1400"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1383"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:845"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:247"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:703"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:539"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "tools.ConsoleDebugger.a",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "tools.ConsoleDebugger.main",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 2,
+      "commentIndex": 29,
+      "bugId": "28959",
+      "date": "2003-03-18T23:06:57+01:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.lang.IllegalArgumentException",
+      "message": "Argument cannot be null",
+      "elements": [
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2318"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:2262"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.error",
+          "source": "Widget.java:385"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Text.insert",
+          "source": "Text.java:828"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.preferences.JavaEditorHoverConfigurationBlock$3.keyReleased",
+          "source": "JavaEditorHoverConfigurationBlock.java:194"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:124"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:81"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:840"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:1838"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1545"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.runEventLoop",
+          "source": "Window.java:583"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:563"
+        },
+        {
+          "method": "org.eclipse.ui.internal.OpenPreferencesAction.run",
+          "source": "OpenPreferencesAction.java:53"
+        },
+        {
+          "method": "org.eclipse.jface.action.Action.runWithEvent",
+          "source": "Action.java:842"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetSelection",
+          "source": "ActionContributionItem.java:456"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.handleWidgetEvent",
+          "source": "ActionContributionItem.java:403"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem.access$0",
+          "source": "ActionContributionItem.java:397"
+        },
+        {
+          "method": "org.eclipse.jface.action.ActionContributionItem$ActionListener.handleEvent",
+          "source": "ActionContributionItem.java:72"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:81"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:840"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:1838"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1545"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.runEventLoop",
+          "source": "Workbench.java:1402"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1385"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:845"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:461"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:291"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:747"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:583"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl.java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAccessorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "tools.ConsoleDebugger.a",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "tools.ConsoleDebugger.main",
+          "source": "Unknown Source"
+        }
+      ],
+      "number": 3,
+      "commentIndex": 40,
+      "bugId": "28959",
+      "date": "2003-04-25T00:28:39+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "28959",
+  "bugId": "28959",
+  "date": "2003-01-02T22:46:13+01:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "major"
+}

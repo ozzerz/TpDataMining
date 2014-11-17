@@ -1,0 +1,130 @@
+{
+  "comments": [
+    "F3 build (20020612)\n\n- exited 20020611 using self-hosting workspace\n- installed 20020612\n- started it, pointing it to the old workspace\n- got an Unable to read Workbench State error dialog\n- log has:\n\n!SESSION Jun 13, 2002 10:04:27.272 --------------------------------------------\n-\njava.fullversion\u003dJ2RE 1.3.1 IBM Windows 32 build cn131-20020403 (JIT enabled: \njitc)\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\nCommand-line arguments: -os win32 -ws win32 -arch x86 -dev bin -data \nd:\\eclipse\\plugins -update -install file:D:/eclipse20020612-F3/eclipse/\n!ENTRY org.eclipse.ui 4 2 Jun 13, 2002 10:04:27.272\n!MESSAGE Problems occurred when invoking code from plug-in: \"org.eclipse.ui\".\n!STACK 0\njava.lang.NullPointerException\n\tat \norg.eclipse.jdt.internal.ui.javaeditor.ClassFileEditorActionContributor.setActi\nveEditor(ClassFileEditorActionContributor.java:88)\n\tat org.eclipse.ui.internal.EditorActionBars.partChanged\n(EditorActionBars.java:122)\n\tat org.eclipse.ui.internal.WorkbenchPage.onActivate\n(WorkbenchPage.java:1541)\n\tat org.eclipse.ui.internal.WorkbenchWindow$7.run\n(WorkbenchWindow.java:1209)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile\n(BusyIndicator.java:64)\n\tat org.eclipse.ui.internal.WorkbenchWindow.setActivePage\n(WorkbenchWindow.java:1196)\n\tat org.eclipse.ui.internal.WorkbenchWindow.restoreState\n(WorkbenchWindow.java:1089)\n\tat org.eclipse.ui.internal.Workbench.restoreState(Workbench.java:1080)\n\tat org.eclipse.ui.internal.Workbench.access$7(Workbench.java:1060)\n\tat org.eclipse.ui.internal.Workbench$6.run(Workbench.java:796)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run\n(InternalPlatform.java:813)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:416)\n\tat org.eclipse.ui.internal.Workbench.openPreviousWorkbenchState\n(Workbench.java:748)\n\tat org.eclipse.ui.internal.Workbench.init(Workbench.java:562)\n\tat org.eclipse.ui.internal.Workbench.run(Workbench.java:1153)\n\tat org.eclipse.core.internal.boot.InternalBootLoader.run\n(InternalBootLoader.java:739)\n\tat org.eclipse.core.boot.BootLoader.run(BootLoader.java:462)\n\tat java.lang.reflect.Method.invoke(Native Method)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:248)\n\tat org.eclipse.core.launcher.Main.run(Main.java:697)\n\tat org.eclipse.core.launcher.Main.main(Main.java:530)",
+    "Created an attachment (id\u003d1393)\nworkbench.xml\n",
+    "- killed eclipse\n- tried starting it with 20020611\n- same error occurred\n\nWhen I shutdown, I had the Update perspective open.\nI suspect this may be caused by not having the editor area visible.\nThe action contributor should not be getting passed null.\n\nLooking at it more closely, line 88 is:\n\tclassFileEditor.fActionGroups.fillActionBars(bars);\n\nTo reach this, classFileEditor must be non-null, so setActiveEditor is not \nbeing passed null.\nSo it must be fActionGroups that is null.\nfActionGroups is assigned in createActions(), which is called from \ncreatePartControl().\n\nSo it looks like createPartControl is not getting called (since the editor is \nnot visible), but the action bar contributor is nevertheless being told about \nan active editor.\n\nThis behaviour may be due to lazy editor creation.\nRandy, is this expected?\n\nThe simplest fix at this stage would be to add a null check in \nsetActiveEditor, but this would only work if it is called again when the \neditor becomes visible.\n\n\n\n",
+    "Steps to reproduce this:\n- close all perspectives\n- open resource perspective\n- open a .class file\n- hide editors\n- exit\n- restart\n- get error on startup\n",
+    "Editor action contributors need to be able to talk to the actions.\nAll of our editors (and views) create their actions in createPartControl, not \ninitialize.\nWe should ensure that createPartControl is called for the frontmost editor \neven if the editor area is hidden.\nAnd we need to ensure that the action contributor is called after \ncreatePartControl.\n",
+    "Candidate for F4.\nNeed to assess risk of change.\n",
+    "Changing the layout to create the editor area controls even when hidden is \nsomewhat risky.\nWill consider a workaround like: on restore, if editor area is hidden, restore \nthe perspective with the editor area visible, then hide it.\nSince SWT will not be processing events here, this should not be noticeable.\nEven if it flickers, it will only be an issue if the editor area is hidden, \nwhich is not the typical case.\n",
+    "Fixed in Perspective\n1) At the end of restoreState, rather than hiding the editors (if they should \nbe) we record this fact in the field shouldHideEditorsOnActivate.\n2) In onActivate after all parts have been created, if \nshouldHideEditorsOnActivate is true we set it to false and hide the editors.\n\nThis does not cause any flash on XP or Linux-Motif",
+    "Checked with Simon",
+    "Checked with Eduardo\nReleased"
+  ],
+  "commentCreationDates": [
+    "2002-06-13T15:53:55+02:00",
+    "2002-06-13T15:55:12+02:00",
+    "2002-06-13T16:34:50+02:00",
+    "2002-06-13T16:40:16+02:00",
+    "2002-06-13T16:53:32+02:00",
+    "2002-06-14T16:01:20+02:00",
+    "2002-06-14T22:07:24+02:00",
+    "2002-06-17T15:46:22+02:00",
+    "2002-06-17T16:39:33+02:00",
+    "2002-06-17T17:33:46+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.ui.javaeditor.ClassFileEditorActionContributor.setActiveEditor",
+          "source": "ClassFileEditorActionContributor.java:88"
+        },
+        {
+          "method": "org.eclipse.ui.internal.EditorActionBars.partChanged",
+          "source": "EditorActionBars.java:122"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchPage.onActivate",
+          "source": "WorkbenchPage.java:1541"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow$7.run",
+          "source": "WorkbenchWindow.java:1209"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:64"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.setActivePage",
+          "source": "WorkbenchWindow.java:1196"
+        },
+        {
+          "method": "org.eclipse.ui.internal.WorkbenchWindow.restoreState",
+          "source": "WorkbenchWindow.java:1089"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.restoreState",
+          "source": "Workbench.java:1080"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.access$7",
+          "source": "Workbench.java:1060"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench$6.run",
+          "source": "Workbench.java:796"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:813"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:416"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.openPreviousWorkbenchState",
+          "source": "Workbench.java:748"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.init",
+          "source": "Workbench.java:562"
+        },
+        {
+          "method": "org.eclipse.ui.internal.Workbench.run",
+          "source": "Workbench.java:1153"
+        },
+        {
+          "method": "org.eclipse.core.internal.boot.InternalBootLoader.run",
+          "source": "InternalBootLoader.java:739"
+        },
+        {
+          "method": "org.eclipse.core.boot.BootLoader.run",
+          "source": "BootLoader.java:462"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:248"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:697"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:530"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "20166",
+      "date": "2002-06-13T15:53:55+02:00",
+      "product": "Platform",
+      "component": "UI",
+      "severity": "critical"
+    }
+  ],
+  "groupId": "20166",
+  "bugId": "20166",
+  "date": "2002-06-13T15:53:55+02:00",
+  "product": "Platform",
+  "component": "UI",
+  "severity": "critical"
+}

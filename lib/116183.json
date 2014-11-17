@@ -1,0 +1,95 @@
+{
+  "comments": [
+    "Loading a progressive JPEG using either new ImageData(filePath) or new Image(new\nFileInputStream(filePath)) causes an OutOfMemory error.",
+    "Created an attachment (id\u003d29849)\nThis image causes the OutOfMemoryError\n",
+    "Try launching your VM with -Xmx100M to increase the size of the heap. I can \nload your image when I do this. I realize that this is just a workaround and \nnot a fix, but perhaps it will help.\n\nWe are currently looking at using native image loaders where possible. CC \nyourself to bug 53443 to follow this work.",
+    "The other bug will be a big help for my application, but in the mean time, is\nthere something that can be done? 100M is a lot for a desktop image uploader.",
+    "See bug 53443 comment 11.\nUsing:\n new Image(Device, String);\nshould help. Does it?",
+    "I actually don\u0027t ever use that constructor. Since I don\u0027t need to load the full image, I use the imageData constructor Image(Display,ImageData) and immediately scale it.",
+    "I don\u0027t understand what you mean when you say you don\u0027t need to load the full image - it\u0027s hard to avoid loading it all with the SWT APIs (unless you are using the incremental load listener in ImageLoader).\n\nI assume you are somehow loading this image in from a file, and then working with a part of it. If so, try this combination, just for grins:\n   Image image \u003d new Image(display, filename);\n   ImageData data \u003d image.getImageData();\n\nIt *might* actually be faster, and it will probably get rid of your OOM error.\nYou could bench your previous loading code against this with something like:\n\n   long start \u003d System.currentTimeMillis();\n   // code to bench goes here\n   System.out.println(System.currentTimeMillis() - start);\n",
+    "So, I switched out the code, and it does appear to fix the problem. Is this latest M6 release production quality, or is there an old 3.1 build that I can use?\n",
+    "Actually, I stumbled on a further problem. I cannot save this image after it has been scaled. I get the following stack trace:\n\nxception in thread \"Thread-10\" org.eclipse.swt.SWTException: Unsupported or unrecognized format\n\tat org.eclipse.swt.SWT.error(SWT.java:3374)\n\tat org.eclipse.swt.SWT.error(SWT.java:3297)\n\tat org.eclipse.swt.SWT.error(SWT.java:3268)\n\tat org.eclipse.swt.internal.image.FileFormat.save(FileFormat.java:83)\n\tat org.eclipse.swt.graphics.ImageLoader.save(ImageLoader.java:199)\n\tat org.scohen.juploadr.app.RescaledImageAttributes.rescale(RescaledImageAttributes.java:174)\n\tat org.scohen.juploadr.app.RescaledImageAttributes.\u003cinit\u003e(RescaledImageAttributes.java:48)\n\tat org.scohen.juploadr.app.RescaleTask.execute(RescaleTask.java:34)\n\tat org.scohen.juploadr.ui.Task.run(Task.java:77)\n\n\nThe code that rescales it is the following:\n                scaledFile \u003d File.createTempFile(\"img\", imagePath //$NON-NLS-1$\n                        .substring(imagePath.lastIndexOf(\".\"))); //$NON-NLS-1$\n                imagePath \u003d scaledFile.getAbsolutePath();\n\n                if (Math.max(imageData.width, imageData.height) \u003e config\n                        .getMaxPhotoSize()) {\n                    Point newSize \u003d getScaledDimensions(imageData);\n\n                    scaled \u003d new Image(Display.getDefault(), newSize.x,\n                            newSize.y);\n                    GC gc \u003d new GC(scaled);\n                    gc.drawImage(orig, 0, 0, imageData.width, imageData.height,\n                            0, 0, newSize.x, newSize.y);\n                    ImageLoader loader \u003d new ImageLoader();\n\n                    loader.data \u003d new ImageData[1];\n                    loader.data[0] \u003d scaled.getImageData();\n                    loader.save(new FileOutputStream(scaledFile),\n                            imageData.type);\n                    // write metadata to the file\n                    copyMetadata(origFile, scaledFile, scaled.getImageData());\n\n                    orig.dispose();\n                    gc.dispose();\n                    scaled.dispose();",
+    "re comment 7: M6 is beta quality. You can use it, though - it\u0027s pretty stable. You will want to switch to 3.2 when it is released in mid-May. There will be progressively more stable releases (called RC - for \"release candidate\") up until the release. You could switch to each one as it becomes available.\n\nNo, there is no 3.1.x that you can switch to that has any JPG fixes.",
+    "re comment 8:\n- please tell me what number getMaxPhotoSize returns\n- please tell me what point getScaledDimensions returns\n- are you definitely still using the image from comment 1?",
+    "in this case, getMaxPhotoSize returns 800\ngetScaledDimensions returns a point {800,600}\n\nJust so you know, the int that getMaxPhotoSize returns is variable, and doesn\u0027t seem to affect whether or not I get that exception. It fails when it is 800, 1024 or 600.\n\nand I am using the image from the comment. I re-downloaded it just to be sure. ",
+    "The following (admittedly \"brute force\") snippet works for me. Does this help?\n\nimport org.eclipse.swt.*;\nimport org.eclipse.swt.graphics.*;\nimport org.eclipse.swt.widgets.*;\n\npublic class ScaledImageSave {\n\tstatic final String FILENAME \u003d \"D:\\\\workspace\\\\Car\\\\test\\\\NotWorking\";\n\tstatic final Point newSize \u003d new Point(800, 600);\n\tstatic Display display;\n\n\tpublic static void main(String[] args) {\n\t\tdisplay \u003d new Display();\n\t\tImage image \u003d new Image(display, FILENAME + \".jpg\");\n\t\tImageData data \u003d image.getImageData();\n        Image scaled \u003d new Image(display, newSize.x, newSize.y);\n        GC gc \u003d new GC(scaled);\n        gc.drawImage(image, 0, 0, data.width, data.height, 0, 0, newSize.x, newSize.y);\n        ImageLoader loader \u003d new ImageLoader();\n        loader.data \u003d new ImageData[1];\n        loader.data[0] \u003d scaled.getImageData();\n        loader.save(FILENAME + \"2.jpg\", SWT.IMAGE_JPEG);\n        image.dispose();\n        scaled.dispose();\n\t\tdisplay.dispose();\n\t}\n}\n",
+    "That works... but I really can\u0027t hard-code the image type, since the users can drop in any image. \nJust so you know, when it\u0027s a progressive jpeg, the type field on the ImageData object is -1. \n\nI suppose I could check for that, but it seems odd that SWT can read an image that it can\u0027t write.",
+    "What is the exact line of code you use to create the ImageData?\n\nOn another note, have you considered using ImageData.scaledTo(width,height) to do your scaling?",
+    "The image data was created a couple of lines before like this: \n\n            Image orig \u003d new Image(\n                    ReusableUIFactory.getInstance().getDisplay(), origFile\n                            .getAbsolutePath());\n            ImageData imageData \u003d orig.getImageData();\n            Image scaled;\n\n\nI\u0027m not sure why I didn\u0027t use scaledTo() is there a quality advantage to drawing the image yourself? I might have done it that way previously and was disapointed with the results. Then again, I might have just spaced. Seems like that would save a lot of code."
+  ],
+  "commentCreationDates": [
+    "2005-11-14T07:26:14+01:00",
+    "2005-11-14T07:27:43+01:00",
+    "2005-11-17T22:45:43+01:00",
+    "2005-11-18T02:52:57+01:00",
+    "2006-04-04T12:26:51+02:00",
+    "2006-04-05T03:42:46+02:00",
+    "2006-04-05T19:37:07+02:00",
+    "2006-04-09T04:45:58+02:00",
+    "2006-04-09T22:23:29+02:00",
+    "2006-04-10T22:43:30+02:00",
+    "2006-04-10T22:52:31+02:00",
+    "2006-04-11T04:31:05+02:00",
+    "2006-04-11T20:54:19+02:00",
+    "2006-04-12T03:52:48+02:00",
+    "2006-04-12T18:19:32+02:00",
+    "2006-04-14T03:29:31+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.swt.SWTException",
+      "message": "Unsupported or unrecognized form",
+      "elements": [
+        {
+          "method": "atorg.eclipse.swt.SWT.error",
+          "source": "SWT.java:3374"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3297"
+        },
+        {
+          "method": "org.eclipse.swt.SWT.error",
+          "source": "SWT.java:3268"
+        },
+        {
+          "method": "org.eclipse.swt.internal.image.FileFormat.save",
+          "source": "FileFormat.java:83"
+        },
+        {
+          "method": "org.eclipse.swt.graphics.ImageLoader.save",
+          "source": "ImageLoader.java:199"
+        },
+        {
+          "method": "org.scohen.juploadr.app.RescaledImageAttributes.rescale",
+          "source": "RescaledImageAttributes.java:174"
+        },
+        {
+          "method": "org.scohen.juploadr.app.RescaledImageAttributes.\u003cinit\u003e",
+          "source": "RescaledImageAttributes.java:48"
+        },
+        {
+          "method": "org.scohen.juploadr.app.RescaleTask.execute",
+          "source": "RescaleTask.java:34"
+        },
+        {
+          "method": "org.scohen.juploadr.ui.Task.run",
+          "source": "Task.java:77"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 8,
+      "bugId": "116183",
+      "date": "2006-04-09T22:23:29+02:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "116183",
+  "bugId": "116183",
+  "date": "2005-11-14T07:26:14+01:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

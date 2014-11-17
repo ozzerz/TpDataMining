@@ -1,0 +1,240 @@
+{
+  "comments": [
+    "What I did to produce this GPF was set the tree selection (by mistake, bug in my code) to \n\ta tree item that the wasn\u0027t visible at the time. The hidden tree item existed, but it\u0027s parent \n\twasn\u0027t expanded. \n\n\tLet me know if you\u0027d like a test case - I\u0027ll write one and send it up.\n\nNOTES:\n\nUnhandled exception\nType\u003dGPF vmState\u003d0x00000003\nExceptionCode\u003d0xc0000005 ExceptionAddress\u003d0xbfba9aec ContextFlags\u003d0x0001001f\nHandler1\u003d0x10e01566 Handler2\u003d0x100385f0\nModule\u003dC:\\WINDOWS\\SYSTEM\\COMCTL32.DLL\nModule_base_address\u003d0xbfb90000\nOffset_in_DLL\u003d0x00019aec\nEDI\u003d0x02ccb3ec ESI\u003d0x73f9810c EAX\u003d0x017f07ac\nEBX\u003d0x017f07ac ECX\u003d0x00000000 EDX\u003d0x00020020\nEBP\u003d0x0063eed8 ESP\u003d0x0063eebc EIP\u003d0xbfba9aec\n\nThread: main (priority 5)\n0000 com/ibm/swt/win32/OS.CallWindowProc(IIIII)I\n0017 com/ibm/swt/widgets/Tree.callWindowProc(III)I\n043f com/ibm/swt/widgets/Window.windowProc(III)I\n0015 com/ibm/swt/widgets/Display.windowProc(IIII)I\n0000 com/ibm/swt/win32/OS.SendMessage(IIII)I\n0092 com/ibm/swt/widgets/Tree.setSelection([Lcom/ibm/swt/widgets/TreeItem;)V\n00be com/ibm/ive/tools/profiler/ui/methodcalltree/MethodCallTreeViewer.setSelection(Lcom/ibm/ive/tools/profiler/ui/methodcalltree/MethodCallTreeElement;)V\n0022 com/ibm/ive/tools/profiler/ui/methodcalltree/MethodCallTreeViewer.domainChanged(Lcom/ibm/jface/elements/DomainEvent;)V\n0034 com/ibm/jface/elements/DomainEvent.dispatch(Ljava/lang/Object;)V\n000c com/ibm/jface/elements/DefaultDomainModel$1.run()V\n000f com/ibm/swt/widgets/RunnableLock.run()V\n0022 com/ibm/swt/widgets/Display.runAsyncMessages()Z\n0044 com/ibm/swt/widgets/Display.readAndDispatch()Z\n0005 com/ibm/jface/util/Utilities.dispatchEventAndSleep(Lcom/ibm/swt/widgets/Display;)V\n000a com/ibm/jface/util/Utilities.runEventLoop()V\n001c com/ibm/jface/Application.run()V\n0063 com/ibm/ive/tools/profiler/ui/presentation/Profiler.main([Ljava/lang/String;)V\n\nSN (12/22/99 11:25:02 AM)\n\tPlease always submit test code.\n\nJH (12/22/99 1:46:08 PM)\n\tHere\u0027s a test case - sorry if it\u0027s a little long. I have two classes: TreeGpfTest and TreeNode. \n\tTreeGpfTest is mostly scavenged from the SWT examples so it should look somewhat\n\tfamiliar. Running TreeGpfTest will bring up a window with a tree and a button at the\n\tbottom. Clicking the button will attempt to ensure that a tree path is expanded and then \n\tset the selection to the last item in the path. If the tree path isn\u0027t already expanded, then \n\tthis should cause the GPF. That is, if you bring up the window and hit the button then you\u0027ll\n\tget the GPF.\n\n\tThe code actually GPFs in Tree.setSelection() but changing the code in TreeGpfTest.getTestItem() to\n\tlook like:\n\t\n\t\t\t\tif (!testItem.getExpanded()) {\t\t\t\t\n\t\t\t\t\tif (testItem.getItems().length \u003d\u003d 1 \u0026\u0026 testItem.getItems()[0].getText().equals(falseNodeText)) {\n\t\t\t\t\t\t// dispose of dummy items\n\t\t\t\t\t\tTreeItem [] dummyNodes \u003d testItem.getItems ();\n\t\t\t\t\t\tfor (int n \u003d 0; n \u003c dummyNodes.length; n++) dummyNodes[n].dispose ();\n\t\t\t\t\t\texpandTree (lastItem);\n\t\t\t\t\t} else {\n\t\t\t\t\t\ttestItem.setExpanded(true);\n\t\t\t\t\t}\t\t\t\n\t\t\t\t}\n\n\tinstead of:\n\n\t\t\tif (!testItem.getExpanded()) {\n\t\t\t\texpandTree(testItem);\n\t\t\t}\t\t\t\n\n\twill prevent the GPF.\n\n\nimport com.ibm.swt.SWT;\nimport com.ibm.swt.widgets.*;\nimport com.ibm.swt.layout.*;\nimport com.ibm.swt.graphics.*;\nimport com.ibm.swt.events.*;\n\nimport java.util.*;\n\npublic class TreeGpfTest implements TreeListener {\n\n\tprivate Shell shell;\n\tprivate Display display;\n\tprotected Button runTestButton;\n\tprivate Tree tree;\n\tprivate TreeNode root;\n\tstatic private final String falseNodeText \u003d \"falseNode\";\n\tstatic private final int treeDepth \u003d 5;\n\tstatic private final int childrenPerNode \u003d 5;\n\t\npublic static void main(String[] args) {\n\tnew TreeGpfTest().open().run().close();\n}\n\n\nprivate void runSelectionTest() {\n\tTreeItem testItem \u003d getTestItem();\n\tTreeItem[] items \u003d new TreeItem[1];\n\titems[0] \u003d testItem;\n\ttree.setSelection(items);\n\ttree.showItem(testItem);\t\n}\n\nprivate TreeItem getTestItem() {\n\tTreeItem testItem \u003d null;\n\tTreeItem[] items \u003d tree.getItems();\n\tfor (int i \u003d 0; i \u003c treeDepth; i++) {\n\t\ttestItem \u003d items[childrenPerNode - 1];\n\t\t\n\t\tif (!testItem.getExpanded()) {\n\t\t\texpandTree(testItem);\n\t\t}\n\t\t\n\t\titems \u003d testItem.getItems();\t\t\n\t}\n\treturn testItem;\n}\n\npublic void expandTree (TreeItem item) {\n\tTreeNode node \u003d (TreeNode) item.getData();\n\tVector children \u003d node.getChildren();\n\t\n\tfor (int i \u003d 0; i \u003c children.size(); i++) {\n\t\tTreeNode next \u003d (TreeNode) children.elementAt(i);\n\t\tTreeItem nextItem \u003d new TreeItem(item, SWT.NULL);\n\t\tnextItem.setData(next);\n\t\tnextItem.setText(next.getName());\n\t\t\n\t\tif (next.getChildren().size() \u003e 0) {\n\t\t\tTreeItem dummyItem \u003d new TreeItem(nextItem, SWT.NULL);\n\t\t\tdummyItem.setText(falseNodeText);\n\t\t}\n\t}\n}\n\nprivate Shell createShell() {\n\tShell shell \u003d new Shell();\n\tshell.setText(\"GPF Example\");\n\tshell.setBounds(0, 0, 500, 400);\n\tshell.setBackground(new Color(255, 255, 255));\n\n\tshell.setLayout(new GridLayout());\n\taddComponents(shell);\n\t\n\treturn shell;\n}\n\n\nprivate TreeGpfTest close () {\n\tif ((shell !\u003d null) \u0026\u0026 (!shell.isDisposed ())) shell.dispose ();\n\tshell \u003d null;\n\treturn this;\n}\n\nprivate TreeGpfTest open () {\n\tshell \u003d createShell ();\n\tdisplay \u003d shell.getDisplay ();\n\tshell.open ();\n\treturn this;\n}\n\nprivate TreeGpfTest run () {\n\twhile (!shell.isDisposed ()) {\n\t\tif (!display.readAndDispatch ()) display.sleep ();\n\t}\n\treturn this;\n}\n\nprivate void addComponents(Shell shell) {\n\ttree \u003d new Tree(shell, SWT.NONE);\n\ttree.addTreeListener(this);\n\tinitializeTreeItems();\n\tGridData data \u003d new GridData();\n\tdata.horizontalAlignment \u003d GridData.FILL;\n\tdata.verticalAlignment \u003d GridData.FILL;\n\tdata.grabExcessHorizontalSpace \u003d true;\n\tdata.grabExcessVerticalSpace \u003d true;\n\ttree.setLayoutData(data);\n\n\trunTestButton \u003d new Button(shell, SWT.PUSH);\n\trunTestButton.setText(\"Run test.\");\n\trunTestButton.addSelectionListener(new SelectionAdapter() {\n\t\tpublic void widgetSelected(SelectionEvent e) {\n\t\t\trunSelectionTest();\n\t\t\trunTestButton.setText(\"Test Successful.\");\t\t\n\t\t}\n\t});\t\n\t\n}\n\n\nprivate void initializeTreeItems() {\n\troot \u003d TreeNode.createTree(treeDepth, childrenPerNode);\n\tVector children \u003d root.getChildren();\n\tfor (int i \u003d 0; i \u003c children.size(); i ++) {\n\t\tTreeNode next \u003d (TreeNode) children.elementAt(i);\n\t\tTreeItem item \u003d new TreeItem(tree, 0);\n\t\titem.setData(next);\n\t\titem.setText(next.getName());\n\t\t\n\t\tif (next.getChildren().size() \u003e 0) {\n\t\t\tTreeItem fakeItem \u003d new TreeItem (item, SWT.NULL);\n\t\t\tfakeItem.setText(falseNodeText);\n\t\t}\n\t}\n}\n\npublic void treeCollapsed(TreeEvent event) {\n}\n\n/**\n * \n */\npublic void treeExpanded(TreeEvent event) {\n\tTreeItem item \u003d (TreeItem) event.item;\n\t// If the node hasn\u0027t been viewed yet it has a dummy node\n\t// to allows expansion. Remove the dummy treeItem then \n\t// populate the tree\n\tif (item.getItems ()[0].getText().equals(falseNodeText)) {\n\t\t// dispose of dummy items\n\t\tTreeItem [] items \u003d item.getItems ();\n\t\tfor (int i\u003d0; i\u003citems.length; i++) items [i].dispose ();\n\t\t\n\t\t// expand the tree item\n\t\texpandTree (item);\n\t} \n}\n\n}\n\n\n\n/*************************************************************************************************************************\n *\n * TreeNode class \n *\n*************************************************************************************************************************/\n\nimport java.util.*;\n\npublic class TreeNode {\n\tVector children \u003d new Vector();\n\tString nodeName;\n\nstatic public TreeNode createTree(int depth, int numChildren) {\n\tTreeNode rootNode \u003d new TreeNode(\"Root\");\n\tif (depth \u003e 0) {\n\t\tint childDepth \u003d depth - 1;\n\t\tfor (int i \u003d 0; i \u003c numChildren; i++) {\n\t\t\tTreeNode nextChild \u003d TreeNode.createTree(childDepth, numChildren);\n\t\t\tnextChild.setName(\"Level \" + depth + \" child \" + i);\n\t\t\trootNode.addChild(nextChild);\n\t\t}\n\t}\n\treturn rootNode;\n}\n\npublic TreeNode(String name) {\n\tsuper();\n\tsetName(name);\n}\n\npublic Vector getChildren() {\n\treturn children;\n}\n\npublic void addChild(TreeNode child) {\n\tchildren.addElement(child);\n}\n\npublic String getName() {\n\treturn nodeName;\n}\n\npublic void setName(String name) {\n\tnodeName \u003d name;\n}\n\n}\n\nSN (12/23/99 11:27:44 AM)\n\tLong is not a problem.  Also JH says:\n\n\u003eYeah, as long as the path I want to expand/select isn\u0027t already\n\u003eexpanded. If you just bring up the window and hit the test\n\u003ebutton it should GP every time.\n\u003e\n\nSN (12/23/99 12:11:53 PM)\n\tDoes not GP in VA/Java but throws a null pointer exception.\n\nSN (12/23/99 1:03:42 PM)\n\tOk, I know what\u0027s happening but I don\u0027t understand the failure mode.\n\tThe example code is selecting a node that\u0027s not visible.  This causes\n\tthe tree to expand to show the node.  The application\u0027s expand callbacks\n\tdelete the children and this deletes the node that the application is trying\n\tto select.  I don\u0027t understand the GP or null pointer exception yet.\n\nSN (1/4/00 5:28:00 PM)\n\tI hacked a quick fix that avoided the null pointer exception and\n\tthis GP\u0027d after sending the expand callbacks in TVM_SELECTITEM.\n\n\tIt looks like deleting the item that is about to be selected inside\n\tof an expand callback (that is sent because the tree must expand\n\tto show the item about to be selected) causes Windows it GP\n\twhen it finally get\u0027s around to selecting the item.\n\n\tI have no idea how to work around this.\n\n\tMcQ (27/11/2000 3:24:15 PM) -\n\t\tIf this is not going to be fixed, this needs to be documented as a known\n\t\tlimitation. SN to update javadoc",
+    "PRODUCT VERSION: 991208 Windows VM\n",
+    "This very complicated GP exists in Windows.  I don\u0027t know how to work around it \nat this time.  Marking WONTFIX.",
+    "SN to write the documentation that describes the case and include in the \nreadme.\n",
+    "I believe bug 33834 could be a variant of this test case.\nWe are testing a workaround for this bug 4434 (and we are trying to understand \nthe scope under which this problem occurs). This should also provide a fix for bug \n33834.\n\nWith a recent version of SWT (\u003e\u003d Eclipse 2.1 RC1), the test case in this PR causes \nthe following events.\n- within the expand callback, a tree item is disposed\n- SWT removes the tree item from the tree table. \n- TVM_DELETEITEM is called to destroy the OS tree item.\nThe problem is that, for some reason, this TVM_DELETEITEM causes a \nTVN_ITEMEXPANDING resulting in another SWT.Expand event. At this stage,\nthe OS considers the tree item to still be there (TVM_GETITEM etc return it), but it \nhas already been removed from the SWT tree table.\n- this causes TreeItem.getItems() to possibly return an array with a null item, \ncausing the NPE. (remember: we are all here still before returning from the call to\nTVM_DELETEITEM).\n\nOne workaround is to detect that case by checking for a null item in \nTree.wmNotify.TVN_ITEMEXPANDING and in TreeItem.getItems\n\n\njava.lang.NullPointerException\n\tat PR4434BIG.treeExpanded(PR4434BIG.java:103)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent\n(TypedListener.java:173)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:77)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:836)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:861)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:845)\n\tat org.eclipse.swt.widgets.Tree.wmNotifyChild(Tree.java:1883)\n\tat org.eclipse.swt.widgets.Control.WM_NOTIFY(Control.java:3810)\n\tat org.eclipse.swt.widgets.Composite.WM_NOTIFY(Composite.java:638)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2810)\n\tat org.eclipse.swt.widgets.Decorations.windowProc\n(Decorations.java:1225)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2285)\n\tat org.eclipse.swt.internal.win32.OS.CallWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.CallWindowProc(OS.java:1232)\n\tat org.eclipse.swt.widgets.Tree.callWindowProc(Tree.java:152)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2839)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2285)\n\tat org.eclipse.swt.internal.win32.OS.SendMessageW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.SendMessage(OS.java:1781)\n\tat org.eclipse.swt.widgets.Tree.destroyItem(Tree.java:337)\n\tat org.eclipse.swt.widgets.TreeItem.releaseChild(TreeItem.java:482)\n\tat org.eclipse.swt.widgets.Widget.dispose(Widget.java:367)\n\tat PR4434BIG.treeExpanded(PR4434BIG.java:107)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent\n(TypedListener.java:173)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:77)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:836)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:861)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:845)\n\tat org.eclipse.swt.widgets.Tree.wmNotifyChild(Tree.java:1883)\n\tat org.eclipse.swt.widgets.Control.WM_NOTIFY(Control.java:3810)\n\tat org.eclipse.swt.widgets.Composite.WM_NOTIFY(Composite.java:638)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2810)\n\tat org.eclipse.swt.widgets.Decorations.windowProc\n(Decorations.java:1225)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2285)\n\tat org.eclipse.swt.internal.win32.OS.CallWindowProcW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.CallWindowProc(OS.java:1232)\n\tat org.eclipse.swt.widgets.Tree.callWindowProc(Tree.java:152)\n\tat org.eclipse.swt.widgets.Control.windowProc(Control.java:2839)\n\tat org.eclipse.swt.widgets.Display.windowProc(Display.java:2285)\n\tat org.eclipse.swt.internal.win32.OS.SendMessageW(Native Method)\n\tat org.eclipse.swt.internal.win32.OS.SendMessage(OS.java:1781)\n\tat org.eclipse.swt.widgets.Tree.setSelection(Tree.java:1013)\n\tat PR4434BIG$1.widgetSelected(PR4434BIG.java:60)\n\tat org.eclipse.swt.widgets.TypedListener.handleEvent\n(TypedListener.java:87)\n\tat org.eclipse.swt.widgets.EventTable.sendEvent(EventTable.java:77)\n\tat org.eclipse.swt.widgets.Widget.sendEvent(Widget.java:836)\n\tat org.eclipse.swt.widgets.Display.runDeferredEvents(Display.java:1779)\n\tat org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:1487)\n\tat PR4434BIG.main(PR4434BIG.java:68)\nException in thread \"main\" \n\n",
+    "Created an attachment (id\u003d3920)\ntest case which was causing the stack trace\n",
+    "Created an attachment (id\u003d3921)\ntest case\n",
+    "Fixed released version v\u003e20030307",
+    "Approved by Mike and Veronika for RC3."
+  ],
+  "commentCreationDates": [
+    "2001-10-11T20:16:44+02:00",
+    "2001-10-24T12:28:31+02:00",
+    "2002-06-07T22:45:44+02:00",
+    "2002-06-10T16:09:39+02:00",
+    "2003-03-07T16:14:35+01:00",
+    "2003-03-07T21:33:17+01:00",
+    "2003-03-07T21:34:09+01:00",
+    "2003-03-07T21:48:16+01:00",
+    "2003-03-12T21:12:15+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.NullPointerException",
+      "elements": [
+        {
+          "method": "PR4434BIG.treeExpanded",
+          "source": "PR4434BIG.java:103"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:173"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:77"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:836"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:861"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:845"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Tree.wmNotifyChild",
+          "source": "Tree.java:1883"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_NOTIFY",
+          "source": "Control.java:3810"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.WM_NOTIFY",
+          "source": "Composite.java:638"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2810"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Decorations.windowProc",
+          "source": "Decorations.java:1225"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2285"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.CallWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.CallWindowProc",
+          "source": "OS.java:1232"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Tree.callWindowProc",
+          "source": "Tree.java:152"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2839"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2285"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.SendMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.SendMessage",
+          "source": "OS.java:1781"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Tree.destroyItem",
+          "source": "Tree.java:337"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TreeItem.releaseChild",
+          "source": "TreeItem.java:482"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.dispose",
+          "source": "Widget.java:367"
+        },
+        {
+          "method": "PR4434BIG.treeExpanded",
+          "source": "PR4434BIG.java:107"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:173"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:77"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:836"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:861"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:845"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Tree.wmNotifyChild",
+          "source": "Tree.java:1883"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.WM_NOTIFY",
+          "source": "Control.java:3810"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Composite.WM_NOTIFY",
+          "source": "Composite.java:638"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2810"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Decorations.windowProc",
+          "source": "Decorations.java:1225"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2285"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.CallWindowProcW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.CallWindowProc",
+          "source": "OS.java:1232"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Tree.callWindowProc",
+          "source": "Tree.java:152"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Control.windowProc",
+          "source": "Control.java:2839"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.windowProc",
+          "source": "Display.java:2285"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.SendMessageW",
+          "source": "Native Method"
+        },
+        {
+          "method": "org.eclipse.swt.internal.win32.OS.SendMessage",
+          "source": "OS.java:1781"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Tree.setSelection",
+          "source": "Tree.java:1013"
+        },
+        {
+          "method": "PR4434BIG$1.widgetSelected",
+          "source": "PR4434BIG.java:60"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.TypedListener.handleEvent",
+          "source": "TypedListener.java:87"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.EventTable.sendEvent",
+          "source": "EventTable.java:77"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Widget.sendEvent",
+          "source": "Widget.java:836"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.runDeferredEvents",
+          "source": "Display.java:1779"
+        },
+        {
+          "method": "org.eclipse.swt.widgets.Display.readAndDispatch",
+          "source": "Display.java:1487"
+        },
+        {
+          "method": "PR4434BIG.main",
+          "source": "PR4434BIG.java:68"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 4,
+      "bugId": "4434",
+      "date": "2003-03-07T16:14:35+01:00",
+      "product": "Platform",
+      "component": "SWT",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "4434",
+  "bugId": "4434",
+  "date": "2001-10-11T20:16:44+02:00",
+  "product": "Platform",
+  "component": "SWT",
+  "severity": "normal"
+}

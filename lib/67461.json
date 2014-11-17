@@ -1,0 +1,200 @@
+{
+  "comments": [
+    "I had an existing install (which had already been run) and renamed the lucene \nplugin\u0027s plugin.xml to something (to disable it).  Then ran (without -dev or \ncheckConfiguration\u003dtrue) and got the following error.  What I would have \nexpected is that nothing changed at all.  The plugin.xml should have been \nconverted to a manifest.mf.  Any extensions and extension points should have \nbeen cached.\n\nSo, there is a problem with someone eagerly noticing changes and it appears \nthat the changes are not fully processed.\n\n!ENTRY update@/c:/rc2-platform/eclipse/plugins/org.eclipse.ui.ide_3.0.0/ 0 0 Jun\n 16, 2004 10:51:49.610\n!MESSAGE FrameworkEvent.ERROR\n!STACK 0\norg.osgi.framework.BundleException: The BundleLoader could not be found: org.ecl\nipse.update.ui_3.0.0\n        at org.eclipse.osgi.framework.internal.core.BundleLoader.initialize(Bund\nleLoader.java:168)\n        at org.eclipse.osgi.framework.internal.core.BundleLoader.\u003cinit\u003e(BundleLo\nader.java:119)\n        at org.eclipse.osgi.framework.internal.core.BundleHost.getBundleLoader(B\nundleHost.java:632)\n        at org.eclipse.osgi.framework.internal.core.BundleHost.loadClass(BundleH\nost.java:327)\n        at org.eclipse.osgi.framework.internal.core.AbstractBundle.loadClass(Abs\ntractBundle.java:1313)\n        at org.eclipse.core.internal.registry.ConfigurationElement.createExecuta\nbleExtension(ConfigurationElement.java:131)\n        at org.eclipse.core.internal.registry.ConfigurationElement.createExecuta\nbleExtension(ConfigurationElement.java:124)\n        at org.eclipse.core.internal.registry.ConfigurationElement.createExecuta\nbleExtension(ConfigurationElement.java:113)\n        at org.eclipse.core.internal.runtime.PlatformActivator$1.run(PlatformAct\nivator.java:330)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.ja\nva:272)\n        at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.ja\nva:128)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.\njava:39)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAcces\nsorImpl.java:25)\n        at java.lang.reflect.Method.invoke(Method.java:324)\n        at org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n        at org.eclipse.core.launcher.Main.run(Main.java:638)\n        at org.eclipse.core.launcher.Main.main(Main.java:622)\nStartup complete: 5359ms",
+    "I just renamed the file back to plugin.xml and it seems that someone \n(configurator?) noticed and fixed things up.  This is strange.  Adding Dorian \nfor comment",
+    "Jeff, is this in self hosting mode or in a regular eclipse ?",
+    "regular eclipse.",
+    "Here is my guess:\n\nwhen the workbench starts, the workbench has an indirect dependency on lucene, \nvia the help.ide plugin, and the plugin is probably verified by the runtime. \n\nThe update configurator will not detect changes to plugin.xml.",
+    "I could reproduce this with the install location on NTFS, but not on FAT32.\nAfter \"disabling\" lucene, I can run fine once, the second time lots of failures\nwill happen.\n\nIn ConfigurationActivator.canRunWithCachedData():\n\nprivate boolean canRunWithCachedData() {\n  return  \n    !\"true\".equals(System.getProperty(\"osgi.checkConfiguration\")) \u0026\u0026 \t\t\t   \nSystem.getProperties().get(\"osgi.dev\") \u003d\u003d null \u0026\u0026 \n    lastTimeStamp\u003d\u003dconfiguration.getChangeStamp() \u0026\u0026   \nlastStateTimeStamp\u003d\u003dPlatform.getPlatformAdmin().getState(false).getTimeStamp();\n}\n\nlastTimeStamp was older than configuration.getChangeStamp(), causing lucene to\nbe uninstalled. refreshBundles will return abruptly (without doing anything)\nbecause there seem to be no bundles to be resolved, so the problem will only be\nnoticed next time we run.",
+    "I have a strong suspicion that I have forgotten a case here but...\n\nI thought that if checkConfiguration was NOT specified as \"true\", we should not \ncheck for changes to the plugin.xmls.  You can still check for new plugins but \nthere is no real need to poll each plugin\u0027s timestamp.\n\n",
+    "Hmmm.... it looks like the configurator is doing more work than needed in this \nparticular case. As per our earlier discussions, the configurator should run \nout of cached data when no plugins have been added or removed. To check for \nthis, it is sufficient (not on FAT systems) to check the parent folder \n(plugins) for timestamp changes.\nSo, if you still want this, please move the bug to update and I recommend \nhaving it done for RC3.",
+    "+1 for RC3 from me.\n\nOne clarification, I think that update should do something if a plugin dir is \nadded or removed.  If someone is messing with the contents of a plugin (as I \nwas) it should be completely ignored unless osgi.checkConfiguration \u003d true. \nNote that if osgi.dev !\u003d null we set osgi.checkConfiguration \u003d \"true\" so you \ndon\u0027t need to test that as well.",
+    "The problem seems to be in SiteEntry.computePluginsChangeStamp().\nThere, we are computing the plugins timestamp by looking at both the plugins \ndirectory, and each plugin directory. While this may improve plugin discovery \non FAT file systems, it actually decreases the performance on the other file \nsystems. Since FAT is already buggy, this code should be removed., or only \nexecuted when osgi.checkConfiguration is set.",
+    "sounds good.  ",
+    "Created an attachment (id\u003d12326)\npatch to skip over computing timestamps for each plugin\n",
+    "I have looked at the patch, noticed two issues:\n1. The line\n return  !\"true\".equals(System.getProperty(\"osgi.checkConfiguration\"))\nshould probably not be commented out.\n2. The computeFeaturesChangeStamp() methods has now two ways of computing the \ntime stamp, depending on the presence of osgi.checkConfiguration.  This \nintroduces inconsistency how the time stamp is computed, and may result in \ntrying to compare timestamps calculated using different methods.\nIf the patch is to be released, the computeFeaturesChangeStamp() should \nprobably be changed to never look at individual plug-ins directories.\n\nIt is a tough call to decide whether this code should be released.  The bug  \nlooks more like a performance improvements, and there is a chance of \nintroducing regression for some scenarios.\n\nWith the changes to the patch I describe, I will give it +1 with a disclaimer \nthat if we find out strange regressions for some scenarios we should undo the \nchange, as there might not be time to react and stabilize before 3.0.",
+    "I also spoke with Kevin and he gave it a +1.\n\nKonrad, thanks for review.\nThe first line was not meant to be commented out, it was there for testing \nonly, the final patch should not have had it.\n\nI also agree with our comment about not checking the plugin directories \ntimestamps at all.\nI will release this code later tonight, I will veirfy it again.",
+    "- Its a bummer that we do not always notice additions on FAT\n- deletions are not generally a problem as OSGi will already have detected them \nand alerted update\n- A very large number of our downloads are from 98 even though that is not an \nofficially supported platform\n- don\u0027t know the ratio of NTFS to FAT for NT, 2K and XP.\n- Always checking every plugin dir is painful.  Especially for large systems or \nnetwork filesystems\n\nPossibilities:\n- the plugin dir timestamp maxing could be changed to checksum the timestamps.  \nSlightly more expensive but should catch all additions/removals.\n- Detect FAT for each plugins dir.  If it is FAT, do the slow (check each \nplugin dir) approach\n- If we can\u0027t find an efficient way to detect FAT, detect Win98 (there is a \nsystem property that will give the info) and do the slow thing\n- On all non-FAT/Win98 systems, just check the parent dir (e.g., plugins or \nfeatures) to detect additions.\n",
+    "We could write some jni code to use the windows api GetVolumeInformation to \nget the name of the file system. This would mean loading one more dll on \nwindows, but it\u0027ll probably be the fastest.\nIn update.core we do have a jni dll to load, but this is needed in the \nconfigurator. If osgi/runtime have native code that we can use, that\u0027ll avoid \nloading extra stuff in update.configurator.",
+    "Using JNI would address the issue but also introduces issues with adding \nanother thing to the osgi.bundles list etc etc.  We should avoid that at this \npoint.  One possibility is to do it but put all the dlls in the \nupdate.configurator plugin.  This too feels like a bit too much at this point.\n\nThere is no JNI code elsewhere in the runtime or OSGi.",
+    "After more discussions, here is the latest proposal:\n\nto do now:\n\n- remove the code for checking timestamps on each plugin directory\n- ensure that docs or README recommends people who manually unzip plugins to \nrestart eclipse with osgi.checkConfiguration set to \"true\"\n\nThe net effect is that this will fix this bug. The runtime will have to ensure \nthat it can correctly react to a cached plugin.xml being removed.\nAlso, the update configurator will start faster in the regular scenarios, as \nthe timestamp is only verified on the \"plugins\" folder.\nWhen running with osgi.checkConfiguration, the update configurator will not \nattempt to run with cached bundles, but instead it will collect all the \nplugins on a site (and exclude the appropriate ones, as directed by \nplatform.xml). This will solve the problem of picking up newly unzipped \nplugins. ",
+    "to do later:\n\nKonrad has found that this code:\n\nFile volumes[] \u003d File.listRoots();\nfor(int v\u003d0; v\u003c volumes.length; v++)\n\tif(new File(volumes[v], \"$MFT\").exists())\n\t\tSystem.out.println(volumes[v]+\" is NTFS\");\n\telse\n\t        System.out.println(volumes[v]+\" is not NTFS, possibly FAT\");\n\t\t\n\t}\n\ncan tell us if a volume is ntfs (does not work for mounted drives or CDROM).\nWe could use this code to do extra work, as per Jeff\u0027s suggestion, when \nwindows \u0026\u0026 !ntfs. This extra work could involve keeping track of what plugins \nare known to the config, making change discovery easier.",
+    "this looks good.  A couple of points re comment 17.\n\n- the runtime does NOT detect the removal of plugin.xml unless \ncheckConfiguration\u003dtrue\n\n- your README statement is conservative.  It is really only FAT people who need \nto set osgi.checkConfiguration\u003dtrue if they unzip.  On NTFS and other file \nsystems, the plugins dir timestamp changes and the new plugins are detected.",
+    "Jeff, when I test with the fix and renamed the plugin.xml in lucene to \nplugin.xml.1, the startup code had this error:\n\n!SESSION Jun 17, 2004 14:55:10.641 --------------------------------------------\n-\neclipse.buildId\u003dunknown\njava.version\u003d1.4.2_03\njava.vendor\u003dSun Microsystems Inc.\nBootLoader constants: OS\u003dwin32, ARCH\u003dx86, WS\u003dwin32, NL\u003den_US\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.651\n!MESSAGE Application error\n!STACK 1\njava.lang.RuntimeException: Application \"org.eclipse.ui.ide.workbench\" could \nnot be found in the registry. The applications available are: \norg.eclipse.ant.core.antRunner, org.eclipse.pde.build.BuildScriptGenerator, \norg.eclipse.pde.build.FetchScriptGenerator, \norg.eclipse.pde.junit.runtime.uitestapplication, \norg.eclipse.pde.junit.runtime.legacyUItestapplication, \norg.eclipse.pde.junit.runtime.coretestapplication, \norg.eclipse.update.core.standaloneUpdate.\n\tat org.eclipse.core.internal.runtime.PlatformActivator$1.run\n(PlatformActivator.java:324)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:272)\n\tat org.eclipse.core.runtime.adaptor.EclipseStarter.run\n(EclipseStarter.java:128)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)\n\tat java.lang.reflect.Method.invoke(Unknown Source)\n\tat org.eclipse.core.launcher.Main.basicRun(Main.java:185)\n\tat org.eclipse.core.launcher.Main.run(Main.java:638)\n\tat org.eclipse.core.launcher.Main.main(Main.java:622)\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.651\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.ant.ui_3.0.0/ [6] \nwas not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.661\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.compare_3.0.0/ [7] \nwas not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.671\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.debug.ui_3.0.0/ \n[17] was not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.671\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.help.base_3.0.0/ \n[19] was not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.671\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.help.ide_3.0.0/ \n[20] was not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.681\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.help.ui_3.0.0/ \n[21] was not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.681\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.help.webapp_3.0.0/ \n[22] was not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.691\n!MESSAGE Bundle \nupdate@/d:/0616/eclipse/plugins/org.eclipse.jdt.debug.ui_3.0.0/ [25] was not \nresolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.691\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.jdt.junit_3.0.0/ \n[30] was not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.701\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.jdt.ui_3.0.0/ [33] \nwas not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.701\n!MESSAGE Bundle \nupdate@/d:/0616/eclipse/plugins/org.eclipse.ltk.ui.refactoring_3.0.0/ [38] was \nnot resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.711\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.pde.ui_3.0.0/ [48] \nwas not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.711\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.search_3.0.0/ [57] \nwas not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.711\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.team.cvs.ui_3.0.0/ \n[64] was not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.721\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.team.ui_3.0.0/ \n[65] was not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.721\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.ui.editors_3.0.0/ \n[70] was not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.731\n!MESSAGE Bundle \nupdate@/d:/0616/eclipse/plugins/org.eclipse.ui.externaltools_3.0.0/ [71] was \nnot resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.731\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.ui.ide_3.0.0/ [73] \nwas not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.741\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.ui.win32_3.0.0/ \n[77] was not resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.741\n!MESSAGE Bundle \nupdate@/d:/0616/eclipse/plugins/org.eclipse.update.scheduler_3.0.0/ [85] was \nnot resolved.\n\n!ENTRY org.eclipse.osgi Jun 17, 2004 14:55:10.751\n!MESSAGE Bundle update@/d:/0616/eclipse/plugins/org.eclipse.update.ui_3.0.0/ \n[86] was not resolved.",
+    "Created an attachment (id\u003d12415)\npatch, redone\n",
+    "I think the error is caused by having to have lucene during startup, see my \ncomment #4.",
+    "fixed and released."
+  ],
+  "commentCreationDates": [
+    "2004-06-16T17:00:00+02:00",
+    "2004-06-16T17:06:56+02:00",
+    "2004-06-16T17:17:46+02:00",
+    "2004-06-16T17:26:21+02:00",
+    "2004-06-16T17:51:47+02:00",
+    "2004-06-16T18:32:49+02:00",
+    "2004-06-16T18:58:36+02:00",
+    "2004-06-16T19:29:30+02:00",
+    "2004-06-16T19:59:03+02:00",
+    "2004-06-16T21:28:47+02:00",
+    "2004-06-16T21:34:57+02:00",
+    "2004-06-16T22:13:27+02:00",
+    "2004-06-17T00:17:41+02:00",
+    "2004-06-17T00:22:22+02:00",
+    "2004-06-17T05:03:39+02:00",
+    "2004-06-17T15:19:16+02:00",
+    "2004-06-17T16:45:16+02:00",
+    "2004-06-17T20:22:12+02:00",
+    "2004-06-17T20:24:21+02:00",
+    "2004-06-17T20:39:35+02:00",
+    "2004-06-17T20:59:56+02:00",
+    "2004-06-17T21:01:44+02:00",
+    "2004-06-17T21:15:20+02:00",
+    "2004-06-17T21:33:10+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.osgi.framework.BundleException",
+      "message": "The BundleLoader could not be found: org.ecl ipse.update.ui_3.0.0",
+      "elements": [
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.initialize",
+          "source": "Bund leLoader.java:168"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleLoader.\u003cinit\u003e",
+          "source": "BundleLo ader.java:119"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.getBundleLoader",
+          "source": "B undleHost.java:632"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.BundleHost.loadClass",
+          "source": "BundleH ost.java:327"
+        },
+        {
+          "method": "org.eclipse.osgi.framework.internal.core.AbstractBundle.loadClass",
+          "source": "Abs tractBundle.java:1313"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:131"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:124"
+        },
+        {
+          "method": "org.eclipse.core.internal.registry.ConfigurationElement.createExecutableExtension",
+          "source": "ConfigurationElement.java:113"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformAct ivator.java:330"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.ja va:272"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.ja va:128"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "NativeMethodAccessorImpl. java:39"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "DelegatingMethodAcces sorImpl.java:25"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Method.java:324"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:638"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:622"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "67461",
+      "date": "2004-06-16T17:00:00+02:00",
+      "product": "Platform",
+      "component": "Update",
+      "severity": "normal"
+    },
+    {
+      "exceptionType": "java.lang.RuntimeException",
+      "message": "Application \"org.eclipse.ui.ide.workbench\" could  not be found in the registry. The applications available are:  org.eclipse.ant.core.antRunner, org.eclipse.pde.build.BuildScriptGenerator,  org.eclipse.pde.build.FetchScriptGenerator,  org.eclipse.pde.junit.runtime.uitestapplication,  org.eclipse.pde.junit.runtime.legacyUItestapplication,  org.eclipse.pde.junit.runtime.coretestapplication,  org.eclipse.update.core.standaloneUpdate.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.runtime.PlatformActivator$1.run",
+          "source": "PlatformActivator.java:324"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:272"
+        },
+        {
+          "method": "org.eclipse.core.runtime.adaptor.EclipseStarter.run",
+          "source": "EclipseStarter.java:128"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke0",
+          "source": "Native Method"
+        },
+        {
+          "method": "sun.reflect.NativeMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "sun.reflect.DelegatingMethodAccessorImpl.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "java.lang.reflect.Method.invoke",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.basicRun",
+          "source": "Main.java:185"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.run",
+          "source": "Main.java:638"
+        },
+        {
+          "method": "org.eclipse.core.launcher.Main.main",
+          "source": "Main.java:622"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 20,
+      "bugId": "67461",
+      "date": "2004-06-17T20:59:56+02:00",
+      "product": "Platform",
+      "component": "Update",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "67461",
+  "bugId": "67461",
+  "date": "2004-06-16T17:00:00+02:00",
+  "product": "Platform",
+  "component": "Update",
+  "severity": "normal"
+}

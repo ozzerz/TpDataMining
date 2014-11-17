@@ -1,0 +1,220 @@
+{
+  "comments": [
+    "I launched a URL test (the sample that ships with Hyades and with user \nsettings set to 10 users) and then ran the same launch configuration \nimmediately after gaining control back in the workbench.  I received the \nfollowing stack trace from the console--seems to be some problem perhaps in \nHyades model loading (such as the XMLDataProcessor.java) triggered from the \nEMF layer...\n\n\nThread[xmlParserThread,5,main] - fragmentsCount\u003d952: \njava.util.ConcurrentModificationException\n\tat org.eclipse.emf.common.util.BasicEList$EIterator.checkModCount\n(BasicEList.java:1237)\n\tat org.eclipse.emf.common.util.BasicEList$EIterator.next\n(BasicEList.java:1185)\n\tat \norg.eclipse.emf.ecore.util.EContentsEList$FeatureIteratorImpl.hasNext\n(EContentsEList.java:411)\n\tat org.eclipse.emf.common.util.AbstractTreeIterator.next\n(AbstractTreeIterator.java:147)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.getEObjectByID\n(ResourceImpl.java:634)\n\tat org.eclipse.emf.ecore.xmi.impl.XMLResourceImpl.getEObjectByID\n(XMLResourceImpl.java:293)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.getEObject\n(ResourceImpl.java:608)\n\tat org.eclipse.hyades.loaders.common.ExecutionContext.getEObjectByID\n(ExecutionContext.java:327)\n\tat \norg.eclipse.hyades.loaders.common.XMLexecutionEventLoader.addYourselfToContaine\nr(XMLexecutionEventLoader.java:294)\n\tat \norg.eclipse.hyades.loaders.common.XMLmessageEventLoader.addYourselfInContext\n(XMLmessageEventLoader.java:67)\n\tat org.eclipse.hyades.loaders.util.XMLLoader.endElement\n(XMLLoader.java:241)\n\tat org.eclipse.hyades.loaders.util.SAXFragmentHandler.endElement\n(SAXFragmentHandler.java:99)\n\tat org.apache.xerces.parsers.AbstractSAXParser.endElement(Unknown \nSource)\n\tat org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanEndElement\n(Unknown Source)\n\tat \norg.apache.xerces.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher\n.dispatch(Unknown Source)\n\tat org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanDocument\n(Unknown Source)\n\tat org.apache.xerces.parsers.XML11Configuration.parse(Unknown Source)\n\tat org.apache.xerces.parsers.XML11Configuration.parse(Unknown Source)\n\tat org.apache.xerces.parsers.XMLParser.parse(Unknown Source)\n\tat org.apache.xerces.parsers.AbstractSAXParser.parse(Unknown Source)\n\tat javax.xml.parsers.SAXParser.parse(Unknown Source)\n\tat org.eclipse.hyades.loaders.util.SAXFragmentHandler.parse\n(SAXFragmentHandler.java:252)\n\tat org.eclipse.hyades.loaders.util.SAXFragmentHandler$1.run\n(SAXFragmentHandler.java:61)\nThread[xmlParserThread,5,main] - fragmentsCount\u003d1716: \njava.util.ConcurrentModificationException\n\tat org.eclipse.emf.common.util.BasicEList$EIterator.checkModCount\n(BasicEList.java:1237)\n\tat org.eclipse.emf.common.util.BasicEList$EIterator.next\n(BasicEList.java:1185)\n\tat \norg.eclipse.emf.ecore.util.EContentsEList$FeatureIteratorImpl.hasNext\n(EContentsEList.java:411)\n\tat org.eclipse.emf.common.util.AbstractTreeIterator.next\n(AbstractTreeIterator.java:147)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.getEObjectByID\n(ResourceImpl.java:634)\n\tat org.eclipse.emf.ecore.xmi.impl.XMLResourceImpl.getEObjectByID\n(XMLResourceImpl.java:293)\n\tat org.eclipse.emf.ecore.resource.impl.ResourceImpl.getEObject\n(ResourceImpl.java:608)\n\tat \norg.eclipse.hyades.loaders.common.XMLverdictEventLoader.addYourselfInContext\n(XMLverdictEventLoader.java:109)\n\tat org.eclipse.hyades.loaders.util.XMLLoader.endElement\n(XMLLoader.java:241)\n\tat org.eclipse.hyades.loaders.util.SAXFragmentHandler.endElement\n(SAXFragmentHandler.java:99)\n\tat org.apache.xerces.parsers.AbstractSAXParser.endElement(Unknown \nSource)\n\tat org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanEndElement\n(Unknown Source)\n\tat \norg.apache.xerces.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher\n.dispatch(Unknown Source)\n\tat org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanDocument\n(Unknown Source)\n\tat org.apache.xerces.parsers.XML11Configuration.parse(Unknown Source)\n\tat org.apache.xerces.parsers.XML11Configuration.parse(Unknown Source)\n\tat org.apache.xerces.parsers.XMLParser.parse(Unknown Source)\n\tat org.apache.xerces.parsers.AbstractSAXParser.parse(Unknown Source)\n\tat javax.xml.parsers.SAXParser.parse(Unknown Source)\n\tat org.eclipse.hyades.loaders.util.SAXFragmentHandler.parse\n(SAXFragmentHandler.java:252)\n\tat org.eclipse.hyades.loaders.util.SAXFragmentHandler$1.run\n(SAXFragmentHandler.java:61)\n\nThese are the agents running after second test launch...\n\nAgent: RemoteSession in process 2560\nAgent: Executor$org.eclipse.hyades.execution.harness.XMLExecutionDataProcessor \nin process 1852\nAgent: Executor$org.eclipse.hyades.execution.harness.XMLExecutionDataProcessor \nin process 900",
+    "\nIt is now possible to concurrently launch and execute tests with the test \nexecution harness.  The test launch configuration have also been tweaked to \nhandle the concurrent situation (the facade static methods have been tagged\nas synchronized to avoid problems between different threads accessing these\nstatic resources).  This defect fix was tested by clicking on the launch \ntoolbar button 10+ times on the sample URL test, the results come back, each\nin their own execution history results and as far as the testing uncovered no \nrace conditions are present anymore.\n\n--The current concurrent modification exception is due to\n\tthe same resource being modified by different execution,\n\teach execution should have its own execution history\n\tresource--a separate resource was not being used if the\n\texecutions overlap in time\n\n--XMLExecutionDataProcessor.java on line 179 checks to see if\n\tan eContext is already created, it checks based on the\n\tlocation and name of the execution result, it does not\n\taccount for the fact that the name might be modified with\n\tthe timestamp to make the names unique\n\n--TestExecutionHarness.java initialize registered components needed\n\tto be synchronized across class, race conditions were observed\n\tin concurrent test execution testing\n\t\u003e Also configuration utilities access had to be synchronized\n\n--Test launch configuration facades needed to have static\n\tmethods synchronized to make launch code thread-safe\n\n--SaveManager.java was changed to trap potential concurrency problems\n\twith the get and set state methods, now index out of bounds is\n\ttrapped and ignored \n\n\nChanged Files\n-------------------------------------------------------------------------\n--TestExecutionHarness.java\n--XMLExecutionDataProcessor.java\n\n--EclipseExecutionComponentFactoryImpl.java\n--ExecutionComponentFactoryImpl.java\n\n--ExecutionContext.java\n--SaveManager.java\n\n--DeploymentLaunchConfigurationFacade.java\n--ExecutionHistoryLaunchConfigurationFacade.java\n--TestComponentLaunchConfigurationFacade.java\n--TestLaunchConfigurationFacade.java",
+    "setting target based on last change date, please adjust if not correct"
+  ],
+  "commentCreationDates": [
+    "2004-12-07T21:49:17+01:00",
+    "2005-01-25T23:40:15+01:00",
+    "2005-03-16T13:30:37+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.util.ConcurrentModificationException",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList$EIterator.checkModCount",
+          "source": "BasicEList.java:1237"
+        },
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList$EIterator.next",
+          "source": "BasicEList.java:1185"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.util.EContentsEList$FeatureIteratorImpl.hasNext",
+          "source": "EContentsEList.java:411"
+        },
+        {
+          "method": "org.eclipse.emf.common.util.AbstractTreeIterator.next",
+          "source": "AbstractTreeIterator.java:147"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.getEObjectByID",
+          "source": "ResourceImpl.java:634"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.xmi.impl.XMLResourceImpl.getEObjectByID",
+          "source": "XMLResourceImpl.java:293"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.getEObject",
+          "source": "ResourceImpl.java:608"
+        },
+        {
+          "method": "org.eclipse.hyades.loaders.common.ExecutionContext.getEObjectByID",
+          "source": "ExecutionContext.java:327"
+        },
+        {
+          "method": "org.eclipse.hyades.loaders.common.XMLexecutionEventLoader.addYourselfToContainer",
+          "source": "XMLexecutionEventLoader.java:294"
+        },
+        {
+          "method": "org.eclipse.hyades.loaders.common.XMLmessageEventLoader.addYourselfInContext",
+          "source": "XMLmessageEventLoader.java:67"
+        },
+        {
+          "method": "org.eclipse.hyades.loaders.util.XMLLoader.endElement",
+          "source": "XMLLoader.java:241"
+        },
+        {
+          "method": "org.eclipse.hyades.loaders.util.SAXFragmentHandler.endElement",
+          "source": "SAXFragmentHandler.java:99"
+        },
+        {
+          "method": "org.apache.xerces.parsers.AbstractSAXParser.endElement",
+          "source": "Unknown  Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanEndElement",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanDocument",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.XML11Configuration.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.XML11Configuration.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.XMLParser.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.AbstractSAXParser.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.xml.parsers.SAXParser.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.hyades.loaders.util.SAXFragmentHandler.parse",
+          "source": "SAXFragmentHandler.java:252"
+        },
+        {
+          "method": "org.eclipse.hyades.loaders.util.SAXFragmentHandler$1.run",
+          "source": "SAXFragmentHandler.java:61"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "80428",
+      "date": "2004-12-07T21:49:17+01:00",
+      "product": "Hyades",
+      "component": "Exec.harness",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "java.util.ConcurrentModificationException",
+      "elements": [
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList$EIterator.checkModCount",
+          "source": "BasicEList.java:1237"
+        },
+        {
+          "method": "org.eclipse.emf.common.util.BasicEList$EIterator.next",
+          "source": "BasicEList.java:1185"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.util.EContentsEList$FeatureIteratorImpl.hasNext",
+          "source": "EContentsEList.java:411"
+        },
+        {
+          "method": "org.eclipse.emf.common.util.AbstractTreeIterator.next",
+          "source": "AbstractTreeIterator.java:147"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.getEObjectByID",
+          "source": "ResourceImpl.java:634"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.xmi.impl.XMLResourceImpl.getEObjectByID",
+          "source": "XMLResourceImpl.java:293"
+        },
+        {
+          "method": "org.eclipse.emf.ecore.resource.impl.ResourceImpl.getEObject",
+          "source": "ResourceImpl.java:608"
+        },
+        {
+          "method": "org.eclipse.hyades.loaders.common.XMLverdictEventLoader.addYourselfInContext",
+          "source": "XMLverdictEventLoader.java:109"
+        },
+        {
+          "method": "org.eclipse.hyades.loaders.util.XMLLoader.endElement",
+          "source": "XMLLoader.java:241"
+        },
+        {
+          "method": "org.eclipse.hyades.loaders.util.SAXFragmentHandler.endElement",
+          "source": "SAXFragmentHandler.java:99"
+        },
+        {
+          "method": "org.apache.xerces.parsers.AbstractSAXParser.endElement",
+          "source": "Unknown  Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanEndElement",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLDocumentFragmentScannerImpl$FragmentContentDispatcher.dispatch",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.impl.XMLDocumentFragmentScannerImpl.scanDocument",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.XML11Configuration.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.XML11Configuration.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.XMLParser.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.apache.xerces.parsers.AbstractSAXParser.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "javax.xml.parsers.SAXParser.parse",
+          "source": "Unknown Source"
+        },
+        {
+          "method": "org.eclipse.hyades.loaders.util.SAXFragmentHandler.parse",
+          "source": "SAXFragmentHandler.java:252"
+        },
+        {
+          "method": "org.eclipse.hyades.loaders.util.SAXFragmentHandler$1.run",
+          "source": "SAXFragmentHandler.java:61"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 0,
+      "bugId": "80428",
+      "date": "2004-12-07T21:49:17+01:00",
+      "product": "Hyades",
+      "component": "Exec.harness",
+      "severity": "major"
+    }
+  ],
+  "groupId": "80428",
+  "bugId": "80428",
+  "date": "2004-12-07T21:49:17+01:00",
+  "product": "Hyades",
+  "component": "Exec.harness",
+  "severity": "major"
+}

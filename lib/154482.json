@@ -1,0 +1,177 @@
+{
+  "comments": [
+    "Quite similarly to Bug#76384, this also looks for the workbench when running in headless mode.\n\nFrom CVSCoreFileModificationValidator.edit the comment clearly shows that it should be able to run without a UI. But we can see that the getUIValidator makes a request for to CVSCoreFileModificationValidator.getPluggedInValidator() which seems directly responsible to trigger the creation of an extension and finally down the road a display while setting preferences.\n\nEven in FileModificationValidator.edit it checks if the task is running in the ui thread, but the test fails since a display has been created by the above mentioned code.\n\nHere is the stacktrace:\norg.eclipse.core.internal.resources.ResourceException(null)[4]: java.lang.IllegalStateException: Workbench has not been created yet.\n\tat org.eclipse.ui.PlatformUI.getWorkbench(PlatformUI.java:92)\n\tat org.eclipse.team.internal.ccvs.ui.UserValidationDialog.configureShell(UserValidationDialog.java:71)\n\tat org.eclipse.jface.window.Window.createShell(Window.java:497)\n\tat org.eclipse.jface.window.Window.create(Window.java:425)\n\tat org.eclipse.jface.dialogs.Dialog.create(Dialog.java:1124)\n\tat org.eclipse.team.internal.ccvs.ui.UserValidationDialog.create(UserValidationDialog.java:77)\n\tat org.eclipse.jface.window.Window.open(Window.java:785)\n\tat org.eclipse.team.internal.ccvs.ui.WorkbenchUserAuthenticator.promptForPassword(WorkbenchUserAuthenticator.java:120)\n\tat org.eclipse.team.internal.ccvs.ui.WorkbenchUserAuthenticator.promptForUserInfo(WorkbenchUserAuthenticator.java:66)\n\tat org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.promptForUserInfo(CVSRepositoryLocation.java:811)\n\tat org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.openConnection(CVSRepositoryLocation.java:789)\n\tat org.eclipse.team.internal.ccvs.core.client.Session.open(Session.java:159)\n\tat org.eclipse.team.internal.ccvs.core.CVSTeamProvider$6.run(CVSTeamProvider.java:605)\n\tat org.eclipse.core.internal.resources.Workspace.run(Workspace.java:1737)\n\tat org.eclipse.team.internal.ccvs.core.CVSTeamProvider.notifyEditUnedit(CVSTeamProvider.java:628)\n\tat org.eclipse.team.internal.ccvs.core.CVSTeamProvider.edit(CVSTeamProvider.java:535)\n\tat org.eclipse.team.internal.ccvs.core.CVSCoreFileModificationValidator.performEdit(CVSCoreFileModificationValidator.java:129)\n\tat org.eclipse.team.internal.ccvs.ui.FileModificationValidator.access$1(FileModificationValidator.java:1)\n\tat org.eclipse.team.internal.ccvs.ui.FileModificationValidator$2.run(FileModificationValidator.java:102)\n\tat org.eclipse.team.internal.ui.Utils$2.run(Utils.java:213)\n\tat org.eclipse.swt.custom.BusyIndicator.showWhile(BusyIndicator.java:67)\n\tat org.eclipse.team.internal.ui.Utils.runWithProgress(Utils.java:209)\n\tat org.eclipse.team.internal.ccvs.ui.CVSUIPlugin.runWithProgress(CVSUIPlugin.java:236)\n\tat org.eclipse.team.internal.ccvs.ui.FileModificationValidator.edit(FileModificationValidator.java:110)\n\tat org.eclipse.team.internal.ccvs.ui.FileModificationValidator.edit(FileModificationValidator.java:47)\n\tat org.eclipse.team.internal.ccvs.core.CVSCoreFileModificationValidator.validateEdit(CVSCoreFileModificationValidator.java:45)\n\tat org.eclipse.team.internal.ccvs.core.CVSCoreFileModificationValidator.edit(CVSCoreFileModificationValidator.java:73)\n\tat org.eclipse.team.internal.ccvs.core.CVSCoreFileModificationValidator.validateSave(CVSCoreFileModificationValidator.java:58)\n\tat org.eclipse.team.internal.core.FileModificationValidatorManager.validateSave(FileModificationValidatorManager.java:99)\n\tat org.eclipse.core.internal.resources.Workspace$6.run(Workspace.java:2039)\n\tat org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:37)\n\tat org.eclipse.core.internal.resources.Workspace.validateSave(Workspace.java:2042)\n\tat org.eclipse.core.internal.resources.File.setContents(File.java:355)",
+    "The error is occuring because CVs is trying to prompt to get the password for the repository location. It is doin this because a read-only file is being modified and such a file must be \"cvs edit\"ed before being modified. \n\nOne way to get around the problem would be to set the Team\u003eCVS\u003eWatch/Edit preference to edit the file without contacting the server. This would avoid the connection attempt. The connection can also be avoided by making the file writtable before trying to edit it.\n\nWhy is the file read-only in the first place? This should only happen if the repository is configured to use watch/edit. If you are supposed to use watch/edit, then you will need to ensure that you have a password associated with the repository location before you attempt to modify a file.",
+    "You are correct in that CVS is setup to use watch/edit and that is why the file is read-only. But the password is already saved and if I go to that file and open it in an editor and start editing it, I am not getting prompted for a password, nor am I being shown the edit window in this case. So no UI prompts or display are showing.\n\nIf this is the case, shouldn\u0027t this work in a headless fashion and the bug be reopened?\n\n",
+    "The prompt only occurs when authentication fails. If we changed the code to avoid prompting, a CVSAuthenticationException would still be thrown so you wouldn\u0027t be any better off. Somehow, the password you are providing is not being used when you are running headless. How are you providing the password?",
+    "My password as been saved long ago as part of the CVS repository location setup. The only time I am prompted for a password is usually after an Eclipse upgrade.\n\nThat is why i don\u0027t understand the \"only when authentication fails\" here. From a user perspective it doesn\u0027t fail authentication for sure.\n\nI surely understand that if the password is required and needs to be prompted for, the only better solution would be a CVSAuthenticationException instead of the current error, but that the end result would be the same and thus a pretty minor improvement.\n\nBut that being said, this is not the case here and we would not expect the headless operation to work if the password is required.\n",
+    "I\u0027m not sure I know what you mean by your last sentence. All I can say is that, from the stack trace you have provided, it is pretty clear that authentication is failing and that is what is causing the attempt to prompt. How do you check the projects out for your headless application? Is it possible that the authentication information or connection method is different?",
+    "You are right that from the stacktrace the code is prompting for a password. I can see by stepping through some of the code that the CVSRepositoryLocation object is built from the return of fromString() in KnownRepositories. This location string doesn\u0027t contain the password and thus when Session calls openConnection, the password is not part of the object passed. The openConnection does look for a cached password, but I believe that this is different from a saved password.\n\nBut when I go in and look at my CVS Repository location properties, I see that a password is specified and the save password checkbox is selected.\n\nI am by no means an expert in this complex part of Eclipse but I can surely run any debug test that you want me to conduct.\n",
+    "The password is retrieved from the keyring file in the CVSRepositoryLocation#openConnecton method. You could debug that to see if the password is being retrieved. If not, you may want to use a custom location for the keyring file (using the -keyring command line option). That way, you can ensure that the keyring file that you use in the Workbench is also available when running headless.",
+    "Right on. That was the issue. \n\nWhen running with the launch configuration, I was using the default configuration area, instead of setting it to the \"normal\" default. I have now set it to \"${eclipse_home}/configuration\" and everything is now running smoothly. BTW, there seems to be no documentation on the configuration tab of the launch configuration. Not that I would have magically caught it, but I would surely at some point have better understood what it was used for.\n\nThanks for all the help and keep up the good work."
+  ],
+  "commentCreationDates": [
+    "2006-08-20T22:48:19+02:00",
+    "2006-08-21T16:25:37+02:00",
+    "2006-08-21T16:33:27+02:00",
+    "2006-08-21T16:57:02+02:00",
+    "2006-08-21T17:25:09+02:00",
+    "2006-08-21T17:35:05+02:00",
+    "2006-08-21T18:53:55+02:00",
+    "2006-08-21T19:04:21+02:00",
+    "2006-08-21T20:41:51+02:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.IllegalStateException",
+      "message": "Workbench has not been created yet.",
+      "elements": [
+        {
+          "method": "org.eclipse.ui.PlatformUI.getWorkbench",
+          "source": "PlatformUI.java:92"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.UserValidationDialog.configureShell",
+          "source": "UserValidationDialog.java:71"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.createShell",
+          "source": "Window.java:497"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.create",
+          "source": "Window.java:425"
+        },
+        {
+          "method": "org.eclipse.jface.dialogs.Dialog.create",
+          "source": "Dialog.java:1124"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.UserValidationDialog.create",
+          "source": "UserValidationDialog.java:77"
+        },
+        {
+          "method": "org.eclipse.jface.window.Window.open",
+          "source": "Window.java:785"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.WorkbenchUserAuthenticator.promptForPassword",
+          "source": "WorkbenchUserAuthenticator.java:120"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.WorkbenchUserAuthenticator.promptForUserInfo",
+          "source": "WorkbenchUserAuthenticator.java:66"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.promptForUserInfo",
+          "source": "CVSRepositoryLocation.java:811"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.connection.CVSRepositoryLocation.openConnection",
+          "source": "CVSRepositoryLocation.java:789"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.client.Session.open",
+          "source": "Session.java:159"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.CVSTeamProvider$6.run",
+          "source": "CVSTeamProvider.java:605"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.run",
+          "source": "Workspace.java:1737"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.CVSTeamProvider.notifyEditUnedit",
+          "source": "CVSTeamProvider.java:628"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.CVSTeamProvider.edit",
+          "source": "CVSTeamProvider.java:535"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.CVSCoreFileModificationValidator.performEdit",
+          "source": "CVSCoreFileModificationValidator.java:129"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.FileModificationValidator.access$1",
+          "source": "FileModificationValidator.java:1"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.FileModificationValidator$2.run",
+          "source": "FileModificationValidator.java:102"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.Utils$2.run",
+          "source": "Utils.java:213"
+        },
+        {
+          "method": "org.eclipse.swt.custom.BusyIndicator.showWhile",
+          "source": "BusyIndicator.java:67"
+        },
+        {
+          "method": "org.eclipse.team.internal.ui.Utils.runWithProgress",
+          "source": "Utils.java:209"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.CVSUIPlugin.runWithProgress",
+          "source": "CVSUIPlugin.java:236"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.FileModificationValidator.edit",
+          "source": "FileModificationValidator.java:110"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.ui.FileModificationValidator.edit",
+          "source": "FileModificationValidator.java:47"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.CVSCoreFileModificationValidator.validateEdit",
+          "source": "CVSCoreFileModificationValidator.java:45"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.CVSCoreFileModificationValidator.edit",
+          "source": "CVSCoreFileModificationValidator.java:73"
+        },
+        {
+          "method": "org.eclipse.team.internal.ccvs.core.CVSCoreFileModificationValidator.validateSave",
+          "source": "CVSCoreFileModificationValidator.java:58"
+        },
+        {
+          "method": "org.eclipse.team.internal.core.FileModificationValidatorManager.validateSave",
+          "source": "FileModificationValidatorManager.java:99"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace$6.run",
+          "source": "Workspace.java:2039"
+        },
+        {
+          "method": "org.eclipse.core.runtime.SafeRunner.run",
+          "source": "SafeRunner.java:37"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Workspace.validateSave",
+          "source": "Workspace.java:2042"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.File.setContents",
+          "source": "File.java:355"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "154482",
+      "date": "2006-08-20T22:48:19+02:00",
+      "product": "Platform",
+      "component": "CVS",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "154482",
+  "bugId": "154482",
+  "date": "2006-08-20T22:48:19+02:00",
+  "product": "Platform",
+  "component": "CVS",
+  "severity": "normal"
+}

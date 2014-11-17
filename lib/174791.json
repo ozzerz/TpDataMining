@@ -1,0 +1,87 @@
+{
+  "comments": [
+    "Build ID: 20070218\n\nSteps To Reproduce:\nPaste this in an C/C++ editor (or put it in an indexed project, either way):\n\nclass MyClass {\n\t\n\tclass Internal {\n\t\tstatic int Internal::field;\n\t};\n};\n\n\nMore information:\nThe code seems to show that a definition\u0027s parent is checked for being instanceof ICPPASTQualifiedName, while the declaration[0] isn\u0027t.  Not sure what this means or why, but adding a similar check avoids the problem.\n\nI could provide a patch, but I\u0027d like to know what unit test to add the code to.\n\nStack trace:\nxception in thread \"org.eclipse.cdt.internal.ui.text.CReconciler\" java.lang.ClassCastException: org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTQualifiedName\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPVariable.isStatic(CPPVariable.java:253)\n\tat org.eclipse.cdt.internal.ui.editor.SemanticHighlightings$StaticFieldHighlighting.consumes(SemanticHighlightings.java:318)\n\tat org.eclipse.cdt.internal.ui.editor.SemanticHighlightingReconciler$PositionCollector.visitNode(SemanticHighlightingReconciler.java:139)\n\tat org.eclipse.cdt.internal.ui.editor.SemanticHighlightingReconciler$PositionCollector.visit(SemanticHighlightingReconciler.java:122)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTQualifiedName.accept(CPPASTQualifiedName.java:181)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTDeclarator.accept(CPPASTDeclarator.java:125)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTSimpleDeclaration.accept(CPPASTSimpleDeclaration.java:74)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTCompositeTypeSpecifier.accept(CPPASTCompositeTypeSpecifier.java:135)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTSimpleDeclaration.accept(CPPASTSimpleDeclaration.java:71)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTCompositeTypeSpecifier.accept(CPPASTCompositeTypeSpecifier.java:135)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTSimpleDeclaration.accept(CPPASTSimpleDeclaration.java:71)\n\tat org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTTranslationUnit.accept(CPPASTTranslationUnit.java:569)",
+    "This means only that this specific case was not considered when the code was originally written.  The check is on definitions since static fields are often defined outside the class, but I\u0027ve not often seen a declaration with the fully qualified name.\n\nAs for a unit test, I would suggest just adding a new one to AST2CPPTests",
+    "So, I\u0027m unfamiliar with the semantics and assumptions here.  Is this code defensive enough, or too defensive?\n\n         if( declarations !\u003d null ) {\n        \tIASTNode node \u003d declarations[0].getParent();\n        \twhile ( node instanceof ICPPASTQualifiedName )\n        \t\tnode \u003d node.getParent();\n            if( node instanceof IASTDeclarator )\n            \tdtor \u003d (IASTDeclarator) declarations[0].getParent();\n            else\n            \treturn false;\n        } else {\n\n\n\n",
+    "Created an attachment (id\u003d59397)\nSuggested patch and test, fixes an existing bug seeing non-static \"overqualified\" fields as static\n\n",
+    "Hmm, I see my change to \"fix an existing bug\" might be incorrect.  My unit test finds a static variable definition, but I think it might be due to finding the class definition in the same translation unit.\n\nThe check for the non-marked static case was:\n\n       if( declarations !\u003d null )\n            dtor \u003d (IASTDeclarator) declarations[0].getParent();\n        else {\n            //definition of a static field doesn\u0027t necessarily say static\n            if( definition.getParent() instanceof ICPPASTQualifiedName )\n                return true;\n            dtor \u003d (IASTDeclarator) definition.getParent();\n        }\n\nBut this check also detected as static the definition of a field with an unnecessary classname qualifier.  Would the correct check involve something like testing whether the parent\u0027s scope is a class scope vs. a namespace scope?  (And what\u0027s the right way?)\n",
+    "Thanks, I have applied your patch with a few changes. The special treatment of qualifed names in definitions makes sense for fields, only. That\u0027s why I moved that to CPPField. I believe it is dead code anyhow, as I can\u0027t see a field being created without a declaration. "
+  ],
+  "commentCreationDates": [
+    "2007-02-20T15:43:58+01:00",
+    "2007-02-20T16:28:18+01:00",
+    "2007-02-20T16:39:00+01:00",
+    "2007-02-20T18:00:51+01:00",
+    "2007-02-20T19:30:18+01:00",
+    "2007-02-21T15:29:46+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTQualifiedName",
+      "elements": [
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPVariable.isStatic",
+          "source": "CPPVariable.java:253"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.ui.editor.SemanticHighlightings$StaticFieldHighlighting.consumes",
+          "source": "SemanticHighlightings.java:318"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.ui.editor.SemanticHighlightingReconciler$PositionCollector.visitNode",
+          "source": "SemanticHighlightingReconciler.java:139"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.ui.editor.SemanticHighlightingReconciler$PositionCollector.visit",
+          "source": "SemanticHighlightingReconciler.java:122"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTQualifiedName.accept",
+          "source": "CPPASTQualifiedName.java:181"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTDeclarator.accept",
+          "source": "CPPASTDeclarator.java:125"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTSimpleDeclaration.accept",
+          "source": "CPPASTSimpleDeclaration.java:74"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTCompositeTypeSpecifier.accept",
+          "source": "CPPASTCompositeTypeSpecifier.java:135"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTSimpleDeclaration.accept",
+          "source": "CPPASTSimpleDeclaration.java:71"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTCompositeTypeSpecifier.accept",
+          "source": "CPPASTCompositeTypeSpecifier.java:135"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTSimpleDeclaration.accept",
+          "source": "CPPASTSimpleDeclaration.java:71"
+        },
+        {
+          "method": "org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTTranslationUnit.accept",
+          "source": "CPPASTTranslationUnit.java:569"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "174791",
+      "date": "2007-02-20T15:43:58+01:00",
+      "product": "CDT",
+      "component": "cdt-core",
+      "severity": "normal"
+    }
+  ],
+  "groupId": "174791",
+  "bugId": "174791",
+  "date": "2007-02-20T15:43:58+01:00",
+  "product": "CDT",
+  "component": "cdt-core",
+  "severity": "normal"
+}

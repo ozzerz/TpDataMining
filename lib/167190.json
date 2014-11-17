@@ -1,0 +1,121 @@
+{
+  "comments": [
+    "I am getting the CCE below.  This appears to be caused because the TypeNameMatchRequestorWrapper that is created internally to handle as-you-type look up of matching class names in a TypeSelectionDialog2 created (again internally) by JavaUI.createTypeDialog().\n\nThe API allows you to pass in IJavaSearchScope and this is respected right down to the field of TypeNameMatchRequestorWrapper that stores it, but then in TypeNameMatchRequestorWrapper.createTypeFromPath() is forcibly cast to a JDT JavaSearchScope.\n\njava.lang.ClassCastException: org.eclipse.jst.jsf.common.ui.internal.dialogfield.JavaSearchScope\n\tat org.eclipse.jdt.internal.core.search.TypeNameMatchRequestorWrapper.createTypeFromPath(TypeNameMatchRequestorWrapper.java:126)\n\tat org.eclipse.jdt.internal.core.search.TypeNameMatchRequestorWrapper.acceptType(TypeNameMatchRequestorWrapper.java:78)\n\tat org.eclipse.jdt.internal.core.search.BasicSearchEngine$2.acceptIndexMatch(BasicSearchEngine.java:766)\n\tat org.eclipse.jdt.internal.core.search.matching.InternalSearchPattern.acceptMatch(InternalSearchPattern.java:51)\n\tat org.eclipse.jdt.internal.core.search.matching.InternalSearchPattern.findIndexMatches(InternalSearchPattern.java:89)\n\tat org.eclipse.jdt.internal.core.search.matching.MatchLocator.findIndexMatches(MatchLocator.java:325)\n\tat org.eclipse.jdt.internal.core.search.PatternSearchJob.search(PatternSearchJob.java:114)\n\tat org.eclipse.jdt.internal.core.search.PatternSearchJob.execute(PatternSearchJob.java:64)\n\tat org.eclipse.jdt.internal.core.search.processing.JobManager.performConcurrentJob(JobManager.java:261)\n\tat org.eclipse.jdt.internal.core.search.BasicSearchEngine.searchAllTypeNames(BasicSearchEngine.java:777)\n\tat org.eclipse.jdt.core.search.SearchEngine.searchAllTypeNames(SearchEngine.java:780)\n\tat org.eclipse.jdt.internal.ui.dialogs.TypeInfoViewer$SearchEngineJob.getSearchResult(TypeInfoViewer.java:669)\n\tat org.eclipse.jdt.internal.ui.dialogs.TypeInfoViewer$AbstractSearchJob.internalRun(TypeInfoViewer.java:571)\n\tat org.eclipse.jdt.internal.ui.dialogs.TypeInfoViewer$AbstractSearchJob.doRun(TypeInfoViewer.java:518)\n\tat org.eclipse.jdt.internal.ui.dialogs.TypeInfoViewer$AbstractJob.run(TypeInfoViewer.java:484)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:58)",
+    "Created an attachment (id\u003d55325)\nPossible patch for JDT/Core\n\nHowever, with this patch, I got NPE in following line:\nTypeInfoViewer$TypeInfoLabelProvider.getContainerName(TypeNameMatch) line: 385\t\nas NoTypeNameMatch.getPackageFragmentRoot() return null...\n\nMartin, I think there\u0027s some necessary changes in JDT/UI to handle this specific additional TypeNameMatch.\n\nNote that in this patch, NoTypeNameMatch does not store the document path in which you can get the container name when there\u0027s no type \u003d\u003e I can add it and modify the API to provide this piece of information on the match...\n\nWhat\u0027s your mind about this?\n",
+    "The result of the Java type dialog is a an IType, so we would need the code that can resolve the IType.\nFrederic, Any chance to also store the package fragment root in the NoTypesMatch?",
+    "This is a major problem for us.  Can I get either a workaround or a target milestone for a fix (or both)?\n\nThanks,\n\nCameron",
+    "I\u0027ll do my best to put a fix in 3.3 M5...\n\nIn fact we should have make JavaSearchScope API and not allow clients to implement IJavaSearchScope at the beginning. Would it be acceptable for you if we change the API to this? Then you could extend JavaSearchScope instead of reimplement your own version...\n",
+    "\u003e In fact we should have make JavaSearchScope API and not allow clients to\n\u003e implement IJavaSearchScope at the beginning. Would it be acceptable for you if\n\u003e we change the API to this? Then you could extend JavaSearchScope instead of\n\u003e reimplement your own version...\n\nI\u0027m not sure how this would fix this in the near term, since I assume you will need to deprecate the interface over a number of releases to give everyone time to switch.  It also seems like there is an underlying design problem here: why are framework consumers of IJavaSearchScope suddenly making concrete class assumptions about them?  Especially since JDT itself has at least on other implementer of IJavaSearchScope (HierarchyScope).\n\nAs a near term workaround, I suppose I could switch to sub-classing the internal JavaSearchScope class.\n\nI have cc\u0027d Nitin on this bug because the JSP framework also implements this interface.",
+    "(In reply to comment #5)\n\u003e I\u0027m not sure how this would fix this in the near term, since I assume you will\n\u003e need to deprecate the interface over a number of releases to give everyone time\n\u003e to switch.  It also seems like there is an underlying design problem here: why\n\u003e are framework consumers of IJavaSearchScope suddenly making concrete class\n\u003e assumptions about them?  Especially since JDT itself has at least on other\n\u003e implementer of IJavaSearchScope (HierarchyScope).\n\u003e \nI agree there are design issues here... First when creating IJavaSearchScope interface, we never should let clients to implement it. Second, when I implemented fix for bug 148380, I never should use JavaSearchScope to find IType. But it was so the best and easiest way for us, that I missed the point that clients couldn\u0027t take benefit of it if they implemented their own IJavaSearchScope. That\u0027s why, I was just asking you to know if this switch - to correct initial solution - would be feasible... If so, then I would have asked other JDT clients on our development list if they could also accept it. This would have been the easiest solution for us. Note that, in parallel, I continue to investigate if there could be an other solution which would avoid to force all clients to switch to a non backward compatible solution!\n\n\u003e As a near term workaround, I suppose I could switch to sub-classing the\n\u003e internal JavaSearchScope class.\n\u003e \nYes, this workaround is in fact the switch I proposed. It\u0027s a so simple solution that I really want to know if all clients would agree to adopt it!\n\n\u003e I have cc\u0027d Nitin on this bug because the JSP framework also implements this\n\u003e interface.\n\u003e \n",
+    "\u003e IJavaSearchScope. That\u0027s why, I was just asking you to know if this switch - \n\u003e to correct initial solution - would be feasible... If so, then I would have \n\nThis solution is feasible for us as long as we get a working a dialog box that shows the correct classes for our users.  \n\n\u003e other JDT clients on our development list if they could also accept it. This\n\u003e would have been the easiest solution for us. Note that, in parallel, I \n\nWhat would be the timeline on making JavaSearchScope API?  Can you commit to doing so before Europa API freeze?  \n\nThe crux of my problem is this: I have a broken user interface.  The break is caused by CCE inside code that is arrived at \"legally\" through a published interface.  I need to either:\n\n1) get a fix for this that restores my UI to working order\nor\n2) find an alternative implementation that allows users to select fully-qualified class names from a list of classes that implement or sub-class specific types.\n\nI\u0027m fine with any route we can take to that solution as long as:\n\n1) The solution has a feasible milestone for completion (ideally before 3.3 final).\n2) The solution does not require me to put my code into a state where it is dependant on non-API code (i.e. the current JavaSearchScope) for a non-determinate amount of time.",
+    "Created an attachment (id\u003d57615)\nNew proposed patch\n\nI finally found a solution which does not imply any API change... So, this problem will be definitely addressed in 3.3 M5 and hopefully in next week integration build :-)\n\nI can send a JDT/Core plugin jar file with the fix if you want the fix asap, just let me know your e-mail address where to send it...\n",
+    "\u003e I finally found a solution which does not imply any API change... So, this\n\u003e problem will be definitely addressed in 3.3 M5 and hopefully in next week\n\u003e integration build :-)\n\nThat\u0027s great Frederic!  We can wait for the 3.3M5 or the next I-build you can release it in, whichever comes first.  I\u0027ll also try the patch locally.\n\nThanks!\n",
+    "The patch seems to work!  We will do further testing with a release version before resolving 167192, but it looks like we\u0027ve got a solution.  Thanks Frederic!",
+    "(In reply to comment #10)\n\u003e The patch seems to work!  We will do further testing with a release version\n\u003e before resolving 167192, but it looks like we\u0027ve got a solution.  Thanks\n\u003e Frederic!\n\u003e \nYou\u0027re welcome :-) Thanks for your feedback.\n",
+    "Created an attachment (id\u003d57649)\nComplete proposed patch\n\nThis patch is a little bit more better than previous one as it takes into account member types...",
+    "Released for 3.3 M5 in HEAD stream.\n",
+    "Verified for 3.3 M5 using build I20070205-1824."
+  ],
+  "commentCreationDates": [
+    "2006-12-08T01:10:24+01:00",
+    "2006-12-08T18:26:45+01:00",
+    "2006-12-11T08:37:39+01:00",
+    "2007-01-24T22:50:05+01:00",
+    "2007-01-25T11:57:48+01:00",
+    "2007-01-25T19:26:22+01:00",
+    "2007-01-26T08:42:51+01:00",
+    "2007-01-26T17:33:04+01:00",
+    "2007-01-26T18:40:12+01:00",
+    "2007-01-26T18:46:30+01:00",
+    "2007-01-26T19:39:36+01:00",
+    "2007-01-26T22:30:34+01:00",
+    "2007-01-27T23:13:23+01:00",
+    "2007-01-28T09:48:33+01:00",
+    "2007-02-06T07:12:09+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "java.lang.ClassCastException",
+      "message": "org.eclipse.jst.jsf.common.ui.internal.dialogfield.JavaSearchScope",
+      "elements": [
+        {
+          "method": "org.eclipse.jdt.internal.core.search.TypeNameMatchRequestorWrapper.createTypeFromPath",
+          "source": "TypeNameMatchRequestorWrapper.java:126"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.TypeNameMatchRequestorWrapper.acceptType",
+          "source": "TypeNameMatchRequestorWrapper.java:78"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.BasicSearchEngine$2.acceptIndexMatch",
+          "source": "BasicSearchEngine.java:766"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.InternalSearchPattern.acceptMatch",
+          "source": "InternalSearchPattern.java:51"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.InternalSearchPattern.findIndexMatches",
+          "source": "InternalSearchPattern.java:89"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.matching.MatchLocator.findIndexMatches",
+          "source": "MatchLocator.java:325"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.PatternSearchJob.search",
+          "source": "PatternSearchJob.java:114"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.PatternSearchJob.execute",
+          "source": "PatternSearchJob.java:64"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.processing.JobManager.performConcurrentJob",
+          "source": "JobManager.java:261"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.search.BasicSearchEngine.searchAllTypeNames",
+          "source": "BasicSearchEngine.java:777"
+        },
+        {
+          "method": "org.eclipse.jdt.core.search.SearchEngine.searchAllTypeNames",
+          "source": "SearchEngine.java:780"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.dialogs.TypeInfoViewer$SearchEngineJob.getSearchResult",
+          "source": "TypeInfoViewer.java:669"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.dialogs.TypeInfoViewer$AbstractSearchJob.internalRun",
+          "source": "TypeInfoViewer.java:571"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.dialogs.TypeInfoViewer$AbstractSearchJob.doRun",
+          "source": "TypeInfoViewer.java:518"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.ui.dialogs.TypeInfoViewer$AbstractJob.run",
+          "source": "TypeInfoViewer.java:484"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:58"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 0,
+      "bugId": "167190",
+      "date": "2006-12-08T01:10:24+01:00",
+      "product": "JDT",
+      "component": "Core",
+      "severity": "major"
+    }
+  ],
+  "groupId": "167190",
+  "bugId": "167190",
+  "date": "2006-12-08T01:10:24+01:00",
+  "product": "JDT",
+  "component": "Core",
+  "severity": "major"
+}
