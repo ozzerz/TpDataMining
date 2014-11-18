@@ -68,7 +68,7 @@ public class Parser {
 		return callStack;
 	}
 
-	
+
 	/**
 	 * add the groupId to a callStack ONLY USE FOR EVALUATION
 	 * @param callStack the callStack we will modify
@@ -83,10 +83,8 @@ public class Parser {
 			Object obj = parser.parse(new FileReader(filename));
 
 			JSONObject jsonObject = (JSONObject) obj;
-			System.out.println("----------Group--------------");
-			String msg = (String) jsonObject.get("groupId");	
-			System.out.println(msg);
-			System.out.println("----------Group--------------");
+			String id = (String) jsonObject.get("groupId");
+			callStack.setGroupId(id);;
 
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
@@ -95,9 +93,13 @@ public class Parser {
 		} catch (ParseException e) {
 			e.printStackTrace();
 		}
-		
-		
+
+
 	}
+
+	
+	
+	
 	
 	/**
 	 * parse all the file from a directory
