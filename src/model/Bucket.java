@@ -43,6 +43,15 @@ public class Bucket {
 	{
 		this.callStacks.add(callStack);
 	}
+	/**
+	 *  to know it the callStack belong to this bucket
+	 * @param callStack
+	 * @return true if the callStack belong to this bucket , false neither
+	 */
+	public boolean isOnBucket(CallStack callStack){
+		 return false;
+		
+	}
 	
 	
 }

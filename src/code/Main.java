@@ -12,6 +12,7 @@ public class Main {
 		CallStack callStack = p.read("lib/100004.json");
 		System.out.println("----------callStack--------------");
 		System.out.println(callStack.toString());
+		p.addGroupId(callStack, "lib/100004.json");
 		System.out.println("----------callStack--------------");
 		ArrayList<CallStack> bucket = p.readAll("lib");
 		/*System.out.println("----------Bucket--------------");

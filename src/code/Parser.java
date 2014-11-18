@@ -45,6 +45,8 @@ public class Parser {
 			JSONObject compleateJSon = (JSONObject) msg.get(0);
 			// keep the error
 			String erreur = compleateJSon.get("exceptionType").toString();
+			//String groupId = compleateJSon.get("groupId").toString();
+			//System.out.println(groupId);
 			callStack.setError(erreur);
 			JSONArray callStackArray = (JSONArray) compleateJSon
 					.get("elements");
@@ -66,6 +68,37 @@ public class Parser {
 		return callStack;
 	}
 
+	
+	/**
+	 * add the groupId to a callStack ONLY USE FOR CREATE THE BUCKET TO CHECK
+	 * @param callStack the callStack we will modify
+	 * @param filename the file corresponding
+	 */
+	public void addGroupId(CallStack callStack , String filename)
+	{
+		JSONParser parser = new JSONParser();
+
+		try {
+
+			Object obj = parser.parse(new FileReader(filename));
+
+			JSONObject jsonObject = (JSONObject) obj;
+			System.out.println("----------Group--------------");
+			String msg = (String) jsonObject.get("groupId");	
+			System.out.println(msg);
+			System.out.println("----------Group--------------");
+
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (ParseException e) {
+			e.printStackTrace();
+		}
+		
+		
+	}
+	
 	/**
 	 * parse all the file from a directory
 	 *

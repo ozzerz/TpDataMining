@@ -21,7 +21,18 @@ public class CallStack {
 	 * the filename where we got the callStack
 	 */
 	private String filename;
-	
+	/**
+	 * the groupId of the callStack (only use for create all bucket to check our result)
+	 */
+	private String groupId;
+
+	public String getGroupId() {
+		return groupId;
+	}
+
+	public void setGroupId(String groupId) {
+		this.groupId = groupId;
+	}
 
 	public String getFilename() {
 		return filename;
