@@ -70,7 +70,7 @@ public class Parser {
 
 	
 	/**
-	 * add the groupId to a callStack ONLY USE FOR CREATE THE BUCKET TO CHECK
+	 * add the groupId to a callStack ONLY USE FOR EVALUATION
 	 * @param callStack the callStack we will modify
 	 * @param filename the file corresponding
 	 */
