@@ -17,10 +17,23 @@ public class CallStack {
 	 * the error from this callStack
 	 */
 	private String error;
+	/**
+	 * the filename where we got the callStack
+	 */
+	private String filename;
+	
 
-	public CallStack(String error) {
+	public String getFilename() {
+		return filename;
+	}
+
+	public void setFilename(String filename) {
+		this.filename = filename;
+	}
+
+	public CallStack(String filename) {
 		super();
-		this.error = error;
+		this.filename = filename;
 		callStack = new ArrayList<Frame>();
 	}
 
@@ -48,7 +61,8 @@ public class CallStack {
 	}
 
 	public String toString() {
-		String allFrame = "exceptionType: " + error
+		String allFrame = "filename : "+filename+ System.getProperty("line.separator");
+		allFrame = allFrame + "exceptionType: " + error
 				+ System.getProperty("line.separator");
 		for (int i = 0; i < callStack.size(); i++) {
 			if (i + 1 < callStack.size()) {

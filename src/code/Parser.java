@@ -33,7 +33,7 @@ public class Parser {
 	 */
 	public CallStack read(String filename) {
 		JSONParser parser = new JSONParser();
-		CallStack callStack = new CallStack();
+		CallStack callStack = new CallStack(filename.substring(filename.lastIndexOf("/")+1));
 
 		try {
 
