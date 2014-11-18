@@ -1,25 +1,49 @@
 package code;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 
+import model.Bucket;
 import model.CallStack;
 
 public class Main {
 
 	public static void main(String[] args) {
-
+		String directory="lib";
 		Parser p = new Parser();
 		CallStack callStack = p.read("lib/100004.json");
 		System.out.println("----------callStack--------------");
 		System.out.println(callStack.toString());
 		p.addGroupId(callStack, "lib/100004.json");
 		System.out.println("----------callStack--------------");
-		ArrayList<CallStack> bucket = p.readAll("lib");
-		/*System.out.println("----------Bucket--------------");
-		for (int i = 0; i < bucket.size(); i++) {
-			System.out.println(bucket.get(i).toString());
+
+/*
+		//CREATION BUCKET
+		ArrayList<CallStack> allCallStack = p.readAll(directory);
+		//add all id
+		for (int i = 0; i < allCallStack.size(); i++) {
+			p.addGroupId(allCallStack.get(i), directory+"/"+allCallStack.get(i).getFilename());
 		}
-		System.out.println("----------Bucket--------------");
-	*/
-	}
+		System.out.println("--------------on  a tout les id");
+		Bucket bucket = new Bucket();
+		ArrayList<Bucket>allBuck=bucket.creationAllBucket(allCallStack);
+		System.out.println("-----------------on a tout les bucket");
+		File rep=new File("bucket");
+		rep.mkdir();
+		for (int i=0;i<allBuck.size();i++)
+		{
+			try {
+
+				allBuck.get(i).createFile("bucket");
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+
+	*/}
+
+
+
 }
