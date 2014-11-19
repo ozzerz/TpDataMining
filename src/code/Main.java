@@ -13,20 +13,19 @@ public class Main {
     public static void main(String[] args) {
         String directory = "lib";
         Parser p = new Parser();
-        CallStack callStack = p.read("lib/100004.json");
+        CallStack callStack = p.read("lib/206001.json");
         System.out.println("----------callStack--------------");
         System.out.println(callStack.toString());
-        p.addGroupId(callStack, "lib/100004.json");
-        System.out.println("----------callStack--------------");
+        p.addGroupId(callStack, "lib/206001.json");
 
-        CallStack c2 = p.read("lib/100007.json");
+        CallStack c2 = p.read("lib/206001.json");
         System.out.println("----------callStack--------------");
         System.out.println(c2.toString());
-        p.addGroupId(c2, "lib/100007.json");
-        System.out.println("----------callStack--------------");
+        p.addGroupId(c2, "lib/206001.json");
         
-        Processor processor = new Processor();
-        processor.similarity(callStack, c2);
+        Processor processor = new Processor(8);
+        System.out.println("----------- Similarity ------------");
+        System.out.println(processor.similarity(callStack, c2));
 
         /*
          * //CREATION BUCKET ArrayList<CallStack> allCallStack =
