@@ -81,10 +81,21 @@ public class Bucket {
 
 			}
 			if(!verif){
+				
+				if(allCallStacks.get(call).getDuplicateId().equals("-1"))
+				{
 				Bucket bu=new Bucket(allCallStacks.get(call).getGroupId());
 				bu.addCallStack((allCallStacks.get(call)));
 				allBucket.add(bu);
 				verif=false;
+				}
+				else
+				{
+					Bucket bu=new Bucket(allCallStacks.get(call).getDuplicateId());
+					bu.addCallStack((allCallStacks.get(call)));
+					allBucket.add(bu);
+					verif=false;
+				}
 				}
 
 		}

@@ -25,8 +25,20 @@ public class CallStack {
      * the groupId of the callStack ONLY FOR EVALUATION
      */
     private String groupId;
+    /**
+     * the duplicateID ONLY FOR EVALUATION
+     */
+    private String duplicateId;
 
-    public String getGroupId() {
+    public String getDuplicateId() {
+		return duplicateId;
+	}
+
+	public void setDuplicateId(String duplicateId) {
+		this.duplicateId = duplicateId;
+	}
+
+	public String getGroupId() {
         return groupId;
     }
 

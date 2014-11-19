@@ -74,7 +74,7 @@ public class Parser {
 	 * @param callStack the callStack we will modify
 	 * @param filename the file corresponding
 	 */
-	public void addGroupId(CallStack callStack , String filename)
+	public void addGroupIdAndDuplicateId(CallStack callStack , String filename)
 	{
 		JSONParser parser = new JSONParser();
 
@@ -84,13 +84,25 @@ public class Parser {
 
 			JSONObject jsonObject = (JSONObject) obj;
 			String id = (String) jsonObject.get("groupId");
-			callStack.setGroupId(id);;
-
+			callStack.setGroupId(id);
+	
+			String dupId = (String) jsonObject.get("duplicateId");
+			if (dupId==null)
+			{
+				callStack.setDuplicateId("-1");
+			}
+			else
+			{
+				callStack.setDuplicateId(dupId);
+			}
+			
+			
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
 		} catch (IOException e) {
 			e.printStackTrace();
 		} catch (ParseException e) {
+			
 			e.printStackTrace();
 		}
 
