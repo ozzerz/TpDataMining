@@ -12,42 +12,35 @@ import model.Frame;
  *
  */
 public class Processor {
-    
-    /**
-     * Distance to the top of the CallStacks.
-     * This distance define how many frames to compare.
-     */
-    private int distanceTop;
-    
+
     /**
      * Coefficient de similarite. Definie par l'utilisateur.
      * Correspond au poids de la frame selon sa hauteur dans la stack.
      */
     private int coefficient = 0;
     
-    public Processor(int distanceTop) {
-        this.distanceTop = distanceTop;
+    public Processor() {
+        // empty
     }
+    
+    
     
     
     public double similarity(CallStack c1, CallStack c2) {
         
         // plus petite valeur entre distanceTop, et la taille de chacune des deux stacks
-        this.distanceTop = Math.min(distanceTop, Math.min(c1.getCallStack().size(), c2.getCallStack().size()));
+        //this.distanceTop = Math.min(distanceTop, Math.min(c1.getCallStack().size(), c2.getCallStack().size()));
         
         // matrice de similarite
         ArrayList<ArrayList<Integer>> matrix = 
-                new ArrayList<ArrayList<Integer>>(this.distanceTop);
+                new ArrayList<ArrayList<Integer>>(c1.getCallStack().size());
 
         // i numero de la frame dans c1
-        for (int i = 0; i < this.distanceTop; i++) {
+        for (int i = 0; i < c1.getCallStack().size(); i++) {
             matrix.add(new ArrayList<Integer>());
-            
             // j numero de la frame dans c2
-            for (int j = 0; j < this.distanceTop; j++) {
-
-                // si frame i et j identiques
-               
+            for (int j = 0; j < c2.getCallStack().size(); j++) {
+                // si frame i et j identiques 
                 if (c1.getCallStack().get(i).toString()
                         .equals(c2.getCallStack().get(j).toString())) {
                     // alors ajouter le numero de la frame j dans la liste i

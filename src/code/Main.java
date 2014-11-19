@@ -23,7 +23,7 @@ public class Main {
         System.out.println(c2.toString());
         p.addGroupId(c2, "lib/206001.json");
         
-        Processor processor = new Processor(8);
+        Processor processor = new Processor();
         System.out.println("----------- Similarity ------------");
         System.out.println(processor.similarity(callStack, c2));
 
