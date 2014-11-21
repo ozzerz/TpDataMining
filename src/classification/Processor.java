@@ -6,7 +6,8 @@ import model.CallStack;
 import model.Frame;
 
 /**
- * Compare two CallStacks, calculate similarity.
+ * Compare deux objets CallStack entre eux, pour obtenir la similarite.
+ * Se base sur l'article de Windows pour le calcul de la similarite.
  * 
  * @author pepe
  *
@@ -14,113 +15,109 @@ import model.Frame;
 public class Processor {
 
     /**
-     * Coefficient de similarite. Definie par l'utilisateur. Correspond au poids
-     * de la frame selon sa hauteur dans la stack.
+     * "coefficient to the top frame"
+     * "c"
      */
-    private int coefficient = 0;
+    private int coefficient = 1;
+    
+    /**
+     * "coefficient for the alignement offset"
+     * "o"
+     */
+    private int offset;
 
     public Processor() {
         // empty
     }
+    
+    /**
+     * Choisir le coefficient et le offset intervenant dans le calcul de similarite
+     * Plus d'informations dans l'article de Windows
+     * @param coefficient 
+     * @param offset
+     */
+    public Processor(int coefficient, int offset) {
+        this.coefficient = coefficient;
+        this.offset = offset;
+    }
 
     public double similarity(CallStack c1, CallStack c2) {
+        
+        double[][] matrix = new double[c1.getCallStack().size()][c2.getCallStack().size()];
 
-        // plus petite valeur entre distanceTop, et la taille de chacune des
-        // deux stacks
-        // this.distanceTop = Math.min(distanceTop,
-        // Math.min(c1.getCallStack().size(), c2.getCallStack().size()));
-
-        // coefficient top frame
-        int c = 1;
-
-        // coefficient offset
-        int o = 1;
-
-        // instancier la matrice de similarites
-        ArrayList<ArrayList<Integer>> matrix = new ArrayList<ArrayList<Integer>>(
-                c1.getCallStack().size());
-
-        // valeur de matrix(i-1, j-1)
-        double previous_value_ij = 0;
-        // valeur de matrix(i-1, j)
-        double previous_value_i = 0;
-        // valeur de matrix(i, j-1)
-        double previous_value_j = 0;
-        // v
-
-        // parcours des frames de c1
-        for (int i = 0; i < c1.getCallStack().size(); i++) {
-            matrix.add(new ArrayList<Integer>());
-            // parcours des frames de c2
-            for (int j = 0; j < c2.getCallStack().size(); j++) {
-                // reinitialisation
-                previous_value_ij = 0;
-                previous_value_i = 0;
-                previous_value_j = 0;
-
-                // calcule des precedentes valeurs de matrix
-                if (i > 0) {
-                    previous_value_i = matrix.get(i-1).get(j);
+        // parcours de c1
+        for (int i = 0; i < matrix.length; i++) {
+            
+            // parcours de c2
+            for (int j = 0; j < matrix[i].length; j++) {
+                
+                double previous_ij, previous_i, previous_j, cost;
+                previous_ij = previous_i = previous_j = cost = 0.0;
+                
+                // deux frames auront une similarite de 0 au minimun 
+                matrix[i][j] = cost;
+                
+                // si les deux frames sont identiques le poids est calcule
+                if (c1.getCallStack().get(i).equals(c2.getCallStack().get(j))) {
+                    matrix[i][j] = cost(i, j);
                 }
-                if (j > 0) {
-                    previous_value_j = matrix.get(i).get(j-1);
-                }
+                
                 if ((i > 0) && (j > 0)) {
-                    previous_value_ij = matrix.get(i-1).get(j-1);
+                    previous_ij = matrix[i-1][j-1] + cost;
+                } else if (i > 0) {
+                    previous_i = matrix[i-1][j];
+                } else if (j > 0) {
+                    previous_i = matrix[i][j-1];
                 }
-
-                // valeur de matrix(i-1, j-1) + le poids actuel des frames i,j
-                previous_value_ij = previous_value_ij
-                        + cost(c1.getCallStack().get(i),
-                                c2.getCallStack().get(j));
-
-                // get max
-                double val = Math.max(previous_value_ij,
-                        Math.max(previous_value_i, previous_value_j));
-                matrix.get(i).add(j);
+                
+                /*
+                 * chercher la plus grande valeur entre :
+                 * le poids,
+                 * ou le poids + matrix[i-1][j-1],
+                 * ou matrix[i-1][j],
+                 * ou matrix[i][j-1]
+                 */
+                double max_value = Math.max(cost,
+                        Math.max(previous_ij + cost,
+                                Math.max(previous_i, previous_j)));
+                
+                // enregistrement
+                matrix[i][j] = max_value;
+                
             }
-            System.out.println("i = " + i + " ==> " + matrix.get(i));
-        }
 
-        // ------------------------------- A MODIFIER
-        // ---------------------------------
-        /*
-         * int taille = c1.getCallStack().size() * c2.getCallStack().size();
-         * 
-         * double frameSimilaritiesSum = 0.0; for (int mx = 0; mx <
-         * matrix.size(); mx++) { for (int my = 0; my < matrix.get(mx).size();
-         * my++) { double localSimilarity =
-         * Math.exp(-(this.coefficient*matrix.get(mx).get(my)));
-         * 
-         * frameSimilaritiesSum += localSimilarity; } }
-         * 
-         * if (frameSimilaritiesSum == 0) { return 0.0; }
-         * 
-         * double similarity = taille / frameSimilaritiesSum;
-         */
+                
+        }
+            //System.out.println("i = " + i + " ==> " + matrix.get(i));
         double similarity = 0.0;
         return similarity;
     }
 
+
+        
+
+
+
     /**
-     * calculer le poids entre i et j. Ce sont les indices de la matrices en
+     * calculer le poids entre i et j. Ce sont les indices de la matrice en
      * cours de traitement dans la methode similarity
      * 
      * @param i
-     *            numero de frame i de la premiere callstack
+     *            (indice) numero de frame i de la premiere callstack
      * @param j
-     *            numere de frame j de la seconde callstack
+     *            (indice) numere de frame j de la seconde callstack
      * @return
      */
-    private double cost(Frame i, Frame j) {
-        double cost = 0;
+    protected double cost(int i, int j) {
 
-        /*
-         * if (matrix.get(i == j) {
-         * 
-         * }
-         */
-        return cost;
+        //top frame
+        double top = Math.exp(-this.coefficient * Math.min(i, j));
+        
+        // alignement offset
+        double offset = Math.exp(-this.offset * Math.abs(i-j));
+        
+        System.out.println(" >>>>>>>>>> cost = "+top*offset);
+        return top * offset;
 
     }
 
