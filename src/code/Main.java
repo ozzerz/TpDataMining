@@ -14,22 +14,35 @@ public class Main {
         String directory = "lib";
         Parser p = new Parser();
         CallStack callStack = p.read("lib/206001.json");
+        CallStack c2 = p.read("lib/206001.json");
+        
+        /* MAX TES SYSOUT PRENNENT TROP DE PLACE
         System.out.println("----------callStack--------------");
         System.out.println(callStack.toString());
-       
-        //p.addGroupId(callStack, "lib/206001.json"); <==Euh ouais mais POURQUOI
-
-        CallStack c2 = p.read("lib/206001.json");
         System.out.println("----------callStack--------------");
         System.out.println(c2.toString());
+        //p.addGroupId(callStack, "lib/206001.json"); <==Euh ouais mais POURQUOI
         //p.addGroupId(c2, "lib/206001.json"); <==Même question
+         */
+        
+        CallStack c3 = p.read("lib/49499.json");
+        CallStack c4 = p.read("lib/48643.json");
+        CallStack c5 = p.read("lib/49608.json");
         
         Processor processor = new Processor();
         System.out.println("----------- Similarity ------------");
+        System.out.println("-------- callstacks identiques :");
         System.out.println(processor.similarity(callStack, c2));
+        System.out.println("-------- callstacks differentes :");
+        System.out.println(processor.similarity(callStack, c4));
+        System.out.println("-------- callstacks du meme bucket :");
+        System.out.println(processor.similarity(c3, c4));
+        System.out.println("-------- callstacks du meme bucket :");
+        System.out.println(processor.similarity(c3, c5));
 
         
-          //CREATION BUCKET 
+        /*
+        //CREATION BUCKET 
         ArrayList<CallStack> allCallStack =    p.readAll(directory); //add all id 
           for (int i = 0; i <allCallStack.size(); i++) { 
         	  
@@ -46,6 +59,6 @@ public class Main {
           allBuck.get(i).createFile("bucket"); 
           } catch (IOException e) { //
          } }
-         }
-
+         */
+     }
 }
