@@ -42,9 +42,11 @@ public class Processor {
     }
 
     public double similarity(CallStack c1, CallStack c2) {
-        
         double[][] matrix = new double[c1.getCallStack().size()][c2.getCallStack().size()];
-
+        
+        // nombre de frames de c1 et c2 identiques (appelee "l" dans l'article Windows
+        int identic_frames = 0;
+        
         // parcours de c1
         for (int i = 0; i < matrix.length; i++) {
             
@@ -60,6 +62,7 @@ public class Processor {
                 // si les deux frames sont identiques le poids est calcule
                 if (c1.getCallStack().get(i).equals(c2.getCallStack().get(j))) {
                     matrix[i][j] = cost(i, j);
+                    identic_frames ++;
                 }
                 
                 if ((i > 0) && (j > 0)) {
@@ -81,21 +84,23 @@ public class Processor {
                         Math.max(previous_ij + cost,
                                 Math.max(previous_i, previous_j)));
                 
-                // enregistrement
+                // enregistrement dans la matrice
                 matrix[i][j] = max_value;
                 
-            }
+            } // fin j parcours de c2
 
-                
-        }
-            //System.out.println("i = " + i + " ==> " + matrix.get(i));
-        double similarity = 0.0;
-        return similarity;
-    }
-
-
+        } // fin i parcours de c1
         
-
+        // similarite vaut 0 si aucune frames en commun (a verifier!) ==> evite d'avoir une similarite "Infinity" qui pourrait mal interprete
+        if (identic_frames == 0) return 0;
+        
+        double sum = 0.0;
+        for (int l = 0; (l < identic_frames) && (l < c2.getCallStack().size()); l++) {
+            sum = sum + Math.exp(-this.coefficient * l);
+        }        
+        // sim (4) dans l'article Windows
+        return (c1.getCallStack().size() * c2.getCallStack().size()) / sum;
+    }
 
 
     /**
@@ -109,14 +114,12 @@ public class Processor {
      * @return
      */
     protected double cost(int i, int j) {
-
         //top frame
         double top = Math.exp(-this.coefficient * Math.min(i, j));
         
         // alignement offset
         double offset = Math.exp(-this.offset * Math.abs(i-j));
-        
-        System.out.println(" >>>>>>>>>> cost = "+top*offset);
+
         return top * offset;
 
     }
