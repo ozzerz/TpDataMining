@@ -1,7 +1,9 @@
 package classification;
 
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 
 import model.Bucket;
 import model.CallStack;
@@ -28,8 +30,10 @@ public class Processor {
      */
     private int offset;
     
+    // matrice dynamique pour deux callstacks en cours de comparaison
     private double matrix[][];
     
+    // c1 et c2 sont les deux callstacks a comparer
     private CallStack c1;
     
     private CallStack c2;
@@ -39,8 +43,9 @@ public class Processor {
     }
     
     /**
-     * Choisir le coefficient et le offset intervenant dans le calcul de similarite
-     * Plus d'informations dans l'article de Windows
+     * Choisir le coefficient et le offset intervenant dans le calcul de similarite.
+     * Plus d'informations dans l'article de Windows. 
+     * Les resultats de similarite entre deux callstacks changent en fonction de ses parametres.
      * @param coefficient 
      * @param offset
      */
@@ -59,39 +64,57 @@ public class Processor {
      * @return les buckets finaux
      */
     public ArrayList<Bucket> bucketize(ArrayList<Bucket> buckets, double minSimilarity) {
-        
+
         // le clustering s'arrete lorsque cela devient vrai
         // i.e plus aucune similarite sont suffisante pour continuer le clustering
-        boolean underMinSimilarity = false;
+        boolean tooLowSimilarities = false;
         
-        // meilleur similarite
-        double bestSimilarity = 0.0;
-        
-        // l'indice du bucket avec la similarite la plus elevee
-        double bestSimilarityIndex = 0;
-        
-        Processor p = new Processor();
-        System.out.println("yeahhhhhhhhhhhhhhhhhh");
-        System.out.println("Bucket similarity : " + p.similarity(buckets.get(0), buckets.get(1)));
-        /*
-        // comparer un bucket avec tous les autres
-        for (int i = 0; i < buckets.size(); i++) {
-            
-            for (int j = 0; buckets.size(); j++) {
+        // continuer le bucketing uniquement si des similarite de buckets sont encore superieur a minSimilarity
+        while (!tooLowSimilarities) {
+            // comparer un bucket avec tous les autres
+            for (int i = 0; i < buckets.size(); i++) {
+                System.out.println(buckets.size());
                 
-                // ne pas comparer le bucket avec lui meme
-                if (j != i) {
+                // similarite la plus elevee
+                double bestSimilarity = 0.0; 
+                // indice du bucket avec la similarite la plus elevee
+                int bestSimilarityIndex = 0;
+                
+                for (int j = 0; j < buckets.size(); j++) {
+                    // ne pas comparer le bucket avec lui meme
+                    if (j != i) {
+                        double sim = similarity(buckets.get(i), buckets.get(j));
+                        if (sim > bestSimilarity) {
+                            bestSimilarity = sim;
+                            bestSimilarityIndex = j;
+                        }
+                    }
+                } // for j
+                
+                // la similarite doit depasser le seuil minimale
+                if (bestSimilarity >= minSimilarity) {
+                    // merge le bucket le plus similaire avec le bucket i
+                    buckets.get(i).mergeBucket(buckets.get(bestSimilarityIndex));
+                    buckets.remove(bestSimilarityIndex);
                     
+                    // la valeur de similarite minimale n'est pas atteinte
+                    // la boucle while continuera donc le bucketing
+                    tooLowSimilarities = false;
+                } else {
+                    // la similarite est inferieur au seuil minSimilarity
+                    // toutes fois le bucketing continuera peut etre si une similarite est suffisante dans d'autre buckets est obtenue
+                    tooLowSimilarities = true;
                 }
-            }
-            
-        }
-        */
+            } // for i
+        
+        } // while
+
         return buckets;
     }
     
     /**
      * La similarite entre deux clusters correspond a la similarite minimale entre deux callstacks provenant du premier bucket, et du second.
+     * Les similarites entre chacune des callstacks des buckets doivent etre comparees.
      * @param b1 premier bucket
      * @param b2 second bucket a comparer
      * @return similarite entre les deux buckets
@@ -160,7 +183,7 @@ public class Processor {
         for (int l = 0; l < (Math.min(this.c1.getCallStack().size(), this.c2.getCallStack().size())); l++) {
             sum = sum + Math.exp(-this.coefficient * l);
         }        
-        System.out.println("sum "+sum);
+
         // sim (4) dans l'article Windows
         return this.matrix[this.matrix.length-1][this.matrix[this.matrix.length-1].length-1] / sum;
     }
