@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
 
+import model.Bucket;
 import model.CallStack;
 import model.Frame;
 
@@ -109,10 +110,6 @@ public class Parser {
 
 	}
 
-	
-	
-	
-	
 	/**
 	 * parse all the file from a directory
 	 *
@@ -127,8 +124,35 @@ public class Parser {
 			bucket.add(read(directoryName + "/" + allFileName[i]));
 
 		}
-
+		
 		return bucket;
+	}
+	
+	/**
+	 * un bucket pour chaque callstack
+	 * un unique bucket pourra s'agrandir par la suite : voir Main.clustering
+	 * @param directoryName
+	 * @return
+	 */
+	public ArrayList<Bucket> oneFileOneBucket(String directoryName) {
+	    File directory = new File(directoryName);
+        String[] allFileName = directory.list();
+        int length =  allFileName.length;
+        
+        // chaque callstack est un unique bucket
+        ArrayList<Bucket> allBuckets = new ArrayList<Bucket>(length);
+        
+        for (int i = 0; i < length; i++) {
+            CallStack cs = read(directoryName + "/" + allFileName[i]);
+            Bucket bucket = new Bucket();
+            bucket.addCallStack(cs);
+            
+            allBuckets.add(bucket);
+
+        }
+	    
+	    return allBuckets;
+	    
 	}
 
 }
