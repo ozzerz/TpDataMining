@@ -13,15 +13,14 @@ public class Main {
     
 
     public static void main(String[] args) {
-        String directory = "lib";
-        Parser p = new Parser();
-        CallStack callStack = p.read("lib/206001.json");
-        CallStack c2 = p.read("lib/206001.json");
         
-        ArrayList<Bucket> oneFileOneBucket = p.oneFileOneBucket("lib");
+        Parser p = new Parser();
+        ArrayList<Bucket> oneFileOneBucket = p.oneFileOneBucket("mini-lib");
         
         Processor processor = new Processor();
-        processor.bucketize(oneFileOneBucket, 0.4);
+        System.out.println("----> Nombre de buckets avant clusterisation : " + oneFileOneBucket.size());
+        ArrayList<Bucket> bucketization = processor.bucketize(oneFileOneBucket, 0.8);
+        System.out.println("----> Nombre de buckets apres clusterisation : " + bucketization.size());
         
         /* MAX TES SYSOUT PRENNENT TROP DE PLACE
         System.out.println("----------callStack--------------");
@@ -33,6 +32,13 @@ public class Main {
          */
         
         /*
+        
+        String directory = "lib";
+        Parser p = new Parser();
+        CallStack callStack = p.read("lib/206001.json");
+        CallStack c2 = p.read("lib/206001.json");
+        Processor processor = new Processor();
+        
         CallStack c3 = p.read("lib/49499.json");
         CallStack c4 = p.read("lib/48643.json");
         CallStack c5 = p.read("lib/49608.json");
