@@ -69,9 +69,13 @@ public class Processor {
         // i.e plus aucune similarite sont suffisante pour continuer le clustering
         boolean tooLowSimilarities = false;
         
-        // continuer le bucketing uniquement si des similarite de buckets sont encore superieur a minSimilarity
+        // clusteriser tant que des similarites entre buckets sont encore superieur a minSimilarity
         while (!tooLowSimilarities) {
-            // comparer un bucket avec tous les autres
+            
+            // naivement minSimilarity non atteinte (repasse a false apres si une similarity superieur est obtenu entre deux buckets)
+            tooLowSimilarities = true;
+            
+            // parcourir les buckets
             for (int i = 0; i < buckets.size(); i++) {
                 System.out.println(buckets.size());
                 
@@ -80,10 +84,12 @@ public class Processor {
                 // indice du bucket avec la similarite la plus elevee
                 int bestSimilarityIndex = 0;
                 
+                // calcule de la similarite du bucket i avec tout les bukets j
                 for (int j = 0; j < buckets.size(); j++) {
                     // ne pas comparer le bucket avec lui meme
                     if (j != i) {
                         double sim = similarity(buckets.get(i), buckets.get(j));
+                        // memoriser la similarite la plus elevee et l'indice du bucket correspondant
                         if (sim > bestSimilarity) {
                             bestSimilarity = sim;
                             bestSimilarityIndex = j;
@@ -93,17 +99,17 @@ public class Processor {
                 
                 // la similarite doit depasser le seuil minimale
                 if (bestSimilarity >= minSimilarity) {
-                    // merge le bucket le plus similaire avec le bucket i
+                    // au moins une similarite est donc superieur au seuil minSimilarity
+                    tooLowSimilarities = false;
+                    
+                    // ****************************************************
+                    // merge le bucket i avec le bucket j le plus similaire
+                    // ****************************************************
                     buckets.get(i).mergeBucket(buckets.get(bestSimilarityIndex));
+                    // le bucket merge n'a plus lieu d'etre present tout seul dans la collection de buckets
                     buckets.remove(bestSimilarityIndex);
                     
-                    // la valeur de similarite minimale n'est pas atteinte
-                    // la boucle while continuera donc le bucketing
-                    tooLowSimilarities = false;
-                } else {
-                    // la similarite est inferieur au seuil minSimilarity
-                    // toutes fois le bucketing continuera peut etre si une similarite est suffisante dans d'autre buckets est obtenue
-                    tooLowSimilarities = true;
+                    
                 }
             } // for i
         
@@ -193,10 +199,8 @@ public class Processor {
      * calculer le poids entre i et j. Ce sont les indices de la matrice en
      * cours de traitement dans la methode similarity
      * 
-     * @param i
-     *            (indice) numero de frame i de la premiere callstack
-     * @param j
-     *            (indice) numere de frame j de la seconde callstack
+     * @param i (indice) numero de frame i de la premiere callstack
+     * @param j (indice) numere de frame j de la seconde callstack
      * @return
      */
     protected double cost(int i, int j) {
