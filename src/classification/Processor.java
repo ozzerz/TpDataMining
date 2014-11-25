@@ -3,6 +3,7 @@ package classification;
 import java.util.ArrayList;
 import java.util.Arrays;
 
+import model.Bucket;
 import model.CallStack;
 import model.Frame;
 
@@ -47,6 +48,67 @@ public class Processor {
         this.coefficient = coefficient;
         this.offset = offset;
     }
+    
+    /**
+     * Faire les clusters en reunissant les buckets entre eux.
+     * La distance entre les cluster correspond à la plus mauvaise similarite entre une callstack d'un premier bucket, et une callstack d'un second.
+     * Les deux clusters qui ont la meilleurs similarite parmis tous seront merges uniquement si leur similarite est superieur a minSimilarity.
+     * Si aucun cluster ne satisfassent entre eux une similarite meilleur a minSimilarity alors le bucketing stop.
+     * @param buckets collection de buckets a merger
+     * @param minSimilarity similarite minimale qu'au moins deux clusters doivent satisfaire parmis la collection de clusters
+     * @return les buckets finaux
+     */
+    public ArrayList<Bucket> bucketize(ArrayList<Bucket> buckets, double minSimilarity) {
+        
+        // le clustering s'arrete lorsque cela devient vrai
+        // i.e plus aucune similarite sont suffisante pour continuer le clustering
+        boolean underMinSimilarity = false;
+        
+        // meilleur similarite
+        double bestSimilarity = 0.0;
+        
+        // l'indice du bucket avec la similarite la plus elevee
+        double bestSimilarityIndex = 0;
+        
+        Processor p = new Processor();
+        System.out.println("yeahhhhhhhhhhhhhhhhhh");
+        System.out.println("Bucket similarity : " + p.similarity(buckets.get(0), buckets.get(1)));
+        /*
+        // comparer un bucket avec tous les autres
+        for (int i = 0; i < buckets.size(); i++) {
+            
+            for (int j = 0; buckets.size(); j++) {
+                
+                // ne pas comparer le bucket avec lui meme
+                if (j != i) {
+                    
+                }
+            }
+            
+        }
+        */
+        return buckets;
+    }
+    
+    /**
+     * La similarite entre deux clusters correspond a la similarite minimale entre deux callstacks provenant du premier bucket, et du second.
+     * @param b1 premier bucket
+     * @param b2 second bucket a comparer
+     * @return similarite entre les deux buckets
+     */
+    public double similarity(Bucket b1, Bucket b2) {
+        double minSimilarity = 1.0;
+        
+        for (int i = 0; i < b1.getCallStacks().size(); i++) {
+            for (int j = 0; j < b2.getCallStacks().size(); j++) {
+                double similarity = similarity(b1.getCallStacks().get(i), b2.getCallStacks().get(j));
+                minSimilarity = Math.min(minSimilarity, similarity);
+            }
+        }
+        
+        return minSimilarity;
+    }
+    
 
     public double similarity(CallStack c1, CallStack c2) {
         this.c1 = c1;
