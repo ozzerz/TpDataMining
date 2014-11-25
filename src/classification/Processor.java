@@ -91,18 +91,16 @@ public class Processor {
                 this.matrix[i][j] = max_value;
                 
             } // fin j parcours de c2
-            System.out.println(Arrays.toString(this.matrix[i]));
+
         } // fin i parcours de c1
         
-        // similarite vaut 0 si aucune frames en commun (a verifier!) ==> evite d'avoir une similarite "Infinity" qui pourrait mal interprete
-        if (identic_frames == 0) return 0;
-        
         double sum = 0.0;
-        for (int l = 0; (l < identic_frames) && (l < c2.getCallStack().size()); l++) {
+        for (int l = 0; l < (Math.min(this.c1.getCallStack().size(), this.c2.getCallStack().size())); l++) {
             sum = sum + Math.exp(-this.coefficient * l);
         }        
+        System.out.println("sum "+sum);
         // sim (4) dans l'article Windows
-        return this.matrix[this.matrix.length-1][this.matrix[this.matrix.length-1].length-1];
+        return this.matrix[this.matrix.length-1][this.matrix[this.matrix.length-1].length-1] / sum;
     }
 
 
@@ -118,12 +116,12 @@ public class Processor {
      */
     protected double cost(int i, int j) {
         //top frame
-        if (this.c1.getCallStack().get(i) == this.c2.getCallStack().get(j)) {
+        if (this.c1.getCallStack().get(i).equals(this.c2.getCallStack().get(j))) {
+
             double top = Math.exp(-this.coefficient * Math.min(i, j));
-            System.out.println("top : "+top);
+
             // alignement offset
             double offset = Math.exp(-this.offset * Math.abs(i-j));
-            System.out.println("offset : "+offset);
             
             return top * offset;
         }
