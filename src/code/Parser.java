@@ -135,23 +135,29 @@ public class Parser {
 	 * @return
 	 */
 	public ArrayList<Bucket> oneFileOneBucket(String directoryName) {
-	    File directory = new File(directoryName);
-        String[] allFileName = directory.list();
-        int length =  allFileName.length;
-        
-        // chaque callstack est un unique bucket
-        ArrayList<Bucket> allBuckets = new ArrayList<Bucket>(length);
-        
-        for (int i = 0; i < length; i++) {
-            CallStack cs = read(directoryName + "/" + allFileName[i]);
-            Bucket bucket = new Bucket();
-            bucket.addCallStack(cs);
-            
-            allBuckets.add(bucket);
+	    try {
+	        File directory = new File(directoryName);
+	        String[] allFileName = directory.list();
+	        int length =  allFileName.length;
+	        
+	        // chaque callstack est un unique bucket
+	        ArrayList<Bucket> allBuckets = new ArrayList<Bucket>(length);
+	        
+	        for (int i = 0; i < length; i++) {
+	            CallStack cs = read(directoryName + "/" + allFileName[i]);
+	            Bucket bucket = new Bucket();
+	            bucket.addCallStack(cs);
+	            
+	            allBuckets.add(bucket);
 
-        }
+	        }
+	        
+	        return allBuckets;
+	    } catch (NullPointerException e) {
+	        System.err.println("Repertoire destination inexistant.");
+	        return null;
+	    }
 	    
-	    return allBuckets;
 	    
 	}
 
