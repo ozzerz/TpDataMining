@@ -19,7 +19,7 @@ public class Main {
         
         Processor processor = new Processor();
         System.out.println("----> Nombre de buckets avant clusterisation : " + oneFileOneBucket.size());
-        ArrayList<Bucket> bucketization = processor.bucketize(oneFileOneBucket, 0.8);
+        ArrayList<Bucket> bucketization = processor.bucketize(oneFileOneBucket, 0.005);
         System.out.println("----> Nombre de buckets apres clusterisation : " + bucketization.size());
         
         /* MAX TES SYSOUT PRENNENT TROP DE PLACE
