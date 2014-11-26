@@ -28,7 +28,7 @@ public class Processor {
      * "coefficient for the alignement offset"
      * "o"
      */
-    private int offset;
+    private int offset = 1;
     
     // matrice dynamique pour deux callstacks en cours de comparaison
     private double matrix[][];
