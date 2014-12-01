@@ -1,6 +1,6 @@
 /**
  * @author Ozzerz
- * contains our method to parse JsonFile
+ * Contiens le parser et le main
  *
  */
 package code;

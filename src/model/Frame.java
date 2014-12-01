@@ -1,18 +1,18 @@
 package model;
 
 /**
- * our design for a Frame
+ * le design pour une Frame
  *
  * @author Ozzerz
  *
  */
 public class Frame {
 	/**
-	 * the source ,example: TypeDeclaration.java:839
+	 * la source ,exemple: TypeDeclaration.java:839
 	 */
 	private String source;
 	/**
-	 * the method who raise an error example :
+	 * La methode qui à soulever une erreur :
 	 * org.eclipse.jdt.internal.compiler.ast.TypeDeclaration.parseMethod
 	 */
 	private String method;
@@ -43,13 +43,13 @@ public class Frame {
 		return "source: " + source + " method: " + method;
 
 	}
-	
+
 	@Override
 	public boolean equals(Object frame) {
 	    if (frame == null) return false;
 	    if (frame == this) return true;
 	    if (!(frame instanceof Frame)) return false;
-	    
+
 	    Frame frameClass = (Frame) frame;
 	    return (this.method.equals(frameClass.method) &&
 	            this.source.equals(frameClass.source));

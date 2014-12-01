@@ -3,7 +3,7 @@
  */
 /**
  * @author Ozzerz
- * contains our design for the callStack and the frame
+ * Contiens l'ensemble des design
  *
  */
 package model;

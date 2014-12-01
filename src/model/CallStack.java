@@ -3,30 +3,30 @@ package model;
 import java.util.ArrayList;
 
 /**
- * design for a CallStack
+ * design Pour une CallStack
  *
  * @author Ozzerz
  *
  */
 public class CallStack {
     /**
-     * a list which contains all the frame
+     *Une liste contenant chaque Frame
      */
     private ArrayList<Frame> callStack;
     /**
-     * the error from this callStack
+     * L'erreur de la pile d'appel
      */
     private String error;
     /**
-     * the filename where we got the callStack
+     * le nom du fichier d'ou est issue la callStack
      */
     private String filename;
     /**
-     * the groupId of the callStack ONLY FOR EVALUATION
+     * Le groupId SEULEMENT POUR EVALUTATION
      */
     private String groupId;
     /**
-     * the duplicateID ONLY FOR EVALUATION
+     * le duplicateID SEULEMENT POUR EVALUTATION
      */
     private String duplicateId;
 

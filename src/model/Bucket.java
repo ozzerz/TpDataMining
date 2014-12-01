@@ -6,7 +6,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 
 /**
- * design for a bucket
+ * design pour un Bucket
  *
  * @author Ozzerz
  *
@@ -14,12 +14,12 @@ import java.util.ArrayList;
 public class Bucket {
 
     /**
-     * the name of our bucket
+     * Le nom du bucket
      */
     private String name;
 
     /**
-     * the list of all callStack
+     * La liste des CallStacks
      */
     private ArrayList<CallStack> callStacks;
 
@@ -49,15 +49,15 @@ public class Bucket {
     }
 
     /**
-     * add a callStack to this bucket
-     * 
+     * Ajoute cette callStack au bucket
+     *
      * @param callStack
-     *            the callStack we want to add
+     *            La callStack que l'on va ajouter
      */
     public void addCallStack(CallStack callStack) {
         this.callStacks.add(callStack);
     }
-    
+
     /**
      * Ajouter les callstacks d'un autre bucket dans celui-ci.
      * @param bucket
@@ -67,18 +67,18 @@ public class Bucket {
     }
 
     /**
-     * to know it the callStack belong to this bucket
-     * 
+     * Pour savoir si une CallStack appartient au bucket
+     *
      * @param callStack
-     * @return true if the callStack belong to this bucket , false neither
+     * @return Vraie si elle appartient , faux sinon
      */
     public boolean isOnBucket(CallStack callStack) {
         return callStack.getGroupId().equals(name);
     }
 
     /**
-     * create the bucket FOR EVALUATION
-     * 
+     * Creer les buckets SEULEMENT POUR EVALUTATION
+     *
      * @param allCallStacks
      * @return
      */
@@ -116,8 +116,8 @@ public class Bucket {
     }
 
     /**
-     * create a bucket file on the directory (need to exist for work)
-     * 
+     * Creer le fichier du Bucket dans le repertoire (le repertoire doit exister)
+     *
      * @param directory
      * @throws IOException
      */
@@ -140,6 +140,32 @@ public class Bucket {
         }
 
     }
+
+
+   /** Creer le fichier du Bucket dans le repertoire (le repertoire doit exister)
+    *
+    * @param directory
+    * @throws IOException
+    */
+   public void createFile(String directory,String filename) throws IOException {
+       String nomFichier = directory + "/" + filename + ".txt";
+       System.out.println(nomFichier);
+       File file = new File(nomFichier);
+       file.createNewFile();
+       FileWriter writer = null;
+       String texte = this.toString();
+       try {
+           writer = new FileWriter(nomFichier, true);
+           writer.write(texte, 0, texte.length());
+       } catch (IOException ex) {
+           ex.printStackTrace();
+       } finally {
+           if (writer != null) {
+               writer.close();
+           }
+       }
+
+   }
 
     public String toString() {
         String str = "";

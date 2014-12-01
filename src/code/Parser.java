@@ -17,18 +17,18 @@ import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
 /**
- * contains all method to parse one on many Json File
+ * Contiens les méthode pour parser les Json
  *
  * @author Ozzerz
  *
  */
 public class Parser {
 	/**
-	 * get the callStack from a Json File
+	 * Obtenir les callStacks à partir d'un fichier JSon
 	 *
 	 * @param filename
-	 *            Json file name
-	 * @return a callStack which contains all the frame
+	 *           le nom du fichier
+	 * @return a une CallStack contenant toutes les Frames
 	 * @see CallStack
 	 * @see Frame
 	 */
@@ -46,8 +46,6 @@ public class Parser {
 			JSONObject compleateJSon = (JSONObject) msg.get(0);
 			// keep the error
 			String erreur = compleateJSon.get("exceptionType").toString();
-			//String groupId = compleateJSon.get("groupId").toString();
-			//System.out.println(groupId);
 			callStack.setError(erreur);
 			JSONArray callStackArray = (JSONArray) compleateJSon
 					.get("elements");
@@ -71,9 +69,9 @@ public class Parser {
 
 
 	/**
-	 * add the groupId to a callStack ONLY USE FOR EVALUATION
-	 * @param callStack the callStack we will modify
-	 * @param filename the file corresponding
+	 * Ajoute le groupId pour une callStack SEULEMENT POUR EVALUTATION
+	 * @param callStack la CallStack que l'on va modifier
+	 * @param filename le fichier correspondant
 	 */
 	public void addGroupIdAndDuplicateId(CallStack callStack , String filename)
 	{
@@ -86,7 +84,7 @@ public class Parser {
 			JSONObject jsonObject = (JSONObject) obj;
 			String id = (String) jsonObject.get("groupId");
 			callStack.setGroupId(id);
-	
+
 			String dupId = (String) jsonObject.get("duplicateId");
 			if (dupId==null)
 			{
@@ -96,14 +94,14 @@ public class Parser {
 			{
 				callStack.setDuplicateId(dupId);
 			}
-			
-			
+
+
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
 		} catch (IOException e) {
 			e.printStackTrace();
 		} catch (ParseException e) {
-			
+
 			e.printStackTrace();
 		}
 
@@ -111,10 +109,10 @@ public class Parser {
 	}
 
 	/**
-	 * parse all the file from a directory
+	 * parse tout les fichiers d'un répertoire
 	 *
 	 * @param directoryName
-	 * @return a list which contains all the callStack from all the JsonFile
+	 * @return une liste qui contient toute les callStacks
 	 */
 	public ArrayList<CallStack> readAll(String directoryName) {
 		ArrayList<CallStack> bucket = new ArrayList<CallStack>();
@@ -124,10 +122,10 @@ public class Parser {
 			bucket.add(read(directoryName + "/" + allFileName[i]));
 
 		}
-		
+
 		return bucket;
 	}
-	
+
 	/**
 	 * un bucket pour chaque callstack
 	 * un unique bucket pourra s'agrandir par la suite : voir Main.clustering
@@ -139,26 +137,26 @@ public class Parser {
 	        File directory = new File(directoryName);
 	        String[] allFileName = directory.list();
 	        int length =  allFileName.length;
-	        
+
 	        // chaque callstack est un unique bucket
 	        ArrayList<Bucket> allBuckets = new ArrayList<Bucket>(length);
-	        
+
 	        for (int i = 0; i < length; i++) {
 	            CallStack cs = read(directoryName + "/" + allFileName[i]);
 	            Bucket bucket = new Bucket();
 	            bucket.addCallStack(cs);
-	            
+
 	            allBuckets.add(bucket);
 
 	        }
-	        
+
 	        return allBuckets;
 	    } catch (NullPointerException e) {
 	        System.err.println("Repertoire destination inexistant.");
 	        return null;
 	    }
-	    
-	    
+
+
 	}
 
 }
