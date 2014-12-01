@@ -1,0 +1,216 @@
+{
+  "comments": [
+    "The saga if the unwanted fragement continues...\n\nI had a fragement in my workspace (Core spysupport) which was being added to \nmy .project files indirectly by the PDE classpath container. I decided to \nclose the fragment project so I wouldn\u0027t have unwanted .project file changes. \nNow none of the source projects in my workspace compile because they are \nmissing a project reference (i.e. the spysupport project). Since PDE (or JDT) \nput the reference there in the first place, they should automatically remove \nit if the fragment disappears(although, not adding the fragment to the \nclasspath and .project files in the first place would be a better solution;-)\n\nAlso, I tried an Update classpath and rebuild all but all of the binary or \nsource projects that reference the resources plugin still have errors \nindicating that they are missing the required spysupport project. It appears \nthat Update classpath has no effect in thins case. Uping the severity to major \nsince this requires me to either live with the fragment or rebuild my \nworkspace. Is there another way of recovering from this?",
+    "Finally, a valid defect about fragments :-)\n",
+    "Michael, you seem to treat fragments as some contagous disease that you want \nto get rid of :-). Just because you don\u0027t understand the whole fragment story \ndoes not make PDE wrong in computing the classpath. \n\nWhen a fragment is added, it must \u0027see\u0027 all the classes in the referenced plug-\nin. Similarly, the referenced plug-in must \u0027see\u0027 all the classes in the \nfragment. All this is happening at run-time, so in order to work with your \nfragments at design time, we must model this relationship correctly in the \nclasspath. \n\nThis comment in only in response to the following statement:\n\n(although, not adding the fragment to the \nclasspath and .project files in the first place would be a better solution;-)\n\nThere appears to be a valid bug in this scenario.\n\n\n",
+    "As I said in bug 45767, I definitely do not understand the relationship \nbetween plugins, fragments and the classpath (I suspect that most customers \nare in the same boat). All I know is that adding a fragment to my workspace \ncauses all my .projects to change and this to me seems wrong. I do not want to \nget ride of the fragment, I just don\u0027t want outgoing changes to my .project \nfile. Perhaps if I did understand the above relationship I would concede that \nthe problem was too complicated to solve (which may be the case). Given that \nthis may be a rare case, I am willing to accept that it is not worth pursuing \na fix for the change to the .project. However, when people tell me that it is \nnot a problem, then I feel that I must push a little to make my point known.\n\nOf course, the above discussion relates to bug 45767 and is not relevant to \nthe bug that this report describes.",
+    "We never said that modifying the .project file is not a problem.  It is a big \nproblem.  As I pointed out in that bug report, this is not about fragment \nprojects.  It is about JDT Core reacting to a dynamically changing classpath \nby constantly modifying the .project file.",
+    "Fixed.\nWhen computing which workspace models are affected by the closing of a \nproject, we were never taking into consideration the closing of a \u0027fragment\u0027 \nproject.\n\nBy the way, the spy support plug-ins make a great example of why fragment \nprojects need to be included on the classpath of clients.\nHere is why:\nBackground: org.eclipse.core.resources.spysupport is a fragment for plug-in \norg.eclipse.core.resources.\norg.eclipse.core.tools has an explicit dependency on \norg.eclipse.core.resources and org.eclipse.ui.\n\n1. In a fresh workspace, import org.eclipse.ui and all its pre-reqs as binary \ninto the workspace.\n2. Import the optional org.eclipse.core.tools plug-in and the \norg.eclipse.core.resources.spysupport fragment as \"source\" into the workspace.\n3. PDE correctly adds the spysupport fragment to the classpath of \norg.eclipse.core.tools.  This fragment is necessary for the compilation of \norg.eclipse.core.tools as this plug-in makes direct references to classes from \nthe fragment.\n \n",
+    "Re-opening to reassign to JDT Core as there is an inconsistency with \nautobuilding.",
+    "For testing, use the latest org.eclipse.pde.ui, org.eclipse.pde.core, and \norg.eclipse.jdt.core from CVS.\n\nHere is the scenario:\n1. Import org.eclipse.ui and all its pre-reqs as binary.\n2. Import the optional org.eclipse.core.tools and \norg.eclipse.core.resources.spysupport as \"source\".\n3. Close the \"org.eclipse.core.resources.spysupport\".  You should see \ncompilation erros in org.eclipse.core.tools.  All good.\n4. Re-open the project.  \nHere is the inconsistent part.  When you repeat steps 3 and 4 several times, \nyou will see that sometimes autobuild will kick in and sometimes it won\u0027t.\n\nWhen it does not kick in, I found the following trace in my console.  Nothing \nin the log:\norg.eclipse.core.internal.resources.ResourceException: \nResource /org.eclipse.core.resources.spysupport is not open.\n\tat org.eclipse.core.internal.resources.Project.checkAccessible\n(Project.java:104)\n\tat org.eclipse.core.internal.resources.Resource.findMarkers\n(Resource.java:770)\n\tat \norg.eclipse.jdt.internal.core.JavaProject.flushClasspathProblemMarkers\n(JavaProject.java:1111)\n\tat org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers\n(DeltaProcessor.java:2057)\n\tat org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers\n(DeltaProcessor.java:2091)\n\tat org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers\n(DeltaProcessor.java:2106)\n\tat org.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged\n(DeltaProcessor.java:1794)\n\tat org.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged\n(DeltaProcessingState.java:226)\n\tat org.eclipse.core.internal.events.NotificationManager$2.run\n(NotificationManager.java:251)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run\n(InternalPlatform.java:954)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:461)\n\tat org.eclipse.core.internal.events.NotificationManager.notify\n(NotificationManager.java:244)\n\tat \norg.eclipse.core.internal.events.NotificationManager.broadcastChanges\n(NotificationManager.java:138)\n\tat org.eclipse.core.internal.events.AutoBuildJob.broadcastChanges\n(AutoBuildJob.java:46)\n\tat org.eclipse.core.internal.events.AutoBuildJob.doBuild\n(AutoBuildJob.java:74)\n\tat org.eclipse.core.internal.events.AutoBuildJob.run\n(AutoBuildJob.java:109)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:62)\norg.eclipse.core.internal.resources.ResourceException: \nResource /org.eclipse.core.resources.spysupport is not open.\n\tat org.eclipse.core.internal.resources.Project.checkAccessible\n(Project.java:104)\n\tat org.eclipse.core.internal.resources.Resource.findMarkers\n(Resource.java:770)\n\tat \norg.eclipse.jdt.internal.core.JavaProject.flushClasspathProblemMarkers\n(JavaProject.java:1111)\n\tat org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers\n(DeltaProcessor.java:2057)\n\tat org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers\n(DeltaProcessor.java:2091)\n\tat org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers\n(DeltaProcessor.java:2106)\n\tat org.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged\n(DeltaProcessor.java:1794)\n\tat org.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged\n(DeltaProcessingState.java:226)\n\tat org.eclipse.core.internal.events.NotificationManager$2.run\n(NotificationManager.java:251)\n\tat org.eclipse.core.internal.runtime.InternalPlatform.run\n(InternalPlatform.java:954)\n\tat org.eclipse.core.runtime.Platform.run(Platform.java:461)\n\tat org.eclipse.core.internal.events.NotificationManager.notify\n(NotificationManager.java:244)\n\tat \norg.eclipse.core.internal.events.NotificationManager.broadcastChanges\n(NotificationManager.java:138)\n\tat org.eclipse.core.internal.events.AutoBuildJob.broadcastChanges\n(AutoBuildJob.java:46)\n\tat org.eclipse.core.internal.events.AutoBuildJob.doBuild\n(AutoBuildJob.java:74)\n\tat org.eclipse.core.internal.events.AutoBuildJob.run\n(AutoBuildJob.java:109)\n\tat org.eclipse.core.internal.jobs.Worker.run(Worker.java:62)\n",
+    "Inconsistency is due to bug 45739.\nOpened bug 45944 for the stack trace (which has nothing to do with the original \nproblem).\n\n*** This bug has been marked as a duplicate of 45739 ***",
+    "Jerome, \nI\u0027m not sure what this problem has to do with unbound classpath containers \nthat happens upon importing (bug 45739).\nUsing I-20031104, I repeated the same steps that I describe in comment #7 \nabove, and I still see the same problem.\n\n",
+    "Bug 45739 is not fixed, so how this one would be fixed? Why do you think this \nbug has nothing to do with unbound classpath containers? ",
+    "The reason why I did not think this bug was a duplicate of bug 45739 is that \nthe stack trace you attached relates to what happens when we set the classpath \nupon importing.  The offending call to ModelEntry.usesContainers(..) that you \npointed out in 45739 is done via via RequiredPluginsInitializer.initialize(..).\nThis initialize(..) method never gets called when I\u0027m closing and re-opening \nthe fragment project that is the subject of this bug report.\n\nSo although the two bugs are probably related, I did not think we had enough \nevidence to declare them duplicates without further investigation.",
+    "Following comment #7, I cannot reproduce. You will have to give more precise \nsteps (especially give a version to checkout instead of HEAD which is by nature \na moving target).",
+    "Also please describe the compilation error (paste the marker in this bug report)",
+    "Steps using I-20031104:\n1. Fresh workspace.\n2. Go to PDE \u003e Java build path control.  Check \u0027use dynamic classpaths...\u0027 \ncheckbox.\n3. Import org.eclipse.ui and all its pre-reqs as \"source\".  You will notice \nthat the autbuild kicks in and stops (bug 45933).  Invoke a full build.\n4. Download org.eclipse.core.resources.spysupport and org.eclipse.core.tools \nfrom the Platform Core web site.  The zip file is \norg.eclipse.core.tools_1.0.2.zip.  Unzip it in a temp directory, and import \nthe unzipped plug-ins as \"source\".  Invoke a full build to make sure \neverything compiled\n5. Close the fragment project org.eclipse.core.tools.spysupport.  Naturally, \nyou will see compilation error markers in org.eclipse.core.tools.  I will \nattach a screen shot.\n6. Re-open the fragment.  The error markers in 5 do not go away.\n7. Invoke a full build.  The errors still do not go away.  Examine what is in \nthe Plug-in Required Entries classpath container on the Libraries Tab of the \nJava build path properties page of \"org.eclipse.core.tools\".  You will see \nthat the spysupport fragment which should be listed is not there.  This is \nstrange as PDE would have just adjusted the value of the container by that \npoint.\n8.  Moving on.  Close the fragment project again.  All the error markers are \nthere still.  Good.\n9. Reopen the fragment project.  The error markers are still there.  Now \nexamine the Libraries tab of the java build path properties page.  You will \nsee that this time the spy fragment project is indeed in the resolved \ncontainer, as it should be.  yet, the error markers still never away.\n10.  Invoke a full build.  The error markers now do go away.",
+    "Created an attachment (id\u003d6660)\nerror log\n",
+    "If you wait long enough (several minutes), the error markers appear. This looks \nlike bug 45933. I\u0027ll wait for the resolution of this bug before marking it as a \nduplicate :-)",
+    "Jerome, even with the successful resolution of bug 45933, I still see the \nproblem.\n\nMy question is: Does JavaCore.setClasspathContainers(path, javaProjects, \ncontainers, ...) cause these containers to get resolved and take on the new \nvalues?",
+    "Yes JavaCore.setClasspathContainers(path, javaProjects, containers, ...) causes \nthese containers to be resolved and their new value is remembered.",
+    "After the resolution of bug 45933, the remaining problem has to do with PDE \nnot re-adding the fragment to core.tools\u0027s classpath.  And that is why the \nerrors never went away.\nFixed."
+  ],
+  "commentCreationDates": [
+    "2003-10-30T14:34:16+01:00",
+    "2003-10-30T15:01:09+01:00",
+    "2003-10-30T15:43:08+01:00",
+    "2003-10-30T16:23:50+01:00",
+    "2003-10-30T16:33:29+01:00",
+    "2003-11-02T20:57:43+01:00",
+    "2003-11-02T21:14:02+01:00",
+    "2003-11-02T21:19:57+01:00",
+    "2003-11-03T12:23:09+01:00",
+    "2003-11-04T21:54:51+01:00",
+    "2003-11-04T22:02:45+01:00",
+    "2003-11-05T01:23:07+01:00",
+    "2003-11-05T11:28:53+01:00",
+    "2003-11-05T11:31:05+01:00",
+    "2003-11-05T14:52:14+01:00",
+    "2003-11-05T14:52:55+01:00",
+    "2003-11-07T10:25:43+01:00",
+    "2003-11-12T09:48:59+01:00",
+    "2003-11-12T12:36:29+01:00",
+    "2003-11-13T08:18:15+01:00"
+  ],
+  "traces": [
+    {
+      "exceptionType": "org.eclipse.core.internal.resources.ResourceException",
+      "message": "Resource /org.eclipse.core.resources.spysupport is not open.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.resources.Project.checkAccessible",
+          "source": "Project.java:104"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.findMarkers",
+          "source": "Resource.java:770"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.flushClasspathProblemMarkers",
+          "source": "JavaProject.java:1111"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers",
+          "source": "DeltaProcessor.java:2057"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers",
+          "source": "DeltaProcessor.java:2091"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers",
+          "source": "DeltaProcessor.java:2106"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged",
+          "source": "DeltaProcessor.java:1794"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged",
+          "source": "DeltaProcessingState.java:226"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager$2.run",
+          "source": "NotificationManager.java:251"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:954"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:461"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.notify",
+          "source": "NotificationManager.java:244"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.broadcastChanges",
+          "source": "NotificationManager.java:138"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.broadcastChanges",
+          "source": "AutoBuildJob.java:46"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.doBuild",
+          "source": "AutoBuildJob.java:74"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.run",
+          "source": "AutoBuildJob.java:109"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:62"
+        }
+      ],
+      "number": 0,
+      "commentIndex": 7,
+      "bugId": "45799",
+      "date": "2003-11-02T21:19:57+01:00",
+      "product": "PDE",
+      "component": "UI",
+      "severity": "major"
+    },
+    {
+      "exceptionType": "org.eclipse.core.internal.resources.ResourceException",
+      "message": "Resource /org.eclipse.core.resources.spysupport is not open.",
+      "elements": [
+        {
+          "method": "org.eclipse.core.internal.resources.Project.checkAccessible",
+          "source": "Project.java:104"
+        },
+        {
+          "method": "org.eclipse.core.internal.resources.Resource.findMarkers",
+          "source": "Resource.java:770"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.JavaProject.flushClasspathProblemMarkers",
+          "source": "JavaProject.java:1111"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers",
+          "source": "DeltaProcessor.java:2057"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers",
+          "source": "DeltaProcessor.java:2091"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.updateClasspathMarkers",
+          "source": "DeltaProcessor.java:2106"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessor.resourceChanged",
+          "source": "DeltaProcessor.java:1794"
+        },
+        {
+          "method": "org.eclipse.jdt.internal.core.DeltaProcessingState.resourceChanged",
+          "source": "DeltaProcessingState.java:226"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager$2.run",
+          "source": "NotificationManager.java:251"
+        },
+        {
+          "method": "org.eclipse.core.internal.runtime.InternalPlatform.run",
+          "source": "InternalPlatform.java:954"
+        },
+        {
+          "method": "org.eclipse.core.runtime.Platform.run",
+          "source": "Platform.java:461"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.notify",
+          "source": "NotificationManager.java:244"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.NotificationManager.broadcastChanges",
+          "source": "NotificationManager.java:138"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.broadcastChanges",
+          "source": "AutoBuildJob.java:46"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.doBuild",
+          "source": "AutoBuildJob.java:74"
+        },
+        {
+          "method": "org.eclipse.core.internal.events.AutoBuildJob.run",
+          "source": "AutoBuildJob.java:109"
+        },
+        {
+          "method": "org.eclipse.core.internal.jobs.Worker.run",
+          "source": "Worker.java:62"
+        }
+      ],
+      "number": 1,
+      "commentIndex": 7,
+      "bugId": "45799",
+      "date": "2003-11-02T21:19:57+01:00",
+      "product": "PDE",
+      "component": "UI",
+      "severity": "major"
+    }
+  ],
+  "groupId": "45799",
+  "bugId": "45799",
+  "date": "2003-10-30T14:34:16+01:00",
+  "product": "PDE",
+  "component": "UI",
+  "severity": "major"
+}
