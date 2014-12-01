@@ -55,11 +55,12 @@ Importer le projet sous Eclipse -> Run
 			}
 		}
 	-Pour créer les buckets à l'aide de notre algorithme
+		
 		Bucket buck=new Bucket();
 		Processor processor = new Processor();
-		String directory = "emplacement/des/FichierJson";
-		String directoryResultat ="emplacement/des/résultats";
-		int minSimilarity = 1;
+		String directory = "votrelib/avecvos/Json";
+		String directoryResultat ="emplacement/retour";
+		double minSimilarity = 0.6 ;
 		Parser p = new Parser();
 		ArrayList<Bucket> buckets =p.oneFileOneBucket(directory);
 		buckets=processor.bucketize(buckets, minSimilarity);
@@ -67,8 +68,10 @@ Importer le projet sous Eclipse -> Run
 		rep.mkdir();
 		for (int i = 0; i < buckets.size(); i++) {
 			try {
-				buckets.get(i).createFile(directoryResultat);
+				buckets.get(i).createFile(directoryResultat,buckets.get(i).getCallStacks().get(0).getFilename());
 			} catch (IOException e) {
 			}
 		}
+
+
 	
