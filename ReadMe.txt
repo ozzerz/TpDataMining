@@ -2,7 +2,7 @@ Importer le projet sous Eclipse -> Run
 	MiniLib:contiens les fichiers nécessaire pour créer le plus gros Bucket trouvé
 	MiniLib2:Contiens les fichier nécessaire pour crée un bucket de taille 11
 	MiniLib2:Contiens un fichier unique pour crée un bucket de 1 élement	
-	
+	Pour obtenir l'ensemble des callStack allez sur : http://sachaproject.gforge.inria.fr/bug-reports-trace-anywhere.zip
 
 	Exemple de main:
 	-Pour obtenir la similarité entre deux CallStack
@@ -54,5 +54,21 @@ Importer le projet sous Eclipse -> Run
 			} catch (IOException e) { //
 			}
 		}
-
+	-Pour créer les buckets à l'aide de notre algorithme
+		Bucket buck=new Bucket();
+		Processor processor = new Processor();
+		String directory = "emplacement/des/FichierJson";
+		String directoryResultat ="emplacement/des/résultats";
+		int minSimilarity = 1;
+		Parser p = new Parser();
+		ArrayList<Bucket> buckets =p.oneFileOneBucket(directory);
+		buckets=processor.bucketize(buckets, minSimilarity);
+		File rep = new File(directoryResultat);//création du répértoire
+		rep.mkdir();
+		for (int i = 0; i < buckets.size(); i++) {
+			try {
+				buckets.get(i).createFile(directoryResultat);
+			} catch (IOException e) {
+			}
+		}
 	
