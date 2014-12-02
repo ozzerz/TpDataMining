@@ -20,7 +20,7 @@ Méthode
 Regroupement de piles de crash par bucket (cluster) à l'aide d'une mesure de similarité Position Model Dependent (PDM) :
 [ReBucket article Windows](http://research.microsoft.com/en-us/groups/sa/rebucket-icse2012.pdf)
 
-Mini-corpuus : callstacks Eclispe
+Mini-corpus : callstacks Eclispe
 --------------------
 	mini-lib4 : plusieurs fichiers pour faire des tests sans utiliser tous les rapports d'erreur
 	mini-lib3 : contient les fichiers nécessaires pour créer le plus gros Bucket trouvé
