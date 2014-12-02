@@ -1,14 +1,35 @@
-# -------------- EXECUTION ----------------
+M2 IAGL Lille 1 - IDL
+
+Méthode de Classification de Rapports de Crash basée sur la similarité des Call Stack
+====================
+
+Authors
+---------------------
+Maxime Chaste  
+Pierre-Philippe Berenguer
+
+Exécution
+---------------------
 Importer le projet sous Eclipse -> Run
 Pour les choix de bucketing, similarite etc, utiliser les exemples ci dessous pour faire les appels dans le Main.
-# -----------------------------------------
+
+https://github.com/ozzerz/TpDataMining.git
+
+Méthode
+---------------------
+Regroupement de piles de crash par bucket (cluster) à l'aide d'une mesure de similarité Position Model Dependent (PDM) :
+(ReBucket article Windows)[http://research.microsoft.com/en-us/groups/sa/rebucket-icse2012.pdf]
+
+Mini-corpuus : callstacks Eclispe
+--------------------
 	mini-lib4 : plusieurs fichiers pour faire des tests sans utiliser tous les rapports d'erreur
 	mini-lib3 : contient les fichiers nécessaires pour créer le plus gros Bucket trouvé
 	mini-lib2 : contient les fichiers nécessaires pour créer un bucket de taille 11
 	mini-lib : contient un fichier unique pour créer un bucket de 1 élement	
 	Pour obtenir l'ensemble des callStacks allez sur : http://sachaproject.gforge.inria.fr/bug-reports-trace-anywhere.zip
 
-# -------------  UTILISATION --------------
+Utilisation
+-------------------
 	Exemple de main:
 	-Pour obtenir la similarité entre deux CallStack
 	
