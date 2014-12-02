@@ -13,12 +13,12 @@ Exécution
 Importer le projet sous Eclipse -> Run
 Pour les choix de bucketing, similarite etc, utiliser les exemples ci dessous pour faire les appels dans le Main.
 
-https://github.com/ozzerz/TpDataMining.git
+[github du projet](https://github.com/ozzerz/TpDataMining.git)
 
 Méthode
 ---------------------
 Regroupement de piles de crash par bucket (cluster) à l'aide d'une mesure de similarité Position Model Dependent (PDM) :
-(ReBucket article Windows)[http://research.microsoft.com/en-us/groups/sa/rebucket-icse2012.pdf]
+[ReBucket article Windows](http://research.microsoft.com/en-us/groups/sa/rebucket-icse2012.pdf)
 
 Mini-corpuus : callstacks Eclispe
 --------------------
